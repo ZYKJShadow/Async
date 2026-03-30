@@ -1,7 +1,7 @@
 # Async Shell
 
 <p align="center">
-  <img src="docs/assets/async-logo.svg" width="120" height="120" alt="Async Logo" />
+  <img src="docs/assets/async-logo.svg?v=2" width="120" height="120" alt="Async Logo" />
 </p>
 
 <p align="center">
