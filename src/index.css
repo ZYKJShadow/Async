@@ -2494,7 +2494,7 @@ body {
 	border: none;
 	background: transparent;
 	color: var(--void-fg-0);
-	font-size: 15px;
+	font-size: 14px;
 	line-height: 1.55;
 	outline: none;
 	font-family: inherit;
@@ -6842,14 +6842,14 @@ body {
 }
 
 .ref-editor-welcome-wordmark {
-	font-size: 30px;
+	font-size: 32px;
 	font-weight: 700;
 	letter-spacing: -0.04em;
 	color: var(--void-fg-0);
 }
 
 .ref-editor-welcome-tagline {
-	font-size: 13px;
+	font-size: 14px;
 	color: #9ca3af;
 }
 
@@ -6919,13 +6919,13 @@ body {
 }
 
 .ref-welcome-action-label {
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 600;
 	color: var(--void-fg-0);
 }
 
 .ref-welcome-action-subtitle {
-	font-size: 12px;
+	font-size: 13px;
 	line-height: 1.45;
 	color: var(--void-fg-3);
 }
@@ -7020,7 +7020,7 @@ body {
 }
 
 .ref-welcome-recent-card-name {
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 600;
 	color: var(--void-fg-0);
 	overflow: hidden;
@@ -7029,7 +7029,7 @@ body {
 }
 
 .ref-welcome-recent-card-path {
-	font-size: 12px;
+	font-size: 13px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -7371,7 +7371,7 @@ body {
 }
 
 .ref-editor-chat-title {
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 600;
 	color: var(--void-fg-0);
 	overflow: hidden;
@@ -7409,6 +7409,13 @@ body {
 	flex-shrink: 0;
 }
 
+/* Editor 布局右侧：消息与输入区左右留白一致（避免气泡贴侧栏边缘） */
+.ref-right--editor-chat .ref-messages {
+	padding-left: 16px;
+	padding-right: 16px;
+	box-sizing: border-box;
+}
+
 /* Editor 布局右侧：对话区与中间列「有对话时」同样占满并贴底输入 */
 .ref-right--editor-chat--active .ref-messages {
 	flex: 1 1 auto;
@@ -7423,11 +7430,11 @@ body {
 	max-width: 100%;
 	width: 100%;
 	align-self: stretch;
-	padding: 0 10px;
+	padding: 0 16px;
 }
 
 .ref-right--editor-chat .ref-command-stack {
-	padding-bottom: 12px;
+	padding: 0 16px 12px;
 }
 
 .ref-right--editor-chat .ref-msg-sticky-user-wrap {
