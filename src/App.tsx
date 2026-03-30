@@ -98,6 +98,38 @@ type DiffPreview = { diff: string; isBinary: boolean; additions: number; deletio
 
 const SIDEBAR_LAYOUT_KEY = 'async:sidebar-widths-v1';
 const COMPOSER_MODE_KEY = 'async:composer-mode-v1';
+const EDITOR_TERMINAL_HEIGHT_KEY = 'async:editor-terminal-height-v1';
+const EDITOR_TERMINAL_H_MIN = 120;
+const EDITOR_TERMINAL_H_MAX_RATIO = 0.65;
+
+function clampEditorTerminalHeight(h: number): number {
+	if (typeof window === 'undefined') {
+		return Math.max(EDITOR_TERMINAL_H_MIN, Math.round(h));
+	}
+	const max = Math.max(
+		EDITOR_TERMINAL_H_MIN + 40,
+		Math.floor(window.innerHeight * EDITOR_TERMINAL_H_MAX_RATIO)
+	);
+	return Math.min(max, Math.max(EDITOR_TERMINAL_H_MIN, Math.round(h)));
+}
+
+function readEditorTerminalHeightPx(): number {
+	try {
+		if (typeof window === 'undefined') {
+			return 260;
+		}
+		const v = localStorage.getItem(EDITOR_TERMINAL_HEIGHT_KEY);
+		if (v) {
+			const n = parseInt(v, 10);
+			if (Number.isFinite(n)) {
+				return clampEditorTerminalHeight(n);
+			}
+		}
+	} catch {
+		/* ignore */
+	}
+	return clampEditorTerminalHeight(Math.round(Math.min(window.innerHeight * 0.3, 280)));
+}
 
 function readComposerMode(): ComposerMode {
 	try {
@@ -616,6 +648,7 @@ export default function App() {
 	const [quickOpenSeed, setQuickOpenSeed] = useState('');
 	const [sidebarSearchDraft, setSidebarSearchDraft] = useState('');
 	const [editorTerminalVisible, setEditorTerminalVisible] = useState(true);
+	const [editorTerminalHeightPx, setEditorTerminalHeightPx] = useState(() => readEditorTerminalHeightPx());
 	const [editorTerminalSessions, setEditorTerminalSessions] = useState<EditorPtySession[]>([]);
 	const [activeEditorTerminalId, setActiveEditorTerminalId] = useState<string | null>(null);
 	const editorTerminalCreateLockRef = useRef(false);
@@ -2301,6 +2334,7 @@ export default function App() {
 	useEffect(() => {
 		const onResize = () => {
 			setRailWidths((prev) => clampSidebarLayout(prev.left, prev.right));
+			setEditorTerminalHeightPx((h) => clampEditorTerminalHeight(h));
 		};
 		window.addEventListener('resize', onResize);
 		const unsubLayout = window.asyncShell?.subscribeLayout?.(onResize);
@@ -2388,6 +2422,38 @@ export default function App() {
 			document.addEventListener('mouseup', onUp);
 		},
 		[railWidths.left, railWidths.right, shell]
+	);
+
+	const beginResizeEditorTerminal = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault();
+			const startY = e.clientY;
+			const startH = editorTerminalHeightPx;
+			const onMove = (ev: MouseEvent) => {
+				const next = clampEditorTerminalHeight(startH - (ev.clientY - startY));
+				setEditorTerminalHeightPx(next);
+			};
+			const onUp = () => {
+				document.removeEventListener('mousemove', onMove);
+				document.removeEventListener('mouseup', onUp);
+				document.body.style.cursor = '';
+				document.body.style.userSelect = '';
+				setEditorTerminalHeightPx((h) => {
+					const c = clampEditorTerminalHeight(h);
+					try {
+						localStorage.setItem(EDITOR_TERMINAL_HEIGHT_KEY, String(c));
+					} catch {
+						/* ignore */
+					}
+					return c;
+				});
+			};
+			document.body.style.cursor = 'row-resize';
+			document.body.style.userSelect = 'none';
+			document.addEventListener('mousemove', onMove);
+			document.addEventListener('mouseup', onUp);
+		},
+		[editorTerminalHeightPx]
 	);
 
 	const resetRailWidths = useCallback(() => {
@@ -3424,7 +3490,23 @@ export default function App() {
 							)}
 						</div>
 						{editorTerminalVisible ? (
-							<div className="ref-editor-split-bottom">
+							<>
+								<div
+									className="ref-editor-terminal-resize-handle"
+									role="separator"
+									aria-orientation="horizontal"
+									aria-label={t('app.resizeEditorTerminalAria')}
+									title={t('app.resizeEditorTerminalTitle')}
+									onMouseDown={beginResizeEditorTerminal}
+								/>
+								<div
+									className="ref-editor-split-bottom"
+									style={{
+										flex: `0 0 ${editorTerminalHeightPx}px`,
+										minHeight: EDITOR_TERMINAL_H_MIN,
+										maxHeight: `${Math.floor(window.innerHeight * EDITOR_TERMINAL_H_MAX_RATIO)}px`,
+									}}
+								>
 								<div className="ref-editor-panel-terminal-tabs">
 									<div className="ref-editor-terminal-tabs-scroll" role="tablist" aria-label={t('app.terminalTab')}>
 										{editorTerminalSessions.map((s) => {
@@ -3494,7 +3576,8 @@ export default function App() {
 										</div>
 									))}
 								</div>
-							</div>
+								</div>
+							</>
 						) : null}
 					</div>
 				</main>

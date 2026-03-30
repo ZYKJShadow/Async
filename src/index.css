@@ -7461,6 +7461,52 @@ body {
 	overflow: auto;
 }
 
+/* Editor 左侧栏：与对话区一致，非悬停滚动条渐隐 */
+.ref-body--editor .ref-left-scroll,
+.ref-body--editor .ref-explorer-body--workspace {
+	scrollbar-color: rgba(58, 58, 66, 0) transparent;
+	transition: scrollbar-color 0.35s var(--void-ease-out-expo);
+}
+
+.ref-body--editor .ref-left-scroll:hover,
+.ref-body--editor .ref-explorer-body--workspace:hover {
+	scrollbar-color: var(--void-scrollbar-thumb) transparent;
+}
+
+.ref-body--editor .ref-left-scroll::-webkit-scrollbar-track,
+.ref-body--editor .ref-explorer-body--workspace::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.ref-body--editor .ref-left-scroll::-webkit-scrollbar-thumb,
+.ref-body--editor .ref-explorer-body--workspace::-webkit-scrollbar-thumb {
+	background: transparent;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+	transition:
+		background 0.35s var(--void-ease-out-expo),
+		border-color 0.35s var(--void-ease-out-expo);
+}
+
+.ref-body--editor .ref-left-scroll:hover::-webkit-scrollbar-thumb,
+.ref-body--editor .ref-explorer-body--workspace:hover::-webkit-scrollbar-thumb {
+	background: var(--void-scrollbar-thumb);
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+.ref-body--editor .ref-left-scroll:hover::-webkit-scrollbar-thumb:hover,
+.ref-body--editor .ref-explorer-body--workspace:hover::-webkit-scrollbar-thumb:hover {
+	background: var(--void-scrollbar-thumb-hover);
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+.ref-body--editor .ref-left-scroll:hover::-webkit-scrollbar-thumb:active,
+.ref-body--editor .ref-explorer-body--workspace:hover::-webkit-scrollbar-thumb:active {
+	background: var(--void-scrollbar-thumb-active);
+}
+
 .ref-left-footer--editor {
 	padding-top: 10px;
 	background: rgba(5, 7, 10, 0.55);
@@ -7494,16 +7540,41 @@ body {
 	overflow: hidden;
 }
 
+.ref-editor-terminal-resize-handle {
+	position: relative;
+	z-index: 2;
+	flex-shrink: 0;
+	height: 5px;
+	cursor: row-resize;
+	background: transparent;
+	touch-action: none;
+}
+
+.ref-editor-terminal-resize-handle:hover,
+.ref-editor-terminal-resize-handle:active {
+	background: rgba(129, 140, 248, 0.14);
+}
+
+.ref-editor-terminal-resize-handle::after {
+	content: '';
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 50%;
+	height: 1px;
+	transform: translateY(-50%);
+	background: var(--void-border-soft);
+	pointer-events: none;
+}
+
 .ref-editor-split-bottom {
-	flex: 0 0 min(30vh, 260px);
-	min-height: 120px;
-	max-height: 50vh;
+	flex-shrink: 0;
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
 	margin: 0;
 	border: none;
-	border-top: 1px solid var(--void-border-soft);
+	border-top: none;
 	border-radius: 0;
 	background: rgba(8, 10, 14, 0.98);
 	overflow: hidden;
@@ -7616,6 +7687,45 @@ body {
 	flex: 1;
 	min-height: 0;
 	padding: 2px 4px 4px;
+}
+
+/* xterm 实际滚动层为 .xterm > .xterm-viewport；与对话区一致，非悬停滚动条渐隐 */
+.pty-term-root .xterm .xterm-viewport {
+	scrollbar-color: rgba(58, 58, 66, 0) transparent;
+	transition: scrollbar-color 0.35s var(--void-ease-out-expo);
+}
+
+.pty-term-root .xterm .xterm-viewport:hover {
+	scrollbar-color: var(--void-scrollbar-thumb) transparent;
+}
+
+.pty-term-root .xterm .xterm-viewport::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.pty-term-root .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+	background: transparent;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+	transition:
+		background 0.35s var(--void-ease-out-expo),
+		border-color 0.35s var(--void-ease-out-expo);
+}
+
+.pty-term-root .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb {
+	background: var(--void-scrollbar-thumb);
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+.pty-term-root .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:hover {
+	background: var(--void-scrollbar-thumb-hover);
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+.pty-term-root .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
+	background: var(--void-scrollbar-thumb-active);
 }
 
 .pty-drawer-placeholder {
@@ -7764,7 +7874,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
-	background: #0b0e14;
+	background: #181818;
 }
 
 .ref-editor-canvas .ref-editor-pane {

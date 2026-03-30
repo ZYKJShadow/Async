@@ -42,6 +42,8 @@ export const messagesZhCN: Record<string, string> = {
 	'app.terminalTabN': '终端 {{n}}',
 	'app.terminalStarting': '正在启动终端…',
 	'app.closeTerminalTab': '关闭此终端标签',
+	'app.resizeEditorTerminalAria': '调整底部终端高度',
+	'app.resizeEditorTerminalTitle': '拖拽调节终端区域高度',
 	'app.searchAria': '搜索',
 
 	'quickOpen.placeholder':

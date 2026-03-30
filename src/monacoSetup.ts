@@ -9,6 +9,8 @@ monaco.editor.defineTheme('void-dark', {
 	inherit: true,
 	rules: [],
 	colors: {
+		'editor.background': '#181818',
+		'editorGutter.background': '#181818',
 		'scrollbar.shadow': '#00000000',
 		'scrollbarSlider.background': '#3a3a4299',
 		'scrollbarSlider.hoverBackground': '#4d4d56cc',

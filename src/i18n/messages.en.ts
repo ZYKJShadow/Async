@@ -38,6 +38,8 @@ export const messagesEn: Record<string, string> = {
 	'app.terminalTabN': 'Terminal {{n}}',
 	'app.terminalStarting': 'Starting terminal…',
 	'app.closeTerminalTab': 'Close terminal tab',
+	'app.resizeEditorTerminalAria': 'Resize editor terminal height',
+	'app.resizeEditorTerminalTitle': 'Drag to resize terminal height',
 	'app.searchAria': 'Search',
 
 	'quickOpen.placeholder':
