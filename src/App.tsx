@@ -548,16 +548,6 @@ export default function App() {
 		setStreamingToolPreview(null);
 	}, []);
 
-	const clearStreamingToolPreviewSoon = useCallback((delayMs = 120) => {
-		if (streamingToolPreviewClearTimerRef.current !== null) {
-			window.clearTimeout(streamingToolPreviewClearTimerRef.current);
-		}
-		streamingToolPreviewClearTimerRef.current = window.setTimeout(() => {
-			streamingToolPreviewClearTimerRef.current = null;
-			setStreamingToolPreview(null);
-		}, delayMs);
-	}, []);
-
 	useEffect(() => {
 		return () => {
 			if (streamingToolPreviewClearTimerRef.current !== null) {
@@ -920,7 +910,7 @@ export default function App() {
 				setAwaitingReply(false);
 				setStreaming('');
 				setStreamingThinking('');
-				clearStreamingToolPreviewSoon();
+				clearStreamingToolPreviewNow();
 				setFileChangesDismissed(false);
 				setDismissedFiles(new Set());
 				/* 新一轮助手回复落库前，勿让旧 persist 在 loadMessages 空窗期把面板状态粘回去 */
@@ -977,7 +967,7 @@ export default function App() {
 				setAwaitingReply(false);
 				setStreaming('');
 				setStreamingThinking('');
-				clearStreamingToolPreviewSoon();
+				clearStreamingToolPreviewNow();
 				setMessages((m) => [
 					...m,
 					{ role: 'assistant', content: t('app.errorPrefix', { message: translateChatError(payload.message, t) }) },
@@ -986,7 +976,7 @@ export default function App() {
 			}
 		});
 		return () => unsub();
-	}, [shell, loadMessages, refreshThreads, clearStreamingToolPreviewSoon]);
+	}, [shell, loadMessages, refreshThreads, clearStreamingToolPreviewNow]);
 
 	useEffect(() => {
 		if (!workspace || !shell) {
@@ -1634,11 +1624,11 @@ export default function App() {
 	};
 
 	const displayMessages = useMemo(() => {
-		if (!awaitingReply && streaming === '' && streamingToolPreview == null) {
+		if (!awaitingReply && streaming === '') {
 			return messages;
 		}
 		return [...messages, { role: 'assistant' as const, content: streaming }];
-	}, [messages, streaming, awaitingReply, streamingToolPreview]);
+	}, [messages, streaming, awaitingReply]);
 
 	/** 中间消息区滚动时，最后一条用户消息 sticky 在视口顶部（参考 Cursor） */
 	const lastUserMessageIndex = useMemo(() => {

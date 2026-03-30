@@ -146,6 +146,10 @@ function runChatStream(
 					onError: (message) => send({ threadId, type: 'error', message }),
 				}
 			);
+		} catch (e) {
+			try {
+				send({ threadId, type: 'error', message: e instanceof Error ? e.message : String(e) });
+			} catch { /* window may be destroyed */ }
 		} finally {
 			abortByThread.delete(threadId);
 		}

@@ -177,6 +177,14 @@ type ParsedMarker = {
 	isPlan?: boolean;
 };
 
+type ToolResultBlock = {
+	index: number;
+	name: string;
+	success: boolean;
+	body: string;
+	fullEnd: number;
+};
+
 function skipJsonObject(s: string, i: number): number {
 	if (s[i] !== '{') {
 		return -1;
@@ -213,13 +221,30 @@ function skipJsonObject(s: string, i: number): number {
 	return -1;
 }
 
-function findAllToolCallMarkers(content: string): ParsedMarker[] {
+function findResultBlockContaining(resultBlocks: ToolResultBlock[], index: number): ToolResultBlock | null {
+	for (const block of resultBlocks) {
+		if (index < block.index) {
+			return null;
+		}
+		if (index >= block.index && index < block.fullEnd) {
+			return block;
+		}
+	}
+	return null;
+}
+
+function findAllToolCallMarkers(content: string, resultBlocks: ToolResultBlock[]): ParsedMarker[] {
 	const markers: ParsedMarker[] = [];
 	let from = 0;
 	while (from < content.length) {
 		const start = content.indexOf(TOOL_CALL_OPEN, from);
 		if (start === -1) {
 			break;
+		}
+		const containingResult = findResultBlockContaining(resultBlocks, start);
+		if (containingResult) {
+			from = containingResult.fullEnd;
+			continue;
 		}
 		const nameStart = start + TOOL_CALL_OPEN.length;
 		const nameEnd = content.indexOf('">', nameStart);
@@ -287,6 +312,9 @@ function findAllToolCallMarkers(content: string): ParsedMarker[] {
 	const planRe = /<(plan|todo)>([\s\S]*?)(?:<\/\1>|$)/gi;
 	let mPlan;
 	while ((mPlan = planRe.exec(content)) !== null) {
+		if (findResultBlockContaining(resultBlocks, mPlan.index) != null) {
+			continue;
+		}
 		markers.push({
 			start: mPlan.index,
 			end: mPlan.index + mPlan[0].length,
@@ -306,12 +334,32 @@ function unescapeToolResultBody(body: string): string {
 
 function findAllToolResultBlocks(
 	content: string
-): { index: number; name: string; success: boolean; body: string; fullEnd: number }[] {
-	const re = /<tool_result tool="([^"]+)" success="(true|false)">/g;
-	const out: { index: number; name: string; success: boolean; body: string; fullEnd: number }[] = [];
-	let m: RegExpExecArray | null;
-	while ((m = re.exec(content)) !== null) {
-		const bodyStart = m.index + m[0].length;
+): ToolResultBlock[] {
+	const out: ToolResultBlock[] = [];
+	const open = '<tool_result tool="';
+	const successMid = '" success="';
+	let from = 0;
+	while (from < content.length) {
+		const start = content.indexOf(open, from);
+		if (start === -1) {
+			break;
+		}
+		const nameStart = start + open.length;
+		const nameEnd = content.indexOf(successMid, nameStart);
+		if (nameEnd === -1) {
+			break;
+		}
+		const successStart = nameEnd + successMid.length;
+		const successEnd = content.indexOf('">', successStart);
+		if (successEnd === -1) {
+			break;
+		}
+		const successRaw = content.slice(successStart, successEnd);
+		if (successRaw !== 'true' && successRaw !== 'false') {
+			from = successEnd + 2;
+			continue;
+		}
+		const bodyStart = successEnd + 2;
 		const closeTag = '</tool_result>';
 		const closeIdx = content.indexOf(closeTag, bodyStart);
 		if (closeIdx === -1) {
@@ -319,12 +367,13 @@ function findAllToolResultBlocks(
 		}
 		const body = unescapeToolResultBody(content.slice(bodyStart, closeIdx));
 		out.push({
-			index: m.index,
-			name: m[1]!,
-			success: m[2] === 'true',
+			index: start,
+			name: content.slice(nameStart, nameEnd),
+			success: successRaw === 'true',
 			body,
 			fullEnd: closeIdx + closeTag.length,
 		});
+		from = closeIdx + closeTag.length;
 	}
 	return out;
 }
@@ -648,12 +697,11 @@ function markerHasSubstantiveTail(content: string, mk: ParsedMarker): boolean {
 }
 
 function extractToolSegments(content: string, t: TFunction): { segments: AssistantSegment[]; hasTools: boolean } {
-	const markers = findAllToolCallMarkers(content);
+	const resultBlocks = findAllToolResultBlocks(content);
+	const markers = findAllToolCallMarkers(content, resultBlocks);
 	if (markers.length === 0) {
 		return { segments: [], hasTools: false };
 	}
-
-	const resultBlocks = findAllToolResultBlocks(content);
 	for (const r of resultBlocks) {
 		const prev = markers.find(
 			(mk) => mk.name === r.name && mk.end <= r.index && mk.result === undefined
