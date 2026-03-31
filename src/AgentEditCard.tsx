@@ -148,7 +148,7 @@ export function AgentEditCard({ edit, onOpenFile }: Props) {
 					</span>
 				)}
 			</button>
-			{previewLines.length > 0 ? (
+			{previewLines.length > 0 || edit.isStreaming ? (
 				<div
 					ref={previewScrollWrapRef}
 					className={`ref-edit-card-preview-wrap ${edit.isStreaming ? 'ref-edit-card-preview-wrap--streaming-scroll' : ''}`}

@@ -48,34 +48,34 @@ const ROUND_HARD_TIMEOUT_MS = 600_000;
 
 export type ToolInputDeltaPayload = { name: string; partialJson: string; index: number };
 
-/** 合并 tool_input_delta，避免每字符 IPC 拖垮渲染进程 */
-function createToolInputDeltaThrottle(
+/**
+ * 合并同一事件循环内的高频 tool_input_delta（只发最后一帧），避免 IPC 风暴；
+ * 使用 queueMicrotask 而非 setTimeout，避免人为 48ms 延迟导致首帧/收尾丢更新。
+ */
+function createToolInputDeltaBatcher(
 	emit: (p: ToolInputDeltaPayload) => void
 ): { queue: (p: ToolInputDeltaPayload) => void; flush: () => void } {
 	let pending: ToolInputDeltaPayload | null = null;
-	let timer: ReturnType<typeof setTimeout> | null = null;
-	const MS = 48;
+	let scheduled = false;
 	return {
 		queue(p: ToolInputDeltaPayload) {
 			pending = p;
-			if (timer !== null) return;
-			timer = setTimeout(() => {
-				timer = null;
+			if (scheduled) return;
+			scheduled = true;
+			queueMicrotask(() => {
+				scheduled = false;
 				if (pending) {
 					emit(pending);
 					pending = null;
 				}
-			}, MS);
+			});
 		},
 		flush() {
-			if (timer !== null) {
-				clearTimeout(timer);
-				timer = null;
-			}
 			if (pending) {
 				emit(pending);
 				pending = null;
 			}
+			scheduled = false;
 		},
 	};
 }
@@ -314,7 +314,7 @@ async function runOpenAILoop(
 
 	type TurnTc = { id: string; name: string; arguments: string };
 
-	const toolDeltaThrottle = createToolInputDeltaThrottle((p) => handlers.onToolInputDelta?.(p));
+	const toolDeltaBatcher = createToolInputDeltaBatcher((p) => handlers.onToolInputDelta?.(p));
 
 	async function handleMistakeLimitBeforeRound(): Promise<boolean> {
 		if (!mistakeLimitEnabled || consecutiveToolFailures < threshold) {
@@ -503,14 +503,14 @@ async function runOpenAILoop(
 						if (!row.arguments || !handlers.onToolInputDelta) continue;
 						const effectiveName = row.name || inferOpenAIToolNameFromPartialArguments(row.arguments);
 						if (effectiveName) {
-							toolDeltaThrottle.queue({ name: effectiveName, partialJson: row.arguments, index: idx });
+							toolDeltaBatcher.queue({ name: effectiveName, partialJson: row.arguments, index: idx });
 						}
 					}
 				}
 			}
-			toolDeltaThrottle.flush();
+			toolDeltaBatcher.flush();
 		} catch (e: unknown) {
-			toolDeltaThrottle.flush();
+			toolDeltaBatcher.flush();
 			clearInterval(silenceTimer);
 			clearTimeout(hardTimer);
 			if (options.signal.aborted) {
@@ -744,7 +744,7 @@ async function runAnthropicLoop(
 		return out;
 	}
 
-	const toolDeltaThrottleA = createToolInputDeltaThrottle((p) => handlers.onToolInputDelta?.(p));
+	const toolDeltaBatcherA = createToolInputDeltaBatcher((p) => handlers.onToolInputDelta?.(p));
 
 	for (let round = 0; round < MAX_ROUNDS; round++) {
 		if (options.signal.aborted) break;
@@ -840,7 +840,7 @@ async function runAnthropicLoop(
 						if (currentBlockIdx >= 0 && turnToolUses[currentBlockIdx]) {
 							turnToolUses[currentBlockIdx]!.input += ev.delta.partial_json;
 							const tu = turnToolUses[currentBlockIdx]!;
-							toolDeltaThrottleA.queue({
+							toolDeltaBatcherA.queue({
 								name: tu.name,
 								partialJson: tu.input,
 								index: currentBlockIdx,
@@ -851,9 +851,9 @@ async function runAnthropicLoop(
 				currentBlockType = null;
 			}
 		}
-			toolDeltaThrottleA.flush();
+			toolDeltaBatcherA.flush();
 		} catch (e: unknown) {
-			toolDeltaThrottleA.flush();
+			toolDeltaBatcherA.flush();
 			clearInterval(silenceTimerA);
 			clearTimeout(hardTimerA);
 			if (options.signal.aborted) {

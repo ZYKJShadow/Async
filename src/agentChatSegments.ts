@@ -739,7 +739,16 @@ function buildStreamingFileEditSegment(mk: ParsedMarker): FileEditSegment | null
 		const oldStr = tailAfterKey(mk.rawJson, 'old_str') ?? String(mk.args.old_str ?? '');
 		const newStr = tailAfterKey(mk.rawJson, 'new_str') ?? String(mk.args.new_str ?? '');
 		if (!pathGuess && !oldStr && !newStr) {
-			return null;
+			// 流式开头 JSON 尚未含可解析字段时仍占位，避免整段预览被跳过
+			return {
+				type: 'file_edit',
+				path: '',
+				additions: 0,
+				deletions: 0,
+				oldStr: '',
+				newStr: '',
+				isStreaming: true,
+			};
 		}
 		return {
 			type: 'file_edit',
@@ -754,7 +763,15 @@ function buildStreamingFileEditSegment(mk: ParsedMarker): FileEditSegment | null
 
 	const content = tailAfterKey(mk.rawJson, 'content') ?? String(mk.args.content ?? '');
 	if (!pathGuess && !content) {
-		return null;
+		return {
+			type: 'file_edit',
+			path: '',
+			additions: 0,
+			deletions: 0,
+			newStr: '',
+			isNew: true,
+			isStreaming: true,
+		};
 	}
 	return {
 		type: 'file_edit',
