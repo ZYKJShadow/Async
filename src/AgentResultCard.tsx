@@ -59,6 +59,23 @@ function stableLinesSignature(lines: readonly ActivityResultLine[]): string {
 		.join('\x1e');
 }
 
+/**
+ * 切换对话再回来时组件会卸载重挂，实例内 ref 会丢。
+ * 用模块级集合记住「这份结果已播完入场」，避免重复 stagger 与每行 CSS 动画。
+ */
+const completedResultAnimSignatures = new Set<string>();
+const MAX_COMPLETED_RESULT_ANIM_SIGNATURES = 480;
+
+function rememberCompletedResultAnim(sig: string) {
+	if (completedResultAnimSignatures.size >= MAX_COMPLETED_RESULT_ANIM_SIGNATURES) {
+		const first = completedResultAnimSignatures.values().next().value as string | undefined;
+		if (first !== undefined) {
+			completedResultAnimSignatures.delete(first);
+		}
+	}
+	completedResultAnimSignatures.add(sig);
+}
+
 type Props = {
 	lines: ActivityResultLine[];
 	kind: 'search' | 'read' | 'dir';
@@ -77,6 +94,18 @@ export function AgentResultCard({ lines, kind, onOpenFile }: Props) {
 	const animatedSignatureRef = useRef<string | null>(null);
 
 	const linesSignature = useMemo(() => stableLinesSignature(lines), [lines]);
+
+	const suppressLineEnterCss = completedResultAnimSignatures.has(linesSignature);
+
+	useLayoutEffect(() => {
+		if (lines.length === 0) {
+			return;
+		}
+		if (completedResultAnimSignatures.has(linesSignature)) {
+			setRevealedCount(lines.length);
+			animatedSignatureRef.current = linesSignature;
+		}
+	}, [linesSignature, lines.length]);
 
 	useLayoutEffect(() => {
 		const el = containerRef.current;
@@ -107,6 +136,10 @@ export function AgentResultCard({ lines, kind, onOpenFile }: Props) {
 			return;
 		}
 
+		if (completedResultAnimSignatures.has(linesSignature)) {
+			return;
+		}
+
 		// 立即显示第一行，然后按节奏逐行追加；动画结束后再写入 ref，避免 Strict Mode 重跑 effect 时误判「已播完」
 		setRevealedCount(1);
 
@@ -117,6 +150,7 @@ export function AgentResultCard({ lines, kind, onOpenFile }: Props) {
 		const tick = (next: number) => {
 			if (next >= total) {
 				animatedSignatureRef.current = sig;
+				rememberCompletedResultAnim(sig);
 				return;
 			}
 			timerRef.current = setTimeout(() => {
@@ -161,7 +195,16 @@ export function AgentResultCard({ lines, kind, onOpenFile }: Props) {
 			const canOpen = Boolean(onOpenFile && line.filePath);
 			const fname = fileBasename(line.filePath);
 			return (
-				<div key={i} className="ref-result-card-line ref-result-card-line--search ref-result-card-line--enter">
+				<div
+					key={i}
+					className={[
+						'ref-result-card-line',
+						'ref-result-card-line--search',
+						suppressLineEnterCss ? '' : 'ref-result-card-line--enter',
+					]
+						.filter(Boolean)
+						.join(' ')}
+				>
 					<span className="ref-result-card-file-ico" aria-hidden>
 						<FileTypeIcon fileName={fname} isDirectory={false} className="ref-result-card-ico-svg" />
 					</span>
@@ -189,7 +232,16 @@ export function AgentResultCard({ lines, kind, onOpenFile }: Props) {
 
 		if (kind === 'read' && line.lineNo !== undefined) {
 			return (
-				<div key={i} className="ref-result-card-line ref-result-card-line--read ref-result-card-line--enter">
+				<div
+					key={i}
+					className={[
+						'ref-result-card-line',
+						'ref-result-card-line--read',
+						suppressLineEnterCss ? '' : 'ref-result-card-line--enter',
+					]
+						.filter(Boolean)
+						.join(' ')}
+				>
 					<span className="ref-result-card-lineno-gutter" aria-hidden>{line.lineNo}</span>
 					<code className="ref-result-card-match">{line.matchText ?? ''}</code>
 				</div>
@@ -200,7 +252,16 @@ export function AgentResultCard({ lines, kind, onOpenFile }: Props) {
 			const isDir = line.text.startsWith('[dir]');
 			const name = line.text.replace(/^\[(dir|file)\]\s*/, '');
 			return (
-				<div key={i} className="ref-result-card-line ref-result-card-line--dir ref-result-card-line--enter">
+				<div
+					key={i}
+					className={[
+						'ref-result-card-line',
+						'ref-result-card-line--dir',
+						suppressLineEnterCss ? '' : 'ref-result-card-line--enter',
+					]
+						.filter(Boolean)
+						.join(' ')}
+				>
 					<span className="ref-result-card-file-ico" aria-hidden>
 						<FileTypeIcon fileName={name} isDirectory={isDir} className="ref-result-card-ico-svg" />
 					</span>
@@ -210,7 +271,10 @@ export function AgentResultCard({ lines, kind, onOpenFile }: Props) {
 		}
 
 		return (
-			<div key={i} className="ref-result-card-line ref-result-card-line--enter">
+			<div
+				key={i}
+				className={['ref-result-card-line', suppressLineEnterCss ? '' : 'ref-result-card-line--enter'].filter(Boolean).join(' ')}
+			>
 				<code className="ref-result-card-match">{line.text}</code>
 			</div>
 		);
