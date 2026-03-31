@@ -4,6 +4,8 @@
 	--void-bg-2: #16161a;
 	--void-bg-3: #1c1c22;
 	--void-fg-0: #f4f4f5;
+	/* ????? / AI ????? fg-0 ????? */
+	--void-fg-1: #d6d6dc;
 	--void-fg-2: #a1a1aa;
 	--void-fg-3: #71717a;
 	--void-accent-glow: rgba(129, 140, 248, 0.28);
@@ -1774,7 +1776,7 @@ body {
 	min-width: 0;
 	min-height: 0;
 	height: 100%;
-	padding: 20px 48px 28px;
+	padding: 16px 40px 24px;
 	background:
 		radial-gradient(ellipse 90% 55% at 50% 0%, rgba(99, 102, 241, 0.07) 0%, transparent 58%),
 		radial-gradient(ellipse 50% 40% at 80% 60%, rgba(167, 139, 250, 0.04) 0%, transparent 50%),
@@ -1855,7 +1857,7 @@ body {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	font-size: 13px;
+	font-size: 12px;
 	color: var(--void-fg-2);
 }
 
@@ -1866,7 +1868,7 @@ body {
 
 .ref-context-title {
 	font-weight: 600;
-	font-size: 14px;
+	font-size: 13px;
 	color: var(--void-fg-0);
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1876,7 +1878,7 @@ body {
 .ref-context-sub {
 	margin-top: 4px;
 	padding-left: 22px;
-	font-size: 12px;
+	font-size: 11px;
 	color: var(--void-fg-3);
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -2027,9 +2029,9 @@ body {
 }
 
 .ref-msg-assistant-body {
-	font-size: 14px;
+	font-size: 13px;
 	line-height: 1.55;
-	color: var(--void-fg-0);
+	color: var(--void-fg-1);
 	padding: 0 2px;
 }
 
@@ -2231,9 +2233,9 @@ body {
 
 .ref-bubble {
 	max-width: 85%;
-	padding: 12px 16px;
+	padding: 10px 14px;
 	border-radius: 16px;
-	font-size: 14px;
+	font-size: 13px;
 	line-height: 1.55;
 	white-space: pre-wrap;
 	word-break: break-word;
@@ -2284,9 +2286,9 @@ body {
 }
 
 .ref-md-root {
-	font-size: 14px;
+	font-size: 13px;
 	line-height: 1.55;
-	color: var(--void-fg-0);
+	color: var(--void-fg-1);
 }
 
 .ref-md-root :first-child {
@@ -2307,6 +2309,7 @@ body {
 	margin: 0.75em 0 0.35em;
 	font-size: 1.05em;
 	font-weight: 600;
+	color: var(--void-fg-0);
 }
 
 .ref-md-root ul,
@@ -2331,7 +2334,7 @@ body {
 
 .ref-md-root code {
 	font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
-	font-size: 12px;
+	font-size: 11px;
 }
 
 .ref-md-root :not(pre) > code {
@@ -2344,7 +2347,7 @@ body {
 .ref-md-root pre code {
 	background: transparent;
 	padding: 0;
-	font-size: 12px;
+	font-size: 11px;
 	line-height: 1.45;
 }
 
@@ -2360,7 +2363,7 @@ body {
 .ref-md-root table {
 	width: 100%;
 	border-collapse: collapse;
-	font-size: 12.5px;
+	font-size: 12px;
 	margin: 0.75em 0;
 	border: 1px solid rgba(255, 255, 255, 0.12);
 	border-radius: 6px;
@@ -3456,7 +3459,7 @@ body {
 	background: linear-gradient(165deg, rgba(30, 30, 36, 0.95) 0%, rgba(18, 18, 22, 0.98) 100%);
 	border: 1px solid rgba(255, 255, 255, 0.08);
 	border-radius: var(--void-radius-xl);
-	padding: 20px 22px 14px;
+	padding: 16px 18px 12px;
 	box-shadow:
 		0 0 0 1px rgba(0, 0, 0, 0.35),
 		0 32px 100px rgba(0, 0, 0, 0.5),
@@ -3511,10 +3514,10 @@ body {
 
 /* ?? .ref-composer-rich-input ???? follow-up ????????????????? */
 .ref-capsule--followup-bar .ref-composer-rich-input.ref-followup-rich-input {
-	min-height: 36px;
-	max-height: 140px;
-	padding: 7px 2px 7px 4px;
-	font-size: 14px;
+	min-height: 34px;
+	max-height: 132px;
+	padding: 6px 2px 6px 4px;
+	font-size: 13px;
 	line-height: 1.45;
 }
 
@@ -3577,7 +3580,7 @@ body {
 /* ??????????????? + ?????????? .ref-composer-rich-input ? max-height ?? */
 .ref-capsule--stacked-chat {
 	border-radius: 16px;
-	padding: 14px 16px 12px;
+	padding: 12px 14px 10px;
 	box-shadow: 0 20px 64px rgba(0, 0, 0, 0.42);
 }
 
@@ -3587,12 +3590,12 @@ body {
 
 .ref-capsule-input--stacked-chat {
 	width: 100%;
-	min-height: 72px;
-	max-height: min(38vh, 480px);
+	min-height: 64px;
+	max-height: min(36vh, 440px);
 	border: none;
 	background: transparent;
 	color: var(--void-fg-0);
-	font-size: 15px;
+	font-size: 14px;
 	line-height: 1.55;
 	resize: none;
 	outline: none;
@@ -3612,14 +3615,14 @@ body {
 
 .ref-composer-rich-input {
 	width: 100%;
-	min-height: 72px;
-	max-height: min(38vh, 480px);
+	min-height: 64px;
+	max-height: min(36vh, 440px);
 	overflow-y: auto;
 	overflow-x: hidden;
 	border: none;
 	background: transparent;
 	color: var(--void-fg-0);
-	font-size: 14px;
+	font-size: 13px;
 	line-height: 1.55;
 	outline: none;
 	font-family: inherit;
@@ -3788,8 +3791,8 @@ body {
 
 /* ??????????? + ??????? stacked ? .ref-capsule-input ? max-height */
 .ref-composer-hero-body .ref-composer-rich-input.ref-capsule-input {
-	min-height: 120px;
-	max-height: min(40vh, 520px);
+	min-height: 84px;
+	max-height: min(34vh, 400px);
 	overflow-y: auto;
 }
 
@@ -4287,8 +4290,8 @@ body {
 	align-items: center;
 	flex-wrap: wrap;
 	gap: 8px 10px;
-	margin-top: 16px;
-	padding-top: 14px;
+	margin-top: 12px;
+	padding-top: 12px;
 	border-top: 1px solid var(--void-border-soft);
 }
 
@@ -8427,6 +8430,7 @@ body {
 	overflow-x: auto;
 	overflow-y: hidden;
 	scrollbar-width: none;
+	-webkit-app-region: no-drag;
 }
 
 .ref-editor-split-top > .ref-tab-bar {
@@ -8506,12 +8510,17 @@ body {
 }
 
 .ref-tab-close {
+	position: relative;
+	z-index: 1;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 18px;
-	height: 18px;
-	margin: auto 8px auto 0;
+	min-width: 22px;
+	min-height: 22px;
+	width: 22px;
+	height: 22px;
+	margin: auto 6px auto 0;
+	-webkit-app-region: no-drag;
 	border: none;
 	border-radius: 4px;
 	background: transparent;
@@ -9506,6 +9515,28 @@ body {
 .ref-editor-chat-tab-close-svg {
 	width: 12px;
 	height: 12px;
+}
+
+.ref-editor-chat-tab-close--confirm {
+	width: auto;
+	min-width: 26px;
+	padding: 0 6px;
+	background: rgba(239, 68, 68, 0.22);
+	color: #fca5a5;
+	border: 1px solid rgba(239, 68, 68, 0.35);
+	font-size: 10px;
+	font-weight: 600;
+	border-radius: 0 8px 8px 0;
+}
+
+.ref-editor-chat-tab-close--confirm:hover {
+	background: rgba(239, 68, 68, 0.38);
+	color: #fecaca;
+}
+
+.ref-editor-chat-tab-close-confirm-label {
+	white-space: nowrap;
+	line-height: 1;
 }
 
 .ref-editor-chat-tab-label {

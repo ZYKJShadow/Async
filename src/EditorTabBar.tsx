@@ -1,4 +1,5 @@
 import { FileTypeIcon } from './fileTypeIcons';
+import { voidShellDebugLog } from './tabCloseDebug';
 
 export type EditorTab = {
 	id: string;
@@ -34,7 +35,14 @@ export function EditorTabBar({ tabs, activeTabId, onSelect, onClose }: Props) {
 							className="ref-tab-main"
 							tabIndex={0}
 							title={tab.filePath}
-							onClick={() => onSelect(tab.id)}
+							onClick={() => {
+								voidShellDebugLog('editor-file-tab-select', {
+									tabId: tab.id,
+									activeTabId,
+									tabIds: tabs.map((x) => x.id),
+								});
+								onSelect(tab.id);
+							}}
 							onKeyDown={(e) => {
 								if (e.key === 'Enter' || e.key === ' ') {
 									e.preventDefault();
@@ -51,7 +59,25 @@ export function EditorTabBar({ tabs, activeTabId, onSelect, onClose }: Props) {
 						<button
 							type="button"
 							className="ref-tab-close"
+							onMouseDown={(e) => {
+								if (e.button !== 0) return;
+								voidShellDebugLog('editor-file-tab-close-mousedown', {
+									tabId: tab.id,
+									activeTabId,
+									button: e.button,
+									tabIds: tabs.map((x) => x.id),
+								});
+								e.preventDefault();
+								e.stopPropagation();
+								onClose(tab.id);
+							}}
 							onClick={(e) => {
+								voidShellDebugLog('editor-file-tab-close-click', {
+									tabId: tab.id,
+									activeTabId,
+									button: e.button,
+									tabIds: tabs.map((x) => x.id),
+								});
 								e.preventDefault();
 								e.stopPropagation();
 								onClose(tab.id);

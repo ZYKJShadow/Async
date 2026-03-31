@@ -95,6 +95,7 @@ import { QuickOpenPalette, quickOpenPrimaryShortcutLabel, saveShortcutLabel } fr
 import { registerTsLspMonacoOnce } from './tsLspMonaco';
 import { monacoWorkspaceRootRef } from './tsLspWorkspaceRef';
 import { workspaceRelativeFileUrl } from './workspaceUri';
+import { voidShellDebugLog } from './tabCloseDebug';
 
 type ProjectAgentSliceState = {
 	rules: AgentRule[];
@@ -751,6 +752,14 @@ export default function App() {
 		},
 		[shell, workspace]
 	);
+
+	useEffect(() => {
+		if (import.meta.env.DEV) {
+			console.warn(
+				'[VoidShell] 调试：在应用窗口按 Ctrl+Shift+I（macOS：⌥⌘I）打开开发者工具；输入 window.__voidShellTabCloseLog 查看最近记录。'
+			);
+		}
+	}, []);
 
 	useEffect(() => {
 		if (!shell || !workspace) {
@@ -1709,29 +1718,12 @@ export default function App() {
 		threadTitleDraftRef.current = t.title;
 	}, []);
 
-	const onDeleteThread = useCallback(
-		async (e: React.MouseEvent, id: string) => {
-			e.preventDefault();
-			e.stopPropagation();
+	const performThreadDelete = useCallback(
+		async (id: string) => {
 			if (!shell) {
 				return;
 			}
-			if (confirmDeleteId !== id) {
-				setConfirmDeleteId(id);
-				if (confirmDeleteTimerRef.current) {
-					clearTimeout(confirmDeleteTimerRef.current);
-				}
-				confirmDeleteTimerRef.current = setTimeout(() => {
-					setConfirmDeleteId(null);
-					confirmDeleteTimerRef.current = null;
-				}, 2500);
-				return;
-			}
-			setConfirmDeleteId(null);
-			if (confirmDeleteTimerRef.current) {
-				clearTimeout(confirmDeleteTimerRef.current);
-				confirmDeleteTimerRef.current = null;
-			}
+			voidShellDebugLog('thread-delete:perform', { threadId: id });
 			const wasCurrent = id === currentId;
 			if (wasCurrent && awaitingReply) {
 				await shell.invoke('chat:abort', id);
@@ -1755,7 +1747,36 @@ export default function App() {
 			clearPersistedAgentFileChanges(id);
 			await refreshThreads();
 		},
-		[shell, currentId, awaitingReply, refreshThreads, confirmDeleteId, clearStreamingToolPreviewNow]
+		[shell, currentId, awaitingReply, refreshThreads, clearStreamingToolPreviewNow]
+	);
+
+	const onDeleteThread = useCallback(
+		async (e: React.MouseEvent, id: string) => {
+			e.preventDefault();
+			e.stopPropagation();
+			voidShellDebugLog('thread-delete:left-list-click', { threadId: id, step: confirmDeleteId === id ? 'confirm' : 'arm' });
+			if (!shell) {
+				return;
+			}
+			if (confirmDeleteId !== id) {
+				setConfirmDeleteId(id);
+				if (confirmDeleteTimerRef.current) {
+					clearTimeout(confirmDeleteTimerRef.current);
+				}
+				confirmDeleteTimerRef.current = setTimeout(() => {
+					setConfirmDeleteId(null);
+					confirmDeleteTimerRef.current = null;
+				}, 2500);
+				return;
+			}
+			setConfirmDeleteId(null);
+			if (confirmDeleteTimerRef.current) {
+				clearTimeout(confirmDeleteTimerRef.current);
+				confirmDeleteTimerRef.current = null;
+			}
+			await performThreadDelete(id);
+		},
+		[shell, confirmDeleteId, performThreadDelete]
 	);
 
 	useLayoutEffect(() => {
@@ -2190,33 +2211,47 @@ export default function App() {
 		}
 	}, [shell, openTabs, t]);
 
-	const onCloseTab = useCallback((tabId: string) => {
-		setOpenTabs((prev) => {
-			const idx = prev.findIndex((t2) => t2.id === tabId);
-			const next = prev.filter((t2) => t2.id !== tabId);
-			if (tabId === activeTabId) {
-				// Activate adjacent tab
-				const newActive = next[Math.min(idx, next.length - 1)] ?? null;
-				setActiveTabId(newActive?.id ?? null);
-				if (newActive) {
-					setFilePath(newActive.filePath);
-					// Load file content for newly active tab
-					if (shell) {
-						void (async () => {
-							try {
-								const r = (await shell.invoke('fs:readFile', newActive.filePath)) as { ok: boolean; content?: string };
-								if (r.ok && r.content !== undefined) setEditorValue(r.content);
-							} catch { /* ignore */ }
-						})();
-					}
-				} else {
-					setFilePath('');
-					setEditorValue('');
-				}
+	const onCloseTab = useCallback(
+		(tabId: string) => {
+			voidShellDebugLog('editor-file-tab-close', {
+				tabId,
+				activeTabId,
+				openTabIds: openTabs.map((t2) => t2.id),
+			});
+			const idx = openTabs.findIndex((t2) => t2.id === tabId);
+			if (idx < 0) {
+				voidShellDebugLog('editor-file-tab-close-miss', { tabId, activeTabId });
+				return;
 			}
-			return next;
-		});
-	}, [activeTabId, shell]);
+			const nextTabs = openTabs.filter((t2) => t2.id !== tabId);
+			setOpenTabs(nextTabs);
+
+			if (tabId !== activeTabId) {
+				return;
+			}
+			const newActive = nextTabs[Math.min(idx, nextTabs.length - 1)] ?? null;
+			setActiveTabId(newActive?.id ?? null);
+			if (newActive) {
+				setFilePath(newActive.filePath);
+				if (shell) {
+					void (async () => {
+						try {
+							const r = (await shell.invoke('fs:readFile', newActive.filePath)) as { ok: boolean; content?: string };
+							if (r.ok && r.content !== undefined) {
+								setEditorValue(r.content);
+							}
+						} catch {
+							/* ignore */
+						}
+					})();
+				}
+			} else {
+				setFilePath('');
+				setEditorValue('');
+			}
+		},
+		[openTabs, activeTabId, shell]
+	);
 
 	const onSelectTab = useCallback(async (tabId: string) => {
 		setActiveTabId(tabId);
@@ -4872,13 +4907,22 @@ export default function App() {
 											</button>
 											<button
 												type="button"
-												className="ref-editor-chat-tab-close"
-												title={t('common.deleteThread')}
-												aria-label={t('common.deleteThread')}
-												onMouseDown={(e) => e.preventDefault()}
+												className={`ref-editor-chat-tab-close ${
+													confirmDeleteId === th.id ? 'ref-editor-chat-tab-close--confirm' : ''
+												}`}
+												title={
+													confirmDeleteId === th.id ? t('common.confirmDelete') : t('common.deleteThread')
+												}
+												aria-label={
+													confirmDeleteId === th.id ? t('common.confirmDelete') : t('common.deleteThread')
+												}
 												onClick={(e) => void onDeleteThread(e, th.id)}
 											>
-												<IconCloseSmall className="ref-editor-chat-tab-close-svg" />
+												{confirmDeleteId === th.id ? (
+													<span className="ref-editor-chat-tab-close-confirm-label">{t('common.confirm')}</span>
+												) : (
+													<IconCloseSmall className="ref-editor-chat-tab-close-svg" />
+												)}
 											</button>
 										</div>
 									);

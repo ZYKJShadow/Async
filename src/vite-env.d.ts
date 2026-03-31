@@ -12,6 +12,8 @@ export interface AsyncShellAPI {
 declare global {
 	interface Window {
 		asyncShell?: AsyncShellAPI;
+		/** 调试：标签/删除等（见 tabCloseDebug.ts） */
+		__voidShellTabCloseLog?: Array<{ iso: string; tag: string; detail: Record<string, unknown> }>;
 	}
 }
 
