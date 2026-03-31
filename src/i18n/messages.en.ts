@@ -257,6 +257,8 @@ export const messagesEn: Record<string, string> = {
 	'settings.title.general': 'General',
 	'settings.title.models': 'Models',
 	'settings.title.rules': 'Rules, Skills, Subagents',
+	'settings.title.tools': 'Tools & MCPs',
+	'settings.title.mcp': 'MCP Servers',
 	'settings.title.comingSoon': 'Coming soon',
 	'settings.general.lead1': 'General options will live here. For ',
 	'settings.general.leadBold1': 'API keys, model list, and default model',

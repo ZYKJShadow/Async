@@ -41,6 +41,13 @@ export type BeforeExecuteToolResult = { proceed: true } | { proceed: false; reje
 
 const DEFAULT_MAX_CONSECUTIVE_MISTAKES = 5;
 
+/** 只读类工具：不向 UI 发送 tool_input_delta，避免参数 JSON 流式刷新；完成后由活动行渐入展示 */
+const READ_TOOLS_SKIP_INPUT_DELTA = new Set(['read_file', 'list_dir', 'search_files']);
+
+function shouldEmitToolInputDelta(toolName: string): boolean {
+	return !READ_TOOLS_SKIP_INPUT_DELTA.has(toolName);
+}
+
 /**
  * 与 Claude Code `query.ts` 的 `maxTurns?: number` 一致：未配置时为 `null`（不限制）。
  */
@@ -179,6 +186,7 @@ function unwrapAssistantContentEnvelope(text: string): string {
  * 许多 OpenAI 兼容网关会先流式下发 `function.arguments`，`function.name` 晚几帧才到。
  * 若仅在 `name` 已有时才触发 `onToolInputDelta`，则整段参数流式阶段 UI 完全收不到增量，代码卡片会像「一次性出现」。
  * 根据已出现的 JSON 键名猜测工具（与 agentTools 名称一致）；正式 `name` 到达后下一轮 chunk 会纠正。
+ * `read_file` / `list_dir` / `search_files` 不发 `onToolInputDelta`（见 READ_TOOLS_SKIP_INPUT_DELTA）。
  */
 function inferOpenAIToolNameFromPartialArguments(partial: string): string {
 	const c = partial.replace(/\s+/g, '');
@@ -528,7 +536,7 @@ async function runOpenAILoop(
 						}
 						if (!row.arguments || !handlers.onToolInputDelta) continue;
 						const effectiveName = row.name || inferOpenAIToolNameFromPartialArguments(row.arguments);
-						if (effectiveName) {
+						if (effectiveName && shouldEmitToolInputDelta(effectiveName)) {
 							toolDeltaBatcher.queue({ name: effectiveName, partialJson: row.arguments, index: idx });
 						}
 					}
@@ -884,11 +892,13 @@ async function runAnthropicLoop(
 						if (currentBlockIdx >= 0 && turnToolUses[currentBlockIdx]) {
 							turnToolUses[currentBlockIdx]!.input += ev.delta.partial_json;
 							const tu = turnToolUses[currentBlockIdx]!;
-							toolDeltaBatcherA.queue({
-								name: tu.name,
-								partialJson: tu.input,
-								index: currentBlockIdx,
-							});
+							if (tu.name && shouldEmitToolInputDelta(tu.name)) {
+								toolDeltaBatcherA.queue({
+									name: tu.name,
+									partialJson: tu.input,
+									index: currentBlockIdx,
+								});
+							}
 						}
 					}
 			} else if (ev.type === 'content_block_stop') {

@@ -262,6 +262,8 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.title.general': '通用',
 	'settings.title.models': '模型',
 	'settings.title.rules': '规则、技能与子代理',
+	'settings.title.tools': '工具与 MCP',
+	'settings.title.mcp': 'MCP 服务器',
 	'settings.title.comingSoon': '敬请期待',
 	'settings.general.lead1': '通用与应用级选项将放在此处。对话所用的 ',
 	'settings.general.leadBold1': 'API 密钥、模型列表与默认模型',

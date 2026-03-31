@@ -10,7 +10,7 @@
 	--void-accent-soft: rgba(129, 140, 248, 0.12);
 	--void-ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
 	--void-ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
-	/* 思考条：比正文更弱一档 */
+	/* ??????????? */
 	--void-thought-meta: #6b6b76;
 	--void-thought-detail: #575760;
 	--void-border: #27272a;
@@ -24,15 +24,15 @@
 	--void-git-added: #89d185;
 	--void-git-deleted: #f14c4c;
 	--void-git-ignored: #71717a;
-	/* 滚动条：与侧栏 / 面板背景协调 */
+	/* ??????? / ?????? */
 	--void-scrollbar-track: #101014;
 	--void-scrollbar-thumb: #3a3a42;
 	--void-scrollbar-thumb-hover: #4d4d56;
 	--void-scrollbar-thumb-active: #5c5c66;
 	--void-scrollbar-size: 8px;
-	/* 与 main-src/index.ts Windows titleBarOverlay.height 保持一致 */
+	/* ? main-src/index.ts Windows titleBarOverlay.height ???? */
 	--ref-menubar-height: 44px;
-	/* 与 main-src/index.ts titleBarOverlay.color 保持一致（系统三键区仅支持纯色） */
+	/* ? main-src/index.ts titleBarOverlay.color ???????????????? */
 	--ref-menubar-chrome-bg: #16161c;
 	font-family:
 		'Inter',
@@ -60,13 +60,13 @@ body {
 	-webkit-font-smoothing: antialiased;
 }
 
-/* —— 全局滚动条（Firefox） —— */
+/* ?? ??????Firefox? ?? */
 * {
 	scrollbar-width: thin;
 	scrollbar-color: var(--void-scrollbar-thumb) var(--void-scrollbar-track);
 }
 
-/* —— 全局滚动条（Chromium / Electron） —— */
+/* ?? ??????Chromium / Electron? ?? */
 *::-webkit-scrollbar {
 	width: var(--void-scrollbar-size);
 	height: var(--void-scrollbar-size);
@@ -574,7 +574,7 @@ body {
 	margin-top: 18px;
 }
 
-/* —— 参考图风格：顶栏 + 三栏 + 胶囊命令中心 —— */
+/* ?? ???????? + ?? + ?????? ?? */
 .ref-shell {
 	display: flex;
 	flex-direction: column;
@@ -610,10 +610,10 @@ body {
 	align-items: center;
 	height: var(--ref-menubar-height);
 	min-height: var(--ref-menubar-height);
-	/* 高于 .ref-shell > * 的 z-index:1，否则下方 .ref-body 会盖住本栏内的下拉菜单 */
+	/* ?? .ref-shell > * ? z-index:1????? .ref-body ??????????? */
 	z-index: 10;
 	padding: 0 14px 0 10px;
-	/* 隐藏系统标题栏后：顶栏可拖动窗口；右侧为 Windows 标题栏按钮区留白（Electron titleBarOverlay + CSS env） */
+	/* ???????????????????? Windows ?????????Electron titleBarOverlay + CSS env? */
 	-webkit-app-region: drag;
 	padding-right: max(
 		14px,
@@ -1205,7 +1205,7 @@ body {
 .ref-body {
 	flex: 1;
 	display: grid;
-	/* 列宽由 App 内联 gridTemplateColumns（左栏 | 把手 | 中间 | 把手 | 右栏）控制 */
+	/* ??? App ?? gridTemplateColumns??? | ?? | ?? | ?? | ????? */
 	min-height: 0;
 	min-width: 0;
 }
@@ -1573,7 +1573,7 @@ body {
 	line-height: 1;
 }
 
-/* Agent 工具执行前确认：内联卡片（紧贴输入区上方） */
+/* Agent ????????????????????? */
 .ref-tool-approval-inline {
 	flex-shrink: 0;
 	margin-bottom: 10px;
@@ -1780,11 +1780,11 @@ body {
 		radial-gradient(ellipse 50% 40% at 80% 60%, rgba(167, 139, 250, 0.04) 0%, transparent 50%),
 		var(--void-bg-0);
 	transition: padding-bottom 0.35s var(--void-ease-out-expo);
-	/* 略偏上，避免输入区贴底导致模型下拉被窗口裁切 */
+	/* ?????????????????????? */
 	--ref-center-composer-lift: clamp(56px, 11vh, 160px);
 }
 
-/* 已有对话：消息区占满中间列，输入条贴底（参考 Cursor 侧栏对话） */
+/* ?????????????????????? Cursor ????? */
 .ref-center--chat {
 	--ref-center-composer-lift: 0px;
 	padding-bottom: 16px;
@@ -1794,9 +1794,9 @@ body {
 	flex: 1 1 auto;
 	min-height: 0;
 	max-height: none;
-	/* 长对话滚到底时与底部输入区拉开距离（在原有 16px 基础上再加 300px） */
+	/* ????????????????????? 16px ????? 300px? */
 	padding-bottom: calc(16px + 300px);
-	/* Firefox：仅悬停对话区时显示滑块；移到输入区等区域时淡出 */
+	/* Firefox???????????????????????? */
 	scrollbar-color: rgba(58, 58, 66, 0) transparent;
 	transition: scrollbar-color 0.35s var(--void-ease-out-expo);
 }
@@ -1805,7 +1805,7 @@ body {
 	scrollbar-color: var(--void-scrollbar-thumb) transparent;
 }
 
-/* Chromium / Electron：对话区滚动条悬停渐入，离开（含移到下方输入区）渐隐 */
+/* Chromium / Electron?????????????????????????? */
 .ref-center--chat .ref-messages::-webkit-scrollbar-track {
 	background: transparent;
 }
@@ -1886,7 +1886,7 @@ body {
 .ref-hero-spacer {
 	flex: 1 1 auto;
 	min-height: 48px;
-	/* 限制过高留白，让胶囊停在「中线略下」而非贴底 */
+	/* ?????????????????????? */
 	max-height: min(38vh, 400px);
 }
 
@@ -1916,7 +1916,7 @@ body {
 	gap: 22px;
 }
 
-/* 对话流：用户/助手无气泡，在中间列内水平居中（与底部输入条同宽） */
+/* ??????/????????????????????????? */
 .ref-msg-slot {
 	display: flex;
 	flex-direction: column;
@@ -1943,7 +1943,7 @@ body {
 	}
 }
 
-/* 最后一条用户问题：在 .ref-messages 内滚动时钉在顶部，下方助手内容从底下滑过 */
+/* ?????????? .ref-messages ???????????????????? */
 .ref-msg-sticky-user-wrap {
 	position: sticky;
 	top: 0;
@@ -1962,18 +1962,18 @@ body {
 		0 18px 32px -12px rgba(0, 0, 0, 0.65);
 }
 
-/* 与中间列背景接近，减轻接缝感 */
+/* ?????????????? */
 .ref-center--chat .ref-msg-sticky-user-wrap {
 	background: var(--void-bg-0);
 }
 
-/* 避免 sticky 层内下拉菜单被下方 diff 卡片盖住 */
+/* ?? sticky ????????? diff ???? */
 .ref-msg-sticky-user-wrap .ref-msg-slot {
 	position: relative;
 	z-index: 1;
 }
 
-/* 已发送用户话：圆角矩形 + 浅底 + 细边框，提示可点（不用 999px，避免长文变竖向胶囊/椭圆） */
+/* ??????????? + ?? + ??????????? 999px??????????/??? */
 .ref-msg-user {
 	display: block;
 	width: 100%;
@@ -2071,7 +2071,7 @@ body {
 	margin-top: 2px;
 }
 
-/* Cursor 式：标题行小号、中灰；展开正文更淡、无重卡片 */
+/* Cursor ?????????????????????? */
 .ref-thought-head {
 	display: inline-flex;
 	align-items: center;
@@ -2399,14 +2399,14 @@ body {
 	color: var(--void-fg-2);
 }
 
-/* Agent 模式：对话内分文件 diff 卡片（对齐 Cursor / Qoder 侧栏观感） */
+/* Agent ????????? diff ????? Cursor / Qoder ????? */
 .ref-md-root--agent-chat {
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
 }
 
-/* ─── Segment 入场动画：activity / edit card / activity group 渐入 ─── */
+/* ??? Segment ?????activity / edit card / activity group ?? ??? */
 @keyframes ref-seg-enter {
 	from {
 		opacity: 0;
@@ -2424,7 +2424,7 @@ body {
 	animation: ref-seg-enter 0.28s ease-out both;
 }
 
-/* ─── 通用可折叠容器：CSS grid 平滑高度过渡 ─── */
+/* ??? ????????CSS grid ?????? ??? */
 .ref-collapse-grid {
 	display: grid;
 	grid-template-rows: 0fr;
@@ -2472,7 +2472,7 @@ body {
 	white-space: pre-line;
 }
 
-/* read_file 活动：点击打开右侧编辑器并高亮读取区间（对齐 Cursor Agent） */
+/* read_file ?????????????????????? Cursor Agent? */
 .ref-agent-activity-ref-link {
 	display: inline;
 	max-width: 100%;
@@ -2543,7 +2543,10 @@ body {
 	color: var(--void-fg-2);
 	background: linear-gradient(90deg, transparent 0%, rgba(250, 204, 21, 0.03) 50%, transparent 100%);
 	background-size: 200% 100%;
-	animation: ref-activity-shimmer 2.4s ease-in-out infinite;
+	/* ?????? shimmer???????? ref-seg-enter */
+	animation:
+		ref-seg-enter 0.32s ease-out both,
+		ref-activity-shimmer 2.4s ease-in-out infinite;
 }
 
 @keyframes ref-activity-shimmer {
@@ -2569,7 +2572,7 @@ body {
 	}
 }
 
-/* ─── AgentActivityGroup：Cursor 风格 "Explored N files" 折叠分组 ─── */
+/* ??? AgentActivityGroup?Cursor ?? "Explored N files" ???? ??? */
 
 .ref-activity-group {
 	display: flex;
@@ -2585,7 +2588,7 @@ body {
 	border-color: rgba(250, 204, 21, 0.12);
 }
 
-/* 摘要行（始终可见的 header 按钮） */
+/* ????????? header ??? */
 .ref-activity-group-header {
 	display: flex;
 	align-items: center;
@@ -2653,7 +2656,7 @@ body {
 	transform: rotate(180deg);
 }
 
-/* 详情区：用 CSS grid 实现平滑展开/折叠 */
+/* ????? CSS grid ??????/?? */
 .ref-activity-group-collapse {
 	display: grid;
 	grid-template-rows: 0fr;
@@ -2682,12 +2685,12 @@ body {
 	display: none;
 }
 
-/* 进行中：固定最大高度，内容自动滚底 */
+/* ????????????????? */
 .ref-activity-group-body--live {
 	max-height: 260px;
 }
 
-/* 每一行 activity：圆点与首行文字垂直居中（1lh 包裹层） */
+/* ??? activity?????????????1lh ???? */
 .ref-activity-group-row {
 	display: flex;
 	flex-direction: column;
@@ -2706,7 +2709,7 @@ body {
 	min-width: 0;
 }
 
-/* 高度为一行，圆点在行盒内垂直居中，与左侧文字首行对齐 */
+/* ?????????????????????????? */
 .ref-activity-group-row-dot-wrap {
 	display: flex;
 	align-items: center;
@@ -2735,7 +2738,9 @@ body {
 .ref-activity-group-row--pending {
 	background: linear-gradient(90deg, transparent 0%, rgba(250, 204, 21, 0.025) 50%, transparent 100%);
 	background-size: 200% 100%;
-	animation: ref-activity-shimmer 2.4s ease-in-out infinite;
+	animation:
+		ref-seg-enter 0.32s ease-out both,
+		ref-activity-shimmer 2.4s ease-in-out infinite;
 }
 
 .ref-activity-group-row--pending .ref-activity-group-row-dot {
@@ -2752,7 +2757,7 @@ body {
 	flex-wrap: wrap;
 }
 
-/* detail / 结果卡片：与首列文字左缘对齐（与原先 row-content 内一致） */
+/* detail / ?????????????????? row-content ???? */
 .ref-activity-group-row-rest {
 	display: flex;
 	flex-direction: column;
@@ -2761,7 +2766,7 @@ body {
 	min-width: 0;
 }
 
-/* ─── AgentResultCard：search_files / read_file / list_dir 成功结果折叠卡片 ─── */
+/* ??? AgentResultCard?search_files / read_file / list_dir ???????? ??? */
 .ref-result-card {
 	margin: 4px 0 2px 16px;
 	border-radius: 8px;
@@ -2770,7 +2775,7 @@ body {
 	overflow: hidden;
 }
 
-/* 流式播放态：固定高度 + 滚动条，内容追加时自动滚底 */
+/* ?????????? + ????????????? */
 .ref-result-card-body--stream {
 	height: 160px;
 	overflow-y: auto;
@@ -2793,7 +2798,7 @@ body {
 	border-radius: 2px;
 }
 
-/* 流式末尾的闪烁光标条 */
+/* ?????????? */
 .ref-result-card-stream-cursor {
 	height: 2px;
 	width: 28px;
@@ -2821,7 +2826,7 @@ body {
 	transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 删除旧的字符级打字光标（已不再使用） */
+/* ?????????????????? */
 
 .ref-result-card-line {
 	display: flex;
@@ -2922,7 +2927,7 @@ body {
 	word-break: break-word;
 }
 
-/* Monaco colorize 输出：与未着色时一致的换行行为 */
+/* Monaco colorize ??????????????? */
 .ref-result-card-match--monaco {
 	white-space: pre-wrap;
 	word-break: break-word;
@@ -2932,7 +2937,7 @@ body {
 	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* 折叠渐变 + 展开按钮 */
+/* ???? + ???? */
 .ref-result-card-chrome {
 	position: relative;
 	display: flex;
@@ -2995,7 +3000,7 @@ body {
 	outline-offset: 2px;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────── */
+/* ??????????????????????????????????????????????????????????????????????????? */
 
 .ref-agent-diff-card {
 	border-radius: 12px;
@@ -3096,7 +3101,7 @@ body {
 	font-weight: 500;
 }
 
-/* 折叠预览：与 Cursor 类似，仅前几行 + 底部渐变 + 展开 */
+/* ?????? Cursor ??????? + ???? + ?? */
 .ref-agent-diff-card-body--preview {
 	position: relative;
 	overflow: hidden;
@@ -3225,7 +3230,7 @@ body {
 	min-height: 0;
 }
 
-/* 夹在可滚动消息区与底部输入之间：必须可收缩，否则 flex 子项 min-height:auto 会裁切或撑破布局 */
+/* ???????????????????????? flex ?? min-height:auto ???????? */
 .ref-center--chat .ref-agent-review {
 	flex: 0 1 auto;
 	max-height: min(50vh, 560px);
@@ -3458,8 +3463,8 @@ body {
 		0 0 80px rgba(99, 102, 241, 0.06);
 }
 
-/* 有对话时底部：圆角条 + 中间多行输入。
-   勿用 999px「全胶囊」：变高时左右会变成半圆，整框像拉长的椭圆。 */
+/* ?????????? + ???????
+   ?? 999px?????????????????????????? */
 .ref-capsule--followup-bar {
 	border-radius: 18px;
 	padding: 6px 8px 6px 10px;
@@ -3504,7 +3509,7 @@ body {
 	padding: 0;
 }
 
-/* 跟在 .ref-composer-rich-input 后，保证 follow-up 条用较小上限（保留原视觉，内滚动） */
+/* ?? .ref-composer-rich-input ???? follow-up ????????????????? */
 .ref-capsule--followup-bar .ref-composer-rich-input.ref-followup-rich-input {
 	min-height: 36px;
 	max-height: 140px;
@@ -3569,7 +3574,7 @@ body {
 	white-space: nowrap;
 }
 
-/* 有对话时内联编辑：仍用上下分栏 + 较大输入区；内滚动由 .ref-composer-rich-input 的 max-height 负责 */
+/* ??????????????? + ?????????? .ref-composer-rich-input ? max-height ?? */
 .ref-capsule--stacked-chat {
 	border-radius: 16px;
 	padding: 14px 16px 12px;
@@ -3599,7 +3604,7 @@ body {
 	color: var(--void-fg-3);
 }
 
-/* contenteditable 内联输入（@ 文件 chip 与正文同一流） */
+/* contenteditable ?????@ ?? chip ??????? */
 .ref-composer-rich-wrap {
 	width: 100%;
 	min-width: 0;
@@ -3730,7 +3735,7 @@ body {
 	min-width: 0;
 }
 
-/* 首屏大输入区：更高上限 + 内滚动；避免与 stacked 的 .ref-capsule-input 抢 max-height */
+/* ??????????? + ??????? stacked ? .ref-capsule-input ? max-height */
 .ref-composer-hero-body .ref-composer-rich-input.ref-capsule-input {
 	min-height: 120px;
 	max-height: min(40vh, 520px);
@@ -3954,7 +3959,7 @@ body {
 	display: block;
 }
 
-/* Composer @ 提及菜单（对齐 Cursor） */
+/* Composer @ ??????? Cursor? */
 .ref-at-menu {
 	background: var(--void-bg-2);
 	border: 1px solid var(--void-border-soft);
@@ -5150,7 +5155,7 @@ body {
 	overflow: hidden;
 }
 
-/* —— Open Workspace 弹层（参考 Cursor） —— */
+/* ?? Open Workspace ????? Cursor? ?? */
 .ws-modal-backdrop {
 	position: fixed;
 	inset: 0;
@@ -5368,7 +5373,7 @@ body {
 	color: #f0ab8c;
 }
 
-/* —— 模型下拉（参考 Cursor / Antigravity） —— */
+/* ?? ??????? Cursor / Antigravity? ?? */
 .ref-model-pill-anchor {
 	position: relative;
 	display: inline-flex;
@@ -5385,7 +5390,7 @@ body {
 	border: 1px solid var(--void-border);
 	background: var(--void-bg-1);
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
-	/* max-height / min-height / overflow 由内联布局控制，避免被裁切 */
+	/* max-height / min-height / overflow ????????????? */
 }
 
 .ref-model-dd--split {
@@ -5800,7 +5805,7 @@ body {
 	background: var(--void-bg-2);
 }
 
-/* —— 输入区「+」菜单（模式 / 上下文） —— */
+/* ?? ????+?????? / ???? ?? */
 .ref-plus-menu {
 	position: fixed;
 	z-index: 2195;
@@ -5810,7 +5815,7 @@ body {
 	border: 1px solid var(--void-border);
 	background: var(--void-bg-1);
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
-	/* max-height / min-height / overflow-y 由内联布局控制 */
+	/* max-height / min-height / overflow-y ??????? */
 }
 
 .ref-plus-menu--above {
@@ -5901,7 +5906,7 @@ body {
 	margin: 8px 4px;
 }
 
-/* —— 全屏设置页 —— */
+/* ?? ????? ?? */
 .ref-settings-backdrop {
 	position: fixed;
 	inset: 0;
@@ -5909,14 +5914,14 @@ body {
 	background: rgba(6, 6, 8, 0.92);
 	backdrop-filter: blur(10px);
 	-webkit-backdrop-filter: blur(10px);
-	/* 与内层 flex 链配合，把高度锁在视口内，右侧主栏才能出现纵向滚动条 */
+	/* ??? flex ?????????????????????????? */
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
 	animation: ref-settings-backdrop-in 0.38s var(--void-ease-out-expo) both;
 }
 
-/* App 里包住 SettingsPage 的壳：承接 backdrop 高度并传给 .ref-settings-root */
+/* App ??? SettingsPage ????? backdrop ????? .ref-settings-root */
 .ref-settings-mount {
 	flex: 1;
 	min-height: 0;
@@ -6098,7 +6103,7 @@ body {
 .ref-settings-main {
 	flex: 1;
 	min-width: 0;
-	/* flex 子项默认可无限增高，必须 min-height:0 才能在高度不足时出现纵向滚动条 */
+	/* flex ???????????? min-height:0 ??????????????? */
 	min-height: 0;
 	display: flex;
 	flex-direction: column;
@@ -7139,9 +7144,9 @@ body {
 	}
 }
 
-/* ─── Plan Question Dialog ─── */
+/* ??? Plan Question Dialog ??? */
 
-/* 与 .ref-command-stack / .ref-msg-slot 同宽：占满中间列、上限 720px */
+/* ? .ref-command-stack / .ref-msg-slot ??????????? 720px */
 .ref-plan-q {
 	width: 100%;
 	max-width: min(100%, 720px);
@@ -7315,7 +7320,7 @@ body {
 	font-size: 11px;
 }
 
-/* ─── Plan Review Panel ─── */
+/* ??? Plan Review Panel ??? */
 
 .ref-plan-review {
 	width: 100%;
@@ -7551,7 +7556,7 @@ body {
 	border: none;
 }
 
-/* ── Agent File Changes Card (Cursor style) ──────────────────────────── */
+/* ?? Agent File Changes Card (Cursor style) ???????????????????????????? */
 
 .ref-fc {
 	border: 1px solid var(--void-border-soft, #2a2a2a);
@@ -7709,7 +7714,7 @@ body {
 	color: #ef4444;
 }
 
-/* ── Inline Agent Edit Card (per-edit, Cursor style) ─────────────────── */
+/* ?? Inline Agent Edit Card (per-edit, Cursor style) ??????????????????? */
 
 .ref-edit-card {
 	border: 1px solid var(--void-border-soft, #2a2a2a);
@@ -7784,7 +7789,7 @@ body {
 	padding: 0 10px 8px;
 }
 
-/* 流式写入：固定预览区高度 + 内部滚动，避免内容行数波动时整块卡片高度忽高忽低 */
+/* ???????????? + ???????????????????????? */
 .ref-edit-card-preview-wrap--streaming-scroll {
 	height: 260px;
 	max-height: 260px;
@@ -7886,7 +7891,7 @@ body {
 	}
 }
 
-/* ── Bottom File Changes Panel (sticky above input) ──────────────────── */
+/* ?? Bottom File Changes Panel (sticky above input) ???????????????????? */
 
 .ref-fcp {
 	border: 1px solid var(--void-border-soft, #2a2a2a);
@@ -7969,7 +7974,7 @@ body {
 	padding: 0 0 4px;
 }
 
-/* ── Editor highlight for agent changes ──────────────────────────────── */
+/* ?? Editor highlight for agent changes ???????????????????????????????? */
 
 .ref-editor-highlight-line {
 	background: rgba(212, 175, 55, 0.13);
@@ -7983,7 +7988,7 @@ body {
 	100% { background: transparent; border-left-color: transparent; }
 }
 
-/* ── End File Changes Card ───────────────────────────────────────────── */
+/* ?? End File Changes Card ????????????????????????????????????????????? */
 
 @media (prefers-reduced-motion: reduce) {
 	.ref-right-panel-view,
@@ -8023,7 +8028,7 @@ body {
 	}
 }
 
-/* ═══ Layout Toggle ═══ */
+/* ??? Layout Toggle ??? */
 .ref-layout-toggle {
 	display: flex;
 	align-items: center;
@@ -8061,7 +8066,7 @@ body {
 	color: #a5b4fc;
 }
 
-/* ═══ Editor Tab Bar ═══ */
+/* ??? Editor Tab Bar ??? */
 .ref-tab-bar {
 	display: flex;
 	align-items: stretch;
@@ -8097,7 +8102,7 @@ body {
 	user-select: none;
 }
 
-/* 仅标题区触发切换标签；关闭钮独立，避免首击落在整行 div 上只激活不关 */
+/* ????????????????????????? div ?????? */
 .ref-tab-main {
 	flex: 1 1 auto;
 	min-width: 0;
@@ -8164,7 +8169,7 @@ body {
 	cursor: pointer;
 	flex-shrink: 0;
 	padding: 0;
-	/* 非当前标签也保留弱可见命中区，避免首击误落到「仅激活」路径 */
+	/* ????????????????????????????? */
 	opacity: 0.4;
 	transition: opacity 0.1s ease, background 0.1s ease;
 }
@@ -8179,7 +8184,7 @@ body {
 	color: var(--void-fg-0);
 }
 
-/* ═══ Editor Layout Mode ═══ */
+/* ??? Editor Layout Mode ??? */
 
 /* In editor layout, the center becomes the code editor and top-level grid stays the same */
 
@@ -8485,7 +8490,7 @@ body {
 	overflow: auto;
 }
 
-/* Editor 左侧栏：与对话区一致，非悬停滚动条渐隐 */
+/* Editor ??????????????????? */
 .ref-body--editor .ref-left-scroll,
 .ref-body--editor .ref-explorer-body--workspace {
 	scrollbar-color: rgba(58, 58, 66, 0) transparent;
@@ -8540,7 +8545,7 @@ body {
 	margin-bottom: 8px;
 }
 
-/* Editor 左侧资源管理器：贴边、无内嵌卡片感（不影响 Agent 侧栏） */
+/* Editor ????????????????????? Agent ??? */
 .ref-body--editor .ref-left-scroll {
 	padding: 0;
 }
@@ -8635,7 +8640,7 @@ body {
 	min-height: 0;
 }
 
-/* 底部终端：VS Code 式顶栏（标签 + 操作） */
+/* ?????VS Code ?????? + ??? */
 .ref-editor-panel-terminal-tabs {
 	display: flex;
 	align-items: center;
@@ -8739,7 +8744,7 @@ body {
 	padding: 2px 4px 4px;
 }
 
-/* xterm 实际滚动层为 .xterm > .xterm-viewport；与对话区一致，非悬停滚动条渐隐 */
+/* xterm ?????? .xterm > .xterm-viewport???????????????? */
 .pty-term-root .xterm .xterm-viewport {
 	scrollbar-color: rgba(58, 58, 66, 0) transparent;
 	transition: scrollbar-color 0.35s var(--void-ease-out-expo);
@@ -8806,7 +8811,7 @@ body {
 	color: var(--void-fg-1);
 }
 
-/* 面包屑 + 工具（单行，贴近 VS Code） */
+/* ??? + ???????? VS Code? */
 .ref-editor-bc-toolbar-row {
 	flex-shrink: 0;
 	display: flex;
@@ -9061,7 +9066,7 @@ body {
 	overflow: hidden;
 }
 
-/* Cursor 式顶栏：横向对话标签 + 右侧工具按钮 */
+/* Cursor ?????????? + ?????? */
 .ref-editor-chat-tab-rail {
 	display: flex;
 	align-items: stretch;
@@ -9393,7 +9398,7 @@ body {
 	font-size: 11px;
 }
 
-/* Editor 布局右侧：Plan 问答 / 审查与 .ref-messages 同级，无其 padding，用宽度与居中与消息区左右 16px 对齐 */
+/* Editor ?????Plan ?? / ??? .ref-messages ????? padding????????????? 16px ?? */
 .ref-right--editor-chat .ref-plan-q {
 	width: calc(100% - 32px);
 	max-width: 720px;
@@ -9412,12 +9417,12 @@ body {
 	box-sizing: border-box;
 }
 
-/* Editor 布局右侧：消息与输入区左右留白一致（避免气泡贴侧栏边缘） */
+/* Editor ???????????????????????????? */
 .ref-right--editor-chat .ref-messages {
 	padding-left: 16px;
 	padding-right: 16px;
 	box-sizing: border-box;
-	/* 与 .ref-center--chat .ref-messages 一致：仅悬停消息区时滚动条渐显，移到输入区等区域时渐隐 */
+	/* ? .ref-center--chat .ref-messages ??????????????????????????? */
 	scrollbar-color: rgba(58, 58, 66, 0) transparent;
 	transition: scrollbar-color 0.35s var(--void-ease-out-expo);
 }
@@ -9455,7 +9460,7 @@ body {
 	background: var(--void-scrollbar-thumb-active);
 }
 
-/* Editor 布局右侧：对话区与中间列「有对话时」同样占满并贴底输入 */
+/* Editor ??????????????????????????? */
 .ref-right--editor-chat--active .ref-messages {
 	flex: 1 1 auto;
 	min-height: 0;
@@ -9516,9 +9521,9 @@ body {
 }
 
 
-/* �T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T
+/* ?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T
    MCP Settings Panel Styles (Cursor-style)
-   �T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T�T */
+   ?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T?T */
 
 .ref-settings-panel--mcp {
 	padding: 0;

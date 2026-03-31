@@ -28,7 +28,6 @@ export type SettingsNavId =
 	| 'rules'
 	| 'tools'
 	| 'hooks'
-	| 'mcp'
 	| 'indexing'
 	| 'network'
 	| 'beta'
@@ -48,9 +47,8 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'cloud', label: t('settings.nav.cloud'), soon: true },
 		{ id: 'plugins', label: t('settings.nav.plugins'), soon: true },
 		{ id: 'rules', label: t('settings.nav.rules') },
-		{ id: 'tools', label: t('settings.nav.tools'), soon: true },
+		{ id: 'tools', label: t('settings.nav.tools') },
 		{ id: 'hooks', label: t('settings.nav.hooks'), soon: true },
-		{ id: 'mcp', label: t('settings.nav.mcp') },
 		{ id: 'indexing', label: t('settings.nav.indexing') },
 		{ id: 'network', label: t('settings.nav.network'), soon: true },
 		{ id: 'beta', label: t('settings.nav.beta'), soon: true },
@@ -137,7 +135,7 @@ function navIcon(id: SettingsNavId) {
 			return <IconGear />;
 		case 'models':
 			return <IconChip />;
-		case 'mcp':
+		case 'tools':
 			return <IconPlug />;
 		default:
 			return <IconGear />;
@@ -347,7 +345,7 @@ export function SettingsPage({
 										item.id !== 'general' &&
 										item.id !== 'editor' &&
 										item.id !== 'indexing' &&
-										item.id !== 'mcp'
+										item.id !== 'tools'
 									) {
 										return;
 									}
@@ -389,13 +387,13 @@ export function SettingsPage({
 								{nav === 'models' ? t('settings.title.models') : null}
 								{nav === 'rules' ? t('settings.title.rules') : null}
 								{nav === 'editor' ? t('settings.title.editor') : null}
-								{nav === 'mcp' ? t('settings.title.mcp') : null}
+								{nav === 'tools' ? t('settings.title.tools') : null}
 								{nav === 'indexing' ? t('settings.title.indexing') : null}
 								{nav !== 'general' &&
 								nav !== 'models' &&
 								nav !== 'rules' &&
 								nav !== 'editor' &&
-								nav !== 'mcp' &&
+								nav !== 'tools' &&
 								nav !== 'indexing'
 									? t('settings.title.comingSoon')
 									: null}
@@ -705,7 +703,7 @@ export function SettingsPage({
 							/>
 						) : null}
 
-						{nav === 'mcp' ? (
+						{nav === 'tools' ? (
 							<SettingsMcpPanel
 								servers={mcpServers}
 								statuses={mcpStatuses}
@@ -721,7 +719,7 @@ export function SettingsPage({
 						nav !== 'models' &&
 						nav !== 'rules' &&
 						nav !== 'editor' &&
-						nav !== 'mcp' &&
+						nav !== 'tools' &&
 						nav !== 'indexing' ? (
 							<div className="ref-settings-panel">
 								<p className="ref-settings-lead">{t('settings.comingCategory')}</p>
