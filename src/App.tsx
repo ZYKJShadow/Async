@@ -49,7 +49,7 @@ import { ComposerThoughtBlock } from './ComposerThoughtBlock';
 import { ComposerAtMenu } from './ComposerAtMenu';
 import { ComposerRichInput } from './ComposerRichInput';
 import { PlanQuestionDialog } from './PlanQuestionDialog';
-import { ToolApprovalDialog } from './ToolApprovalDialog';
+import { ToolApprovalInlineCard } from './ToolApprovalCard';
 import { AgentMistakeLimitDialog } from './AgentMistakeLimitDialog';
 import { PlanReviewPanel } from './PlanReviewPanel';
 import {
@@ -3358,20 +3358,6 @@ export default function App() {
 					/>
 				) : null}
 
-				<ToolApprovalDialog
-					open={toolApprovalRequest !== null}
-					payload={toolApprovalRequest}
-					onAllow={() => void respondToolApproval(true)}
-					onDeny={() => void respondToolApproval(false)}
-					title={
-						toolApprovalRequest?.toolName === 'execute_command'
-							? t('agent.toolApproval.titleShell')
-							: t('agent.toolApproval.titleWrite')
-					}
-					allowLabel={t('agent.toolApproval.allow')}
-					denyLabel={t('agent.toolApproval.deny')}
-				/>
-
 				<AgentMistakeLimitDialog
 					open={mistakeLimitRequest !== null}
 					payload={mistakeLimitRequest}
@@ -3408,6 +3394,20 @@ export default function App() {
 
 		const commandStack = (
 			<div className="ref-command-stack">
+				{toolApprovalRequest ? (
+					<ToolApprovalInlineCard
+						payload={toolApprovalRequest}
+						onAllow={() => void respondToolApproval(true)}
+						onDeny={() => void respondToolApproval(false)}
+						title={
+							toolApprovalRequest.toolName === 'execute_command'
+								? t('agent.toolApproval.titleShell')
+								: t('agent.toolApproval.titleWrite')
+						}
+						allowLabel={t('agent.toolApproval.allow')}
+						denyLabel={t('agent.toolApproval.deny')}
+					/>
+				) : null}
 				{hasConversation && composerMode === 'agent' && agentFileChanges.length > 0 && !awaitingReply && !fileChangesDismissed ? (
 					<AgentFileChangesPanel
 						files={agentFileChanges}

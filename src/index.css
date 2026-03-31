@@ -1550,68 +1550,51 @@ body {
 	line-height: 1;
 }
 
-/* Agent 工具执行前确认（shell / 可选写入） */
-.ref-tool-approval-overlay {
-	position: fixed;
-	inset: 0;
-	z-index: 50000;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	padding: 24px;
-	pointer-events: auto;
-}
-
-.ref-tool-approval-backdrop {
-	position: absolute;
-	inset: 0;
-	background: rgba(0, 0, 0, 0.55);
-	backdrop-filter: blur(2px);
-}
-
-.ref-tool-approval-card {
-	position: relative;
-	z-index: 1;
-	width: min(560px, 100%);
-	max-height: min(72vh, 520px);
-	display: flex;
-	flex-direction: column;
-	border-radius: 14px;
+/* Agent 工具执行前确认：内联卡片（紧贴输入区上方） */
+.ref-tool-approval-inline {
+	flex-shrink: 0;
+	margin-bottom: 10px;
+	border-radius: var(--void-radius-lg);
 	border: 1px solid var(--void-border-soft);
 	background: var(--void-bg-1);
-	box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+	overflow: hidden;
 }
 
-.ref-tool-approval-title {
+.ref-tool-approval-inline-inner {
+	border-left: 3px solid var(--void-ring);
+}
+
+.ref-tool-approval-inline-title {
 	margin: 0;
-	padding: 16px 18px 8px;
-	font-size: 15px;
+	padding: 12px 16px 6px;
+	font-size: 14px;
 	font-weight: 650;
 	color: var(--void-fg-0);
+	line-height: 1.35;
 }
 
-.ref-tool-approval-body {
-	margin: 0 18px 12px;
-	padding: 12px 14px;
-	border-radius: 10px;
+.ref-tool-approval-inline-body {
+	margin: 0 16px 10px;
+	padding: 10px 12px;
+	max-height: min(28vh, 220px);
+	border-radius: 8px;
 	border: 1px solid rgba(255, 255, 255, 0.08);
-	background: rgba(8, 8, 12, 0.9);
+	background: rgba(8, 8, 12, 0.75);
 	color: var(--void-fg-1);
 	font-size: 12px;
 	line-height: 1.5;
 	white-space: pre-wrap;
 	word-break: break-word;
 	overflow: auto;
-	flex: 1;
-	min-height: 0;
 	font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 
-.ref-tool-approval-actions {
+.ref-tool-approval-inline-actions {
 	display: flex;
 	justify-content: flex-end;
 	gap: 10px;
-	padding: 12px 18px 16px;
+	padding: 10px 16px 14px;
 	border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
