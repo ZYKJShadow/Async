@@ -13,6 +13,15 @@ import {
 } from './agentChatSegments';
 import { useI18n } from './i18n';
 
+/** 有 tool_input_delta 预览时，解析层也会生成 isStreaming 的 file_edit，避免与预览重复且保证预览优先显示 */
+function dropParsedStreamingFileEditWhilePreview(
+	segments: AssistantSegment[],
+	hasPreview: boolean
+): AssistantSegment[] {
+	if (!hasPreview) return segments;
+	return segments.filter((seg) => !(seg.type === 'file_edit' && seg.isStreaming));
+}
+
 type Props = {
 	content: string;
 	agentUi?: boolean;
@@ -41,13 +50,15 @@ export function ChatMarkdown({
 		);
 	}
 
-	const segments = segmentAssistantContent(content, { t });
-	const renderSegments: AssistantSegment[] = [
-		...segments,
-		...buildStreamingToolSegments(streamingToolPreview, { t }),
-	];
-	const lastSeg = renderSegments[renderSegments.length - 1];
-	const hasPendingTail = lastSeg?.type === 'activity' && lastSeg.status === 'pending';
+	const parsedSegments = dropParsedStreamingFileEditWhilePreview(
+		segmentAssistantContent(content, { t }),
+		streamingToolPreview != null
+	);
+	const streamingSegments = buildStreamingToolSegments(streamingToolPreview, { t });
+	const renderSegments: AssistantSegment[] = [...parsedSegments, ...streamingSegments];
+	const hasPendingTail =
+		renderSegments.some((s) => s.type === 'activity' && s.status === 'pending') ||
+		streamingToolPreview != null;
 	if (showAgentWorking && !hasPendingTail) {
 		renderSegments.push({
 			type: 'activity',

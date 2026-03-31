@@ -5,6 +5,7 @@ import type { ShellSettings } from '../settingsStore.js';
 import { composeSystem, temperatureForMode } from './modePrompts.js';
 import type { StreamHandlers, TurnTokenUsage, UnifiedChatOptions } from './types.js';
 import { anthropicEffectiveMaxTokens, anthropicThinkingBudget } from './thinkingLevel.js';
+import { resolveStreamTimeouts, createStreamTimeoutManager } from './streamTimeouts.js';
 
 function toAnthropicMessages(messages: ChatMessage[]): MessageParam[] {
 	const nonSystem = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
@@ -68,19 +69,15 @@ export async function streamAnthropic(
 		return;
 	}
 
-	const CHUNK_SILENCE_MS = 90_000;
-	const ROUND_HARD_MS = 300_000;
-
 	let full = '';
 	let usage: TurnTokenUsage | undefined;
 
 	const timeoutAc = new AbortController();
 	options.signal.addEventListener('abort', () => timeoutAc.abort(), { once: true });
-	let lastChunkAt = Date.now();
-	const silenceTimer = setInterval(() => {
-		if (Date.now() - lastChunkAt > CHUNK_SILENCE_MS) timeoutAc.abort();
-	}, 5_000);
-	const hardTimer = setTimeout(() => timeoutAc.abort(), ROUND_HARD_MS);
+
+	const timeoutConfig = resolveStreamTimeouts(settings);
+	const timeoutMgr = createStreamTimeoutManager(timeoutConfig, () => timeoutAc.abort());
+	timeoutMgr.start();
 
 	try {
 		const stream = client.messages.stream(
@@ -99,7 +96,7 @@ export async function streamAnthropic(
 			if (timeoutAc.signal.aborted) {
 				break;
 			}
-			lastChunkAt = Date.now();
+			timeoutMgr.onChunk();
 			if (ev.type === 'message_start' && ev.message.usage) {
 				usage = {
 					inputTokens: ev.message.usage.input_tokens,
@@ -127,12 +124,10 @@ export async function streamAnthropic(
 				}
 			}
 		}
-		clearInterval(silenceTimer);
-		clearTimeout(hardTimer);
+		timeoutMgr.stop();
 		handlers.onDone(full, usage);
 	} catch (e: unknown) {
-		clearInterval(silenceTimer);
-		clearTimeout(hardTimer);
+		timeoutMgr.stop();
 		if (options.signal.aborted) {
 			handlers.onDone(full, usage);
 			return;

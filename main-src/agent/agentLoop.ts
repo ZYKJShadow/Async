@@ -32,19 +32,15 @@ import {
 import { executeTool, type ToolExecutionHooks } from './toolExecutor.js';
 import { repairAgentThreadMessagesForApi } from './agentToolProtocolRepair.js';
 import type { MistakeLimitContext, MistakeLimitDecision } from './mistakeLimitGate.js';
+import { resolveStreamTimeouts, createStreamTimeoutManager } from '../llm/streamTimeouts.js';
 
 export type { MistakeLimitContext, MistakeLimitDecision } from './mistakeLimitGate.js';
 
 /** 执行工具前闸门；返回 proceed:false 时不调用 executeTool，结果写入对话为失败 tool_result */
 export type BeforeExecuteToolResult = { proceed: true } | { proceed: false; rejectionMessage: string };
 
-const MAX_ROUNDS = 25;
+const MAX_ROUNDS = 80;
 const DEFAULT_MAX_CONSECUTIVE_MISTAKES = 5;
-
-/** 单轮流式 chunk 最长静默时间（ms）；大段工具 JSON 可能长时间无 chunk，过短会误杀长写 */
-const CHUNK_SILENCE_TIMEOUT_MS = 180_000;
-/** 单轮 LLM 调用总时长上限（ms）；防止极端长输出永不结束 */
-const ROUND_HARD_TIMEOUT_MS = 600_000;
 
 export type ToolInputDeltaPayload = { name: string; partialJson: string; index: number };
 
@@ -362,6 +358,8 @@ async function runOpenAILoop(
 		handlers.onToolCall(tc.name, args);
 		await new Promise<void>((r) => setTimeout(r, 0));
 
+		const gateStart = Date.now();
+		console.log(`[AgentLoop] tool=${tc.name} — beforeExecuteTool start`);
 		let gate: BeforeExecuteToolResult = { proceed: true };
 		if (options.beforeExecuteTool) {
 			try {
@@ -373,6 +371,7 @@ async function runOpenAILoop(
 				};
 			}
 		}
+		console.log(`[AgentLoop] tool=${tc.name} — beforeExecuteTool done (${Date.now() - gateStart}ms, proceed=${gate.proceed})`);
 		if (!gate.proceed) {
 			const msg = gate.rejectionMessage;
 			if (mistakeLimitEnabled) consecutiveToolFailures++;
@@ -381,7 +380,10 @@ async function runOpenAILoop(
 			return { role: 'tool', tool_call_id: tc.id, content: msg };
 		}
 
+		const execStart = Date.now();
+		console.log(`[AgentLoop] tool=${tc.name} — executeTool start`);
 		const result = await executeTool(toolCall, options.toolHooks);
+		console.log(`[AgentLoop] tool=${tc.name} — executeTool done (${Date.now() - execStart}ms, error=${result.isError})`);
 		if (mistakeLimitEnabled) {
 			if (result.isError) {
 				consecutiveToolFailures++;
@@ -423,13 +425,18 @@ async function runOpenAILoop(
 		}
 	}
 
+	const streamTimeoutConfig = resolveStreamTimeouts(settings);
+	console.log(`[AgentLoop] OpenAI loop start — idleMs=${streamTimeoutConfig.idleMs} hardMs=${streamTimeoutConfig.hardMs} watchdog=${streamTimeoutConfig.idleWatchdogEnabled}`);
+
 	for (let round = 0; round < MAX_ROUNDS; round++) {
-		if (options.signal.aborted) break;
+		if (options.signal.aborted) { console.log(`[AgentLoop] round ${round} — aborted before start`); break; }
 
 		if (await handleMistakeLimitBeforeRound()) {
 			return;
 		}
 
+		console.log(`[AgentLoop] round ${round} — starting LLM call`);
+		const roundStartAt = Date.now();
 		let turnText = '';
 		const turnToolCalls: TurnTc[] = [];
 		let turnFinishReason: string | null = null;
@@ -439,13 +446,8 @@ async function runOpenAILoop(
 		const roundSignal = roundAc.signal;
 		options.signal.addEventListener('abort', () => roundAc.abort(), { once: true });
 
-		let lastChunkAt = Date.now();
-		const silenceTimer = setInterval(() => {
-			if (Date.now() - lastChunkAt > CHUNK_SILENCE_TIMEOUT_MS) {
-				roundAc.abort();
-			}
-		}, 5_000);
-		const hardTimer = setTimeout(() => roundAc.abort(), ROUND_HARD_TIMEOUT_MS);
+		const timeoutMgr = createStreamTimeoutManager(streamTimeoutConfig, () => roundAc.abort());
+		timeoutMgr.start();
 
 		try {
 			const stream = await client.chat.completions.create(
@@ -464,7 +466,7 @@ async function runOpenAILoop(
 
 			for await (const chunk of stream) {
 				if (roundSignal.aborted) break;
-				lastChunkAt = Date.now();
+				timeoutMgr.onChunk();
 
 				if (chunk.usage) {
 					accUsage = {
@@ -511,8 +513,7 @@ async function runOpenAILoop(
 			toolDeltaBatcher.flush();
 		} catch (e: unknown) {
 			toolDeltaBatcher.flush();
-			clearInterval(silenceTimer);
-			clearTimeout(hardTimer);
+			timeoutMgr.stop();
 			if (options.signal.aborted) {
 				synthesizeMissingOpenAIToolResults(conversation, turnToolCalls, '已中止生成');
 				break;
@@ -528,10 +529,11 @@ async function runOpenAILoop(
 			handlers.onError(e instanceof Error ? e.message : String(e));
 			return;
 		}
-		clearInterval(silenceTimer);
-		clearTimeout(hardTimer);
+		timeoutMgr.stop();
+		console.log(`[AgentLoop] round ${round} — stream done (${Date.now() - roundStartAt}ms), finishReason=${turnFinishReason}, toolCalls=${turnToolCalls.filter(tc => tc.name).length}, textLen=${turnText.length}`);
 
 		if (options.signal.aborted || roundSignal.aborted) {
+			console.log(`[AgentLoop] round ${round} — aborted after stream`);
 			synthesizeMissingOpenAIToolResults(conversation, turnToolCalls, '已中止生成');
 			break;
 		}
@@ -572,9 +574,19 @@ async function runOpenAILoop(
 		};
 		conversation.push(assistantMsg);
 
+		console.log(`[AgentLoop] round ${round} — executing ${turnToolCalls.filter(tc => tc.name).length} tool(s)`);
+		const toolsStart = Date.now();
 		await flushOpenAIToolsInOrder(turnToolCalls);
+		console.log(`[AgentLoop] round ${round} — tools done (${Date.now() - toolsStart}ms)`);
+
+		if (round === MAX_ROUNDS - 1) {
+			console.warn(`[AgentLoop] MAX_ROUNDS (${MAX_ROUNDS}) exhausted — ending loop`);
+			fullContent += `\n\n---\n⚠ 已达到单次对话最大工具轮次 (${MAX_ROUNDS})，自动停止。请发送新消息继续。`;
+			handlers.onTextDelta(`\n\n---\n⚠ 已达到单次对话最大工具轮次 (${MAX_ROUNDS})，自动停止。请发送新消息继续。`);
+		}
 	}
 
+	console.log(`[AgentLoop] OpenAI loop ended — calling onDone`);
 	handlers.onDone(fullContent, accUsage);
 }
 
@@ -680,6 +692,8 @@ async function runAnthropicLoop(
 		handlers.onToolCall(tu.name, args);
 		await new Promise<void>((r) => setTimeout(r, 0));
 
+		const gateStart = Date.now();
+		console.log(`[AgentLoop/A] tool=${tu.name} — beforeExecuteTool start`);
 		let gate: BeforeExecuteToolResult = { proceed: true };
 		if (options.beforeExecuteTool) {
 			try {
@@ -691,6 +705,7 @@ async function runAnthropicLoop(
 				};
 			}
 		}
+		console.log(`[AgentLoop/A] tool=${tu.name} — beforeExecuteTool done (${Date.now() - gateStart}ms, proceed=${gate.proceed})`);
 		if (!gate.proceed) {
 			const msg = gate.rejectionMessage;
 			if (mistakeLimitEnabled) consecutiveToolFailures++;
@@ -699,7 +714,10 @@ async function runAnthropicLoop(
 			return { type: 'tool_result', tool_use_id: tu.id, content: msg, is_error: true };
 		}
 
+		const execStart = Date.now();
+		console.log(`[AgentLoop/A] tool=${tu.name} — executeTool start`);
 		const result = await executeTool(toolCall, options.toolHooks);
+		console.log(`[AgentLoop/A] tool=${tu.name} — executeTool done (${Date.now() - execStart}ms, error=${result.isError})`);
 		if (mistakeLimitEnabled) {
 			if (result.isError) {
 				consecutiveToolFailures++;
@@ -745,14 +763,18 @@ async function runAnthropicLoop(
 	}
 
 	const toolDeltaBatcherA = createToolInputDeltaBatcher((p) => handlers.onToolInputDelta?.(p));
+	const streamTimeoutConfigA = resolveStreamTimeouts(settings);
+	console.log(`[AgentLoop] Anthropic loop start — idleMs=${streamTimeoutConfigA.idleMs} hardMs=${streamTimeoutConfigA.hardMs} watchdog=${streamTimeoutConfigA.idleWatchdogEnabled}`);
 
 	for (let round = 0; round < MAX_ROUNDS; round++) {
-		if (options.signal.aborted) break;
+		if (options.signal.aborted) { console.log(`[AgentLoop/A] round ${round} — aborted before start`); break; }
 
 		if (await handleMistakeLimitBeforeRoundAnthropic()) {
 			return;
 		}
 
+		console.log(`[AgentLoop/A] round ${round} — starting LLM call`);
+		const roundStartAtA = Date.now();
 		let turnText = '';
 		let turnThinking = '';
 		let turnThinkingSignature = '';
@@ -771,13 +793,8 @@ async function runAnthropicLoop(
 		const roundSignalA = roundAcA.signal;
 		options.signal.addEventListener('abort', () => roundAcA.abort(), { once: true });
 
-		let lastChunkAtA = Date.now();
-		const silenceTimerA = setInterval(() => {
-			if (Date.now() - lastChunkAtA > CHUNK_SILENCE_TIMEOUT_MS) {
-				roundAcA.abort();
-			}
-		}, 5_000);
-		const hardTimerA = setTimeout(() => roundAcA.abort(), ROUND_HARD_TIMEOUT_MS);
+		const timeoutMgrA = createStreamTimeoutManager(streamTimeoutConfigA, () => roundAcA.abort());
+		timeoutMgrA.start();
 
 		try {
 			const stream = client.messages.stream(
@@ -795,7 +812,7 @@ async function runAnthropicLoop(
 
 			for await (const ev of stream) {
 				if (roundSignalA.aborted) break;
-				lastChunkAtA = Date.now();
+				timeoutMgrA.onChunk();
 
 				if (ev.type === 'message_start' && ev.message.usage) {
 					accUsage = {
@@ -854,8 +871,7 @@ async function runAnthropicLoop(
 			toolDeltaBatcherA.flush();
 		} catch (e: unknown) {
 			toolDeltaBatcherA.flush();
-			clearInterval(silenceTimerA);
-			clearTimeout(hardTimerA);
+			timeoutMgrA.stop();
 			if (options.signal.aborted) {
 				synthesizeMissingAnthropicToolResults(conversation, turnToolUses, '已中止生成');
 				break;
@@ -871,10 +887,11 @@ async function runAnthropicLoop(
 			handlers.onError(e instanceof Error ? e.message : String(e));
 			return;
 		}
-		clearInterval(silenceTimerA);
-		clearTimeout(hardTimerA);
+		timeoutMgrA.stop();
+		console.log(`[AgentLoop/A] round ${round} — stream done (${Date.now() - roundStartAtA}ms), stopReason=${turnStopReason}, toolUses=${turnToolUses.length}, textLen=${turnText.length}`);
 
 		if (options.signal.aborted || roundSignalA.aborted) {
+			console.log(`[AgentLoop/A] round ${round} — aborted after stream`);
 			synthesizeMissingAnthropicToolResults(conversation, turnToolUses, '已中止生成');
 			break;
 		}
@@ -920,10 +937,20 @@ async function runAnthropicLoop(
 		}
 		conversation.push({ role: 'assistant', content: assistantContent });
 
+		console.log(`[AgentLoop/A] round ${round} — executing ${turnToolUses.length} tool(s)`);
+		const toolsStartA = Date.now();
 		const toolResults = await flushAnthropicToolsInOrder(turnToolUses);
+		console.log(`[AgentLoop/A] round ${round} — tools done (${Date.now() - toolsStartA}ms)`);
 
 		conversation.push({ role: 'user', content: toolResults });
+
+		if (round === MAX_ROUNDS - 1) {
+			console.warn(`[AgentLoop/A] MAX_ROUNDS (${MAX_ROUNDS}) exhausted — ending loop`);
+			fullContent += `\n\n---\n⚠ 已达到单次对话最大工具轮次 (${MAX_ROUNDS})，自动停止。请发送新消息继续。`;
+			handlers.onTextDelta(`\n\n---\n⚠ 已达到单次对话最大工具轮次 (${MAX_ROUNDS})，自动停止。请发送新消息继续。`);
+		}
 	}
 
+	console.log(`[AgentLoop/A] Anthropic loop ended — calling onDone`);
 	handlers.onDone(fullContent, accUsage);
 }

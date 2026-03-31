@@ -10,6 +10,8 @@ import type { AgentCustomization } from './agentSettingsTypes';
 import { SettingsAgentPanel } from './SettingsAgentPanel';
 import { EditorSettingsPanel, type EditorSettings } from './EditorSettingsPanel';
 import { SettingsIndexingPanel } from './SettingsIndexingPanel';
+import { SettingsMcpPanel } from './SettingsMcpPanel';
+import type { McpServerConfig, McpServerStatus } from './mcpTypes';
 import type { IndexingSettingsState } from './indexingSettingsTypes';
 import { useI18n, type AppLocale } from './i18n';
 
@@ -26,6 +28,7 @@ export type SettingsNavId =
 	| 'rules'
 	| 'tools'
 	| 'hooks'
+	| 'mcp'
 	| 'indexing'
 	| 'network'
 	| 'beta'
@@ -47,6 +50,7 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'rules', label: t('settings.nav.rules') },
 		{ id: 'tools', label: t('settings.nav.tools'), soon: true },
 		{ id: 'hooks', label: t('settings.nav.hooks'), soon: true },
+		{ id: 'mcp', label: t('settings.nav.mcp') },
 		{ id: 'indexing', label: t('settings.nav.indexing') },
 		{ id: 'network', label: t('settings.nav.network'), soon: true },
 		{ id: 'beta', label: t('settings.nav.beta'), soon: true },
@@ -119,12 +123,22 @@ function IconBack({ className }: { className?: string }) {
 	);
 }
 
+function IconPlug({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="M12 22v-6M9 8V2M15 8V2M12 16a4 4 0 00-4-4V8h8v4a4 4 0 00-4 4z" strokeLinecap="round" />
+		</svg>
+	);
+}
+
 function navIcon(id: SettingsNavId) {
 	switch (id) {
 		case 'general':
 			return <IconGear />;
 		case 'models':
 			return <IconChip />;
+		case 'mcp':
+			return <IconPlug />;
 		default:
 			return <IconGear />;
 	}
@@ -160,6 +174,14 @@ type Props = {
 	indexingSettings: IndexingSettingsState;
 	onChangeIndexingSettings: (v: IndexingSettingsState) => void;
 	onPersistIndexingPatch: (patch: Partial<IndexingSettingsState>) => void;
+	/** MCP 服务器配置 */
+	mcpServers: McpServerConfig[];
+	onChangeMcpServers: (servers: McpServerConfig[]) => void;
+	mcpStatuses: McpServerStatus[];
+	onRefreshMcpStatuses: () => void;
+	onStartMcpServer: (id: string) => void;
+	onStopMcpServer: (id: string) => void;
+	onRestartMcpServer: (id: string) => void;
 	shell: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } | null;
 	workspaceOpen: boolean;
 };
@@ -193,6 +215,13 @@ export function SettingsPage({
 	indexingSettings,
 	onChangeIndexingSettings,
 	onPersistIndexingPatch,
+	mcpServers,
+	onChangeMcpServers,
+	mcpStatuses,
+	onRefreshMcpStatuses,
+	onStartMcpServer,
+	onStopMcpServer,
+	onRestartMcpServer,
 	shell,
 	workspaceOpen,
 }: Props) {
@@ -317,7 +346,8 @@ export function SettingsPage({
 										item.id !== 'models' &&
 										item.id !== 'general' &&
 										item.id !== 'editor' &&
-										item.id !== 'indexing'
+										item.id !== 'indexing' &&
+										item.id !== 'mcp'
 									) {
 										return;
 									}
@@ -359,11 +389,13 @@ export function SettingsPage({
 								{nav === 'models' ? t('settings.title.models') : null}
 								{nav === 'rules' ? t('settings.title.rules') : null}
 								{nav === 'editor' ? t('settings.title.editor') : null}
+								{nav === 'mcp' ? t('settings.title.mcp') : null}
 								{nav === 'indexing' ? t('settings.title.indexing') : null}
 								{nav !== 'general' &&
 								nav !== 'models' &&
 								nav !== 'rules' &&
 								nav !== 'editor' &&
+								nav !== 'mcp' &&
 								nav !== 'indexing'
 									? t('settings.title.comingSoon')
 									: null}
@@ -673,10 +705,23 @@ export function SettingsPage({
 							/>
 						) : null}
 
+						{nav === 'mcp' ? (
+							<SettingsMcpPanel
+								servers={mcpServers}
+								statuses={mcpStatuses}
+								onChangeServers={onChangeMcpServers}
+								onRefreshStatuses={onRefreshMcpStatuses}
+								onStartServer={onStartMcpServer}
+								onStopServer={onStopMcpServer}
+								onRestartServer={onRestartMcpServer}
+							/>
+						) : null}
+
 						{nav !== 'general' &&
 						nav !== 'models' &&
 						nav !== 'rules' &&
 						nav !== 'editor' &&
+						nav !== 'mcp' &&
 						nav !== 'indexing' ? (
 							<div className="ref-settings-panel">
 								<p className="ref-settings-lead">{t('settings.comingCategory')}</p>

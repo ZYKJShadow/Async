@@ -239,6 +239,10 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 					maxConsecutiveMistakes:
 						partial.agent.maxConsecutiveMistakes ?? cached.agent?.maxConsecutiveMistakes,
 					mistakeLimitEnabled: partial.agent.mistakeLimitEnabled ?? cached.agent?.mistakeLimitEnabled,
+					streamIdleTimeoutMs: partial.agent.streamIdleTimeoutMs ?? cached.agent?.streamIdleTimeoutMs,
+					streamIdleWatchdogEnabled:
+						partial.agent.streamIdleWatchdogEnabled ?? cached.agent?.streamIdleWatchdogEnabled,
+					roundHardTimeoutMs: partial.agent.roundHardTimeoutMs ?? cached.agent?.roundHardTimeoutMs,
 				}
 			: cached.agent;
 

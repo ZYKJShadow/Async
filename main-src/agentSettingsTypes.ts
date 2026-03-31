@@ -62,4 +62,19 @@ export type AgentCustomization = {
 	 * 是否启用「连续失败暂停」交互（默认 true）。
 	 */
 	mistakeLimitEnabled?: boolean;
+	/**
+	 * 单轮流式「无新 chunk」最长等待（毫秒）。大文件工具 JSON 可能长时间无 SSE。
+	 * 环境变量 `ASYNC_AGENT_STREAM_IDLE_MS` 优先。
+	 */
+	streamIdleTimeoutMs?: number;
+	/**
+	 * 是否启用「无 chunk 静默」中止（默认 true）。为 false 时仅依赖 roundHardTimeoutMs。
+	 * 环境变量 `ASYNC_AGENT_STREAM_WATCHDOG`（0/false/off 关闭）优先。
+	 */
+	streamIdleWatchdogEnabled?: boolean;
+	/**
+	 * 单轮 LLM 调用总时长上限（毫秒）；须 ≥ streamIdleTimeoutMs。
+	 * 环境变量 `ASYNC_AGENT_ROUND_HARD_MS` 优先。
+	 */
+	roundHardTimeoutMs?: number;
 };

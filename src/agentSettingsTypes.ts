@@ -56,6 +56,12 @@ export type AgentCustomization = {
 	maxConsecutiveMistakes?: number;
 	/** 是否启用连续失败暂停，默认 true */
 	mistakeLimitEnabled?: boolean;
+	/** 无新 chunk 最长等待（ms），见主进程 agentSettingsTypes */
+	streamIdleTimeoutMs?: number;
+	/** 是否启用静默 watchdog，默认 true */
+	streamIdleWatchdogEnabled?: boolean;
+	/** 单轮硬超时（ms） */
+	roundHardTimeoutMs?: number;
 };
 
 export const defaultAgentCustomization = (): AgentCustomization => ({

@@ -5,6 +5,7 @@ import type { ShellSettings } from '../settingsStore.js';
 import { composeSystem, temperatureForMode } from './modePrompts.js';
 import type { StreamHandlers, TurnTokenUsage, UnifiedChatOptions } from './types.js';
 import { openAIReasoningEffort } from './thinkingLevel.js';
+import { resolveStreamTimeouts, createStreamTimeoutManager } from './streamTimeouts.js';
 
 export async function streamOpenAICompatible(
 	settings: ShellSettings,
@@ -52,9 +53,6 @@ export async function streamOpenAICompatible(
 	const temperature = temperatureForMode(options.mode);
 	const effort = openAIReasoningEffort(options.thinkingLevel ?? 'off');
 
-	const CHUNK_SILENCE_MS = 90_000;
-	const ROUND_HARD_MS = 300_000;
-
 	let full = '';
 	let buffer = '';
 	let inThinking = false;
@@ -62,11 +60,10 @@ export async function streamOpenAICompatible(
 
 	const timeoutAc = new AbortController();
 	options.signal.addEventListener('abort', () => timeoutAc.abort(), { once: true });
-	let lastChunkAt = Date.now();
-	const silenceTimer = setInterval(() => {
-		if (Date.now() - lastChunkAt > CHUNK_SILENCE_MS) timeoutAc.abort();
-	}, 5_000);
-	const hardTimer = setTimeout(() => timeoutAc.abort(), ROUND_HARD_MS);
+
+	const timeoutConfig = resolveStreamTimeouts(settings);
+	const timeoutMgr = createStreamTimeoutManager(timeoutConfig, () => timeoutAc.abort());
+	timeoutMgr.start();
 
 	try {
 		const stream = await client.chat.completions.create(
@@ -86,7 +83,7 @@ export async function streamOpenAICompatible(
 			if (timeoutAc.signal.aborted) {
 				break;
 			}
-			lastChunkAt = Date.now();
+			timeoutMgr.onChunk();
 
 			// 提取 usage（通常在最后一个 chunk，choices 为空时携带）
 			if (chunk.usage) {
@@ -173,12 +170,10 @@ export async function streamOpenAICompatible(
 			}
 		}
 
-		clearInterval(silenceTimer);
-		clearTimeout(hardTimer);
+		timeoutMgr.stop();
 		handlers.onDone(full, usage);
 	} catch (e: unknown) {
-		clearInterval(silenceTimer);
-		clearTimeout(hardTimer);
+		timeoutMgr.stop();
 		if (options.signal.aborted) {
 			handlers.onDone(full, usage);
 			return;

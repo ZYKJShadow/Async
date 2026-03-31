@@ -375,11 +375,27 @@ function findAllToolResultBlocks(
 		const nameStart = start + open.length;
 		const nameEnd = content.indexOf(successMid, nameStart);
 		if (nameEnd === -1) {
+			// 流式：头部还没完整，把整个尾部标记为"进行中"块，避免泄漏
+			out.push({
+				index: start,
+				name: '',
+				success: true,
+				body: '',
+				fullEnd: content.length,
+			});
 			break;
 		}
 		const successStart = nameEnd + successMid.length;
 		const successEnd = content.indexOf('">', successStart);
 		if (successEnd === -1) {
+			// 流式：success 属性还没完整
+			out.push({
+				index: start,
+				name: content.slice(nameStart, nameEnd),
+				success: true,
+				body: '',
+				fullEnd: content.length,
+			});
 			break;
 		}
 		const successRaw = content.slice(successStart, successEnd);
@@ -391,6 +407,15 @@ function findAllToolResultBlocks(
 		const closeTag = '</tool_result>';
 		const closeIdx = content.indexOf(closeTag, bodyStart);
 		if (closeIdx === -1) {
+			// 流式：body 还没完整，把到目前为止的内容作为 body
+			const partialBody = unescapeToolResultBody(content.slice(bodyStart));
+			out.push({
+				index: start,
+				name: content.slice(nameStart, nameEnd),
+				success: successRaw === 'true',
+				body: partialBody,
+				fullEnd: content.length,
+			});
 			break;
 		}
 		const body = unescapeToolResultBody(content.slice(bodyStart, closeIdx));
@@ -831,13 +856,17 @@ function extractToolSegments(content: string, t: TFunction): { segments: Assista
 				const text = content.slice(cursor, r.index).trim();
 				if (text) syntheticSegments.push(...segmentParagraphsForActivity(text));
 			}
+			// 判断是否为流式未闭合块：fullEnd 等于 content.length 且 body 为空或未完整
+			const isStreaming = r.fullEnd === content.length && !content.endsWith('</tool_result>');
 			const synMk: ParsedMarker = {
 				start: r.index,
 				end: r.fullEnd,
-				name: r.name,
+				name: r.name || 'tool',
 				args: {},
-				result: r.body,
+				// 流式未闭合时不设置 result，让 summarizeToolActivity 认为它是进行中的
+				result: isStreaming ? undefined : r.body,
 				success: r.success,
+				isStreaming,
 			};
 			syntheticSegments.push(summarizeToolActivity(synMk, t));
 			cursor = r.fullEnd;
