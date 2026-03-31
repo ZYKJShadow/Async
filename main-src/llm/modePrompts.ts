@@ -103,7 +103,7 @@ function modeBlock(mode: ComposerMode): string {
 				'- **write_to_file**: Create a new file or completely overwrite an existing file.',
 				'- **str_replace**: Replace an exact string in a file. Preferred for targeted edits. The old_str must match EXACTLY one location.',
 				'- **list_dir**: List files and directories.',
-				'- **search_files**: Search for text/regex patterns across files.',
+				'- **search_files**: Search for text/regex across files; set **symbol: true** to find exported symbols by name (substring) instead of grepping contents.',
 				'- **execute_command**: Run shell commands (install deps, run tests, build, git, etc.).',
 				'',
 				'## Workflow',

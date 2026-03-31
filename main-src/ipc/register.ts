@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setWorkspaceRoot, getWorkspaceRoot, resolveWorkspacePath, isPathInsideRoot } from '../workspace.js';
-import { listWorkspaceRelativeFiles } from '../workspaceFileIndex.js';
+import { ensureWorkspaceFileIndex, stopWorkspaceFileIndex } from '../workspaceFileIndex.js';
 import { getSettings, patchSettings, getRecentWorkspaces, rememberWorkspace } from '../settingsStore.js';
 import {
 	appendMessage,
@@ -26,7 +26,8 @@ import * as gitService from '../gitService.js';
 import { parseComposerMode } from '../llm/composerMode.js';
 import { resolveChatModel, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
 import { streamChatUnified } from '../llm/llmRouter.js';
-import { buildWorkspaceTreeSummary } from '../llm/workspaceContextExpand.js';
+import { buildWorkspaceTreeSummary, modeExpandsWorkspaceFileContext } from '../llm/workspaceContextExpand.js';
+import { buildSemanticContextBlock } from '../workspaceSemanticIndex.js';
 import {
 	listAgentDiffChunks,
 	applyAgentDiffChunk,
@@ -35,14 +36,21 @@ import {
 	formatAgentApplyIncremental,
 } from '../agent/applyAgentDiffs.js';
 import { runAgentLoop } from '../agent/agentLoop.js';
+import { createToolApprovalBeforeExecute, resolveToolApproval } from '../agent/toolApprovalGate.js';
 import { prepareUserTurnForChat } from '../llm/agentMessagePrep.js';
 import { summarizeThreadForSidebar, isTimestampToday } from '../threadListSummary.js';
 import { registerTerminalPtyIpc } from '../terminalPty.js';
+import { TsLspSession } from '../lsp/tsLspSession.js';
+import { searchWorkspaceSymbols } from '../workspaceSymbolIndex.js';
 
 const execFileAsync = promisify(execFile);
 
+const tsLspSession = new TsLspSession();
+
 const abortByThread = new Map<string, AbortController>();
 const agentRevertSnapshotsByThread = new Map<string, Map<string, string | null>>();
+/** 工具执行前用户确认：approvalId → resolve(allowed) */
+const toolApprovalWaiters = new Map<string, (approved: boolean) => void>();
 
 function runChatStream(
 	win: BrowserWindow,
@@ -75,6 +83,13 @@ function runChatStream(
 			}
 
 			if (mode === 'agent' && resolved.paradigm !== 'gemini') {
+				const beforeExecuteTool = createToolApprovalBeforeExecute(
+					send,
+					threadId,
+					ac.signal,
+					() => getSettings().agent,
+					toolApprovalWaiters
+				);
 				await runAgentLoop(
 					settings,
 					messages,
@@ -83,6 +98,7 @@ function runChatStream(
 						paradigm: resolved.paradigm,
 						signal: ac.signal,
 						thinkingLevel,
+						beforeExecuteTool,
 						toolHooks: {
 							beforeWrite: ({ path, previousContent }) => {
 								const snapshots = agentRevertSnapshotsByThread.get(threadId);
@@ -179,6 +195,7 @@ export function registerIpc(): void {
 		const picked = r.filePaths[0];
 		setWorkspaceRoot(picked);
 		rememberWorkspace(picked);
+		void ensureWorkspaceFileIndex(picked).catch(() => {});
 		return { ok: true as const, path: picked };
 	});
 
@@ -193,6 +210,7 @@ export function registerIpc(): void {
 			}
 			setWorkspaceRoot(resolved);
 			rememberWorkspace(resolved);
+			void ensureWorkspaceFileIndex(resolved).catch(() => {});
 			return { ok: true as const, path: resolved };
 		} catch (e) {
 			return { ok: false as const, error: String(e) };
@@ -211,7 +229,53 @@ export function registerIpc(): void {
 
 	ipcMain.handle('workspace:get', () => ({ root: getWorkspaceRoot() }));
 
-	ipcMain.handle('workspace:closeFolder', () => {
+	ipcMain.handle('workspace:searchSymbols', (_e, query: string) => {
+		const root = getWorkspaceRoot();
+		if (!root) {
+			return { ok: true as const, hits: [] as { name: string; path: string; line: number; kind: string }[] };
+		}
+		const hits = searchWorkspaceSymbols(String(query ?? ''), 80);
+		return { ok: true as const, hits };
+	});
+
+	ipcMain.handle('lsp:ts:start', async (_e, workspaceRoot: string) => {
+		const dir = typeof workspaceRoot === 'string' ? workspaceRoot.trim() : '';
+		if (!dir) {
+			return { ok: false as const, error: 'empty-root' as const };
+		}
+		try {
+			await tsLspSession.start(dir);
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	ipcMain.handle('lsp:ts:stop', async () => {
+		await tsLspSession.dispose();
+		return { ok: true as const };
+	});
+
+	ipcMain.handle('lsp:ts:definition', async (_e, payload: unknown) => {
+		const p = payload as { uri?: string; line?: number; column?: number; text?: string };
+		const uri = typeof p?.uri === 'string' ? p.uri : '';
+		const text = typeof p?.text === 'string' ? p.text : '';
+		const line = typeof p?.line === 'number' && Number.isFinite(p.line) ? p.line : 1;
+		const column = typeof p?.column === 'number' && Number.isFinite(p.column) ? p.column : 1;
+		if (!uri || !text) {
+			return { ok: false as const, error: 'bad-args' as const };
+		}
+		try {
+			const result = await tsLspSession.definition(uri, line, column, text);
+			return { ok: true as const, result };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	ipcMain.handle('workspace:closeFolder', async () => {
+		stopWorkspaceFileIndex();
+		await tsLspSession.dispose();
 		setWorkspaceRoot(null);
 		return { ok: true as const };
 	});
@@ -272,13 +336,13 @@ export function registerIpc(): void {
 		}
 	);
 
-	ipcMain.handle('workspace:listFiles', () => {
+	ipcMain.handle('workspace:listFiles', async () => {
 		const root = getWorkspaceRoot();
 		if (!root) {
 			return { ok: false as const, error: 'no-workspace' as const };
 		}
 		try {
-			const paths = listWorkspaceRelativeFiles(root);
+			const paths = await ensureWorkspaceFileIndex(root);
 			return { ok: true as const, paths };
 		} catch {
 			return { ok: false as const, error: 'read-failed' as const };
@@ -387,7 +451,7 @@ export function registerIpc(): void {
 
 	ipcMain.handle(
 		'chat:send',
-		(event, payload: { threadId: string; text: string; mode?: string; modelId?: string }) => {
+		async (event, payload: { threadId: string; text: string; mode?: string; modelId?: string }) => {
 			const { threadId, text } = payload;
 			const mode = parseComposerMode(payload.mode);
 			const modelSelection = typeof payload.modelId === 'string' ? payload.modelId : 'auto';
@@ -401,7 +465,7 @@ export function registerIpc(): void {
 			let workspaceFiles: string[] = [];
 			if (root) {
 				try {
-					workspaceFiles = listWorkspaceRelativeFiles(root);
+					workspaceFiles = await ensureWorkspaceFileIndex(root);
 				} catch {
 					workspaceFiles = [];
 				}
@@ -418,6 +482,13 @@ export function registerIpc(): void {
 				}
 			}
 
+			if (modeExpandsWorkspaceFileContext(mode) && userText.trim().length > 8) {
+				const sem = buildSemanticContextBlock(userText, 6);
+				if (sem) {
+					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${sem}` : sem;
+				}
+			}
+
 			const t = appendMessage(threadId, { role: 'user', content: userText });
 			runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend);
 
@@ -427,7 +498,7 @@ export function registerIpc(): void {
 
 	ipcMain.handle(
 		'chat:editResend',
-		(
+		async (
 			event,
 			payload: { threadId: string; visibleIndex: number; text: string; mode?: string; modelId?: string }
 		) => {
@@ -451,7 +522,7 @@ export function registerIpc(): void {
 				let workspaceFiles: string[] = [];
 				if (root) {
 					try {
-						workspaceFiles = listWorkspaceRelativeFiles(root);
+						workspaceFiles = await ensureWorkspaceFileIndex(root);
 					} catch {
 						workspaceFiles = [];
 					}
@@ -468,6 +539,13 @@ export function registerIpc(): void {
 					}
 				}
 
+				if (modeExpandsWorkspaceFileContext(mode) && userText.trim().length > 8) {
+					const sem = buildSemanticContextBlock(userText, 6);
+					if (sem) {
+						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${sem}` : sem;
+					}
+				}
+
 				const t = replaceFromUserVisibleIndex(threadId, visibleIndex, userText);
 				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend);
 				return { ok: true as const };
@@ -480,8 +558,25 @@ export function registerIpc(): void {
 	ipcMain.handle('chat:abort', (_e, threadId: string) => {
 		abortByThread.get(threadId)?.abort();
 		abortByThread.delete(threadId);
+		const prefix = `ta-${threadId}-`;
+		for (const [id, fn] of [...toolApprovalWaiters.entries()]) {
+			if (id.startsWith(prefix)) {
+				toolApprovalWaiters.delete(id);
+				fn(false);
+			}
+		}
 		return { ok: true };
 	});
+
+	ipcMain.handle(
+		'agent:toolApprovalRespond',
+		(_e, payload: { approvalId: string; approved: boolean }) => {
+			const id = String(payload?.approvalId ?? '');
+			if (!id) return { ok: false as const, error: 'missing id' };
+			resolveToolApproval(toolApprovalWaiters, id, Boolean(payload.approved));
+			return { ok: true as const };
+		}
+	);
 
 	ipcMain.handle('fs:readFile', (_e, relPath: string) => {
 		const full = resolveWorkspacePath(relPath);

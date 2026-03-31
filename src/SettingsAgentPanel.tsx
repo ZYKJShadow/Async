@@ -223,6 +223,61 @@ export function SettingsAgentPanel({ value, onChange }: Props) {
 				</div>
 			</div>
 
+			<div className="ref-settings-agent-card">
+				<div className="ref-settings-agent-card-title" style={{ marginBottom: 8 }}>
+					{t('agentSettings.safetyTitle')}
+				</div>
+				<div className="ref-settings-agent-card-row">
+					<div>
+						<div className="ref-settings-agent-card-title">{t('agent.settings.confirmShell')}</div>
+						<p className="ref-settings-agent-card-desc">{t('agentSettings.safetyShellDesc')}</p>
+					</div>
+					<button
+						type="button"
+						className={`ref-settings-toggle ${v.confirmShellCommands !== false ? 'is-on' : ''}`}
+						role="switch"
+						aria-checked={v.confirmShellCommands !== false}
+						onClick={() => patch({ confirmShellCommands: v.confirmShellCommands === false ? true : false })}
+					>
+						<span className="ref-settings-toggle-knob" />
+					</button>
+				</div>
+				<div className="ref-settings-agent-card-row" style={{ marginTop: 12 }}>
+					<div>
+						<div className="ref-settings-agent-card-title">{t('agent.settings.skipSafeShell')}</div>
+						<p className="ref-settings-agent-card-desc">{t('agentSettings.safetySkipDesc')}</p>
+					</div>
+					<button
+						type="button"
+						className={`ref-settings-toggle ${v.skipSafeShellCommandsConfirm !== false ? 'is-on' : ''}`}
+						role="switch"
+						aria-checked={v.skipSafeShellCommandsConfirm !== false}
+						onClick={() =>
+							patch({
+								skipSafeShellCommandsConfirm: v.skipSafeShellCommandsConfirm === false ? true : false,
+							})
+						}
+					>
+						<span className="ref-settings-toggle-knob" />
+					</button>
+				</div>
+				<div className="ref-settings-agent-card-row" style={{ marginTop: 12 }}>
+					<div>
+						<div className="ref-settings-agent-card-title">{t('agent.settings.confirmWrites')}</div>
+						<p className="ref-settings-agent-card-desc">{t('agentSettings.safetyWritesDesc')}</p>
+					</div>
+					<button
+						type="button"
+						className={`ref-settings-toggle ${v.confirmWritesBeforeExecute === true ? 'is-on' : ''}`}
+						role="switch"
+						aria-checked={v.confirmWritesBeforeExecute === true}
+						onClick={() => patch({ confirmWritesBeforeExecute: v.confirmWritesBeforeExecute !== true })}
+					>
+						<span className="ref-settings-toggle-knob" />
+					</button>
+				</div>
+			</div>
+
 			{/* ─── Rules ─── */}
 			<section className="ref-settings-agent-section" aria-labelledby="agent-rules-h">
 				<div className="ref-settings-agent-section-head">

@@ -49,6 +49,7 @@ import { ComposerThoughtBlock } from './ComposerThoughtBlock';
 import { ComposerAtMenu } from './ComposerAtMenu';
 import { ComposerRichInput } from './ComposerRichInput';
 import { PlanQuestionDialog } from './PlanQuestionDialog';
+import { ToolApprovalDialog } from './ToolApprovalDialog';
 import { PlanReviewPanel } from './PlanReviewPanel';
 import {
 	parseQuestions,
@@ -73,6 +74,9 @@ import { defaultEditorSettings, editorSettingsToMonacoOptions, type EditorSettin
 import { EditorTabBar, tabIdFromPath, type EditorTab } from './EditorTabBar';
 import { MenubarFileMenu } from './MenubarFileMenu';
 import { QuickOpenPalette, quickOpenPrimaryShortcutLabel, saveShortcutLabel } from './quickOpenPalette';
+import { registerTsLspMonacoOnce } from './tsLspMonaco';
+import { monacoWorkspaceRootRef } from './tsLspWorkspaceRef';
+import { workspaceRelativeFileUrl } from './workspaceUri';
 
 type LayoutMode = 'agent' | 'editor';
 import { useI18n, translateChatError, normalizeLocale, type AppLocale, type TFunction } from './i18n';
@@ -628,6 +632,12 @@ export default function App() {
 		index: number;
 	} | null>(null);
 	const streamingToolPreviewClearTimerRef = useRef<number | null>(null);
+	const [toolApprovalRequest, setToolApprovalRequest] = useState<{
+		approvalId: string;
+		toolName: string;
+		command?: string;
+		path?: string;
+	} | null>(null);
 	const [modelEntries, setModelEntries] = useState<UserModelEntry[]>([]);
 	const [enabledModelIds, setEnabledModelIds] = useState<string[]>([]);
 	const [agentCustomization, setAgentCustomization] = useState<AgentCustomization>(() => defaultAgentCustomization());
@@ -643,6 +653,7 @@ export default function App() {
 	const [saveToastKey, setSaveToastKey] = useState(0);
 	const [saveToastVisible, setSaveToastVisible] = useState(false);
 	const monacoEditorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
+	const [tsLspStatus, setTsLspStatus] = useState<'off' | 'starting' | 'ready' | 'error'>('off');
 	/** 打开文件后在 Monaco 中高亮的行范围（1-based，含 end） */
 	const pendingEditorHighlightRangeRef = useRef<{ start: number; end: number } | null>(null);
 	const [workspaceToolsOpen, setWorkspaceToolsOpen] = useState(false);
@@ -695,6 +706,25 @@ export default function App() {
 		}
 		setStreamingToolPreview(null);
 	}, []);
+
+	const respondToolApproval = useCallback(
+		async (approved: boolean) => {
+			if (!shell) {
+				return;
+			}
+			const req = toolApprovalRequest;
+			if (!req) {
+				return;
+			}
+			setToolApprovalRequest(null);
+			try {
+				await shell.invoke('agent:toolApprovalRespond', { approvalId: req.approvalId, approved });
+			} catch {
+				/* ignore */
+			}
+		},
+		[shell, toolApprovalRequest]
+	);
 
 	useEffect(() => {
 		return () => {
@@ -1056,6 +1086,13 @@ export default function App() {
 				const safe = truncated.split('</tool_result>').join('</tool\u200c_result>');
 				const marker = `<tool_result tool="${payload.name}" success="${payload.success}">${safe}</tool_result>\n`;
 				setStreaming((s) => s + marker);
+			} else if (payload.type === 'tool_approval_request') {
+				setToolApprovalRequest({
+					approvalId: payload.approvalId,
+					toolName: payload.toolName,
+					command: payload.command,
+					path: payload.path,
+				});
 			} else if (payload.type === 'done') {
 				const start = streamStartedAtRef.current;
 				const ft = firstTokenAtRef.current;
@@ -1075,6 +1112,7 @@ export default function App() {
 				setAwaitingReply(false);
 				setStreaming('');
 				setStreamingThinking('');
+				setToolApprovalRequest(null);
 				clearStreamingToolPreviewNow();
 				setFileChangesDismissed(false);
 				setDismissedFiles(new Set());
@@ -1132,6 +1170,7 @@ export default function App() {
 				setAwaitingReply(false);
 				setStreaming('');
 				setStreamingThinking('');
+				setToolApprovalRequest(null);
 				clearStreamingToolPreviewNow();
 				setMessages((m) => [
 					...m,
@@ -1169,6 +1208,33 @@ export default function App() {
 				setWorkspaceFileList([]);
 			}
 		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [shell, workspace]);
+
+	useEffect(() => {
+		monacoWorkspaceRootRef.current = workspace;
+	}, [workspace]);
+
+	useEffect(() => {
+		if (!shell) {
+			return;
+		}
+		if (!workspace) {
+			setTsLspStatus('off');
+			void shell.invoke('lsp:ts:stop').catch(() => {});
+			return;
+		}
+		let cancelled = false;
+		setTsLspStatus('starting');
+		void shell.invoke('lsp:ts:start', workspace).then((r: unknown) => {
+			if (cancelled) {
+				return;
+			}
+			const ok = (r as { ok?: boolean })?.ok;
+			setTsLspStatus(ok ? 'ready' : 'error');
+		});
 		return () => {
 			cancelled = true;
 		};
@@ -1798,6 +1864,64 @@ export default function App() {
 			/* ignore */
 		}
 	}, []);
+
+	const monacoDocumentPath = useMemo(() => {
+		const fp = filePath.trim();
+		if (!fp) {
+			return '';
+		}
+		const u = workspaceRelativeFileUrl(workspace, fp);
+		return u ?? fp.replace(/\\/g, '/');
+	}, [workspace, filePath]);
+
+	const onMonacoMount = useCallback(
+		(ed: MonacoEditorNS.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => {
+			monacoEditorRef.current = ed;
+			if (shell) {
+				registerTsLspMonacoOnce(monaco, shell, workspace);
+			}
+		},
+		[shell, workspace]
+	);
+
+	const searchWorkspaceSymbolsFn = useCallback(
+		async (query: string) => {
+			if (!shell) {
+				return [];
+			}
+			const r = (await shell.invoke('workspace:searchSymbols', query)) as {
+				ok?: boolean;
+				hits?: { name: string; path: string; line: number; kind: string }[];
+			};
+			return r.ok && Array.isArray(r.hits) ? r.hits : [];
+		},
+		[shell]
+	);
+
+	const tsLspPillTitle = useMemo(() => {
+		if (!workspace) {
+			return t('app.lspSoon');
+		}
+		if (tsLspStatus === 'starting') {
+			return t('app.lspStarting');
+		}
+		if (tsLspStatus === 'ready') {
+			return t('app.lspReady');
+		}
+		if (tsLspStatus === 'error') {
+			return t('app.lspUnavailable');
+		}
+		return t('app.lspSoon');
+	}, [workspace, tsLspStatus, t]);
+
+	const tsLspPillClassName =
+		tsLspStatus === 'ready'
+			? 'ref-lsp-pill ref-lsp-pill--ready'
+			: tsLspStatus === 'starting'
+				? 'ref-lsp-pill ref-lsp-pill--starting'
+				: tsLspStatus === 'error'
+					? 'ref-lsp-pill ref-lsp-pill--error'
+					: 'ref-lsp-pill';
 
 	const openQuickOpen = useCallback((seed = '') => {
 		setQuickOpenSeed(seed);
@@ -2966,6 +3090,20 @@ export default function App() {
 				/>
 			) : null}
 
+			<ToolApprovalDialog
+				open={toolApprovalRequest !== null}
+				payload={toolApprovalRequest}
+				onAllow={() => void respondToolApproval(true)}
+				onDeny={() => void respondToolApproval(false)}
+				title={
+					toolApprovalRequest?.toolName === 'execute_command'
+						? t('agent.toolApproval.titleShell')
+						: t('agent.toolApproval.titleWrite')
+				}
+				allowLabel={t('agent.toolApproval.allow')}
+				denyLabel={t('agent.toolApproval.deny')}
+			/>
+
 			{hasConversation && parsedPlan && composerMode === 'plan' ? (
 				<PlanReviewPanel
 					plan={parsedPlan}
@@ -3630,7 +3768,7 @@ export default function App() {
 												>
 													<IconRefresh />
 												</button>
-												<span className="ref-lsp-pill" title={t('app.lspSoon')}>
+												<span className={tsLspPillClassName} title={tsLspPillTitle}>
 													LSP
 												</span>
 												<button
@@ -3651,7 +3789,7 @@ export default function App() {
 													key={filePath.trim()}
 													height="100%"
 													theme="void-dark"
-													path={filePath.trim()}
+													path={monacoDocumentPath || filePath.trim()}
 													language={languageFromFilePath(filePath.trim())}
 													value={editorValue}
 													onChange={(v) => {
@@ -3662,9 +3800,7 @@ export default function App() {
 															)
 														);
 													}}
-													onMount={(ed) => {
-														monacoEditorRef.current = ed;
-													}}
+													onMount={onMonacoMount}
 													options={{
 														...editorSettingsToMonacoOptions(editorSettings),
 														scrollbar: {
@@ -3884,7 +4020,7 @@ export default function App() {
 									>
 										<IconRefresh />
 									</button>
-									<span className="ref-lsp-pill" title={t('app.lspSoon')}>
+									<span className={tsLspPillClassName} title={tsLspPillTitle}>
 										LSP
 									</span>
 									<div className="ref-editor-toolbar-spacer" />
@@ -3904,13 +4040,11 @@ export default function App() {
 												key={filePath.trim()}
 												height="100%"
 												theme="void-dark"
-												path={filePath.trim()}
+												path={monacoDocumentPath || filePath.trim()}
 												language={languageFromFilePath(filePath.trim())}
 												value={editorValue}
 												onChange={(v) => setEditorValue(v ?? '')}
-												onMount={(ed) => {
-													monacoEditorRef.current = ed;
-												}}
+												onMount={onMonacoMount}
 												options={{
 													...editorSettingsToMonacoOptions(editorSettings),
 													scrollbar: {
@@ -4098,6 +4232,7 @@ export default function App() {
 				onFocusSearchSidebar={(q) => focusSearchSidebarFromQuickOpen(q)}
 				onGoToLine={goToLineInEditor}
 				initialQuery={quickOpenSeed}
+				searchWorkspaceSymbols={shell ? searchWorkspaceSymbolsFn : undefined}
 				t={t}
 			/>
 

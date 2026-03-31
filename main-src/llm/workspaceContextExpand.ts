@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import type { ChatMessage } from '../threadStore.js';
 import { getWorkspaceRoot, resolveWorkspacePath } from '../workspace.js';
-import { listWorkspaceRelativeFiles } from '../workspaceFileIndex.js';
+import { getIndexedWorkspaceFilesIfFresh, listWorkspaceRelativeFiles } from '../workspaceFileIndex.js';
 import type { ComposerMode } from './composerMode.js';
 
 /**
@@ -39,7 +39,7 @@ function expandUserTextWithWorkspaceFiles(text: string): string {
 	}
 	let known: string[];
 	try {
-		known = listWorkspaceRelativeFiles(root);
+		known = getIndexedWorkspaceFilesIfFresh(root) ?? listWorkspaceRelativeFiles(root);
 	} catch {
 		return text;
 	}

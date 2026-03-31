@@ -46,6 +46,12 @@ export type AgentCustomization = {
 	skills?: AgentSkill[];
 	subagents?: AgentSubagent[];
 	commands?: AgentCommand[];
+	/** execute_command 执行前确认，默认 true */
+	confirmShellCommands?: boolean;
+	/** 写入文件前确认，默认 false */
+	confirmWritesBeforeExecute?: boolean;
+	/** 低风险 shell 命令跳过确认，默认 true */
+	skipSafeShellCommandsConfirm?: boolean;
 };
 
 export const defaultAgentCustomization = (): AgentCustomization => ({

@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getWorkspaceRoot, resolveWorkspacePath, isPathInsideRoot } from '../workspace.js';
+import { formatSymbolSearchResults, searchWorkspaceSymbols } from '../workspaceSymbolIndex.js';
 import type { ToolCall, ToolResult } from './agentTools.js';
 
 const execFileAsync = promisify(execFile);
@@ -244,6 +245,20 @@ async function executeSearchFiles(call: ToolCall): Promise<ToolResult> {
 	const root = requireWorkspace();
 	const pattern = String(call.arguments.pattern ?? '');
 	if (!pattern) return { toolCallId: call.id, name: call.name, content: 'Error: pattern is required', isError: true };
+
+	const symbolMode =
+		call.arguments.symbol === true ||
+		call.arguments.search_symbols === true ||
+		call.arguments.mode === 'symbol';
+	if (symbolMode) {
+		const hits = searchWorkspaceSymbols(pattern, MAX_SEARCH_RESULTS);
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: formatSymbolSearchResults(hits),
+			isError: false,
+		};
+	}
 
 	const subPath = String(call.arguments.path ?? '').trim();
 	const searchDir = subPath ? safePath(subPath) : root;

@@ -21,6 +21,9 @@ import {
 	openAIReasoningEffort,
 } from '../llm/thinkingLevel.js';
 import { AGENT_TOOLS, toOpenAITools, toAnthropicTools, type ToolCall } from './agentTools.js';
+
+/** 执行工具前闸门；返回 proceed:false 时不调用 executeTool，结果写入对话为失败 tool_result */
+export type BeforeExecuteToolResult = { proceed: true } | { proceed: false; rejectionMessage: string };
 import { executeTool, type ToolExecutionHooks } from './toolExecutor.js';
 
 const MAX_ROUNDS = 25;
@@ -46,6 +49,8 @@ export type AgentLoopOptions = {
 	signal: AbortSignal;
 	agentSystemAppend?: string;
 	toolHooks?: ToolExecutionHooks;
+	/** 在 executeTool 之前调用；用于 shell 写入等需用户确认的闸门 */
+	beforeExecuteTool?: (call: ToolCall) => Promise<BeforeExecuteToolResult>;
 	thinkingLevel?: ThinkingLevel;
 };
 
@@ -246,6 +251,29 @@ async function runOpenAILoop(
 			// messages to be batched together and the frontend never sees the pending state.
 			await new Promise<void>((r) => setTimeout(r, 0));
 
+			let gate: BeforeExecuteToolResult = { proceed: true };
+			if (options.beforeExecuteTool) {
+				try {
+					gate = await options.beforeExecuteTool(toolCall);
+				} catch (e) {
+					gate = {
+						proceed: false,
+						rejectionMessage: e instanceof Error ? e.message : String(e),
+					};
+				}
+			}
+			if (!gate.proceed) {
+				const msg = gate.rejectionMessage;
+				fullContent += toolResultMarker(tc.name, msg, false);
+				handlers.onToolResult(tc.name, msg, false);
+				conversation.push({
+					role: 'tool' as const,
+					tool_call_id: tc.id,
+					content: msg,
+				});
+				continue;
+			}
+
 			const result = await executeTool(toolCall, options.toolHooks);
 
 			fullContent += toolResultMarker(tc.name, result.content, !result.isError);
@@ -422,6 +450,30 @@ async function runAnthropicLoop(
 			fullContent += toolCallMarker(tu.name, args);
 			handlers.onToolCall(tu.name, args);
 			await new Promise<void>((r) => setTimeout(r, 0));
+
+			let gate: BeforeExecuteToolResult = { proceed: true };
+			if (options.beforeExecuteTool) {
+				try {
+					gate = await options.beforeExecuteTool(toolCall);
+				} catch (e) {
+					gate = {
+						proceed: false,
+						rejectionMessage: e instanceof Error ? e.message : String(e),
+					};
+				}
+			}
+			if (!gate.proceed) {
+				const msg = gate.rejectionMessage;
+				fullContent += toolResultMarker(tu.name, msg, false);
+				handlers.onToolResult(tu.name, msg, false);
+				toolResults.push({
+					type: 'tool_result',
+					tool_use_id: tu.id,
+					content: msg,
+					is_error: true,
+				});
+				continue;
+			}
 
 			const result = await executeTool(toolCall, options.toolHooks);
 

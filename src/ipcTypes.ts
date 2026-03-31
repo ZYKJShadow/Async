@@ -38,7 +38,15 @@ export type ChatStreamPayload =
 	| { threadId: string; type: 'tool_call'; name: string; args: string }
 	| { threadId: string; type: 'tool_result'; name: string; result: string; success: boolean }
 	| { threadId: string; type: 'tool_input_delta'; name: string; partialJson: string; index: number }
-	| { threadId: string; type: 'thinking_delta'; text: string };
+	| { threadId: string; type: 'thinking_delta'; text: string }
+	| {
+			threadId: string;
+			type: 'tool_approval_request';
+			approvalId: string;
+			toolName: string;
+			command?: string;
+			path?: string;
+	  };
 
 /** `chat:send` IPC 载荷（与主进程一致） */
 export type ChatSendPayload = {

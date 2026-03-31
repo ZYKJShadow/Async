@@ -112,6 +112,11 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 					type: 'string',
 					description: 'Optional subdirectory to limit search scope',
 				},
+				symbol: {
+					type: 'boolean',
+					description:
+						'If true, search exported symbol names (substring match) instead of grepping file contents. Use to find functions/classes/types by name.',
+				},
 			},
 			required: ['pattern'],
 		},

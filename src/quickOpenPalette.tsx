@@ -138,7 +138,8 @@ type ActionDef = {
 type NavRow =
 	| { kind: 'action'; id: string; label: string; kbd?: string; insertPrefix?: string }
 	| { kind: 'file'; path: string; recent: boolean }
-	| { kind: 'folder'; path: string };
+	| { kind: 'folder'; path: string }
+	| { kind: 'symbol'; name: string; path: string; line: number; symKind: string };
 
 const MAX_FILES = 80;
 
@@ -158,6 +159,8 @@ export type QuickOpenPaletteProps = {
 	onGoToLine: (line: number) => void;
 	/** 打开时预填输入框（例如命令模式 `>`） */
 	initialQuery?: string;
+	/** `@` 符号模式：按名称搜索工作区导出符号（主进程索引） */
+	searchWorkspaceSymbols?: (query: string) => Promise<{ name: string; path: string; line: number; kind: string }[]>;
 	t: TFunction;
 };
 
@@ -176,10 +179,12 @@ export function QuickOpenPalette({
 	onFocusSearchSidebar,
 	onGoToLine,
 	initialQuery = '',
+	searchWorkspaceSymbols,
 	t,
 }: QuickOpenPaletteProps) {
 	const [query, setQuery] = useState('');
 	const [selected, setSelected] = useState(0);
+	const [symbolHits, setSymbolHits] = useState<{ name: string; path: string; line: number; kind: string }[]>([]);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const rowRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
@@ -289,6 +294,23 @@ export function QuickOpenPalette({
 			return out;
 		}
 
+		if (parsed.mode === 'symbol' && workspaceOpen && searchWorkspaceSymbols) {
+			if (!parsed.filter.trim()) {
+				addActions(actionsAll);
+				return out;
+			}
+			for (const s of symbolHits.slice(0, MAX_FILES)) {
+				out.push({
+					kind: 'symbol',
+					name: s.name,
+					path: s.path,
+					line: s.line,
+					symKind: s.kind,
+				});
+			}
+			return out;
+		}
+
 		const showActions = parsed.mode === 'files' && !parsed.filter;
 		if (showActions) {
 			addActions(actionsAll);
@@ -307,7 +329,7 @@ export function QuickOpenPalette({
 		}
 
 		return out;
-	}, [parsed, actionsAll, t, filteredFiles, filteredFolders, workspaceOpen]);
+	}, [parsed, actionsAll, t, filteredFiles, filteredFolders, workspaceOpen, searchWorkspaceSymbols, symbolHits]);
 
 	useEffect(() => {
 		if (!open) {
@@ -318,6 +340,24 @@ export function QuickOpenPalette({
 		const id = window.setTimeout(() => inputRef.current?.focus(), 30);
 		return () => window.clearTimeout(id);
 	}, [open, initialQuery]);
+
+	useEffect(() => {
+		if (!open || parsed.mode !== 'symbol' || !workspaceOpen || !searchWorkspaceSymbols) {
+			setSymbolHits([]);
+			return;
+		}
+		const q = parsed.filter.trim();
+		if (!q) {
+			setSymbolHits([]);
+			return;
+		}
+		const tid = window.setTimeout(() => {
+			void searchWorkspaceSymbols(q)
+				.then(setSymbolHits)
+				.catch(() => setSymbolHits([]));
+		}, 200);
+		return () => window.clearTimeout(tid);
+	}, [open, parsed.mode, parsed.filter, workspaceOpen, searchWorkspaceSymbols]);
 
 	useEffect(() => {
 		if (selected >= navRows.length) {
@@ -375,6 +415,11 @@ export function QuickOpenPalette({
 					onClose();
 					return;
 				}
+			}
+			if (row.kind === 'symbol') {
+				onOpenFile(row.path, row.line, row.line);
+				onClose();
+				return;
 			}
 			if (row.kind === 'file') {
 				openFileWithParsedLine(row.path);
@@ -480,6 +525,42 @@ export function QuickOpenPalette({
 									!workspaceOpen &&
 									row.kind === 'folder' &&
 									(!prev || prev.kind === 'action');
+								if (row.kind === 'symbol') {
+									return (
+										<button
+											type="button"
+											key={`sym-${row.path}-${row.line}-${row.name}-${idx}`}
+											ref={(el) => {
+												if (el) {
+													rowRefs.current.set(idx, el);
+												} else {
+													rowRefs.current.delete(idx);
+												}
+											}}
+											role="option"
+											aria-selected={isSel}
+											className={`ref-quick-open-row ref-quick-open-row--symbol ${isSel ? 'is-selected' : ''}`}
+											onMouseEnter={() => setSelected(idx)}
+											onClick={() => runRow(row)}
+										>
+											<span className="ref-quick-open-file-icon" aria-hidden>
+												<FileTypeIcon fileName={row.path} isDirectory={false} className="ref-quick-open-ft-icon" />
+											</span>
+											<span className="ref-quick-open-file-text">
+												<span className="ref-quick-open-file-name">
+													{row.name}
+													<span className="ref-quick-open-line-suffix">
+														{' '}
+														· {row.symKind}
+													</span>
+												</span>
+												<span className="ref-quick-open-file-dir">
+													{row.path}:{row.line}
+												</span>
+											</span>
+										</button>
+									);
+								}
 								if (row.kind === 'action') {
 									return (
 										<button

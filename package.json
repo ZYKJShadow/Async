@@ -26,7 +26,7 @@
     "electron": "34.3.2",
     "esbuild": "^0.24.2",
     "sharp": "^0.34.5",
-    "typescript": "^5.6.3",
+    "typescript": "^5.9.3",
     "vite": "^6.0.3",
     "wait-on": "^8.0.1"
   },
@@ -37,6 +37,7 @@
     "@monaco-editor/react": "^4.6.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
+    "chokidar": "^3.6.0",
     "diff": "^5.2.0",
     "https-proxy-agent": "^8.0.0",
     "minimatch": "^9.0.9",
@@ -46,6 +47,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "typescript-language-server": "^5.1.3",
+    "vscode-jsonrpc": "^8.2.1"
   }
 }

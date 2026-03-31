@@ -9,6 +9,10 @@ const INVOKE_CHANNELS = new Set([
 	'workspace:listRecents',
 	'workspace:get',
 	'workspace:listFiles',
+	'workspace:searchSymbols',
+	'lsp:ts:start',
+	'lsp:ts:stop',
+	'lsp:ts:definition',
 	'settings:get',
 	'settings:set',
 	'threads:list',
@@ -39,6 +43,7 @@ const INVOKE_CHANNELS = new Set([
 	'agent:revertLastTurn',
 	'agent:keepFile',
 	'agent:revertFile',
+	'agent:toolApprovalRespond',
 	'plan:save',
 ]);
 

@@ -1550,6 +1550,102 @@ body {
 	line-height: 1;
 }
 
+/* Agent 工具执行前确认（shell / 可选写入） */
+.ref-tool-approval-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 50000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	pointer-events: auto;
+}
+
+.ref-tool-approval-backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.55);
+	backdrop-filter: blur(2px);
+}
+
+.ref-tool-approval-card {
+	position: relative;
+	z-index: 1;
+	width: min(560px, 100%);
+	max-height: min(72vh, 520px);
+	display: flex;
+	flex-direction: column;
+	border-radius: 14px;
+	border: 1px solid var(--void-border-soft);
+	background: var(--void-bg-1);
+	box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.ref-tool-approval-title {
+	margin: 0;
+	padding: 16px 18px 8px;
+	font-size: 15px;
+	font-weight: 650;
+	color: var(--void-fg-0);
+}
+
+.ref-tool-approval-body {
+	margin: 0 18px 12px;
+	padding: 12px 14px;
+	border-radius: 10px;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	background: rgba(8, 8, 12, 0.9);
+	color: var(--void-fg-1);
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
+	overflow: auto;
+	flex: 1;
+	min-height: 0;
+	font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.ref-tool-approval-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	padding: 12px 18px 16px;
+	border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ref-tool-approval-btn {
+	padding: 8px 16px;
+	border-radius: 8px;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	font-family: inherit;
+	border: 1px solid transparent;
+}
+
+.ref-tool-approval-btn--deny {
+	background: rgba(255, 255, 255, 0.06);
+	color: var(--void-fg-2);
+	border-color: var(--void-border-soft);
+}
+
+.ref-tool-approval-btn--deny:hover {
+	background: rgba(255, 255, 255, 0.1);
+	color: var(--void-fg-0);
+}
+
+.ref-tool-approval-btn--allow {
+	background: rgba(34, 197, 94, 0.22);
+	color: #86efac;
+	border-color: rgba(34, 197, 94, 0.4);
+}
+
+.ref-tool-approval-btn--allow:hover {
+	background: rgba(34, 197, 94, 0.32);
+}
+
 .ref-left-footer {
 	padding: 12px;
 	border-top: 1px solid var(--void-border-soft);
@@ -4096,10 +4192,28 @@ body {
 	letter-spacing: 0.04em;
 	padding: 3px 8px;
 	border-radius: var(--void-pill);
+	background: rgba(148, 163, 184, 0.12);
+	color: #94a3b8;
+	border: 1px solid rgba(148, 163, 184, 0.22);
+	opacity: 0.9;
+}
+
+.ref-lsp-pill--ready {
 	background: rgba(34, 197, 94, 0.15);
 	color: #4ade80;
-	border: 1px solid rgba(34, 197, 94, 0.25);
-	opacity: 0.85;
+	border-color: rgba(34, 197, 94, 0.28);
+}
+
+.ref-lsp-pill--starting {
+	background: rgba(251, 191, 36, 0.12);
+	color: #fbbf24;
+	border-color: rgba(251, 191, 36, 0.28);
+}
+
+.ref-lsp-pill--error {
+	background: rgba(248, 113, 113, 0.12);
+	color: #f87171;
+	border-color: rgba(248, 113, 113, 0.28);
 }
 
 .ref-editor-save {

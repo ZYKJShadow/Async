@@ -5,6 +5,7 @@ import { initSettingsStore, getRestorableWorkspace } from './settingsStore.js';
 import { ensureDefaultThread, initThreadStore } from './threadStore.js';
 import { registerIpc } from './ipc/register.js';
 import { setWorkspaceRoot } from './workspace.js';
+import { ensureWorkspaceFileIndex } from './workspaceFileIndex.js';
 import { configureAppWindowIcon, createAppWindow } from './appWindow.js';
 
 function resolveAppIconPath(): string | undefined {
@@ -36,6 +37,7 @@ app.whenReady().then(() => {
 	const restored = getRestorableWorkspace();
 	if (restored) {
 		setWorkspaceRoot(restored);
+		void ensureWorkspaceFileIndex(restored).catch(() => {});
 	}
 	initThreadStore(userData);
 	ensureDefaultThread();
