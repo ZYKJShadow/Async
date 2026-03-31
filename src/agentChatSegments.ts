@@ -801,8 +801,35 @@ function markerHasSubstantiveTail(content: string, mk: ParsedMarker): boolean {
 function extractToolSegments(content: string, t: TFunction): { segments: AssistantSegment[]; hasTools: boolean } {
 	const resultBlocks = findAllToolResultBlocks(content);
 	const markers = findAllToolCallMarkers(content, resultBlocks);
-	if (markers.length === 0) {
+	if (markers.length === 0 && resultBlocks.length === 0) {
 		return { segments: [], hasTools: false };
+	}
+	// 有 tool_result 块但没有对应 tool_call 标记时（如流式时序差异），
+	// 为每个孤立的 tool_result 块合成虚拟 marker，避免原始 XML 泄漏到渲染层
+	if (markers.length === 0 && resultBlocks.length > 0) {
+		const syntheticSegments: AssistantSegment[] = [];
+		let cursor = 0;
+		for (const r of resultBlocks) {
+			if (r.index > cursor) {
+				const text = content.slice(cursor, r.index).trim();
+				if (text) syntheticSegments.push(...segmentParagraphsForActivity(text));
+			}
+			const synMk: ParsedMarker = {
+				start: r.index,
+				end: r.fullEnd,
+				name: r.name,
+				args: {},
+				result: r.body,
+				success: r.success,
+			};
+			syntheticSegments.push(summarizeToolActivity(synMk, t));
+			cursor = r.fullEnd;
+		}
+		if (cursor < content.length) {
+			const text = content.slice(cursor).trim();
+			if (text) syntheticSegments.push(...segmentParagraphsForActivity(text));
+		}
+		return { segments: groupActivities(mergeAdjacentMarkdown(syntheticSegments)), hasTools: true };
 	}
 	for (const r of resultBlocks) {
 		const prev = markers.find(

@@ -11,7 +11,17 @@ import {
 	stopWorkspaceFileIndex,
 	getWorkspaceFileIndexLiveStats,
 } from '../workspaceFileIndex.js';
-import { getSettings, patchSettings, getRecentWorkspaces, rememberWorkspace } from '../settingsStore.js';
+import {
+	getSettings,
+	patchSettings,
+	getRecentWorkspaces,
+	rememberWorkspace,
+	getMcpServerConfigs,
+	patchMcpServerConfigs,
+	removeMcpServerConfig,
+} from '../settingsStore.js';
+import { getMcpManager, destroyMcpManager } from '../mcp/index.js';
+import type { McpServerConfig, McpServerStatus } from '../mcp/mcpTypes.js';
 import {
 	appendMessage,
 	createThread,
@@ -1041,5 +1051,114 @@ export function registerIpc(): void {
 				stderr: err.stderr ?? '',
 			};
 		}
+	});
+
+	// ─── MCP IPC handlers ─────────────────────────────────────────────────────
+
+	/** 获取所有 MCP 服务器配置 */
+	ipcMain.handle('mcp:listServers', () => {
+		return { ok: true as const, servers: getMcpServerConfigs() };
+	});
+
+	/** 获取所有 MCP 服务器状态 */
+	ipcMain.handle('mcp:getStatuses', () => {
+		const manager = getMcpManager();
+		manager.loadConfigs(getMcpServerConfigs());
+		return { ok: true as const, statuses: manager.getServerStatuses() };
+	});
+
+	/** 添加或更新 MCP 服务器配置 */
+	ipcMain.handle('mcp:saveServer', (_e, config: McpServerConfig) => {
+		try {
+			patchMcpServerConfigs([config]);
+			const manager = getMcpManager();
+			manager.loadConfigs(getMcpServerConfigs());
+			return { ok: true as const, server: config };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	/** 删除 MCP 服务器配置 */
+	ipcMain.handle('mcp:deleteServer', (_e, id: string) => {
+		try {
+			removeMcpServerConfig(id);
+			const manager = getMcpManager();
+			manager.removeServer(id);
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	/** 启动 MCP 服务器 */
+	ipcMain.handle('mcp:startServer', async (_e, id: string) => {
+		try {
+			const manager = getMcpManager();
+			manager.loadConfigs(getMcpServerConfigs());
+			await manager.startServer(id);
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	/** 停止 MCP 服务器 */
+	ipcMain.handle('mcp:stopServer', (_e, id: string) => {
+		try {
+			const manager = getMcpManager();
+			manager.stopServer(id);
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	/** 重启 MCP 服务器 */
+	ipcMain.handle('mcp:restartServer', async (_e, id: string) => {
+		try {
+			const manager = getMcpManager();
+			manager.loadConfigs(getMcpServerConfigs());
+			await manager.restartServer(id);
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	/** 启动所有已启用的 MCP 服务器 */
+	ipcMain.handle('mcp:startAll', async () => {
+		try {
+			const manager = getMcpManager();
+			manager.loadConfigs(getMcpServerConfigs());
+			await manager.startAll();
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	/** 获取 MCP 工具列表（供 Agent 使用） */
+	ipcMain.handle('mcp:getTools', () => {
+		const manager = getMcpManager();
+		manager.loadConfigs(getMcpServerConfigs());
+		return { ok: true as const, tools: manager.getAgentTools() };
+	});
+
+	/** 调用 MCP 工具 */
+	ipcMain.handle('mcp:callTool', async (_e, name: string, args: Record<string, unknown>) => {
+		try {
+			const manager = getMcpManager();
+			const result = await manager.callTool(name, args);
+			return { ok: true as const, result };
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	/** 销毁 MCP 管理器（应用退出时调用） */
+	ipcMain.handle('mcp:destroy', () => {
+		destroyMcpManager();
+		return { ok: true as const };
 	});
 }

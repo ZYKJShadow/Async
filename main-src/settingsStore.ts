@@ -1,10 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentCustomization } from './agentSettingsTypes.js';
+import type { McpServerConfig } from './mcp/mcpTypes.js';
 import { resolveAsyncDataDir } from './dataDir.js';
 import { normalizeThinkingLevel, type ThinkingLevel } from './llm/thinkingLevel.js';
 export type { ThinkingLevel } from './llm/thinkingLevel.js';
 export type { AgentCustomization, AgentRule, AgentSkill, AgentSubagent, AgentCommand } from './agentSettingsTypes.js';
+export type { McpServerConfig } from './mcp/mcpTypes.js';
 
 /** 单条用户模型实际请求时使用的协议（与适配器一致） */
 export type ModelRequestParadigm = 'openai-compatible' | 'anthropic' | 'gemini';
@@ -98,6 +100,8 @@ export type ShellSettings = {
 	ui?: ShellUiSettings;
 	/** 索引与 LSP */
 	indexing?: ShellIndexingSettings;
+	/** MCP 服务器配置 */
+	mcpServers?: McpServerConfig[];
 };
 
 const defaultSettings: ShellSettings = {
@@ -292,4 +296,34 @@ function save(): void {
 		return;
 	}
 	fs.writeFileSync(settingsPath, JSON.stringify(cached, null, 2), 'utf8');
+}
+
+/** 获取 MCP 服务器配置 */
+export function getMcpServerConfigs(): McpServerConfig[] {
+	return cached.mcpServers ?? [];
+}
+
+/** 更新 MCP 服务器配置 */
+export function patchMcpServerConfigs(servers: McpServerConfig[]): void {
+	cached.mcpServers = servers;
+	save();
+}
+
+/** 添加单个 MCP 服务器配置 */
+export function addMcpServerConfig(config: McpServerConfig): void {
+	const servers = getMcpServerConfigs();
+	const existing = servers.findIndex((s) => s.id === config.id);
+	if (existing >= 0) {
+		servers[existing] = config;
+	} else {
+		servers.push(config);
+	}
+	cached.mcpServers = servers;
+	save();
+}
+
+/** 删除单个 MCP 服务器配置 */
+export function removeMcpServerConfig(id: string): void {
+	cached.mcpServers = (cached.mcpServers ?? []).filter((s) => s.id !== id);
+	save();
 }

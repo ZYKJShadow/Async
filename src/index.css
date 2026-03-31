@@ -7784,6 +7784,17 @@ body {
 	padding: 0 10px 8px;
 }
 
+/* 流式写入：固定预览区高度 + 内部滚动，避免内容行数波动时整块卡片高度忽高忽低 */
+.ref-edit-card-preview-wrap--streaming-scroll {
+	height: 260px;
+	max-height: 260px;
+	min-height: 260px;
+	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-gutter: stable;
+	overflow-anchor: none;
+}
+
 .ref-edit-card-preview {
 	border: 1px solid rgba(255, 255, 255, 0.06);
 	border-radius: 8px;

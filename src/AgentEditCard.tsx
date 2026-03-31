@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, useEffect } from 'react';
 import { FileTypeIcon } from './fileTypeIcons';
 import type { FileEditSegment } from './agentChatSegments';
 import { useI18n } from './i18n';
@@ -20,6 +20,8 @@ type PreviewLine = {
 };
 
 const EDIT_PREVIEW_MAX_BODY_PX = 220;
+/** 流式预览：固定尾部行数，避免 pretext 按像素折算时行数忽多忽少导致高度抖动 */
+const STREAMING_PREVIEW_MAX_LINES = 22;
 
 function buildPreviewLines(edit: FileEditSegment): PreviewLine[] {
 	const lines: PreviewLine[] = [];
@@ -42,7 +44,22 @@ export function AgentEditCard({ edit, onOpenFile }: Props) {
 	const previewLines = useMemo(() => buildPreviewLines(edit), [edit]);
 	const [expanded, setExpanded] = useState(false);
 	const previewMeasureRef = useRef<HTMLDivElement>(null);
+	/** 流式时预览区内部滚动，避免整块高度顶动外层消息列表（对齐 Cursor 类产品的稳定布局） */
+	const previewScrollWrapRef = useRef<HTMLDivElement>(null);
 	const [previewInnerWidth, setPreviewInnerWidth] = useState(320);
+	const streamingRef = useRef(false);
+	streamingRef.current = edit.isStreaming;
+
+	useLayoutEffect(() => {
+		if (!edit.isStreaming) {
+			return;
+		}
+		const wrap = previewScrollWrapRef.current;
+		if (!wrap) {
+			return;
+		}
+		wrap.scrollTop = wrap.scrollHeight;
+	}, [edit.isStreaming, previewLines]);
 
 	useLayoutEffect(() => {
 		const el = previewMeasureRef.current;
@@ -56,6 +73,9 @@ export function AgentEditCard({ edit, onOpenFile }: Props) {
 		};
 		apply(el.getBoundingClientRect().width);
 		const ro = new ResizeObserver((entries) => {
+			if (streamingRef.current) {
+				return;
+			}
 			const w = entries[0]?.contentRect.width ?? 0;
 			apply(w);
 		});
@@ -63,19 +83,30 @@ export function AgentEditCard({ edit, onOpenFile }: Props) {
 		return () => ro.disconnect();
 	}, []);
 
+	/** 流式结束后再用真实宽度刷新一次折叠态，避免完成瞬间宽度仍为过时的 320 */
+	useEffect(() => {
+		if (edit.isStreaming) {
+			return;
+		}
+		const el = previewMeasureRef.current;
+		if (!el) {
+			return;
+		}
+		const w = el.getBoundingClientRect().width;
+		if (w > 0) {
+			setPreviewInnerWidth(w);
+		}
+	}, [edit.isStreaming]);
+
 	const collapsedHead = useMemo(
 		() => sliceAgentEditPreviewLines(previewLines, previewInnerWidth, EDIT_PREVIEW_MAX_BODY_PX, 'head'),
 		[previewLines, previewInnerWidth]
 	);
-	const collapsedTail = useMemo(
-		() => sliceAgentEditPreviewLines(previewLines, previewInnerWidth, EDIT_PREVIEW_MAX_BODY_PX, 'tail'),
-		[previewLines, previewInnerWidth]
-	);
 
 	const canExpand = !edit.isStreaming && previewLines.length > collapsedHead.length;
-	// 流式：按像素预算展示尾部若干行；完成后：折叠态展示头部，展开后全文。
+	// 流式：固定行数尾部，不用 pretext 像素裁切，避免高度忽高忽低；完成后：折叠态头部 / 展开全文。
 	const visibleLines = edit.isStreaming
-		? collapsedTail
+		? previewLines.slice(-STREAMING_PREVIEW_MAX_LINES)
 		: expanded
 			? previewLines
 			: collapsedHead;
@@ -118,7 +149,10 @@ export function AgentEditCard({ edit, onOpenFile }: Props) {
 				)}
 			</button>
 			{previewLines.length > 0 ? (
-				<div className="ref-edit-card-preview-wrap">
+				<div
+					ref={previewScrollWrapRef}
+					className={`ref-edit-card-preview-wrap ${edit.isStreaming ? 'ref-edit-card-preview-wrap--streaming-scroll' : ''}`}
+				>
 					<div ref={previewMeasureRef} className="ref-edit-card-preview">
 						{visibleLines.map((line, idx) => (
 							<div

@@ -735,6 +735,8 @@ export default function App() {
 	const messagesViewportRef = useRef<HTMLDivElement>(null);
 	const messagesTrackRef = useRef<HTMLDivElement>(null);
 	const pinMessagesToBottomRef = useRef(true);
+	/** 合并粘底滚动到每帧一次，避免 useLayoutEffect + ResizeObserver 与 sticky 用户条叠加导致上下抖动 */
+	const messagesScrollToBottomRafRef = useRef<number | null>(null);
 	const prevMessagesLenForScrollRef = useRef(0);
 	const closeAtMenuLatestRef = useRef<() => void>(() => {});
 	const plusAnchorHeroRef = useRef<HTMLDivElement>(null);
@@ -1164,11 +1166,8 @@ export default function App() {
 					window.clearTimeout(streamingToolPreviewClearTimerRef.current);
 					streamingToolPreviewClearTimerRef.current = null;
 				}
-				setStreamingToolPreview((prev) => ({
-					name: payload.name,
-					partialJson: payload.args,
-					index: prev?.name === payload.name ? prev.index : 0,
-				}));
+				// 工具参数已完整，streaming 中的 <tool_call> 标记接管渲染，清除流式预览避免重复
+				setStreamingToolPreview(null);
 				const marker = `\n<tool_call tool="${payload.name}">${payload.args}</tool_call>\n`;
 				setStreaming((s) => s + marker);
 			} else if (payload.type === 'tool_result') {
@@ -2654,6 +2653,23 @@ export default function App() {
 		el.scrollTo({ top: el.scrollHeight, behavior });
 	}, []);
 
+	const scheduleMessagesScrollToBottom = useCallback(() => {
+		if (!pinMessagesToBottomRef.current) {
+			return;
+		}
+		if (messagesScrollToBottomRafRef.current !== null) {
+			return;
+		}
+		messagesScrollToBottomRafRef.current = requestAnimationFrame(() => {
+			messagesScrollToBottomRafRef.current = null;
+			const el = messagesViewportRef.current;
+			if (!el || !pinMessagesToBottomRef.current) {
+				return;
+			}
+			el.scrollTop = el.scrollHeight;
+		});
+	}, []);
+
 	/** 切换线程：恢复「粘底」，等 messages / 流式更新后再滚（避免旧列表闪滚） */
 	useLayoutEffect(() => {
 		pinMessagesToBottomRef.current = true;
@@ -2670,13 +2686,13 @@ export default function App() {
 		}
 	}, [messages, scrollMessagesToBottom]);
 
-	/** 流式 / 思考计时 / 展示列表变化：仅在「粘底」时跟随 */
+	/** 流式 / 思考计时 / 展示列表变化：仅在「粘底」时跟随（每帧合并一次，减轻与 RO 重复滚动） */
 	useLayoutEffect(() => {
 		if (!hasConversation || !pinMessagesToBottomRef.current) {
 			return;
 		}
-		scrollMessagesToBottom('auto');
-	}, [hasConversation, displayMessages, streaming, thinkingTick, currentId, scrollMessagesToBottom]);
+		scheduleMessagesScrollToBottom();
+	}, [hasConversation, displayMessages, streaming, thinkingTick, currentId, scheduleMessagesScrollToBottom]);
 
 	/** 内容高度异步变化（Markdown、diff 卡片等）时仍保持粘底 */
 	useEffect(() => {
@@ -2689,14 +2705,17 @@ export default function App() {
 			return;
 		}
 		const ro = new ResizeObserver(() => {
-			if (!pinMessagesToBottomRef.current) {
-				return;
-			}
-			outer.scrollTop = outer.scrollHeight;
+			scheduleMessagesScrollToBottom();
 		});
 		ro.observe(track);
-		return () => ro.disconnect();
-	}, [hasConversation, currentId]);
+		return () => {
+			ro.disconnect();
+			if (messagesScrollToBottomRafRef.current !== null) {
+				cancelAnimationFrame(messagesScrollToBottomRafRef.current);
+				messagesScrollToBottomRafRef.current = null;
+			}
+		};
+	}, [hasConversation, currentId, scheduleMessagesScrollToBottom]);
 
 	useEffect(() => {
 		if (!awaitingReply || streaming.length > 0) {

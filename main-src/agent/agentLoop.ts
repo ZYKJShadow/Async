@@ -30,6 +30,7 @@ import {
 	type ToolCall,
 } from './agentTools.js';
 import { executeTool, type ToolExecutionHooks } from './toolExecutor.js';
+import { repairAgentThreadMessagesForApi } from './agentToolProtocolRepair.js';
 import type { MistakeLimitContext, MistakeLimitDecision } from './mistakeLimitGate.js';
 
 export type { MistakeLimitContext, MistakeLimitDecision } from './mistakeLimitGate.js';
@@ -40,12 +41,44 @@ export type BeforeExecuteToolResult = { proceed: true } | { proceed: false; reje
 const MAX_ROUNDS = 25;
 const DEFAULT_MAX_CONSECUTIVE_MISTAKES = 5;
 
-/** 单轮流式 chunk 最长静默时间（ms）；超时后自动 abort 并报错 */
-const CHUNK_SILENCE_TIMEOUT_MS = 90_000;
+/** 单轮流式 chunk 最长静默时间（ms）；大段工具 JSON 可能长时间无 chunk，过短会误杀长写 */
+const CHUNK_SILENCE_TIMEOUT_MS = 180_000;
 /** 单轮 LLM 调用总时长上限（ms）；防止极端长输出永不结束 */
-const ROUND_HARD_TIMEOUT_MS = 300_000;
+const ROUND_HARD_TIMEOUT_MS = 600_000;
 
 export type ToolInputDeltaPayload = { name: string; partialJson: string; index: number };
+
+/** 合并 tool_input_delta，避免每字符 IPC 拖垮渲染进程 */
+function createToolInputDeltaThrottle(
+	emit: (p: ToolInputDeltaPayload) => void
+): { queue: (p: ToolInputDeltaPayload) => void; flush: () => void } {
+	let pending: ToolInputDeltaPayload | null = null;
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	const MS = 48;
+	return {
+		queue(p: ToolInputDeltaPayload) {
+			pending = p;
+			if (timer !== null) return;
+			timer = setTimeout(() => {
+				timer = null;
+				if (pending) {
+					emit(pending);
+					pending = null;
+				}
+			}, MS);
+		},
+		flush() {
+			if (timer !== null) {
+				clearTimeout(timer);
+				timer = null;
+			}
+			if (pending) {
+				emit(pending);
+				pending = null;
+			}
+		},
+	};
+}
 
 export type AgentLoopHandlers = {
 	onTextDelta: (text: string) => void;
@@ -125,18 +158,37 @@ function unwrapAssistantContentEnvelope(text: string): string {
 	}
 }
 
+/**
+ * 许多 OpenAI 兼容网关会先流式下发 `function.arguments`，`function.name` 晚几帧才到。
+ * 若仅在 `name` 已有时才触发 `onToolInputDelta`，则整段参数流式阶段 UI 完全收不到增量，代码卡片会像「一次性出现」。
+ * 根据已出现的 JSON 键名猜测工具（与 agentTools 名称一致）；正式 `name` 到达后下一轮 chunk 会纠正。
+ */
+function inferOpenAIToolNameFromPartialArguments(partial: string): string {
+	const c = partial.replace(/\s+/g, '');
+	if (!c) return '';
+	if (c.includes('"old_str"') || c.includes('"new_str"')) return 'str_replace';
+	if (c.includes('"content"')) return 'write_to_file';
+	if (c.includes('"pattern"')) return 'search_files';
+	if (c.includes('"command"')) return 'execute_command';
+	// read_file 常带行号；仅有 path 的片段多是 write_to_file 正在流出 path，content 尚未到
+	if (c.includes('"start_line"') || c.includes('"end_line"')) return 'read_file';
+	if (c.includes('"path"')) return 'write_to_file';
+	return '';
+}
+
 export async function runAgentLoop(
 	settings: ShellSettings,
 	threadMessages: ChatMessage[],
 	options: AgentLoopOptions,
 	handlers: AgentLoopHandlers
 ): Promise<void> {
+	const messagesForApi = repairAgentThreadMessagesForApi(threadMessages);
 	switch (options.paradigm) {
 		case 'anthropic':
-			return runAnthropicLoop(settings, threadMessages, options, handlers);
+			return runAnthropicLoop(settings, messagesForApi, options, handlers);
 		case 'openai-compatible':
 		default:
-			return runOpenAILoop(settings, threadMessages, options, handlers);
+			return runOpenAILoop(settings, messagesForApi, options, handlers);
 	}
 }
 
@@ -261,6 +313,8 @@ async function runOpenAILoop(
 	let outputRecoveryCount = 0;
 
 	type TurnTc = { id: string; name: string; arguments: string };
+
+	const toolDeltaThrottle = createToolInputDeltaThrottle((p) => handlers.onToolInputDelta?.(p));
 
 	async function handleMistakeLimitBeforeRound(): Promise<boolean> {
 		if (!mistakeLimitEnabled || consecutiveToolFailures < threshold) {
@@ -440,19 +494,23 @@ async function runOpenAILoop(
 						while (turnToolCalls.length <= idx) {
 							turnToolCalls.push({ id: '', name: '', arguments: '' });
 						}
-						if (tc.id) turnToolCalls[idx]!.id = tc.id;
-						if (tc.function?.name) turnToolCalls[idx]!.name = tc.function.name;
+						const row = turnToolCalls[idx]!;
+						if (tc.id) row.id = tc.id;
+						if (tc.function?.name) row.name = tc.function.name;
 						if (tc.function?.arguments) {
-							turnToolCalls[idx]!.arguments += tc.function.arguments;
-							const row = turnToolCalls[idx]!;
-							if (row.name) {
-								handlers.onToolInputDelta?.({ name: row.name, partialJson: row.arguments, index: idx });
-							}
+							row.arguments += tc.function.arguments;
+						}
+						if (!row.arguments || !handlers.onToolInputDelta) continue;
+						const effectiveName = row.name || inferOpenAIToolNameFromPartialArguments(row.arguments);
+						if (effectiveName) {
+							toolDeltaThrottle.queue({ name: effectiveName, partialJson: row.arguments, index: idx });
 						}
 					}
 				}
 			}
+			toolDeltaThrottle.flush();
 		} catch (e: unknown) {
+			toolDeltaThrottle.flush();
 			clearInterval(silenceTimer);
 			clearTimeout(hardTimer);
 			if (options.signal.aborted) {
@@ -460,8 +518,10 @@ async function runOpenAILoop(
 				break;
 			}
 			if (roundSignal.aborted && !options.signal.aborted) {
-				synthesizeMissingOpenAIToolResults(conversation, turnToolCalls, '连接超时');
-				handlers.onError('连接超时：LLM 响应过慢，已自动中止。请重试或检查网络。');
+				// 超时中止：保留已生成内容，以 onDone 结束而非 onError 丢弃
+				const partialText = unwrapAssistantContentEnvelope(turnText);
+				fullContent += partialText;
+				handlers.onDone(fullContent, accUsage);
 				return;
 			}
 			synthesizeMissingOpenAIToolResults(conversation, turnToolCalls, e instanceof Error ? e.message : String(e));
@@ -684,6 +744,8 @@ async function runAnthropicLoop(
 		return out;
 	}
 
+	const toolDeltaThrottleA = createToolInputDeltaThrottle((p) => handlers.onToolInputDelta?.(p));
+
 	for (let round = 0; round < MAX_ROUNDS; round++) {
 		if (options.signal.aborted) break;
 
@@ -778,7 +840,7 @@ async function runAnthropicLoop(
 						if (currentBlockIdx >= 0 && turnToolUses[currentBlockIdx]) {
 							turnToolUses[currentBlockIdx]!.input += ev.delta.partial_json;
 							const tu = turnToolUses[currentBlockIdx]!;
-							handlers.onToolInputDelta?.({
+							toolDeltaThrottleA.queue({
 								name: tu.name,
 								partialJson: tu.input,
 								index: currentBlockIdx,
@@ -789,7 +851,9 @@ async function runAnthropicLoop(
 				currentBlockType = null;
 			}
 		}
+			toolDeltaThrottleA.flush();
 		} catch (e: unknown) {
+			toolDeltaThrottleA.flush();
 			clearInterval(silenceTimerA);
 			clearTimeout(hardTimerA);
 			if (options.signal.aborted) {
@@ -797,8 +861,10 @@ async function runAnthropicLoop(
 				break;
 			}
 			if (roundSignalA.aborted && !options.signal.aborted) {
-				synthesizeMissingAnthropicToolResults(conversation, turnToolUses, '连接超时');
-				handlers.onError('连接超时：LLM 响应过慢，已自动中止。请重试或检查网络。');
+				// 超时中止：保留已生成内容，以 onDone 结束而非 onError 丢弃
+				const partialTextA = unwrapAssistantContentEnvelope(turnText);
+				fullContent += partialTextA;
+				handlers.onDone(fullContent, accUsage);
 				return;
 			}
 			synthesizeMissingAnthropicToolResults(conversation, turnToolUses, e instanceof Error ? e.message : String(e));
