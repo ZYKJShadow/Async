@@ -1,16 +1,22 @@
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
 	isSlashCommandDomPendingUpgrade,
+	newSegmentId,
 	segmentsContentKey,
 	segmentsToWireText,
 	type ComposerSegment,
 } from './composerSegments';
 import {
 	type FileChipDomHandlers,
+	insertFileChipAtCaret,
 	placeCaretAfterFirstSlashChipElseEnd,
 	readSegmentsFromRoot,
 	writeSegmentsToRoot,
 } from './composerRichDom';
+
+function dataTransferHasFiles(dt: DataTransfer | null): boolean {
+	return !!dt?.types?.includes('Files');
+}
 
 type Props = {
 	segments: ComposerSegment[];
@@ -19,6 +25,8 @@ type Props = {
 	placeholder?: string;
 	/** 点击文件 chip：打开侧栏预览 */
 	onFilePreview: (relPath: string) => void;
+	/** 将拖放/粘贴的文件写入工作区并返回相对路径（与 @ 引用一致） */
+	onComposerAttachFiles?: (files: File[]) => Promise<string[]>;
 	/** 与 useComposerAtMention 联动 */
 	onRichInput: (root: HTMLElement) => void;
 	onRichSelect: (root: HTMLElement) => void;
@@ -33,6 +41,7 @@ export function ComposerRichInput({
 	className,
 	placeholder,
 	onFilePreview,
+	onComposerAttachFiles,
 	onRichInput,
 	onRichSelect,
 	onKeyDown,
@@ -41,6 +50,8 @@ export function ComposerRichInput({
 }: Props) {
 	const focusedRef = useRef(false);
 	const lastEmittedRef = useRef<string>('');
+	const dragDepthRef = useRef(0);
+	const [fileDragOver, setFileDragOver] = useState(false);
 
 	const emitFromDom = useCallback(() => {
 		const el = innerRef.current;
@@ -66,6 +77,33 @@ export function ComposerRichInput({
 			},
 		}),
 		[innerRef, onFilePreview, onSegmentsChange]
+	);
+
+	const consumeDroppedOrPastedFiles = useCallback(
+		async (files: File[]) => {
+			if (!onComposerAttachFiles || files.length === 0) {
+				return;
+			}
+			const nonEmpty = files.filter((f) => f.size > 0);
+			if (nonEmpty.length === 0) {
+				return;
+			}
+			let rels: string[];
+			try {
+				rels = await onComposerAttachFiles(nonEmpty);
+			} catch {
+				return;
+			}
+			const el = innerRef.current;
+			if (!el) {
+				return;
+			}
+			el.focus();
+			for (const rel of rels) {
+				insertFileChipAtCaret(el, rel, newSegmentId(), domHandlers);
+			}
+		},
+		[innerRef, onComposerAttachFiles, domHandlers]
 	);
 
 	useLayoutEffect(() => {
@@ -119,8 +157,72 @@ export function ComposerRichInput({
 		}
 	};
 
+	const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+		const list = e.clipboardData?.files;
+		if (!list?.length || !onComposerAttachFiles) {
+			return;
+		}
+		const files = Array.from(list).filter((f) => f.size > 0);
+		if (files.length === 0) {
+			return;
+		}
+		e.preventDefault();
+		void consumeDroppedOrPastedFiles(files);
+	};
+
+	const onDragEnter = (e: React.DragEvent) => {
+		if (!onComposerAttachFiles || !dataTransferHasFiles(e.dataTransfer)) {
+			return;
+		}
+		e.preventDefault();
+		e.stopPropagation();
+		dragDepthRef.current += 1;
+		setFileDragOver(true);
+	};
+
+	const onDragLeave = (e: React.DragEvent) => {
+		if (!onComposerAttachFiles) {
+			return;
+		}
+		e.preventDefault();
+		e.stopPropagation();
+		dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+		if (dragDepthRef.current === 0) {
+			setFileDragOver(false);
+		}
+	};
+
+	const onDragOver = (e: React.DragEvent) => {
+		if (!onComposerAttachFiles || !dataTransferHasFiles(e.dataTransfer)) {
+			return;
+		}
+		e.preventDefault();
+		e.stopPropagation();
+		e.dataTransfer.dropEffect = 'copy';
+	};
+
+	const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+		e.preventDefault();
+		e.stopPropagation();
+		dragDepthRef.current = 0;
+		setFileDragOver(false);
+		if (!onComposerAttachFiles) {
+			return;
+		}
+		const files = Array.from(e.dataTransfer.files ?? []).filter((f) => f.size > 0);
+		if (files.length === 0) {
+			return;
+		}
+		void consumeDroppedOrPastedFiles(files);
+	};
+
 	return (
-		<div className="ref-composer-rich-wrap">
+		<div
+			className={['ref-composer-rich-wrap', fileDragOver ? 'is-file-drag-over' : ''].filter(Boolean).join(' ')}
+			onDragEnter={onDragEnter}
+			onDragLeave={onDragLeave}
+			onDragOver={onDragOver}
+		>
 			<div
 				ref={innerRef as React.Ref<HTMLDivElement>}
 				className={['ref-composer-rich-input', className].filter(Boolean).join(' ')}
@@ -136,6 +238,8 @@ export function ComposerRichInput({
 					focusedRef.current = false;
 				}}
 				onInput={handleInput}
+				onPaste={onPaste}
+				onDrop={onDrop}
 				onSelect={() => {
 					const el = innerRef.current;
 					if (el) {

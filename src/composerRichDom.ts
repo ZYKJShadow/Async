@@ -286,6 +286,30 @@ export function applyFileChipFromAtMention(root: HTMLElement, relPath: string, s
 	h.onStructureChange();
 }
 
+/** 在光标处插入文件 chip（拖放/粘贴附件），行为与 @ 选文件后的 chip 一致 */
+export function insertFileChipAtCaret(root: HTMLElement, relPath: string, segId: string, h: FileChipDomHandlers): void {
+	const sel = window.getSelection();
+	if (!sel || sel.rangeCount === 0 || !root.contains(sel.anchorNode)) {
+		placeCaretAtEndOfRichRoot(root);
+	}
+	const sel2 = window.getSelection();
+	if (!sel2 || sel2.rangeCount === 0 || !root.contains(sel2.anchorNode)) {
+		return;
+	}
+	const range = sel2.getRangeAt(0).cloneRange();
+	range.deleteContents();
+	const chip = createFileChipElement(relPath, segId, h);
+	range.insertNode(chip);
+	const pad = document.createTextNode(' ');
+	chip.after(pad);
+	const nr = document.createRange();
+	nr.setStartAfter(pad);
+	nr.collapse(true);
+	sel2.removeAllRanges();
+	sel2.addRange(nr);
+	h.onStructureChange();
+}
+
 /** 将当前 @查询 替换为静态提及文本（如 @Branch） */
 export function applyStaticMentionInsert(root: HTMLElement, insertText: string, h: FileChipDomHandlers): void {
 	const r = findAtMentionDomRange(root);

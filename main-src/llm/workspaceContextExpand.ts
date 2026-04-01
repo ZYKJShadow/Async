@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { ChatMessage } from '../threadStore.js';
 import { getWorkspaceRoot, resolveWorkspacePath } from '../workspace.js';
 import { getIndexedWorkspaceFilesIfFresh, listWorkspaceRelativeFiles } from '../workspaceFileIndex.js';
@@ -32,6 +33,24 @@ export function collectAtWorkspacePathsInText(text: string, knownRelativePaths: 
 	return order;
 }
 
+const INLINE_IMAGE_MAX_BYTES = 2_000_000;
+const INLINE_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+
+function mimeForInlineImage(ext: string): string {
+	switch (ext) {
+		case 'png':
+			return 'image/png';
+		case 'gif':
+			return 'image/gif';
+		case 'webp':
+			return 'image/webp';
+		case 'jpg':
+		case 'jpeg':
+		default:
+			return 'image/jpeg';
+	}
+}
+
 function expandUserTextWithWorkspaceFiles(text: string): string {
 	const root = getWorkspaceRoot();
 	if (!root) {
@@ -51,8 +70,26 @@ function expandUserTextWithWorkspaceFiles(text: string): string {
 	for (const rel of refs) {
 		try {
 			const full = resolveWorkspacePath(rel);
-			const content = fs.readFileSync(full, 'utf8');
-			blocks.push(`### 工作区文件: ${rel}\n\`\`\`\n${content}\n\`\`\`\n`);
+			if (!fs.statSync(full).isFile()) {
+				continue;
+			}
+			const buf = fs.readFileSync(full);
+			const ext = path.extname(rel).slice(1).toLowerCase();
+			if (INLINE_IMAGE_EXTS.has(ext) && buf.length > 0 && buf.length <= INLINE_IMAGE_MAX_BYTES) {
+				const mime = mimeForInlineImage(ext);
+				const b64 = buf.toString('base64');
+				const base = path.basename(rel);
+				blocks.push(`### Attached image: ${rel}\n![${base}](data:${mime};base64,${b64})\n`);
+				continue;
+			}
+			if (!buf.includes(0)) {
+				const content = buf.toString('utf8');
+				blocks.push(`### 工作区文件: ${rel}\n\`\`\`\n${content}\n\`\`\`\n`);
+			} else {
+				blocks.push(
+					`### 工作区文件: ${rel}\n（二进制文件，${buf.length} 字节 — 已引用路径，可通过工具读取。）\n`
+				);
+			}
 		} catch {
 			blocks.push(`### 工作区文件: ${rel}\n（读取失败）\n`);
 		}
@@ -61,7 +98,7 @@ function expandUserTextWithWorkspaceFiles(text: string): string {
 }
 
 export function modeExpandsWorkspaceFileContext(mode: ComposerMode): boolean {
-	return mode === 'agent' || mode === 'plan' || mode === 'debug';
+	return mode === 'agent' || mode === 'plan' || mode === 'debug' || mode === 'ask';
 }
 
 const ASSET_EXTS = new Set([

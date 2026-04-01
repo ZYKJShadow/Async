@@ -3803,6 +3803,11 @@ body {
 	min-width: 0;
 }
 
+.ref-composer-rich-wrap.is-file-drag-over .ref-composer-rich-input {
+	box-shadow: inset 0 0 0 2px var(--void-accent-soft, rgba(129, 140, 248, 0.35));
+	border-radius: 6px;
+}
+
 .ref-composer-rich-input {
 	width: 100%;
 	min-height: 64px;

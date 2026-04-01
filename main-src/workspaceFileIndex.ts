@@ -43,6 +43,20 @@ export function getWorkspaceFileIndexLiveStats(): { root: string | null; fileCou
 	return { root: cachedRoot, fileCount: relPathSet.size };
 }
 
+/**
+ * 将新写入的相对路径立即纳入索引，避免刚落盘的附件在当次 @ 展开中不被识别。
+ */
+export function registerKnownWorkspaceRelPath(relPath: string): void {
+	if (!cachedRoot) {
+		return;
+	}
+	const norm = relPath.replace(/\\/g, '/').replace(/^\/+/, '').trim();
+	if (!norm || norm.includes('..')) {
+		return;
+	}
+	relPathSet.add(norm);
+}
+
 let cachedRoot: string | null = null;
 let relPathSet = new Set<string>();
 let watcher: chokidar.FSWatcher | null = null;

@@ -871,6 +871,8 @@ export default function App() {
 	const [saveToastVisible, setSaveToastVisible] = useState(false);
 	const [subAgentBgToast, setSubAgentBgToast] = useState<{ key: number; ok: boolean; text: string } | null>(null);
 	const subAgentBgToastTimerRef = useRef<number | null>(null);
+	const [composerAttachErr, setComposerAttachErr] = useState<string | null>(null);
+	const composerAttachErrTimerRef = useRef<number | null>(null);
 	const monacoEditorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
 	const [tsLspStatus, setTsLspStatus] = useState<'off' | 'starting' | 'ready' | 'error'>('off');
 	/** 打开文件后在 Monaco 中高亮的行范围（1-based，含 end） */
@@ -1208,6 +1210,60 @@ export default function App() {
 			clearAgentReviewForThread(currentId);
 		}
 	}, [currentId, clearAgentReviewForThread]);
+
+	const flashComposerAttachErr = useCallback((msg: string) => {
+		if (composerAttachErrTimerRef.current !== null) {
+			window.clearTimeout(composerAttachErrTimerRef.current);
+		}
+		setComposerAttachErr(msg);
+		composerAttachErrTimerRef.current = window.setTimeout(() => {
+			setComposerAttachErr(null);
+			composerAttachErrTimerRef.current = null;
+		}, 4200);
+	}, []);
+
+	const persistComposerAttachments = useCallback(
+		async (files: File[]): Promise<string[]> => {
+			if (!shell) {
+				return [];
+			}
+			if (!workspace) {
+				flashComposerAttachErr(t('composer.attach.noWorkspace'));
+				return [];
+			}
+			const out: string[] = [];
+			for (const f of files) {
+				const b64 = await new Promise<string>((resolve, reject) => {
+					const r = new FileReader();
+					r.onload = () => {
+						const d = r.result as string;
+						const i = d.indexOf(',');
+						resolve(i >= 0 ? d.slice(i + 1) : d);
+					};
+					r.onerror = () => reject(r.error ?? new Error('read'));
+					r.readAsDataURL(f);
+				});
+				const r = (await shell.invoke('workspace:saveComposerAttachment', {
+					base64: b64,
+					fileName: f.name,
+				})) as { ok?: boolean; relPath?: string; error?: string };
+				if (r?.ok && typeof r.relPath === 'string') {
+					out.push(r.relPath);
+				} else {
+					const err = r?.error;
+					if (err === 'too-large') {
+						flashComposerAttachErr(t('composer.attach.tooLarge'));
+					} else if (err === 'no-workspace') {
+						flashComposerAttachErr(t('composer.attach.noWorkspace'));
+					} else {
+						flashComposerAttachErr(t('composer.attach.saveFailed'));
+					}
+				}
+			}
+			return out;
+		},
+		[shell, workspace, t, flashComposerAttachErr]
+	);
 
 	const onApplyAgentPatchOne = useCallback(
 		async (id: string) => {
@@ -3915,6 +3971,7 @@ export default function App() {
 				className={inputClass}
 				placeholder={inputPlaceholder}
 				onFilePreview={(rel) => void onExplorerOpenFile(rel)}
+				onComposerAttachFiles={persistComposerAttachments}
 				onRichInput={(root) => syncComposerOverlays(root, slotKey)}
 				onRichSelect={(root) => syncComposerOverlays(root, slotKey)}
 				onKeyDown={onComposerKeyDown}
@@ -4143,6 +4200,7 @@ export default function App() {
 							className="ref-capsule-input"
 							placeholder={composerPlaceholder}
 							onFilePreview={(rel) => void onExplorerOpenFile(rel)}
+							onComposerAttachFiles={persistComposerAttachments}
 							onRichInput={(root) => syncComposerOverlays(root, 'hero')}
 							onRichSelect={(root) => syncComposerOverlays(root, 'hero')}
 							onKeyDown={(e) => {
@@ -4380,6 +4438,7 @@ export default function App() {
 									className="ref-capsule-input"
 									placeholder={composerPlaceholder}
 									onFilePreview={(rel) => void onExplorerOpenFile(rel)}
+									onComposerAttachFiles={persistComposerAttachments}
 									onRichInput={(root) => syncComposerOverlays(root, 'hero')}
 									onRichSelect={(root) => syncComposerOverlays(root, 'hero')}
 									onKeyDown={(e) => {
@@ -5908,6 +5967,11 @@ export default function App() {
 					role="status"
 				>
 					{subAgentBgToast.text}
+				</div>
+			) : null}
+			{composerAttachErr ? (
+				<div className="ref-sub-agent-bg-toast is-err" role="alert">
+					{composerAttachErr}
 				</div>
 			) : null}
 		</div>

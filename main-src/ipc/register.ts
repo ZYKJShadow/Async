@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { createAppWindow } from '../appWindow.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -11,6 +12,7 @@ import {
 	ensureWorkspaceFileIndex,
 	stopWorkspaceFileIndex,
 	getWorkspaceFileIndexLiveStats,
+	registerKnownWorkspaceRelPath,
 } from '../workspaceFileIndex.js';
 import {
 	getSettings,
@@ -51,7 +53,11 @@ import * as gitService from '../gitService.js';
 import { parseComposerMode } from '../llm/composerMode.js';
 import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
 import { streamChatUnified } from '../llm/llmRouter.js';
-import { buildWorkspaceTreeSummary, modeExpandsWorkspaceFileContext } from '../llm/workspaceContextExpand.js';
+import {
+	buildWorkspaceTreeSummary,
+	cloneMessagesWithExpandedLastUser,
+	modeExpandsWorkspaceFileContext,
+} from '../llm/workspaceContextExpand.js';
 import {
 	listAgentDiffChunks,
 	applyAgentDiffChunk,
@@ -170,7 +176,7 @@ function runChatStream(
 				thread?.summary,
 				thread?.summaryCoversMessageCount
 			);
-			const sendMessages = compressResult.messages;
+			let sendMessages = compressResult.messages;
 			if (compressResult.newSummary && compressResult.newSummaryCoversCount !== undefined) {
 				saveSummary(threadId, compressResult.newSummary, compressResult.newSummaryCoversCount);
 			}
@@ -227,9 +233,14 @@ function runChatStream(
 						emit: (evt) => send({ threadId, ...evt }),
 					});
 				}
+				const messagesForAgent = modeExpandsWorkspaceFileContext(
+					mode as import('../llm/composerMode.js').ComposerMode
+				)
+					? cloneMessagesWithExpandedLastUser(sendMessages)
+					: sendMessages;
 				await runAgentLoop(
 					settings,
-					sendMessages,
+					messagesForAgent,
 					{
 						requestModelId: resolved.requestModelId,
 						paradigm: resolved.paradigm,
@@ -608,6 +619,54 @@ export function registerIpc(): void {
 		}
 	});
 
+	const COMPOSER_ATTACH_MAX_BYTES = 8 * 1024 * 1024;
+
+	ipcMain.handle(
+		'workspace:saveComposerAttachment',
+		async (
+			_e,
+			payload: { base64?: string; fileName?: string }
+		): Promise<
+			| { ok: true; relPath: string }
+			| { ok: false; error: 'no-workspace' | 'empty' | 'too-large' | 'write-failed' }
+		> => {
+			const root = getWorkspaceRoot();
+			if (!root) {
+				return { ok: false as const, error: 'no-workspace' as const };
+			}
+			const rawName =
+				typeof payload?.fileName === 'string' && payload.fileName.trim()
+					? path.basename(payload.fileName)
+					: 'attachment';
+			const safe =
+				rawName.replace(/[^\w.\u4e00-\u9fff-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 120) || 'file';
+			let buf: Buffer;
+			try {
+				buf = Buffer.from(String(payload?.base64 ?? ''), 'base64');
+			} catch {
+				return { ok: false as const, error: 'empty' as const };
+			}
+			if (buf.length === 0) {
+				return { ok: false as const, error: 'empty' as const };
+			}
+			if (buf.length > COMPOSER_ATTACH_MAX_BYTES) {
+				return { ok: false as const, error: 'too-large' as const };
+			}
+			const dirRel = '.async/composer-drops';
+			const dirAbs = path.join(root, dirRel);
+			try {
+				fs.mkdirSync(dirAbs, { recursive: true });
+				const id = randomUUID();
+				const relPath = `${dirRel}/${id}-${safe}`;
+				fs.writeFileSync(path.join(root, relPath), buf);
+				registerKnownWorkspaceRelPath(relPath);
+				return { ok: true as const, relPath };
+			} catch {
+				return { ok: false as const, error: 'write-failed' as const };
+			}
+		}
+	);
+
 	ipcMain.handle('settings:get', () => getSettings());
 
 	ipcMain.handle('settings:set', (_e, partial: Record<string, unknown>) => {
@@ -887,7 +946,11 @@ export function registerIpc(): void {
 				let finalSystemAppend = prepared.agentSystemAppend
 					? `${prepared.agentSystemAppend}\n\n---\n\n${skillBlock}`
 					: skillBlock;
-				if (mode === 'plan' && workspaceFiles.length > 0) {
+				if (root && (mode === 'plan' || mode === 'ask')) {
+					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
+					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
+				}
+				if ((mode === 'plan' || mode === 'ask') && workspaceFiles.length > 0) {
 					const tree = buildWorkspaceTreeSummary(workspaceFiles);
 					if (tree) {
 						finalSystemAppend = finalSystemAppend
@@ -931,7 +994,11 @@ export function registerIpc(): void {
 			);
 
 			let finalSystemAppend = agentSystemAppend;
-			if (mode === 'plan' && workspaceFiles.length > 0) {
+			if (root && (mode === 'plan' || mode === 'ask')) {
+				const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
+				finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
+			}
+			if ((mode === 'plan' || mode === 'ask') && workspaceFiles.length > 0) {
 				const tree = buildWorkspaceTreeSummary(workspaceFiles);
 				if (tree) {
 					finalSystemAppend = finalSystemAppend
@@ -1001,7 +1068,11 @@ export function registerIpc(): void {
 				const { userText, agentSystemAppend, atPaths } = prepareUserTurnForChat(trimmed, agentForTurn, root, workspaceFiles);
 
 				let finalSystemAppend = agentSystemAppend;
-				if (mode === 'plan' && workspaceFiles.length > 0) {
+				if (root && (mode === 'plan' || mode === 'ask')) {
+					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
+					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
+				}
+				if ((mode === 'plan' || mode === 'ask') && workspaceFiles.length > 0) {
 					const tree = buildWorkspaceTreeSummary(workspaceFiles);
 					if (tree) {
 						finalSystemAppend = finalSystemAppend
@@ -1010,23 +1081,23 @@ export function registerIpc(): void {
 					}
 				}
 
-			if (modeExpandsWorkspaceFileContext(mode) && userText.trim().length > 8) {
-				const recentPaths = Object.keys(getThread(threadId)?.fileStates ?? {});
-				const enrichedQuery = buildEnrichedQuery(userText, getThread(threadId)?.messages ?? []);
-				const sem = buildSemanticContextBlock(enrichedQuery, 6, recentPaths, atPaths.length > 0 ? atPaths : undefined);
-				if (sem) {
-					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${sem}` : sem;
+				if (modeExpandsWorkspaceFileContext(mode) && userText.trim().length > 8) {
+					const recentPaths = Object.keys(getThread(threadId)?.fileStates ?? {});
+					const enrichedQuery = buildEnrichedQuery(userText, getThread(threadId)?.messages ?? []);
+					const sem = buildSemanticContextBlock(enrichedQuery, 6, recentPaths, atPaths.length > 0 ? atPaths : undefined);
+					if (sem) {
+						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${sem}` : sem;
+					}
 				}
-			}
 
-			if (modeExpandsWorkspaceFileContext(mode) && root && getSettings().indexing?.gitContextEnabled !== false) {
-				const gitBlock = await getGitContextBlock(root);
-				if (gitBlock) {
-					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${gitBlock}` : gitBlock;
+				if (modeExpandsWorkspaceFileContext(mode) && root && getSettings().indexing?.gitContextEnabled !== false) {
+					const gitBlock = await getGitContextBlock(root);
+					if (gitBlock) {
+						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${gitBlock}` : gitBlock;
+					}
 				}
-			}
 
-			const t = replaceFromUserVisibleIndex(threadId, visibleIndex, userText);
+				const t = replaceFromUserVisibleIndex(threadId, visibleIndex, userText);
 				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend);
 				return { ok: true as const };
 			} catch {

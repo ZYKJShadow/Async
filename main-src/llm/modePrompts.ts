@@ -5,6 +5,8 @@ function modeBlock(mode: ComposerMode): string {
 		case 'ask':
 			return [
 				'You are in Ask mode.',
+				'The system message may include the **current workspace root path** and an **indicative file tree** (when a folder is open). User `@` references and paths are relative to that root unless stated otherwise.',
+				'You do not have workspace tools in this mode — rely on the provided tree, any expanded file excerpts, and what the user pastes.',
 				'Answer clearly and cite uncertainty. Prefer explanations over large code dumps.',
 				'Do not assume the user wants repository edits unless they explicitly ask for changes.',
 			].join('\n');

@@ -11,6 +11,7 @@ const INVOKE_CHANNELS = new Set([
 	'workspace:listDiskSkills',
 	'workspace:deleteSkillFromDisk',
 	'workspace:listFiles',
+	'workspace:saveComposerAttachment',
 	'workspace:searchSymbols',
 	'lsp:ts:start',
 	'lsp:ts:stop',

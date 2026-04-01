@@ -8,7 +8,7 @@ import { cloneMessagesWithExpandedLastUser, modeExpandsWorkspaceFileContext } fr
 
 /**
  * Agent 模式的多轮工具循环已由 agent/agentLoop.ts 实现。
- * 此文件仅处理非 Agent 模式（Ask / Plan / Debug）的简单流式补全。
+ * 此文件仅处理非 Agent 模式（Ask / Plan / Debug）的简单流式补全；Ask 与 Plan/Debug 一样会展开 @ 文件引用。
  * Gemini paradigm 的 Agent 模式暂回退到此处（无工具循环）。
  */
 
