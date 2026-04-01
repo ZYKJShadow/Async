@@ -14,6 +14,8 @@
 	--void-ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
 	/* ??????????? */
 	--void-thought-meta: #6b6b76;
+	/* ????????????????????????????????????????? */
+	--void-thought-body: #4b4b56;
 	--void-thought-detail: #575760;
 	--void-border: #27272a;
 	--void-border-soft: rgba(255, 255, 255, 0.06);
@@ -2203,19 +2205,25 @@ body {
 	margin: 0 0 10px;
 	max-height: 220px;
 	overflow: auto;
-	padding: 8px 10px;
-	border-radius: 8px;
-	border: 1px solid rgba(255, 255, 255, 0.08);
-	background: rgba(6, 8, 12, 0.55);
+	padding: 6px 8px;
+	border-radius: 6px;
+	border: 1px solid rgba(255, 255, 255, 0.04);
+	background: rgba(6, 8, 12, 0.28);
+}
+
+.ref-thought-reasoning-chunk + .ref-thought-reasoning-chunk {
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid rgba(255, 255, 255, 0.035);
 }
 
 .ref-thought-reasoning-pre {
 	margin: 0;
 	white-space: pre-wrap;
 	word-break: break-word;
-	font-size: 11px;
+	font-size: 10px;
 	line-height: 1.5;
-	color: var(--void-fg-2, #aaa);
+	color: var(--void-thought-body);
 	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -2436,6 +2444,84 @@ body {
 	padding-left: 12px;
 	border-left: 3px solid var(--void-border);
 	color: var(--void-fg-2);
+}
+
+/* ????? ref-md-root ????????????????????????????????????????????????????? */
+.ref-md-root.ref-thought-md-root {
+	font-size: 10px;
+	line-height: 1.5;
+	color: var(--void-thought-body);
+}
+
+.ref-md-root.ref-thought-md-root p {
+	margin: 0.4em 0;
+}
+
+.ref-md-root.ref-thought-md-root h1,
+.ref-md-root.ref-thought-md-root h2,
+.ref-md-root.ref-thought-md-root h3 {
+	margin: 0.65em 0 0.3em;
+	font-size: 1.05em;
+	font-weight: 600;
+	color: var(--void-thought-meta);
+}
+
+.ref-md-root.ref-thought-md-root strong {
+	color: var(--void-thought-meta);
+	font-weight: 600;
+}
+
+.ref-md-root.ref-thought-md-root pre {
+	margin: 0.5em 0;
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: rgba(8, 10, 14, 0.55);
+	border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ref-md-root.ref-thought-md-root code {
+	font-size: 10px;
+}
+
+.ref-md-root.ref-thought-md-root :not(pre) > code {
+	background: rgba(255, 255, 255, 0.05);
+	color: var(--void-thought-detail);
+	font-size: 0.92em;
+}
+
+.ref-md-root.ref-thought-md-root pre code {
+	color: var(--void-thought-detail);
+	font-size: 10px;
+}
+
+.ref-md-root.ref-thought-md-root a {
+	color: var(--void-thought-meta);
+	opacity: 0.9;
+	text-decoration: none;
+}
+
+.ref-md-root.ref-thought-md-root a:hover {
+	color: var(--void-fg-3);
+	opacity: 1;
+	text-decoration: underline;
+}
+
+.ref-md-root.ref-thought-md-root blockquote {
+	color: var(--void-thought-body);
+	border-left-color: rgba(255, 255, 255, 0.08);
+}
+
+.ref-md-root.ref-thought-md-root table {
+	font-size: 10px;
+	border-color: rgba(255, 255, 255, 0.08);
+}
+
+.ref-md-root.ref-thought-md-root th {
+	color: var(--void-thought-meta);
+}
+
+.ref-md-root.ref-thought-md-root td {
+	color: var(--void-thought-body);
 }
 
 /* Agent ????????? diff ????? Cursor / Qoder ????? */

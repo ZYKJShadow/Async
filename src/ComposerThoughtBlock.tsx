@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import type { ComposerMode } from './ComposerPlusMenu';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { TurnTokenUsage } from './ipcTypes';
 import { useI18n } from './i18n';
 
@@ -9,13 +10,11 @@ type Props = {
 	phase: Phase;
 	/** 首 token 前已用秒数（思考阶段）；done 时为冻结值 */
 	elapsedSeconds: number;
-	/** 整段生成总秒数（done 时可选） */
-	totalStreamSeconds?: number | null;
-	mode: ComposerMode;
 	/** 受控折叠；默认收起 */
 	defaultOpen?: boolean;
 	/** 扩展思考流式正文（Anthropic 等）；不写入历史气泡 */
 	streamingThinking?: string;
+	chunks?: Array<{ id: string; text: string }>;
 	/** 本回合 token 用量（done 阶段展示） */
 	tokenUsage?: TurnTokenUsage | null;
 };
@@ -23,56 +22,34 @@ type Props = {
 export function ComposerThoughtBlock({
 	phase,
 	elapsedSeconds,
-	totalStreamSeconds,
-	mode,
 	defaultOpen = false,
 	streamingThinking = '',
+	chunks,
 	tokenUsage,
 }: Props) {
 	const { t } = useI18n();
 	const [open, setOpen] = useState(defaultOpen);
+	const renderChunks = useMemo(() => {
+		if (Array.isArray(chunks) && chunks.length > 0) {
+			return chunks.filter((chunk) => chunk.text.trim().length > 0);
+		}
+		if (!streamingThinking.trim()) {
+			return [] as Array<{ id: string; text: string }>;
+		}
+		return [{ id: 'fallback-thinking', text: streamingThinking }];
+	}, [chunks, streamingThinking]);
 
 	useEffect(() => {
-		if (streamingThinking.trim()) {
+		if (renderChunks.length > 0) {
 			setOpen(true);
 		}
-	}, [streamingThinking]);
+	}, [renderChunks]);
 	const id = useId();
 	const headId = `${id}-head`;
 	const panelId = `${id}-panel`;
 
 	const sec = Math.max(0, elapsedSeconds);
 	const secLabel = sec < 10 ? sec.toFixed(1) : String(Math.round(sec));
-
-	const modeHint = useMemo(() => {
-		const key =
-			mode === 'ask'
-				? 'thought.mode.ask'
-				: mode === 'plan'
-					? 'thought.mode.plan'
-					: mode === 'debug'
-						? 'thought.mode.debug'
-						: 'thought.mode.agent';
-		return t(key);
-	}, [mode, t]);
-
-	const detailText = useMemo(() => {
-		if (phase === 'thinking') {
-			return t('thought.detail.thinking', { modeHint });
-		}
-		if (phase === 'streaming') {
-			return t('thought.detail.streaming', { modeHint });
-		}
-		const total =
-			totalStreamSeconds != null && totalStreamSeconds > 0
-				? t('thought.totalBlock', { sec: Math.max(1, Math.round(totalStreamSeconds)) })
-				: '';
-		return t('thought.detail.done', {
-			modeHint,
-			sec: Math.max(1, Math.round(elapsedSeconds)),
-			total,
-		});
-	}, [phase, modeHint, elapsedSeconds, totalStreamSeconds, t]);
 
 	const headline =
 		phase === 'thinking' ? t('thought.thinking', { sec: secLabel }) : t('thought.for', { sec: secLabel });
@@ -108,12 +85,17 @@ export function ComposerThoughtBlock({
 			<div className={`ref-collapse-grid ${open ? 'is-open' : ''}`}>
 				<div className="ref-collapse-inner">
 					<div id={panelId} role="region" aria-labelledby={headId} className="ref-thought-panel">
-						{streamingThinking.trim() ? (
+						{renderChunks.length > 0 ? (
 							<div className="ref-thought-reasoning-wrap">
-								<pre className="ref-thought-reasoning-pre">{streamingThinking}</pre>
+								{renderChunks.map((chunk) => (
+									<div key={chunk.id} className="ref-thought-reasoning-chunk">
+										<div className="ref-md-root ref-thought-md-root">
+											<ReactMarkdown remarkPlugins={[remarkGfm]}>{chunk.text}</ReactMarkdown>
+										</div>
+									</div>
+								))}
 							</div>
 						) : null}
-						<pre className="ref-thought-panel-pre">{detailText}</pre>
 						{phase === 'done' && tokenUsage && (tokenUsage.inputTokens || tokenUsage.outputTokens) ? (
 							<div className="ref-thought-usage">
 								{t('usage.tokens', {

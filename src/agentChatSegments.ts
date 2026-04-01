@@ -110,6 +110,7 @@ export type ActivityGroupSegment = {
 
 export type AssistantSegment =
 	| { type: 'markdown'; text: string }
+	| { type: 'thinking'; id: string; text: string }
 	| { type: 'diff'; diff: string }
 	| { type: 'command'; lang: string; body: string }
 	/** 围栏已开、闭合 ``` 未到达（流式），独立成段以便立即渲染代码卡片壳 */

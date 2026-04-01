@@ -7,6 +7,7 @@ import { AgentDiffCard } from './AgentDiffCard';
 import { AgentStreamingFenceCard } from './AgentStreamingFenceCard';
 import { AgentEditCard } from './AgentEditCard';
 import { AgentResultCard } from './AgentResultCard';
+import { ComposerThoughtBlock } from './ComposerThoughtBlock';
 import {
 	buildStreamingToolSegments,
 	segmentAssistantContentUnified,
@@ -14,7 +15,13 @@ import {
 	type StreamingToolPreview,
 } from './agentChatSegments';
 import { useI18n } from './i18n';
+import type { TurnTokenUsage } from './ipcTypes';
 import { liveBlocksToAssistantSegments, type LiveAgentBlocksState } from './liveAgentBlocks';
+
+type ThinkingSegment = Extract<AssistantSegment, { type: 'thinking' }>;
+type RenderUnit =
+	| Exclude<AssistantSegment, { type: 'thinking' }>
+	| { type: 'thinking_group'; chunks: ThinkingSegment[] };
 
 /** 有 tool_input_delta 预览时，解析层也会生成 isStreaming 的 file_edit，避免与预览重复且保证预览优先显示 */
 function dropParsedStreamingFileEditWhilePreview(
@@ -36,6 +43,12 @@ type Props = {
 	showAgentWorking?: boolean;
 	/** 实时回合块状态；与 showAgentWorking 同时为真且 blocks 非空时，优先走块渲染，避免整段 content 重解析 */
 	liveAgentBlocksState?: LiveAgentBlocksState | null;
+	liveThoughtMeta?: {
+		phase: 'thinking' | 'streaming' | 'done';
+		elapsedSeconds: number;
+		streamingThinking?: string;
+		tokenUsage?: TurnTokenUsage | null;
+	} | null;
 };
 
 export function ChatMarkdown({
@@ -48,14 +61,15 @@ export function ChatMarkdown({
 	streamingToolPreview,
 	showAgentWorking = false,
 	liveAgentBlocksState = null,
+	liveThoughtMeta = null,
 }: Props) {
 	const { t } = useI18n();
 
 	const useLiveBlockRender =
 		agentUi &&
 		showAgentWorking &&
-		liveAgentBlocksState != null &&
-		liveAgentBlocksState.blocks.length > 0;
+		(liveThoughtMeta != null ||
+			(liveAgentBlocksState != null && liveAgentBlocksState.blocks.length > 0));
 
 	/**
 	 * 将 content 解析与 streamingToolPreview 拆开：
@@ -112,10 +126,21 @@ export function ChatMarkdown({
 			? ([] as AssistantSegment[])
 			: buildStreamingToolSegments(streamingToolPreview, { t });
 		const segs: AssistantSegment[] = [...filtered, ...streamingSegments];
+		if (
+			useLiveBlockRender &&
+			liveThoughtMeta &&
+			!segs.some((s) => s.type === 'thinking')
+		) {
+			segs.unshift({
+				type: 'thinking',
+				id: 'live-thinking-fallback',
+				text: liveThoughtMeta.streamingThinking ?? '',
+			});
+		}
 		const hasPendingTail =
 			segs.some((s) => s.type === 'activity' && s.status === 'pending') ||
 			streamingToolPreview != null;
-		if (showAgentWorking && !hasPendingTail) {
+		if (showAgentWorking && !hasPendingTail && !segs.some((s) => s.type === 'thinking')) {
 			segs.push({
 				type: 'activity',
 				text: t('agent.working'),
@@ -123,7 +148,24 @@ export function ChatMarkdown({
 			});
 		}
 		return segs;
-	}, [agentUi, parsedSegments, t, streamingToolPreview, showAgentWorking, useLiveBlockRender]);
+	}, [agentUi, parsedSegments, t, streamingToolPreview, showAgentWorking, useLiveBlockRender, liveThoughtMeta]);
+
+	const renderUnits = useMemo(() => {
+		const out: RenderUnit[] = [];
+		for (const seg of renderSegments) {
+			if (seg.type !== 'thinking') {
+				out.push(seg);
+				continue;
+			}
+			const last = out[out.length - 1];
+			if (last?.type === 'thinking_group') {
+				last.chunks.push(seg);
+			} else {
+				out.push({ type: 'thinking_group', chunks: [seg] });
+			}
+		}
+		return out;
+	}, [renderSegments]);
 
 	if (!agentUi) {
 		return (
@@ -133,23 +175,34 @@ export function ChatMarkdown({
 		);
 	}
 
-	if (renderSegments.length === 0) {
+	if (renderUnits.length === 0) {
 		return <div className="ref-md-root ref-md-root--agent-chat" />;
 	}
-	if (renderSegments.length === 1 && renderSegments[0]!.type === 'markdown') {
+	if (renderUnits.length === 1 && renderUnits[0]!.type === 'markdown') {
 		return (
 			<div className="ref-md-root ref-md-root--agent-chat">
-				<ReactMarkdown remarkPlugins={[remarkGfm]}>{renderSegments[0]!.text}</ReactMarkdown>
+				<ReactMarkdown remarkPlugins={[remarkGfm]}>{renderUnits[0]!.text}</ReactMarkdown>
 			</div>
 		);
 	}
 
 	return (
 		<div className="ref-md-root ref-md-root--agent-chat">
-			{renderSegments.map((seg, i) => {
+			{renderUnits.map((seg, i) => {
 				switch (seg.type) {
 					case 'markdown':
 						return <ReactMarkdown key={i} remarkPlugins={[remarkGfm]}>{seg.text}</ReactMarkdown>;
+					case 'thinking_group':
+						return (
+							<ComposerThoughtBlock
+								key={seg.chunks[0]?.id ?? `thinking-${i}`}
+								phase={liveThoughtMeta?.phase ?? 'thinking'}
+								elapsedSeconds={liveThoughtMeta?.elapsedSeconds ?? 0}
+								chunks={seg.chunks.map((chunk) => ({ id: chunk.id, text: chunk.text }))}
+								streamingThinking={liveThoughtMeta?.streamingThinking ?? ''}
+								tokenUsage={liveThoughtMeta?.tokenUsage}
+							/>
+						);
 					case 'diff':
 						return (
 							<AgentDiffCard

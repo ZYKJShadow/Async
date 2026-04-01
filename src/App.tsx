@@ -700,7 +700,6 @@ export default function App() {
 	const [rightPanelTab, setRightPanelTab] = useState<'explorer' | 'search' | 'git'>('git');
 	const [treeEpoch, setTreeEpoch] = useState(0);
 	const [commitMsg, setCommitMsg] = useState('');
-	const [workedSeconds, setWorkedSeconds] = useState<number | null>(null);
 	const [lastTurnUsage, setLastTurnUsage] = useState<TurnTokenUsage | null>(null);
 	const [settingsPageOpen, setSettingsPageOpen] = useState(false);
 	const [settingsMountKey, setSettingsMountKey] = useState(0);
@@ -1148,7 +1147,6 @@ export default function App() {
 			setStreamingThinking('');
 			clearStreamingToolPreviewNow();
 			resetLiveAgentBlocks();
-			setWorkedSeconds(null);
 			firstTokenAtRef.current = null;
 			streamStartedAtRef.current = Date.now();
 			streamThreadRef.current = targetThreadId;
@@ -1444,6 +1442,14 @@ export default function App() {
 					}
 				} else {
 					setStreamingThinking((s) => s + payload.text);
+					if (trackLiveBlocks) {
+						setLiveAssistantBlocks((st) =>
+							applyLiveAgentChatPayload(st, {
+								type: 'thinking_delta',
+								text: payload.text,
+							})
+						);
+					}
 				}
 			} else if (payload.type === 'tool_call') {
 				if (!payload.parentToolCallId) {
@@ -1542,9 +1548,6 @@ export default function App() {
 				const start = streamStartedAtRef.current;
 				const ft = firstTokenAtRef.current;
 				const end = Date.now();
-				if (start !== null) {
-					setWorkedSeconds(Math.max(1, Math.round((end - start) / 1000)));
-				}
 				const thinkSec =
 					start !== null && ft !== null
 						? Math.max(0.1, (ft - start) / 1000)
@@ -1637,9 +1640,6 @@ export default function App() {
 			} else if (payload.type === 'error') {
 				const start = streamStartedAtRef.current;
 				const end = Date.now();
-				if (start !== null) {
-					setWorkedSeconds(Math.max(1, Math.round((end - start) / 1000)));
-				}
 				const thinkSec =
 					start !== null && firstTokenAtRef.current !== null
 						? Math.max(0.1, (firstTokenAtRef.current - start) / 1000)
@@ -1836,7 +1836,6 @@ export default function App() {
 		const r = (await shell.invoke('threads:create')) as { id: string };
 		await refreshThreads();
 		setCurrentId(r.id);
-		setWorkedSeconds(null);
 		setLastTurnUsage(null);
 		setAwaitingReply(false);
 		setStreaming('');
@@ -1872,7 +1871,6 @@ export default function App() {
 		}
 		await shell.invoke('threads:select', id);
 		setCurrentId(id);
-		setWorkedSeconds(null);
 		setAwaitingReply(false);
 		setStreaming('');
 		setStreamingThinking('');
@@ -2045,7 +2043,6 @@ export default function App() {
 		setStreamingThinking('');
 		clearStreamingToolPreviewNow();
 		resetLiveAgentBlocks();
-		setWorkedSeconds(null);
 		firstTokenAtRef.current = null;
 		streamStartedAtRef.current = Date.now();
 		streamThreadRef.current = targetThreadId;
@@ -2265,7 +2262,6 @@ export default function App() {
 		await refreshThreads();
 		await shell.invoke('threads:select', threadId);
 		setCurrentId(threadId);
-		setWorkedSeconds(null);
 		setLastTurnUsage(null);
 		setAwaitingReply(false);
 		setStreaming('');
@@ -3724,7 +3720,15 @@ export default function App() {
 					: undefined;
 
 			let thoughtBlock: ReactNode = null;
-			/** 仅首 token / 工具流式前把思考条放在正文上方；一旦有正文、工具参数流或块状态则移到正文下方，更接近 Cursor 穿插阅读顺序 */
+			let liveThoughtMeta:
+				| {
+						phase: 'thinking' | 'streaming' | 'done';
+						elapsedSeconds: number;
+						streamingThinking?: string;
+						tokenUsage?: TurnTokenUsage | null;
+				  }
+				| null = null;
+			/** 仅在非 live inline 路径下使用外层 thoughtBlock */
 			let thoughtAfterBody = false;
 			if (showLiveThought && stAt) {
 				void thinkingTick;
@@ -3740,22 +3744,27 @@ export default function App() {
 						: ftAt
 							? Math.max(0, (ftAt - stAt) / 1000)
 							: Math.max(0, (Date.now() - stAt) / 1000);
-				thoughtBlock = (
-					<ComposerThoughtBlock
-						phase={phase}
-						elapsedSeconds={elapsed}
-						mode={composerMode}
-						streamingThinking={streamingThinking}
-					/>
-				);
+				if (agentOrPlanStreaming) {
+					liveThoughtMeta = {
+						phase,
+						elapsedSeconds: elapsed,
+						streamingThinking,
+					};
+				} else {
+					thoughtBlock = (
+						<ComposerThoughtBlock
+							phase={phase}
+							elapsedSeconds={elapsed}
+							streamingThinking={streamingThinking}
+						/>
+					);
+				}
 			} else if (frozenSec != null) {
 				thoughtAfterBody = true;
 				thoughtBlock = (
 					<ComposerThoughtBlock
 						phase="done"
 						elapsedSeconds={frozenSec}
-						totalStreamSeconds={workedSeconds}
-						mode={composerMode}
 						tokenUsage={isLast ? lastTurnUsage : undefined}
 					/>
 				);
@@ -3767,7 +3776,7 @@ export default function App() {
 				awaitingReply &&
 				isLast &&
 				streamingToolPreview == null &&
-				!(agentOrPlanStreaming && liveAssistantBlocks.blocks.length > 0);
+				!(agentOrPlanStreaming && (liveAssistantBlocks.blocks.length > 0 || liveThoughtMeta != null));
 
 			const userMessageIndex = i < messages.length && m.role === 'user' ? i : -1;
 			const isEditingThisUser = userMessageIndex >= 0 && resendFromUserIndex === userMessageIndex;
@@ -3861,6 +3870,7 @@ export default function App() {
 								}
 								showAgentWorking={agentOrPlanStreaming}
 								liveAgentBlocksState={agentOrPlanStreaming ? liveAssistantBlocks : null}
+								liveThoughtMeta={agentOrPlanStreaming ? liveThoughtMeta : null}
 							/>
 						)}
 					</div>

@@ -35,6 +35,7 @@ export type LiveToolBlock = {
 
 export type LiveAgentBlock =
 	| { id: string; type: 'text'; text: string }
+	| { id: string; type: 'thinking'; text: string; sealed?: boolean }
 	| { id: string; type: 'sub_agent_delta'; parentToolCallId: string; depth: number; text: string }
 	| { id: string; type: 'sub_agent_thinking'; parentToolCallId: string; depth: number; text: string }
 	| LiveToolBlock
@@ -57,6 +58,61 @@ function appendRootText(blocks: LiveAgentBlock[], piece: string): LiveAgentBlock
 		return copy;
 	}
 	return [...blocks, { id: nextId('txt'), type: 'text', text: piece }];
+}
+
+const THINKING_SOFT_CHUNK = 180;
+const THINKING_HARD_CHUNK = 260;
+
+function shouldSealThinkingChunk(text: string): boolean {
+	if (!text.trim()) {
+		return false;
+	}
+	if (text.endsWith('\n\n')) {
+		return true;
+	}
+	const trimmed = text.trimEnd();
+	if (trimmed.length < THINKING_SOFT_CHUNK) {
+		return false;
+	}
+	if (/[。！？.!?]$/.test(trimmed)) {
+		return true;
+	}
+	if (/\n$/.test(text)) {
+		return true;
+	}
+	return text.length >= THINKING_HARD_CHUNK && /[\s)]$/.test(text);
+}
+
+function appendRootThinking(blocks: LiveAgentBlock[], piece: string): LiveAgentBlock[] {
+	if (!piece) return blocks;
+	const base = blocks.slice();
+	let current =
+		base[base.length - 1]?.type === 'thinking' && !base[base.length - 1]!.sealed
+			? ({ ...base[base.length - 1] } as Extract<LiveAgentBlock, { type: 'thinking' }>)
+			: null;
+
+	if (current) {
+		base[base.length - 1] = current;
+	}
+
+	for (const char of piece) {
+		if (!current) {
+			current = {
+				id: nextId('think'),
+				type: 'thinking',
+				text: '',
+				sealed: false,
+			};
+			base.push(current);
+		}
+		current.text += char;
+		if (shouldSealThinkingChunk(current.text)) {
+			current.sealed = true;
+			current = null;
+		}
+	}
+
+	return base;
 }
 
 function appendSubAgentDelta(
@@ -242,13 +298,11 @@ export function applyLiveAgentChatPayload(
 	}
 
 	if (payload.type === 'thinking_delta') {
-		if (!payload.parentToolCallId) return state;
-		blocks = appendSubAgentThinking(
-			blocks,
-			payload.parentToolCallId,
-			payload.nestingDepth ?? 1,
-			payload.text
-		);
+		if (!payload.parentToolCallId) {
+			blocks = appendRootThinking(blocks, payload.text);
+			return { blocks };
+		}
+		blocks = appendSubAgentThinking(blocks, payload.parentToolCallId, payload.nestingDepth ?? 1, payload.text);
 		return { blocks };
 	}
 
@@ -305,6 +359,8 @@ export function liveBlocksToAssistantSegments(blocks: LiveAgentBlock[], t: TFunc
 	for (const b of blocks) {
 		if (b.type === 'text' && b.text.trim()) {
 			out.push({ type: 'markdown', text: b.text });
+		} else if (b.type === 'thinking') {
+			out.push({ type: 'thinking', id: b.id, text: b.text });
 		} else if (b.type === 'sub_agent_delta') {
 			out.push({
 				type: 'sub_agent_markdown',

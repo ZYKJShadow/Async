@@ -64,4 +64,32 @@ describe('liveAgentBlocks', () => {
 		const done = tools.filter((b) => b.type === 'tool' && b.phase === 'done');
 		expect(done).toHaveLength(1);
 	});
+
+	it('keeps root thinking inline in the live segment order', () => {
+		let st = createEmptyLiveAgentBlocks();
+		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: 'Planning edits' });
+		st = applyLiveAgentChatPayload(st, {
+			type: 'tool_progress',
+			name: 'search_files',
+			phase: 'executing',
+		});
+		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'Done.' });
+		const segs = liveBlocksToAssistantSegments(st.blocks, defaultT);
+		expect(segs[0]?.type).toBe('thinking');
+		expect(segs[1]?.type).toBe('activity');
+		expect(segs[2]?.type).toBe('markdown');
+	});
+
+	it('splits long root thinking into stable chunks', () => {
+		let st = createEmptyLiveAgentBlocks();
+		st = applyLiveAgentChatPayload(st, {
+			type: 'thinking_delta',
+			text: 'First idea is to inspect the search path.\n\nThen compare the edit flow with the current renderer.',
+		});
+		const thinkingBlocks = st.blocks.filter((b) => b.type === 'thinking');
+		expect(thinkingBlocks.length).toBeGreaterThanOrEqual(2);
+		const segs = liveBlocksToAssistantSegments(st.blocks, defaultT);
+		const thinkingSegs = segs.filter((s) => s.type === 'thinking');
+		expect(thinkingSegs.length).toBeGreaterThanOrEqual(2);
+	});
 });
