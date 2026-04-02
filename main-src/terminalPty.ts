@@ -1,8 +1,9 @@
 import { ipcMain, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import * as path from 'node:path';
 import * as pty from 'node-pty';
-import { getWorkspaceRoot } from './workspace.js';
+import { getWorkspaceRoot, resolveWorkspacePath } from './workspace.js';
 
 type Session = { pty: pty.IPty; sender: WebContents };
 
@@ -15,9 +16,24 @@ function safeSend(sender: WebContents, channel: string, ...args: unknown[]) {
 }
 
 export function registerTerminalPtyIpc(): void {
-	ipcMain.handle('terminal:ptyCreate', (event) => {
+	ipcMain.handle('terminal:ptyCreate', (event, opts?: unknown) => {
 		const root = getWorkspaceRoot();
-		const cwd = root && existsSync(root) ? root : process.cwd();
+		let cwd = root && existsSync(root) ? root : process.cwd();
+		const o = opts && typeof opts === 'object' ? (opts as { cwdRel?: unknown }) : null;
+		if (typeof o?.cwdRel === 'string' && root) {
+			const raw = o.cwdRel.trim();
+			if (raw) {
+				try {
+					const full = resolveWorkspacePath(raw);
+					if (existsSync(full)) {
+						const st = statSync(full);
+						cwd = st.isDirectory() ? full : path.dirname(full);
+					}
+				} catch {
+					/* keep workspace root */
+				}
+			}
+		}
 		const isWin = process.platform === 'win32';
 		const shell = isWin ? process.env.ComSpec || 'cmd.exe' : process.env.SHELL || '/bin/bash';
 		/** Windows：启动时切 UTF-8 代码页，避免终端内中文乱码。 */

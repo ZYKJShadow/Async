@@ -92,4 +92,33 @@ describe('liveAgentBlocks', () => {
 		const thinkingSegs = segs.filter((s) => s.type === 'thinking');
 		expect(thinkingSegs.length).toBeGreaterThanOrEqual(2);
 	});
+
+	it('coalesces root text across interleaved thinking_delta (smooth stream / one markdown body)', () => {
+		let st = createEmptyLiveAgentBlocks();
+		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'H' });
+		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: 't' });
+		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'i' });
+		const texts = st.blocks.filter((b) => b.type === 'text');
+		expect(texts).toHaveLength(1);
+		expect(texts[0] && texts[0].type === 'text' && texts[0].text).toBe('Hi');
+		const mdSegs = liveBlocksToAssistantSegments(st.blocks, defaultT).filter((s) => s.type === 'markdown');
+		expect(mdSegs).toHaveLength(1);
+	});
+
+	it('does not merge root text across tool blocks after thinking', () => {
+		let st = createEmptyLiveAgentBlocks();
+		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'A' });
+		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: '…' });
+		st = applyLiveAgentChatPayload(st, {
+			type: 'tool_input_delta',
+			name: 'read_file',
+			partialJson: '{}',
+			index: 0,
+		});
+		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'B' });
+		const texts = st.blocks.filter((b) => b.type === 'text');
+		expect(texts).toHaveLength(2);
+		expect(texts[0] && texts[0].type === 'text' && texts[0].text).toBe('A');
+		expect(texts[1] && texts[1].type === 'text' && texts[1].text).toBe('B');
+	});
 });

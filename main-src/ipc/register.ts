@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
 import { createAppWindow } from '../appWindow.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -50,7 +50,7 @@ import {
 import { compressForSend } from '../agent/conversationCompress.js';
 import { flattenAssistantTextPartsForSearch } from '../../src/agentStructuredMessage.js';
 import * as gitService from '../gitService.js';
-import { parseComposerMode } from '../llm/composerMode.js';
+import { parseComposerMode, type ComposerMode } from '../llm/composerMode.js';
 import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
 import { streamChatUnified } from '../llm/llmRouter.js';
 import {
@@ -86,6 +86,7 @@ import {
 import {
 	buildRuleCreatorSystemAppend,
 	formatRuleCreatorUserBubble,
+	appendRuleCreatorPathLock,
 } from '../ruleCreatorPrompt.js';
 import {
 	buildSubagentCreatorSystemAppend,
@@ -955,6 +956,8 @@ export function registerIpc(): void {
 
 			const skillIn = payload.skillCreator;
 			if (skillIn && typeof skillIn.userNote === 'string') {
+				/** Slash /create-skill：固定 Agent，否则 Plan 无写盘工具、Ask 无工具 */
+				const creatorAgentMode: ComposerMode = 'agent';
 				const scope: SkillCreatorScope = skillIn.scope === 'project' ? 'project' : 'user';
 				if (scope === 'project' && !root) {
 					return { ok: false as const, error: 'no-workspace' as const };
@@ -966,11 +969,11 @@ export function registerIpc(): void {
 				let finalSystemAppend = prepared.agentSystemAppend
 					? `${prepared.agentSystemAppend}\n\n---\n\n${skillBlock}`
 					: skillBlock;
-				if (root && (mode === 'plan' || mode === 'ask')) {
+				if (root) {
 					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
 					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
 				}
-				if ((mode === 'plan' || mode === 'ask') && workspaceFiles.length > 0) {
+				if (workspaceFiles.length > 0) {
 					const tree = buildWorkspaceTreeSummary(workspaceFiles);
 					if (tree) {
 						finalSystemAppend = finalSystemAppend
@@ -978,7 +981,7 @@ export function registerIpc(): void {
 							: tree;
 					}
 				}
-				if (modeExpandsWorkspaceFileContext(mode) && prepared.userText.trim().length > 8) {
+				if (modeExpandsWorkspaceFileContext(creatorAgentMode) && prepared.userText.trim().length > 8) {
 					const recentPaths = Object.keys(getThread(threadId)?.fileStates ?? {});
 					const enrichedQuery = buildEnrichedQuery(
 						prepared.userText,
@@ -994,7 +997,7 @@ export function registerIpc(): void {
 						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${sem}` : sem;
 					}
 				}
-				if (modeExpandsWorkspaceFileContext(mode) && root && settings.indexing?.gitContextEnabled !== false) {
+				if (modeExpandsWorkspaceFileContext(creatorAgentMode) && root && settings.indexing?.gitContextEnabled !== false) {
 					const gitBlock = await getGitContextBlock(root);
 					if (gitBlock) {
 						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${gitBlock}` : gitBlock;
@@ -1002,12 +1005,13 @@ export function registerIpc(): void {
 				}
 				finalSystemAppend = appendPlanExecuteToSystem(finalSystemAppend, payload.planExecute);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
-				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend);
+				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend);
 				return { ok: true as const };
 			}
 
 			const ruleIn = payload.ruleCreator;
 			if (ruleIn && typeof ruleIn.userNote === 'string') {
+				const creatorAgentMode: ComposerMode = 'agent';
 				const ruleScope: AgentRuleScope =
 					ruleIn.ruleScope === 'glob' || ruleIn.ruleScope === 'manual' ? ruleIn.ruleScope : 'always';
 				const prepared = prepareUserTurnForChat(ruleIn.userNote, agentForTurn, root, workspaceFiles);
@@ -1017,11 +1021,11 @@ export function registerIpc(): void {
 				let finalSystemAppend = prepared.agentSystemAppend
 					? `${prepared.agentSystemAppend}\n\n---\n\n${ruleBlock}`
 					: ruleBlock;
-				if (root && (mode === 'plan' || mode === 'ask')) {
+				if (root) {
 					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
 					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
 				}
-				if ((mode === 'plan' || mode === 'ask') && workspaceFiles.length > 0) {
+				if (workspaceFiles.length > 0) {
 					const tree = buildWorkspaceTreeSummary(workspaceFiles);
 					if (tree) {
 						finalSystemAppend = finalSystemAppend
@@ -1029,7 +1033,7 @@ export function registerIpc(): void {
 							: tree;
 					}
 				}
-				if (modeExpandsWorkspaceFileContext(mode) && prepared.userText.trim().length > 8) {
+				if (modeExpandsWorkspaceFileContext(creatorAgentMode) && prepared.userText.trim().length > 8) {
 					const recentPaths = Object.keys(getThread(threadId)?.fileStates ?? {});
 					const enrichedQuery = buildEnrichedQuery(
 						prepared.userText,
@@ -1045,20 +1049,26 @@ export function registerIpc(): void {
 						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${sem}` : sem;
 					}
 				}
-				if (modeExpandsWorkspaceFileContext(mode) && root && settings.indexing?.gitContextEnabled !== false) {
+				if (modeExpandsWorkspaceFileContext(creatorAgentMode) && root && settings.indexing?.gitContextEnabled !== false) {
 					const gitBlock = await getGitContextBlock(root);
 					if (gitBlock) {
 						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${gitBlock}` : gitBlock;
 					}
 				}
 				finalSystemAppend = appendPlanExecuteToSystem(finalSystemAppend, payload.planExecute);
+				finalSystemAppend = appendRuleCreatorPathLock(
+					finalSystemAppend,
+					settings.language === 'en' ? 'en' : 'zh-CN',
+					Boolean(root)
+				);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
-				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend);
+				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend);
 				return { ok: true as const };
 			}
 
 			const subIn = payload.subagentCreator;
 			if (subIn && typeof subIn.userNote === 'string') {
+				const creatorAgentMode: ComposerMode = 'agent';
 				const scope: SubagentCreatorScope = subIn.scope === 'project' ? 'project' : 'user';
 				if (scope === 'project' && !root) {
 					return { ok: false as const, error: 'no-workspace' as const };
@@ -1070,11 +1080,11 @@ export function registerIpc(): void {
 				let finalSystemAppend = prepared.agentSystemAppend
 					? `${prepared.agentSystemAppend}\n\n---\n\n${subBlock}`
 					: subBlock;
-				if (root && (mode === 'plan' || mode === 'ask')) {
+				if (root) {
 					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
 					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
 				}
-				if ((mode === 'plan' || mode === 'ask') && workspaceFiles.length > 0) {
+				if (workspaceFiles.length > 0) {
 					const tree = buildWorkspaceTreeSummary(workspaceFiles);
 					if (tree) {
 						finalSystemAppend = finalSystemAppend
@@ -1082,7 +1092,7 @@ export function registerIpc(): void {
 							: tree;
 					}
 				}
-				if (modeExpandsWorkspaceFileContext(mode) && prepared.userText.trim().length > 8) {
+				if (modeExpandsWorkspaceFileContext(creatorAgentMode) && prepared.userText.trim().length > 8) {
 					const recentPaths = Object.keys(getThread(threadId)?.fileStates ?? {});
 					const enrichedQuery = buildEnrichedQuery(
 						prepared.userText,
@@ -1098,7 +1108,7 @@ export function registerIpc(): void {
 						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${sem}` : sem;
 					}
 				}
-				if (modeExpandsWorkspaceFileContext(mode) && root && settings.indexing?.gitContextEnabled !== false) {
+				if (modeExpandsWorkspaceFileContext(creatorAgentMode) && root && settings.indexing?.gitContextEnabled !== false) {
 					const gitBlock = await getGitContextBlock(root);
 					if (gitBlock) {
 						finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${gitBlock}` : gitBlock;
@@ -1106,7 +1116,7 @@ export function registerIpc(): void {
 				}
 				finalSystemAppend = appendPlanExecuteToSystem(finalSystemAppend, payload.planExecute);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
-				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend);
+				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend);
 				return { ok: true as const };
 			}
 
@@ -1400,6 +1410,150 @@ export function registerIpc(): void {
 			return { ok: true as const, entries: list };
 		} catch (e) {
 			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	ipcMain.handle('shell:revealInFolder', (_e, relPath: string) => {
+		try {
+			const root = getWorkspaceRoot();
+			if (!root) {
+				return { ok: false as const, error: 'No workspace' };
+			}
+			const rel = String(relPath ?? '').trim();
+			if (!rel) {
+				return { ok: false as const, error: 'empty path' };
+			}
+			const full = resolveWorkspacePath(rel);
+			if (!fs.existsSync(full)) {
+				return { ok: false as const, error: 'not found' };
+			}
+			const st = fs.statSync(full);
+			if (st.isDirectory()) {
+				void shell.openPath(full);
+			} else {
+				shell.showItemInFolder(full);
+			}
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
+	});
+
+	ipcMain.handle('shell:openDefault', async (_e, relPath: string) => {
+		try {
+			const root = getWorkspaceRoot();
+			if (!root) {
+				return { ok: false as const, error: 'No workspace' };
+			}
+			const rel = String(relPath ?? '').trim();
+			if (!rel) {
+				return { ok: false as const, error: 'empty path' };
+			}
+			const full = resolveWorkspacePath(rel);
+			if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+				return { ok: false as const, error: 'not a file' };
+			}
+			const err = await shell.openPath(full);
+			return err ? ({ ok: false as const, error: err } as const) : ({ ok: true as const } as const);
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
+	});
+
+	ipcMain.handle('shell:openInBrowser', async (_e, relPath: string) => {
+		try {
+			const root = getWorkspaceRoot();
+			if (!root) {
+				return { ok: false as const, error: 'No workspace' };
+			}
+			const rel = String(relPath ?? '').trim();
+			if (!rel) {
+				return { ok: false as const, error: 'empty path' };
+			}
+			const full = resolveWorkspacePath(rel);
+			if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+				return { ok: false as const, error: 'not a file' };
+			}
+			const ext = path.extname(full).toLowerCase();
+			if (!['.html', '.htm', '.svg'].includes(ext)) {
+				return { ok: false as const, error: 'unsupported type' };
+			}
+			await shell.openExternal(pathToFileURL(full).href);
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
+	});
+
+	ipcMain.handle('clipboard:writeText', (_e, text: string) => {
+		try {
+			clipboard.writeText(String(text ?? ''));
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
+	});
+
+	ipcMain.handle('fs:renameEntry', (_e, relPath: string, newName: string) => {
+		try {
+			const root = getWorkspaceRoot();
+			if (!root) {
+				return { ok: false as const, error: 'No workspace' };
+			}
+			const fromRel = String(relPath ?? '').trim();
+			if (!fromRel) {
+				return { ok: false as const, error: 'empty path' };
+			}
+			const fromFull = resolveWorkspacePath(fromRel);
+			if (!fs.existsSync(fromFull)) {
+				return { ok: false as const, error: 'not found' };
+			}
+			const base = path.basename(String(newName ?? '').trim());
+			if (!base || base === '.' || base === '..' || base.includes('/') || base.includes('\\')) {
+				return { ok: false as const, error: 'bad name' };
+			}
+			const toFull = path.join(path.dirname(fromFull), base);
+			if (!isPathInsideRoot(toFull, root)) {
+				return { ok: false as const, error: 'escapes workspace' };
+			}
+			if (fs.existsSync(toFull)) {
+				return { ok: false as const, error: 'destination exists' };
+			}
+			fs.renameSync(fromFull, toFull);
+			const newRel = path.relative(root, toFull).split(path.sep).join('/');
+			return { ok: true as const, newRel };
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
+	});
+
+	ipcMain.handle('fs:removeEntry', (_e, relPath: string, recursive?: unknown) => {
+		try {
+			const root = getWorkspaceRoot();
+			if (!root) {
+				return { ok: false as const, error: 'No workspace' };
+			}
+			const rel = String(relPath ?? '').trim();
+			if (!rel) {
+				return { ok: false as const, error: 'empty path' };
+			}
+			const full = resolveWorkspacePath(rel);
+			if (!fs.existsSync(full)) {
+				return { ok: false as const, error: 'not found' };
+			}
+			const st = fs.statSync(full);
+			if (st.isDirectory()) {
+				if (recursive === true) {
+					fs.rmSync(full, { recursive: true, force: true });
+				} else {
+					fs.rmdirSync(full);
+				}
+			} else {
+				fs.unlinkSync(full);
+			}
+			return { ok: true as const };
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
 		}
 	});
 

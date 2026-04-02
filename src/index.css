@@ -34,6 +34,9 @@
 	--void-scrollbar-thumb-hover: #4d4d56;
 	--void-scrollbar-thumb-active: #5c5c66;
 	--void-scrollbar-size: 8px;
+	/* 用户气泡与 Composer 输入/占位符统一字号，避免「预览大、点进去小」 */
+	--void-user-composer-font-size: 14px;
+	--void-user-composer-line-height: 1.5;
 	/* ? main-src/index.ts Windows titleBarOverlay.height ???? */
 	--ref-menubar-height: 44px;
 	/* ? main-src/index.ts titleBarOverlay.color ???????????????? */
@@ -1847,6 +1850,24 @@ body {
 	align-self: center;
 }
 
+/*
+ * Portaled 下拉（ComposerSlashMenu / @ 菜单等）使用 z-index ~20001。
+ * 对话区内嵌的向导与面板在文档流中，默认层叠低于 fixed 浮层，会导致点击被截获。
+ */
+.ref-center--chat .ref-skill-scope,
+.ref-center--chat .ref-plan-q,
+.ref-center--chat .ref-plan-review,
+.ref-center--chat .ref-agent-review,
+.ref-center--chat .ref-tool-approval-inline,
+.ref-right--editor-chat .ref-skill-scope,
+.ref-right--editor-chat .ref-plan-q,
+.ref-right--editor-chat .ref-plan-review,
+.ref-right--editor-chat .ref-agent-review,
+.ref-right--editor-chat .ref-tool-approval-inline {
+	position: relative;
+	z-index: 20100;
+}
+
 .ref-context-block {
 	margin-bottom: 16px;
 	align-self: center;
@@ -1995,8 +2016,8 @@ body {
 	border-radius: 18px;
 	background: var(--void-bg-3);
 	color: var(--void-fg-0);
-	font-size: 14px;
-	line-height: 1.5;
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 	text-align: left;
 	white-space: pre-wrap;
 	word-break: break-word;
@@ -2054,6 +2075,13 @@ body {
 .ref-msg-user-rich-text {
 	white-space: pre-wrap;
 	word-break: break-word;
+}
+
+/* 气泡内 chip 与正文同字号，避免预览里正文 14px、chip 仍 13px */
+.ref-msg-user .ref-inline-file-chip,
+.ref-msg-user .ref-inline-slash-chip {
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 }
 
 .ref-inline-file-chip--readonly {
@@ -3729,13 +3757,13 @@ body {
 	max-height: 132px;
 	/* 略加重上内边距，抵消 contenteditable 首行基线偏上的观感 */
 	padding: 8px 10px 5px;
-	font-size: 13px;
-	line-height: 1.45;
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 }
 
-.ref-capsule--followup-bar .ref-composer-rich-input.ref-followup-rich-input:empty:before {
-	font-size: 13px;
-	line-height: 1.45;
+.ref-capsule--followup-bar .ref-composer-rich-input.ref-followup-rich-input.ref-composer-rich-input--ph:before {
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 }
 
 .ref-capsule--followup-bar .ref-plus-anchor {
@@ -3796,21 +3824,22 @@ body {
 /* ??????????????? + ?????????? .ref-composer-rich-input ? max-height ?? */
 .ref-capsule--stacked-chat {
 	border-radius: 16px;
-	padding: 12px 14px 10px;
+	padding: 5px 10px 6px;
 	box-shadow: 0 20px 64px rgba(0, 0, 0, 0.42);
 }
 
-/* 首屏/堆叠胶囊：对称 padding + 占位符行高与正文一致，减轻「贴顶」感 */
+/* 堆叠胶囊输入：少留白、偏低 min-height，避免可编辑区与外壳「空一大块」 */
 .ref-capsule--stacked-chat .ref-composer-rich-input.ref-capsule-input--stacked-chat {
 	box-sizing: border-box;
-	min-height: 72px;
-	padding: 16px 12px;
-	line-height: 1.55;
+	min-height: 34px;
+	padding: 5px 6px 6px;
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 }
 
-.ref-capsule--stacked-chat .ref-composer-rich-input.ref-capsule-input--stacked-chat:empty:before {
-	font-size: 13px;
-	line-height: 1.55;
+.ref-capsule--stacked-chat .ref-composer-rich-input.ref-capsule-input--stacked-chat.ref-composer-rich-input--ph:before {
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 }
 
 .ref-capsule--inline-edit {
@@ -3819,13 +3848,13 @@ body {
 
 .ref-capsule-input--stacked-chat {
 	width: 100%;
-	min-height: 64px;
+	min-height: 34px;
 	max-height: min(36vh, 440px);
 	border: none;
 	background: transparent;
 	color: var(--void-fg-0);
-	font-size: 14px;
-	line-height: 1.55;
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 	resize: none;
 	outline: none;
 	font-family: inherit;
@@ -3856,12 +3885,13 @@ body {
 	border: none;
 	background: transparent;
 	color: var(--void-fg-0);
-	font-size: 13px;
-	line-height: 1.55;
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 	outline: none;
 	font-family: inherit;
 	white-space: pre-wrap;
 	word-break: break-word;
+	text-align: start;
 	scrollbar-width: thin;
 	scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
@@ -3888,17 +3918,44 @@ body {
 	background: transparent;
 }
 
-.ref-composer-rich-input:empty:before {
-	content: attr(data-placeholder);
-	color: var(--void-fg-3);
-	pointer-events: none;
-	font-size: 12px;
-	line-height: 1.5;
+/* 占位符不占文档流，避免光标被顶到伪元素右侧；inset 对齐内容区左上角（含 padding 内缘） */
+.ref-composer-rich-input.ref-composer-rich-input--ph {
+	position: relative;
 }
 
-.ref-composer-rich-input:focus:empty:before {
+/* 绝对定位避免空 contenteditable 被塞入 <br> 后占位符失效；不占文档流，光标始终在行首 */
+.ref-composer-rich-input.ref-composer-rich-input--ph:before {
+	content: attr(data-placeholder);
+	position: absolute;
+	inset-inline-start: 0;
+	inset-block-start: 0;
+	inset-inline-end: 0;
+	z-index: 0;
+	box-sizing: border-box;
 	color: var(--void-fg-3);
-	opacity: 0.65;
+	pointer-events: none;
+	user-select: none;
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
+	white-space: pre-wrap;
+	word-break: break-word;
+	overflow: hidden;
+	/* 相对左上角略向右、略向下，贴近常见 placeholder 观感 */
+	padding-inline-start: 5px;
+	padding-block-start: 4px;
+}
+
+/*
+ * 与常见 Web 输入框一致：失焦且为空时显示提示；聚焦准备输入时隐藏，避免与 I 型光标叠字，
+ * 且不在 :focus 上改 padding/位移（否则每点一下占位符会横向跳动）。
+ */
+.ref-composer-rich-input.ref-composer-rich-input--ph:focus:before {
+	opacity: 0;
+}
+
+.ref-composer-rich-input .ref-inline-file-chip,
+.ref-composer-rich-input .ref-inline-slash-chip {
+	font-size: var(--void-user-composer-font-size);
 }
 
 .ref-inline-file-chip {
@@ -4022,7 +4079,13 @@ body {
 	cursor: default;
 }
 
-.ref-composer-stacked-body,
+.ref-composer-stacked-body {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
 .ref-composer-hero-body {
 	display: flex;
 	flex-direction: column;
@@ -4114,9 +4177,9 @@ body {
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
-	gap: 8px 10px;
-	margin-top: 12px;
-	padding-top: 12px;
+	gap: 6px 8px;
+	margin-top: 4px;
+	padding-top: 6px;
 	border-top: 1px solid var(--void-border-soft);
 }
 
@@ -4219,14 +4282,29 @@ body {
 	height: 36px;
 }
 
-.ref-capsule--stacked-chat .ref-model-pill {
-	padding: 6px 10px;
-	font-size: 12px;
+.ref-capsule--stacked-chat .ref-send-btn {
+	width: 32px;
+	height: 32px;
 }
 
-.ref-capsule--stacked-chat .ref-send-btn {
-	width: 40px;
-	height: 40px;
+.ref-capsule--stacked-chat .ref-send-icon {
+	width: 15px;
+	height: 15px;
+}
+
+.ref-capsule--stacked-chat .ref-mic-btn {
+	width: 32px;
+	height: 32px;
+}
+
+.ref-capsule--stacked-chat .ref-mic-btn-svg {
+	width: 15px;
+	height: 15px;
+}
+
+.ref-capsule--stacked-chat .ref-model-pill {
+	padding: 5px 9px;
+	font-size: 12px;
 }
 
 .ref-capsule--stacked-chat .ref-mode-chip {
@@ -4587,8 +4665,8 @@ body {
 	border: none;
 	background: transparent;
 	color: var(--void-fg-0);
-	font-size: 15px;
-	line-height: 1.55;
+	font-size: var(--void-user-composer-font-size);
+	line-height: var(--void-user-composer-line-height);
 	resize: none;
 	outline: none;
 	font-family: inherit;
@@ -5135,6 +5213,65 @@ body {
 .ref-explorer-tree {
 	font-size: 12px;
 	user-select: none;
+}
+
+.ref-explorer-tree-wrap {
+	position: relative;
+}
+
+.ref-explorer-ctx-menu {
+	position: fixed;
+	z-index: 12000;
+	min-width: 220px;
+	max-width: min(320px, calc(100vw - 16px));
+	padding: 4px 0;
+	border-radius: 6px;
+	border: 1px solid var(--void-border);
+	background: var(--void-bg-1);
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.ref-explorer-ctx-item {
+	display: block;
+	width: 100%;
+	text-align: left;
+	padding: 6px 14px;
+	border: none;
+	background: transparent;
+	color: var(--void-fg-1);
+	font-size: 12px;
+	font-family: inherit;
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ref-explorer-ctx-item:hover:not(.is-disabled):not(:disabled) {
+	background: var(--void-bg-3);
+	color: var(--void-fg-0);
+}
+
+.ref-explorer-ctx-item.is-disabled,
+.ref-explorer-ctx-item:disabled {
+	opacity: 0.42;
+	cursor: default;
+}
+
+.ref-explorer-ctx-item--danger {
+	color: var(--void-git-deleted, #e35);
+}
+
+.ref-explorer-ctx-item--danger:hover:not(:disabled) {
+	color: var(--void-git-deleted, #e35);
+	filter: brightness(1.08);
+}
+
+.ref-explorer-ctx-divider {
+	height: 1px;
+	margin: 4px 10px;
+	background: var(--void-border);
+	opacity: 0.85;
 }
 
 .ref-explorer-row {
@@ -6090,7 +6227,7 @@ body {
 
 .ref-model-dd-row {
 	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) auto auto;
+	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: center;
 	gap: 8px 10px;
 	width: 100%;
@@ -6237,8 +6374,17 @@ body {
 	color: #fda4af;
 }
 
-.ref-model-dd-check,
-.ref-model-dd-check-placeholder {
+.ref-model-dd-trailing {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+	flex-shrink: 0;
+	min-width: 0;
+}
+
+/* 无对勾时仅「编辑」，整组贴行末；有对勾时对勾最右、编辑在其左侧 */
+.ref-model-dd-check {
 	width: 18px;
 	display: flex;
 	justify-content: center;
@@ -6257,10 +6403,10 @@ body {
 	opacity: 0;
 	pointer-events: none;
 	font-family: inherit;
-	text-align: left;
-	justify-self: start;
+	text-align: right;
 	white-space: nowrap;
 	line-height: 1.35;
+	flex-shrink: 0;
 }
 
 .ref-model-dd-row:hover .ref-model-dd-edit,
@@ -6430,6 +6576,23 @@ body {
 	width: 100%;
 	color: var(--void-fg-0);
 	animation: ref-settings-root-in 0.42s var(--void-ease-out-expo) both;
+	/* 避免触控长按、拖动调整侧栏或滚动时误选界面文案 */
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
+}
+
+.ref-settings-root input,
+.ref-settings-root textarea,
+.ref-settings-root select,
+.ref-settings-root [contenteditable='true'],
+.ref-settings-root code,
+.ref-settings-root pre,
+.ref-settings-root .ref-settings-code,
+.ref-settings-root .ref-settings-mcp-doc {
+	user-select: text;
+	-webkit-user-select: text;
+	-webkit-touch-callout: default;
 }
 
 .ref-settings-nav-swap {
@@ -6500,6 +6663,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
+	touch-action: pan-y;
 }
 
 .ref-settings-nav-row {
@@ -6602,6 +6766,7 @@ body {
 	padding: 0;
 	overflow-x: hidden;
 	overflow-y: auto;
+	touch-action: pan-y;
 }
 
 .ref-settings-main-inner {
@@ -8139,33 +8304,6 @@ select.ref-settings-native-select:focus {
 	margin-bottom: 0;
 }
 
-.ref-settings-stream-smooth-tier {
-	margin-bottom: 14px;
-}
-
-.ref-settings-stream-smooth-tier:last-child {
-	margin-bottom: 0;
-}
-
-.ref-settings-stream-smooth-tier-head {
-	font-size: 12px;
-	font-weight: 600;
-	color: var(--void-fg-2, #a1a1aa);
-	margin-bottom: 8px;
-}
-
-.ref-settings-stream-smooth-tier-pair {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 12px 16px;
-}
-
-@media (max-width: 480px) {
-	.ref-settings-stream-smooth-tier-pair {
-		grid-template-columns: 1fr;
-	}
-}
-
 .ref-settings-remove-model {
 	padding: 4px 10px;
 	border-radius: 6px;
@@ -8496,6 +8634,27 @@ select.ref-settings-native-select:focus {
 .ref-skill-scope-opt:hover:not(:disabled) {
 	background: #262626;
 	border-color: #3b82f6;
+}
+
+/* 与 Rule / Skill / Subagent 向导中 role=radio 的选中项一致，需始终可见（不仅 hover） */
+.ref-skill-scope-opt.is-active {
+	background: rgba(59, 130, 246, 0.14);
+	border-color: #3b82f6;
+	box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.35);
+	color: #e8eaed;
+}
+
+.ref-skill-scope-opt.is-active .ref-skill-scope-opt-label {
+	color: #f4f4f5;
+}
+
+.ref-skill-scope-opt.is-active .ref-skill-scope-opt-hint {
+	color: #93c5fd;
+}
+
+.ref-skill-scope-opt.is-active:hover:not(:disabled) {
+	background: rgba(59, 130, 246, 0.2);
+	border-color: #60a5fa;
 }
 
 .ref-skill-scope-opt:disabled {
@@ -10871,7 +11030,8 @@ select.ref-settings-native-select:focus {
 	flex: 1 1 auto;
 	min-height: 0;
 	max-height: none;
-	padding-bottom: calc(16px + 120px);
+	/* ????????????????????? .ref-center--chat .ref-messages */
+	padding-bottom: calc(16px + 300px);
 }
 
 .ref-right--editor-chat--active .ref-command-stack {

@@ -49,12 +49,39 @@ export function createEmptyLiveAgentBlocks(): LiveAgentBlocksState {
 	return { blocks: [] };
 }
 
+/** 块列表中 afterIndex 之后是否仅有根级 thinking（无工具/子 Agent 等），用于正文与思考交错流式时合并到同一段正文。 */
+function onlyThinkingSuffixAfter(blocks: LiveAgentBlock[], afterIndex: number): boolean {
+	for (let k = afterIndex + 1; k < blocks.length; k++) {
+		if (blocks[k]!.type !== 'thinking') {
+			return false;
+		}
+	}
+	return true;
+}
+
 function appendRootText(blocks: LiveAgentBlock[], piece: string): LiveAgentBlock[] {
 	if (!piece) return blocks;
 	const last = blocks[blocks.length - 1];
 	if (last?.type === 'text') {
 		const copy = blocks.slice(0, -1);
 		copy.push({ ...last, text: last.text + piece });
+		return copy;
+	}
+	/**
+	 * 思考与正文 IPC 交错时，若仅在「某段正文」与当前末尾之间插入了 thinking 块，
+	 * 原先会把后续 delta 落成新的 text 块。每个 text 对应独立 ReactMarkdown + flex 子项，
+	 * 在「平滑流式」逐字揭示时会出现一字一行。此处把新正文合并回仍被尾部 thinking「挡住」的上一段 text。
+	 */
+	for (let i = blocks.length - 1; i >= 0; i--) {
+		const b = blocks[i]!;
+		if (b.type !== 'text') {
+			continue;
+		}
+		if (!onlyThinkingSuffixAfter(blocks, i)) {
+			continue;
+		}
+		const copy = blocks.slice();
+		copy[i] = { ...b, text: b.text + piece };
 		return copy;
 	}
 	return [...blocks, { id: nextId('txt'), type: 'text', text: piece }];

@@ -33,24 +33,37 @@ export function buildSkillCreatorSystemAppend(
 				? '**Target scope: all projects (global / user-level).** The user chose a skill that should apply across repositories. Describe saving via Async **Settings → Rules / Skills** (user-level skills list), not only a single repo path. Optionally mention \`~/.claude/skills/\` if they also use Claude Code-style layout on disk.'
 				: '**适用范围：所有项目（全局 / 用户级）。** 用户选择跨仓库生效的 Skill。请说明如何通过 Async **设置 → Rules / Skills** 写入用户级 Skills 列表，而不是只写某个仓库路径。若用户也使用 Claude Code 式目录，可补充 \`~/.claude/skills/\` 作为可选落盘位置。';
 
+	const toolBlock =
+		lang === 'en'
+			? `**Execution mode:** This turn runs in **Agent** with \`write_to_file\` and \`str_replace\` on the open workspace.
+- If a workspace is open, you **must** create the skill on disk under \`.async/skills/<slug>/SKILL.md\` (and update \`.async/agent.json\` skills list with \`str_replace\` when needed). Do **not** tell the user to copy-paste the full SKILL.md as the main deliverable—write it with tools, then summarize paths.
+- For **user / all-projects** scope without a workspace open, you cannot write global app settings via tools; say so and either ask to open a repo to materialize files or give the minimal manual steps—never claim files were written.
+- Project scope requires a workspace: write under that root only.`
+			: `**执行方式：** 本轮为 **Agent**，可使用 \`write_to_file\`、\`str_replace\`。
+- 已打开工作区时，**必须**在磁盘创建 Skill：优先 \`.async/skills/<slug>/SKILL.md\`，必要时用 \`str_replace\` 更新 \`.async/agent.json\` 的 skills 列表。**禁止**把「请用户全文复制 SKILL.md」当作主要交付；应用工具写入后再用简短文字说明路径与触发方式。
+- **用户级 / 所有项目** 且未打开工作区时，无法用工具写应用全局配置，应说明限制，并请用户打开仓库以便落盘，或给出最简手动步骤；不要假装已写文件。
+- **本项目** 范围仅在有工作区时有效，路径相对工作区根目录。`;
+
 	const core =
 		lang === 'en'
 			? `You are the **Skill Creator** for the Async app. The user's free-text request appears in their message (after the scope tag).
 
+${toolBlock}
+
 Your job:
-1. Briefly confirm you understood their goal, then ask any **clarifying questions** needed (name, trigger situations, steps, output format).
-2. When ready, output a complete **SKILL.md**-style document with YAML frontmatter at minimum \`name\` and \`description\`; add other frontmatter fields if useful (e.g. allowed-tools style hints as plain text guidance for Async).
-3. Explain how to **invoke** the skill in Async (e.g. \`./slug\` in the composer when configured, plus disk path if applicable).
-4. Keep answers actionable; prefer Markdown with clear headings.
+1. Briefly confirm you understood their goal; ask clarifying questions only if blocking (name, trigger situations, steps, output format).
+2. When the workspace is open, **write** the complete **SKILL.md** (YAML frontmatter at least \`name\` and \`description\`) using tools.
+3. One short paragraph on how to invoke in Async (e.g. \`./slug\`) after files exist.
 
 ${scopeBlock}`
 			: `你是 Async 应用的 **Skill 创建向导**。用户的自由说明在其消息中（在范围标签之后）。
 
+${toolBlock}
+
 请完成：
-1. 简短确认理解，再**追问**必要信息（名称、触发场景、步骤、输出格式等）。
-2. 信息足够后，输出完整的 **SKILL.md** 风格文档，YAML frontmatter 至少包含 \`name\`、\`description\`；如有需要可补充其它 frontmatter（权限类提示可用文字说明，Async 会按自身模型解析）。
-3. 说明在 Async 中**如何触发**该 Skill（例如在输入框使用 \`./slug\`，以及磁盘路径若适用）。
-4. 回答要可执行，使用清晰的 Markdown 标题与列表。
+1. 简短确认理解；仅在缺关键信息时**追问**（名称、触发场景、步骤、输出格式等）。
+2. 工作区已打开时，用工具**写入**完整 **SKILL.md**（frontmatter 至少 \`name\`、\`description\`）。
+3. 落盘后用一两句说明在 Async 中如何触发（如 \`./slug\`）。
 
 ${scopeBlock}`;
 

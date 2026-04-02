@@ -59,7 +59,8 @@ export function ComposerSlashMenu({
 	const menuRef = useRef<HTMLDivElement>(null);
 
 	useLayoutEffect(() => {
-		if (!open) {
+		/* 与下方 render 一致：未展示菜单时不挂监听，避免 menuRef 为空时误把全屏点击都当成「点外侧」 */
+		if (!open || !caretRect) {
 			return;
 		}
 		const onDoc = (e: MouseEvent) => {
@@ -71,7 +72,7 @@ export function ComposerSlashMenu({
 		};
 		document.addEventListener('mousedown', onDoc);
 		return () => document.removeEventListener('mousedown', onDoc);
-	}, [open, onClose]);
+	}, [open, caretRect, onClose]);
 
 	useLayoutEffect(() => {
 		if (!open || items.length === 0) {

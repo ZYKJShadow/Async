@@ -262,36 +262,50 @@ function pathMatchesGlob(relPath: string, pattern: string): boolean {
 	return minimatch(base, pat, { dot: true });
 }
 
-/** 读取工作区 `.cursor/rules` 下 .md / .mdc（与 Cursor 习惯对齐） */
-export function loadThirdPartyAgentRules(workspaceRoot: string | null): string {
-	if (!workspaceRoot) {
-		return '';
-	}
-	const dir = path.join(workspaceRoot, '.cursor', 'rules');
-	if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-		return '';
-	}
+/** 工作区磁盘规则目录：优先 Async 约定，其次 Cursor 兼容路径 */
+const THIRD_PARTY_RULE_DIRS = [
+	{ segments: ['.async', 'rules'] as const, prefix: '.async/rules' },
+	{ segments: ['.cursor', 'rules'] as const, prefix: '.cursor/rules' },
+] as const;
+
+function readRuleFilesFromDir(absDir: string, pathPrefix: string): string[] {
 	const parts: string[] = [];
+	if (!fs.existsSync(absDir) || !fs.statSync(absDir).isDirectory()) {
+		return parts;
+	}
 	try {
-		const names = fs.readdirSync(dir);
+		const names = fs.readdirSync(absDir);
 		for (const n of names) {
 			if (!/\.(md|mdc)$/i.test(n)) {
 				continue;
 			}
-			const full = path.join(dir, n);
+			const full = path.join(absDir, n);
 			try {
 				const t = fs.readFileSync(full, 'utf8').trim();
 				if (t) {
-					parts.push(`**${n}**\n${t}`);
+					parts.push(`**${pathPrefix}/${n}**\n${t}`);
 				}
 			} catch {
 				/* skip */
 			}
 		}
 	} catch {
+		/* skip */
+	}
+	return parts;
+}
+
+/** 读取工作区 `.async/rules` 与 `.cursor/rules` 下 .md / .mdc（Async 优先，其次 Cursor 习惯） */
+export function loadThirdPartyAgentRules(workspaceRoot: string | null): string {
+	if (!workspaceRoot) {
 		return '';
 	}
-	return parts.join('\n\n---\n\n');
+	const chunks: string[] = [];
+	for (const { segments, prefix } of THIRD_PARTY_RULE_DIRS) {
+		const dir = path.join(workspaceRoot, ...segments);
+		chunks.push(...readRuleFilesFromDir(dir, prefix));
+	}
+	return chunks.join('\n\n---\n\n');
 }
 
 export function buildAgentSystemAppend(opts: {
@@ -307,7 +321,7 @@ export function buildAgentSystemAppend(opts: {
 	const agent = opts.agent;
 
 	if (opts.thirdPartyRules.trim()) {
-		parts.push(`#### 从项目导入的规则（.cursor/rules、CLAUDE.md、.claude/rules）\n${opts.thirdPartyRules.trim()}`);
+		parts.push(`#### 从项目导入的规则（.async/rules、.cursor/rules、CLAUDE.md、.claude/rules）\n${opts.thirdPartyRules.trim()}`);
 	}
 
 	for (const r of agent?.rules ?? []) {

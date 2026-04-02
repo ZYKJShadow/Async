@@ -53,6 +53,30 @@ export function ComposerRichInput({
 	const dragDepthRef = useRef(0);
 	const [fileDragOver, setFileDragOver] = useState(false);
 
+	/** 浏览器常在空 contenteditable 里塞 <br>，:empty 伪类失效；按 segments 判定是否显示 placeholder */
+	const showPlaceholder =
+		Boolean((placeholder ?? '').trim()) && segmentsToWireText(segments).trim() === '';
+
+	const placeCaretAtContentStart = useCallback(() => {
+		const el = innerRef.current;
+		if (!el) {
+			return;
+		}
+		try {
+			const range = document.createRange();
+			range.setStart(el, 0);
+			range.collapse(true);
+			const sel = window.getSelection();
+			if (!sel) {
+				return;
+			}
+			sel.removeAllRanges();
+			sel.addRange(range);
+		} catch {
+			/* 忽略空或异常 DOM */
+		}
+	}, [innerRef]);
+
 	const emitFromDom = useCallback(() => {
 		const el = innerRef.current;
 		if (!el) {
@@ -225,14 +249,29 @@ export function ComposerRichInput({
 		>
 			<div
 				ref={innerRef as React.Ref<HTMLDivElement>}
-				className={['ref-composer-rich-input', className].filter(Boolean).join(' ')}
+				className={['ref-composer-rich-input', showPlaceholder ? 'ref-composer-rich-input--ph' : '', className]
+					.filter(Boolean)
+					.join(' ')}
 				contentEditable
 				suppressContentEditableWarning
 				role="textbox"
 				aria-multiline="true"
+				aria-placeholder={placeholder?.trim() ? placeholder : undefined}
 				data-placeholder={placeholder || ''}
 				onFocus={() => {
 					focusedRef.current = true;
+					if (segmentsToWireText(segments).trim() !== '') {
+						return;
+					}
+					/* 空 contenteditable 聚焦后 WebKit 可能插入 <br>，选区落在其后 */
+					requestAnimationFrame(() => {
+						requestAnimationFrame(() => {
+							if (segmentsToWireText(segments).trim() !== '') {
+								return;
+							}
+							placeCaretAtContentStart();
+						});
+					});
 				}}
 				onBlur={() => {
 					focusedRef.current = false;

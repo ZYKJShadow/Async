@@ -49,17 +49,6 @@ export type SidebarLayoutPx = { left: number; right: number };
 
 export type ShellUiSettings = {
 	sidebarLayout?: SidebarLayoutPx;
-	/**
-	 * 为 true（默认）时，对话流式在界面侧按帧限流展示，避免极快模型一次性糊一大段。
-	 * 设为 false 则每个 IPC delta 立即写入（最快、最「跟手」）。
-	 */
-	smoothStreamDisplay?: boolean;
-	/** 未自定义档位时使用的预设：character / balanced / fast */
-	streamSmoothPreset?: 'character' | 'balanced' | 'fast';
-	/** 为 true 时使用 streamSmoothBands，忽略预设的分档曲线 */
-	streamSmoothUseCustomBands?: boolean;
-	/** 自定义积压档位（通常 4 条，最后一条 maxPending 视为无穷） */
-	streamSmoothBands?: Array<{ maxPending: number; graphemes: number }>;
 };
 
 /** 工作区索引与语言服务（未设置字段视为开启，与旧 settings.json 兼容） */

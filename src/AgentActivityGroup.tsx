@@ -1,8 +1,9 @@
 /**
  * Cursor 风格的 "Explored N files" 折叠分组。
  *
- * liveTurn=true 期间：始终展开、活动不断累积（有最大高度限制）。
- * liveTurn 由 true→false（Agent 回合结束）时：延迟后平滑折叠。
+ * liveTurn=true 且尚未出现后续工具块时：展开以便跟读活动行。
+ * 同一回合内一旦下方出现 file_edit / 命令 / diff 等（followingToolLikeWork）：自动折叠，把注意力让给工具卡片。
+ * liveTurn 由 true→false（回合结束）时：若仍展开则延迟平滑折叠。
  * 用户手动点击 toggle 后：不再自动覆盖，尊重用户选择。
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -16,6 +17,11 @@ type Props = {
 	liveTurn?: boolean;
 	/** 与 liveTurn 一致：仅实时生成时允许 AgentResultCard 逐行揭示 */
 	animateLineReveal?: boolean;
+	/**
+	 * 本分组之后是否已渲染工具类片段（file_edit、命令围栏、diff 等）。
+	 * 为 true 时在 liveTurn 内自动折叠，无需等整回合结束。
+	 */
+	followingToolLikeWork?: boolean;
 };
 
 export function AgentActivityGroup({
@@ -23,17 +29,34 @@ export function AgentActivityGroup({
 	onOpenFile,
 	liveTurn = false,
 	animateLineReveal = false,
+	followingToolLikeWork = false,
 }: Props) {
-	const [expanded, setExpanded] = useState(group.pending || liveTurn);
+	const [expanded, setExpanded] = useState(() => {
+		if (liveTurn && followingToolLikeWork) {
+			return false;
+		}
+		return Boolean(group.pending || liveTurn);
+	});
 	const userToggledRef = useRef(false);
 	const prevLiveTurnRef = useRef(liveTurn);
 
-	// liveTurn 期间，新 pending 活动到来时自动展开（除非用户手动折叠了）
+	// 后续已出现工具块时：本回合内自动收起 Explored（除非用户手动操作过）
 	useEffect(() => {
-		if (liveTurn && group.pending && !userToggledRef.current) {
+		if (!followingToolLikeWork || !liveTurn) {
+			return;
+		}
+		if (userToggledRef.current) {
+			return;
+		}
+		setExpanded(false);
+	}, [followingToolLikeWork, liveTurn]);
+
+	// liveTurn 期间、且下方尚无工具块时：新 pending 活动到来则自动展开（除非用户手动折叠了）
+	useEffect(() => {
+		if (liveTurn && group.pending && !userToggledRef.current && !followingToolLikeWork) {
 			setExpanded(true);
 		}
-	}, [group.pending, group.items.length, liveTurn]);
+	}, [group.pending, group.items.length, liveTurn, followingToolLikeWork]);
 
 	// 仅在整个 Agent 回合结束时自动折叠（liveTurn true→false）
 	useEffect(() => {

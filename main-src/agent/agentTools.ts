@@ -71,7 +71,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'write_to_file',
 		description:
-			'Create a new file or completely overwrite an existing file with the provided content. Use this for creating new files or when you need to rewrite an entire file. For targeted edits to existing files, prefer str_replace instead.',
+			'Create a new file or completely overwrite an existing file with the provided content. Use this for creating new files or when you need to rewrite an entire file. For targeted edits to existing files, prefer str_replace instead. When the user (or system context) asks for Async/Cursor-style project rules as .mdc files, persist them under `.async/rules/` relative to the workspace root unless the user explicitly requests a different path.',
 		parameters: {
 			type: 'object',
 			properties: {

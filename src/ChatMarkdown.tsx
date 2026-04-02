@@ -23,6 +23,30 @@ type RenderUnit =
 	| Exclude<AssistantSegment, { type: 'thinking' }>
 	| { type: 'thinking_group'; chunks: ThinkingSegment[] };
 
+/** 当前 Explored 分组之后是否已出现工具类块（file_edit / 命令 / diff 等），用于回合未结束时提前折叠 */
+function activityGroupFollowedByToolLikeWork(units: RenderUnit[], groupIndex: number): boolean {
+	for (let k = groupIndex + 1; k < units.length; k++) {
+		const u = units[k]!;
+		switch (u.type) {
+			case 'diff':
+			case 'command':
+			case 'streaming_code':
+			case 'file_edit':
+			case 'tool_call':
+			case 'activity':
+			case 'sub_agent_markdown':
+				return true;
+			case 'markdown':
+			case 'thinking_group':
+			case 'activity_group':
+			case 'file_changes':
+			case 'plan_todo':
+				continue;
+		}
+	}
+	return false;
+}
+
 /** 有 tool_input_delta 预览时，解析层也会生成 isStreaming 的 file_edit，避免与预览重复且保证预览优先显示 */
 function dropParsedStreamingFileEditWhilePreview(
 	segments: AssistantSegment[],
@@ -232,6 +256,7 @@ export function ChatMarkdown({
 							onOpenFile={onOpenAgentFile}
 							liveTurn={showAgentWorking}
 							animateLineReveal={showAgentWorking}
+							followingToolLikeWork={activityGroupFollowedByToolLikeWork(renderUnits, i)}
 						/>
 					);
 					case 'file_changes':

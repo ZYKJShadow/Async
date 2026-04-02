@@ -259,25 +259,25 @@ export function ModelPickerDropdown({
 										) : null}
 										{m.subtitle ? <span className="ref-model-dd-sub">{m.subtitle}</span> : null}
 									</span>
-									<button
-										type="button"
-										className="ref-model-dd-edit"
-										onClick={(e) => {
-											e.preventDefault();
-											e.stopPropagation();
-											setOptsModelId(m.id);
-											setOptsOpen(true);
-										}}
-									>
-										{t('modelPicker.edit')}
-									</button>
-									{isSel ? (
-										<span className="ref-model-dd-check" aria-hidden>
-											<IconCheck />
-										</span>
-									) : (
-										<span className="ref-model-dd-check-placeholder" aria-hidden />
-									)}
+									<div className="ref-model-dd-trailing">
+										<button
+											type="button"
+											className="ref-model-dd-edit"
+											onClick={(e) => {
+												e.preventDefault();
+												e.stopPropagation();
+												setOptsModelId(m.id);
+												setOptsOpen(true);
+											}}
+										>
+											{t('modelPicker.edit')}
+										</button>
+										{isSel ? (
+											<span className="ref-model-dd-check" aria-hidden>
+												<IconCheck />
+											</span>
+										) : null}
+									</div>
 								</div>
 							);
 						})}

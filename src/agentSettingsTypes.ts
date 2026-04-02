@@ -50,7 +50,7 @@ export type AgentCommand = {
 };
 
 export type AgentCustomization = {
-	/** 从工作区 `.cursor/rules` 等目录导入规则文本 */
+	/** 从工作区 `.async/rules`、`.cursor/rules` 等目录导入规则文本 */
 	importThirdPartyConfigs?: boolean;
 	rules?: AgentRule[];
 	skills?: AgentSkill[];

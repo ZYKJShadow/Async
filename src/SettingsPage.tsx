@@ -15,8 +15,6 @@ import { SettingsMcpPanel } from './SettingsMcpPanel';
 import type { McpServerConfig, McpServerStatus } from './mcpTypes';
 import type { IndexingSettingsState } from './indexingSettingsTypes';
 import { useI18n, type AppLocale } from './i18n';
-import type { StreamSmoothUiSnapshot } from './streamSmoothSettings';
-import { SettingsStreamSmoothPanel } from './SettingsStreamSmoothPanel';
 import { VoidSelect } from './VoidSelect';
 
 export type SettingsNavId =
@@ -180,8 +178,6 @@ type Props = {
 	onRestartMcpServer: (id: string) => void;
 	shell: NonNullable<Window['asyncShell']> | null;
 	workspaceOpen: boolean;
-	streamSmooth: StreamSmoothUiSnapshot;
-	onStreamSmoothChange: (next: StreamSmoothUiSnapshot) => void;
 };
 
 export function SettingsPage({
@@ -213,8 +209,6 @@ export function SettingsPage({
 	onRestartMcpServer,
 	shell,
 	workspaceOpen,
-	streamSmooth,
-	onStreamSmoothChange,
 }: Props) {
 	const { t, locale, setLocale } = useI18n();
 	const navItems = useMemo(() => navItemsForT(t), [t]);
@@ -480,7 +474,6 @@ export function SettingsPage({
 										]}
 									/>
 								</div>
-								<SettingsStreamSmoothPanel value={streamSmooth} onChange={onStreamSmoothChange} />
 							</div>
 						) : null}
 

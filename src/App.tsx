@@ -15,7 +15,7 @@ import { DrawerPtyTerminal } from './DrawerPtyTerminal';
 import { ChatMarkdown } from './ChatMarkdown';
 import { languageFromFilePath } from './fileTypeIcons';
 import { OpenWorkspaceModal } from './OpenWorkspaceModal';
-import { WorkspaceExplorer, type GitPathStatusMap } from './WorkspaceExplorer';
+import { WorkspaceExplorer, type GitPathStatusMap, type WorkspaceExplorerActions } from './WorkspaceExplorer';
 import {
 	type AgentPendingPatch,
 	type ChatPlanExecutePayload,
@@ -119,49 +119,6 @@ import { registerTsLspMonacoOnce } from './tsLspMonaco';
 import { monacoWorkspaceRootRef } from './tsLspWorkspaceRef';
 import { workspaceRelativeFileUrl } from './workspaceUri';
 import { voidShellDebugLog } from './tabCloseDebug';
-import {
-	createStreamSmoothGraphemeStepFn,
-	ensureFourStreamSmoothBands,
-	coerceStreamSmoothPreset,
-	type StreamSmoothBand,
-	type StreamSmoothPreset,
-	type StreamSmoothUiSnapshot,
-} from './streamSmoothSettings';
-
-/**
- * 从头部取出至多 n 个字素（优先 Intl.Segmenter），用于对话平滑揭示。
- * 无 Segmenter 时按 Unicode 码位切分，避免把增补平面字符拆半。
- */
-function takeLeadingGraphemes(s: string, count: number): { piece: string; rest: string } {
-	if (!s || count <= 0) return { piece: '', rest: s };
-	const IntlSeg = (Intl as unknown as { Segmenter?: new (loc: string, opts: { granularity: string }) => { segment: (input: string) => Iterable<{ segment: string }> } }).Segmenter;
-	if (typeof IntlSeg === 'function') {
-		try {
-			const seg = new IntlSeg('und', { granularity: 'grapheme' });
-			let n = 0;
-			let end = 0;
-			for (const { segment } of seg.segment(s)) {
-				n++;
-				end += segment.length;
-				if (n >= count) break;
-			}
-			return { piece: s.slice(0, end), rest: s.slice(end) };
-		} catch {
-			/* fall through */
-		}
-	}
-	let rest = s;
-	let piece = '';
-	for (let i = 0; i < count && rest.length > 0; i++) {
-		const cp = rest.codePointAt(0);
-		if (cp === undefined) break;
-		const len = cp > 0xffff ? 2 : 1;
-		piece += rest.slice(0, len);
-		rest = rest.slice(len);
-	}
-	return { piece, rest };
-}
-
 type ProjectAgentSliceState = {
 	rules: AgentRule[];
 	skills: AgentSkill[];
@@ -947,20 +904,6 @@ export default function App() {
 	const streamThreadRef = useRef<string | null>(null);
 	const streamStartedAtRef = useRef<number | null>(null);
 	const firstTokenAtRef = useRef<number | null>(null);
-	/** 展示层限流：待刷新的根线程正文（与 IPC 到达解耦） */
-	const streamSmoothPendingTextRef = useRef('');
-	const streamSmoothPendingThinkingRef = useRef('');
-	const streamSmoothRafRef = useRef<number | null>(null);
-	const [smoothStreamDisplay, setSmoothStreamDisplay] = useState(true);
-	const smoothStreamDisplayRef = useRef(true);
-	const [smoothStreamPreset, setSmoothStreamPreset] = useState<StreamSmoothPreset>('balanced');
-	const [smoothStreamUseCustomBands, setSmoothStreamUseCustomBands] = useState(false);
-	const [smoothStreamBands, setSmoothStreamBands] = useState<StreamSmoothBand[]>(() =>
-		ensureFourStreamSmoothBands(null)
-	);
-	const streamSmoothStepRef = useRef<(pendingLen: number) => number>(
-		createStreamSmoothGraphemeStepFn(true, false, 'balanced', ensureFourStreamSmoothBands(null))
-	);
 	const onNewThreadRef = useRef<() => Promise<void>>(async () => {});
 	const composerRichHeroRef = useRef<HTMLDivElement>(null);
 	const composerRichBottomRef = useRef<HTMLDivElement>(null);
@@ -972,6 +915,9 @@ export default function App() {
 	const pinMessagesToBottomRef = useRef(true);
 	/** 合并粘底滚动到每帧一次，避免 useLayoutEffect + ResizeObserver 与 sticky 用户条叠加导致上下抖动 */
 	const messagesScrollToBottomRafRef = useRef<number | null>(null);
+	/** 用于区分轨道变高（跟流）与变矮（如 Explored 折叠动画）：变矮时若每帧粘底会整列表「刷新感」 */
+	const messagesTrackScrollHeightRef = useRef(0);
+	const messagesShrinkScrollTimerRef = useRef<number | null>(null);
 	const prevMessagesLenForScrollRef = useRef(0);
 	const closeAtMenuLatestRef = useRef<() => void>(() => {});
 	const plusAnchorHeroRef = useRef<HTMLDivElement>(null);
@@ -991,29 +937,6 @@ export default function App() {
 		}
 		setStreamingToolPreview(null);
 	}, []);
-
-	useEffect(() => {
-		smoothStreamDisplayRef.current = smoothStreamDisplay;
-	}, [smoothStreamDisplay]);
-
-	useEffect(() => {
-		streamSmoothStepRef.current = createStreamSmoothGraphemeStepFn(
-			smoothStreamDisplay,
-			smoothStreamUseCustomBands,
-			smoothStreamPreset,
-			smoothStreamBands
-		);
-	}, [smoothStreamDisplay, smoothStreamUseCustomBands, smoothStreamPreset, smoothStreamBands]);
-
-	const streamSmoothUi = useMemo<StreamSmoothUiSnapshot>(
-		() => ({
-			enabled: smoothStreamDisplay,
-			preset: smoothStreamPreset,
-			useCustomBands: smoothStreamUseCustomBands,
-			bands: smoothStreamBands,
-		}),
-		[smoothStreamDisplay, smoothStreamPreset, smoothStreamUseCustomBands, smoothStreamBands]
-	);
 
 	const respondToolApproval = useCallback(
 		async (approved: boolean) => {
@@ -1250,6 +1173,8 @@ export default function App() {
 				flashComposerAttachErr(t('app.noModelSelected'));
 				return;
 			}
+			/* /create-skill 必须走 Agent：Plan 模式无写文件工具，否则模型只能让用户自行复制 */
+			setComposerModePersist('agent');
 			const { tailSegments, targetThreadId } = pending;
 			const tailWire = segmentsToWireText(tailSegments).trim();
 			const head =
@@ -1276,7 +1201,7 @@ export default function App() {
 			const r = (await shell.invoke('chat:send', {
 				threadId: targetThreadId,
 				text: '',
-				mode: composerMode,
+				mode: 'agent',
 				modelId: defaultModel,
 				skillCreator: { userNote: tailWire, scope },
 			})) as { ok?: boolean; error?: string };
@@ -1297,7 +1222,7 @@ export default function App() {
 		[
 			shell,
 			currentId,
-			composerMode,
+			setComposerModePersist,
 			defaultModel,
 			t,
 			loadMessages,
@@ -1322,6 +1247,7 @@ export default function App() {
 				flashComposerAttachErr(t('app.noModelSelected'));
 				return;
 			}
+			setComposerModePersist('agent');
 			const { tailSegments, targetThreadId } = pending;
 			const tailWire = segmentsToWireText(tailSegments).trim();
 			const headKey =
@@ -1357,7 +1283,7 @@ export default function App() {
 			const r = (await shell.invoke('chat:send', {
 				threadId: targetThreadId,
 				text: '',
-				mode: composerMode,
+				mode: 'agent',
 				modelId: defaultModel,
 				ruleCreator: {
 					userNote: tailWire,
@@ -1380,7 +1306,7 @@ export default function App() {
 		[
 			shell,
 			currentId,
-			composerMode,
+			setComposerModePersist,
 			defaultModel,
 			t,
 			loadMessages,
@@ -1401,6 +1327,7 @@ export default function App() {
 				flashComposerAttachErr(t('app.noModelSelected'));
 				return;
 			}
+			setComposerModePersist('agent');
 			const { tailSegments, targetThreadId } = pending;
 			const tailWire = segmentsToWireText(tailSegments).trim();
 			const head = scope === 'project' ? t('subagentWizard.bubbleHeadProject') : t('subagentWizard.bubbleHeadAll');
@@ -1426,7 +1353,7 @@ export default function App() {
 			const r = (await shell.invoke('chat:send', {
 				threadId: targetThreadId,
 				text: '',
-				mode: composerMode,
+				mode: 'agent',
 				modelId: defaultModel,
 				subagentCreator: { userNote: tailWire, scope },
 			})) as { ok?: boolean; error?: string };
@@ -1447,7 +1374,7 @@ export default function App() {
 		[
 			shell,
 			currentId,
-			composerMode,
+			setComposerModePersist,
 			defaultModel,
 			t,
 			loadMessages,
@@ -1604,10 +1531,6 @@ export default function App() {
 					editor?: Partial<EditorSettings>;
 					ui?: {
 						sidebarLayout?: { left?: unknown; right?: unknown };
-						smoothStreamDisplay?: boolean;
-						streamSmoothPreset?: string;
-						streamSmoothUseCustomBands?: boolean;
-						streamSmoothBands?: unknown;
 					};
 					indexing?: {
 						symbolIndexEnabled?: boolean;
@@ -1632,10 +1555,6 @@ export default function App() {
 					const s0 = readSidebarLayout();
 					syncDesktopSidebarLayout(shell, clampSidebarLayout(s0.left, s0.right));
 				}
-				setSmoothStreamDisplay(st.ui?.smoothStreamDisplay !== false);
-				setSmoothStreamPreset(coerceStreamSmoothPreset(st.ui?.streamSmoothPreset));
-				setSmoothStreamUseCustomBands(st.ui?.streamSmoothUseCustomBands === true);
-				setSmoothStreamBands(ensureFourStreamSmoothBands(st.ui?.streamSmoothBands));
 				const rawProviders = Array.isArray(st.models?.providers) ? st.models!.providers! : [];
 				setModelProviders(rawProviders);
 				const rawEntries = Array.isArray(st.models?.entries) ? st.models!.entries! : [];
@@ -1695,87 +1614,6 @@ export default function App() {
 			}
 			const trackLiveBlocks = composerMode === 'agent' || composerMode === 'plan';
 
-			const cancelStreamSmoothRafOnly = () => {
-				if (streamSmoothRafRef.current !== null) {
-					cancelAnimationFrame(streamSmoothRafRef.current);
-					streamSmoothRafRef.current = null;
-				}
-			};
-
-			const flushPendingRootStreamSmooth = () => {
-				cancelStreamSmoothRafOnly();
-				const pt = streamSmoothPendingTextRef.current;
-				if (pt) {
-					streamSmoothPendingTextRef.current = '';
-					setStreaming((s) => s + pt);
-					if (trackLiveBlocks) {
-						setLiveAssistantBlocks((st) =>
-							applyLiveAgentChatPayload(st, { type: 'delta', text: pt })
-						);
-					}
-				}
-				const pk = streamSmoothPendingThinkingRef.current;
-				if (pk) {
-					streamSmoothPendingThinkingRef.current = '';
-					setStreamingThinking((s) => s + pk);
-					if (trackLiveBlocks) {
-						setLiveAssistantBlocks((st) =>
-							applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: pk })
-						);
-					}
-				}
-			};
-
-			const pumpRootStreamSmooth = () => {
-				streamSmoothRafRef.current = null;
-				if (!smoothStreamDisplayRef.current) {
-					return;
-				}
-				const pt = streamSmoothPendingTextRef.current;
-				if (pt.length > 0) {
-					const n = streamSmoothStepRef.current(pt.length);
-					const { piece, rest } = takeLeadingGraphemes(pt, n);
-					streamSmoothPendingTextRef.current = rest;
-					if (piece) {
-						setStreaming((s) => s + piece);
-						if (trackLiveBlocks) {
-							setLiveAssistantBlocks((st) =>
-								applyLiveAgentChatPayload(st, { type: 'delta', text: piece })
-							);
-						}
-					}
-				}
-				const pk = streamSmoothPendingThinkingRef.current;
-				if (pk.length > 0) {
-					const n = streamSmoothStepRef.current(pk.length);
-					const { piece, rest } = takeLeadingGraphemes(pk, n);
-					streamSmoothPendingThinkingRef.current = rest;
-					if (piece) {
-						setStreamingThinking((s) => s + piece);
-						if (trackLiveBlocks) {
-							setLiveAssistantBlocks((st) =>
-								applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: piece })
-							);
-						}
-					}
-				}
-				if (
-					streamSmoothPendingTextRef.current.length > 0 ||
-					streamSmoothPendingThinkingRef.current.length > 0
-				) {
-					streamSmoothRafRef.current = requestAnimationFrame(pumpRootStreamSmooth);
-				}
-			};
-
-			const scheduleRootStreamSmooth = () => {
-				if (!smoothStreamDisplayRef.current) {
-					return;
-				}
-				if (streamSmoothRafRef.current === null) {
-					streamSmoothRafRef.current = requestAnimationFrame(pumpRootStreamSmooth);
-				}
-			};
-
 			/** 工具参数必须每条 IPC 立即进块：多工具并行时单槽 rAF 合并会丢更新，导致无流式卡片 / 执行参数残缺。 */
 			const applyToolInputDeltaUi = (p: {
 				name: string;
@@ -1803,12 +1641,6 @@ export default function App() {
 				}
 			};
 
-			const resetStreamSmoothOnTurnEnd = () => {
-				cancelStreamSmoothRafOnly();
-				streamSmoothPendingTextRef.current = '';
-				streamSmoothPendingThinkingRef.current = '';
-			};
-
 			if (payload.type === 'delta') {
 				const subParent = payload.parentToolCallId;
 				if (subParent) {
@@ -1833,26 +1665,20 @@ export default function App() {
 					if (payload.text.length > 0 && firstTokenAtRef.current === null) {
 						firstTokenAtRef.current = Date.now();
 					}
-					if (smoothStreamDisplayRef.current) {
-						streamSmoothPendingTextRef.current += payload.text;
-						scheduleRootStreamSmooth();
-					} else {
-						setStreaming((s) => s + payload.text);
-						if (trackLiveBlocks) {
-							setLiveAssistantBlocks((st) =>
-								applyLiveAgentChatPayload(st, {
-									type: 'delta',
-									text: payload.text,
-								})
-							);
-						}
+					setStreaming((s) => s + payload.text);
+					if (trackLiveBlocks) {
+						setLiveAssistantBlocks((st) =>
+							applyLiveAgentChatPayload(st, {
+								type: 'delta',
+								text: payload.text,
+							})
+						);
 					}
 				}
 			} else if (payload.type === 'tool_input_delta') {
 				if (payload.parentToolCallId) {
 					// 嵌套工具参数流式预览易与主线程混淆，仅写入正文标记
 				} else {
-					flushPendingRootStreamSmooth();
 					applyToolInputDeltaUi({
 						name: payload.name,
 						partialJson: payload.partialJson,
@@ -1878,9 +1704,6 @@ export default function App() {
 							})
 						);
 					}
-				} else if (smoothStreamDisplayRef.current) {
-					streamSmoothPendingThinkingRef.current += payload.text;
-					scheduleRootStreamSmooth();
 				} else {
 					setStreamingThinking((s) => s + payload.text);
 					if (trackLiveBlocks) {
@@ -1894,7 +1717,6 @@ export default function App() {
 				}
 			} else if (payload.type === 'tool_call') {
 				if (!payload.parentToolCallId) {
-					flushPendingRootStreamSmooth();
 					if (streamingToolPreviewClearTimerRef.current !== null) {
 						window.clearTimeout(streamingToolPreviewClearTimerRef.current);
 						streamingToolPreviewClearTimerRef.current = null;
@@ -1923,7 +1745,6 @@ export default function App() {
 				}
 			} else if (payload.type === 'tool_result') {
 				if (!payload.parentToolCallId) {
-					flushPendingRootStreamSmooth();
 					setStreamingToolPreview(null);
 				}
 				const truncated = payload.result.length > 3000 ? payload.result.slice(0, 3000) + '\n... (truncated)' : payload.result;
@@ -1988,7 +1809,6 @@ export default function App() {
 					subAgentBgToastTimerRef.current = null;
 				}, 6500);
 			} else if (payload.type === 'done') {
-				resetStreamSmoothOnTurnEnd();
 				const start = streamStartedAtRef.current;
 				const ft = firstTokenAtRef.current;
 				const end = Date.now();
@@ -2104,7 +1924,6 @@ export default function App() {
 				void loadMessages(payload.threadId);
 				void refreshThreads();
 			} else if (payload.type === 'error') {
-				resetStreamSmoothOnTurnEnd();
 				const start = streamStartedAtRef.current;
 				const end = Date.now();
 				const thinkSec =
@@ -2134,12 +1953,6 @@ export default function App() {
 		});
 		return () => {
 			unsub();
-			if (streamSmoothRafRef.current !== null) {
-				cancelAnimationFrame(streamSmoothRafRef.current);
-				streamSmoothRafRef.current = null;
-			}
-			streamSmoothPendingTextRef.current = '';
-			streamSmoothPendingThinkingRef.current = '';
 		};
 	}, [shell, loadMessages, refreshThreads, clearStreamingToolPreviewNow, resetLiveAgentBlocks, t, composerMode]);
 
@@ -2507,6 +2320,11 @@ export default function App() {
 			if (segmentsTrimmedEmpty(composerSegments)) {
 				return;
 			}
+			/* 关闭 portaled 菜单（slash 等 z-index ~20001），否则会盖在内嵌向导上导致选项无法点击 */
+			slashCommand.closeSlashMenu();
+			atMention.closeAtMenu();
+			setPlusMenuOpen(false);
+			setModelPickerOpen(false);
 			setWizardPending({
 				kind: wizardSlug,
 				targetThreadId,
@@ -2761,27 +2579,6 @@ export default function App() {
 		[shell]
 	);
 
-	const onStreamSmoothChange = useCallback(
-		(next: StreamSmoothUiSnapshot) => {
-			const bands = ensureFourStreamSmoothBands(next.bands);
-			setSmoothStreamDisplay(next.enabled);
-			setSmoothStreamPreset(next.preset);
-			setSmoothStreamUseCustomBands(next.useCustomBands);
-			setSmoothStreamBands(bands);
-			if (shell) {
-				void shell.invoke('settings:set', {
-					ui: {
-						smoothStreamDisplay: next.enabled,
-						streamSmoothPreset: next.preset,
-						streamSmoothUseCustomBands: next.useCustomBands,
-						streamSmoothBands: bands,
-					},
-				});
-			}
-		},
-		[shell]
-	);
-
 	const persistSettings = useCallback(async () => {
 		if (!shell) {
 			return;
@@ -2818,12 +2615,6 @@ export default function App() {
 				tsLspEnabled: indexingSettings.tsLspEnabled,
 			},
 			mcp: { servers: mcpServers },
-			ui: {
-				smoothStreamDisplay,
-				streamSmoothPreset: smoothStreamPreset,
-				streamSmoothUseCustomBands: smoothStreamUseCustomBands,
-				streamSmoothBands: smoothStreamBands,
-			},
 		});
 	}, [
 		shell,
@@ -2837,10 +2628,6 @@ export default function App() {
 		indexingSettings,
 		locale,
 		mcpServers,
-		smoothStreamDisplay,
-		smoothStreamPreset,
-		smoothStreamUseCustomBands,
-		smoothStreamBands,
 	]);
 
 	/** 离开设置页时写入磁盘（返回、点遮罩、Esc 等） */
@@ -2993,54 +2780,65 @@ export default function App() {
 	};
 
 	/** Open a file in the tab bar (or activate existing tab) and load it into the editor */
-	const openFileInTab = useCallback(async (rel: string, revealLine?: number, revealEndLine?: number) => {
-		if (!shell) return;
-		const tid = tabIdFromPath(rel);
-		// Check if tab already open
-		const existing = openTabs.find((t2) => t2.id === tid);
-		if (!existing) {
-			const mdView = initialMarkdownViewForTab(rel);
-			setOpenTabs((prev) => [
-				...prev,
-				{
-					id: tid,
-					filePath: rel,
-					dirty: false,
-					...(mdView != null ? { markdownView: mdView } : {}),
-				},
-			]);
-		}
-		setActiveTabId(tid);
-		// Also set legacy filePath
-		setFilePath(rel);
-		setRightPanelTab('explorer');
-		// Handle highlight range
-		const s =
-			typeof revealLine === 'number' && Number.isFinite(revealLine) && revealLine > 0
-				? Math.floor(revealLine)
-				: null;
-		const e =
-			typeof revealEndLine === 'number' && Number.isFinite(revealEndLine) && revealEndLine > 0
-				? Math.floor(revealEndLine)
-				: null;
-		if (s != null) {
-			const hi = e != null && e > 0 ? e : s;
-			pendingEditorHighlightRangeRef.current = {
-				start: Math.min(s, hi),
-				end: Math.max(s, hi),
-			};
-		} else {
-			pendingEditorHighlightRangeRef.current = null;
-		}
-		try {
-			const r = (await shell.invoke('fs:readFile', rel)) as { ok: boolean; content?: string };
-			if (r.ok && r.content !== undefined) {
-				setEditorValue(r.content);
+	const openFileInTab = useCallback(
+		async (
+			rel: string,
+			revealLine?: number,
+			revealEndLine?: number,
+			opts?: { background?: boolean }
+		) => {
+			if (!shell) return;
+			const tid = tabIdFromPath(rel);
+			const background = opts?.background === true;
+			setOpenTabs((prev) => {
+				if (prev.some((t2) => t2.id === tid)) {
+					return prev;
+				}
+				const mdView = initialMarkdownViewForTab(rel);
+				return [
+					...prev,
+					{
+						id: tid,
+						filePath: rel,
+						dirty: false,
+						...(mdView != null ? { markdownView: mdView } : {}),
+					},
+				];
+			});
+			if (background) {
+				return;
 			}
-		} catch (err) {
-			setEditorValue(t('app.readFileFailed', { detail: String(err) }));
-		}
-	}, [shell, openTabs, t]);
+			setActiveTabId(tid);
+			setFilePath(rel);
+			setRightPanelTab('explorer');
+			const s =
+				typeof revealLine === 'number' && Number.isFinite(revealLine) && revealLine > 0
+					? Math.floor(revealLine)
+					: null;
+			const e =
+				typeof revealEndLine === 'number' && Number.isFinite(revealEndLine) && revealEndLine > 0
+					? Math.floor(revealEndLine)
+					: null;
+			if (s != null) {
+				const hi = e != null && e > 0 ? e : s;
+				pendingEditorHighlightRangeRef.current = {
+					start: Math.min(s, hi),
+					end: Math.max(s, hi),
+				};
+			} else {
+				pendingEditorHighlightRangeRef.current = null;
+			}
+			try {
+				const r = (await shell.invoke('fs:readFile', rel)) as { ok: boolean; content?: string };
+				if (r.ok && r.content !== undefined) {
+					setEditorValue(r.content);
+				}
+			} catch (err) {
+				setEditorValue(t('app.readFileFailed', { detail: String(err) }));
+			}
+		},
+		[shell, t]
+	);
 
 	openFileInTabRef.current = openFileInTab;
 
@@ -3297,13 +3095,16 @@ export default function App() {
 		setRightPanelTab('search');
 	}, []);
 
-	const appendEditorTerminal = useCallback(async () => {
+	const appendEditorTerminal = useCallback(async (opts?: { cwdRel?: string }) => {
 		if (editorTerminalCreateLockRef.current || !shell) {
 			return;
 		}
 		editorTerminalCreateLockRef.current = true;
 		try {
-			const r = (await shell.invoke('terminal:ptyCreate')) as {
+			const r = (await shell.invoke(
+				'terminal:ptyCreate',
+				opts?.cwdRel != null && opts.cwdRel !== '' ? { cwdRel: opts.cwdRel } : undefined
+			)) as {
 				ok: boolean;
 				id?: string;
 				error?: string;
@@ -3320,6 +3121,225 @@ export default function App() {
 			editorTerminalCreateLockRef.current = false;
 		}
 	}, [shell, t]);
+
+	const workspaceExplorerActions = useMemo((): WorkspaceExplorerActions | null => {
+		if (!shell || !workspace) {
+			return null;
+		}
+		const joinAbs = (rel: string) => {
+			const root = workspace.replace(/\\/g, '/').replace(/\/$/, '');
+			const sub = rel.replace(/\\/g, '/').replace(/^\//, '');
+			return `${root}/${sub}`;
+		};
+		const normPath = (p: string) => p.replace(/\\/g, '/');
+		return {
+			openToSide: (rel) => void openFileInTab(rel, undefined, undefined, { background: true }),
+			openInBrowser: async (rel) => {
+				const r = (await shell.invoke('shell:openInBrowser', rel)) as { ok?: boolean; error?: string };
+				if (!r?.ok) {
+					flashComposerAttachErr(r?.error ?? t('explorer.errOpenBrowser'));
+				}
+			},
+			openWithDefault: async (rel) => {
+				const r = (await shell.invoke('shell:openDefault', rel)) as { ok?: boolean; error?: string };
+				if (!r?.ok) {
+					flashComposerAttachErr(r?.error ?? t('explorer.errOpenDefault'));
+				}
+			},
+			revealInOs: async (rel) => {
+				const r = (await shell.invoke('shell:revealInFolder', rel)) as { ok?: boolean; error?: string };
+				if (!r?.ok) {
+					flashComposerAttachErr(r?.error ?? t('explorer.errReveal'));
+				}
+			},
+			openInTerminal: async (cwdRel) => {
+				setLayoutMode('editor');
+				setEditorTerminalVisible(true);
+				await appendEditorTerminal(cwdRel !== '' ? { cwdRel } : undefined);
+			},
+			copyAbsolutePath: async (rel) => {
+				const r = (await shell.invoke('clipboard:writeText', joinAbs(rel))) as { ok?: boolean; error?: string };
+				if (!r?.ok) {
+					flashComposerAttachErr(r?.error ?? t('explorer.errClipboard'));
+				}
+			},
+			copyRelativePath: async (rel) => {
+				const r = (await shell.invoke('clipboard:writeText', rel.replace(/\\/g, '/'))) as {
+					ok?: boolean;
+					error?: string;
+				};
+				if (!r?.ok) {
+					flashComposerAttachErr(r?.error ?? t('explorer.errClipboard'));
+				}
+			},
+			copyFileName: async (rel) => {
+				const base = normPath(rel).split('/').pop() ?? rel;
+				const r = (await shell.invoke('clipboard:writeText', base)) as { ok?: boolean; error?: string };
+				if (!r?.ok) {
+					flashComposerAttachErr(r?.error ?? t('explorer.errClipboard'));
+				}
+			},
+			addToChat: (rel) => {
+				setComposerSegments((prev) => {
+					const next = [...prev];
+					const last = next[next.length - 1];
+					if (last?.kind === 'text' && last.text.length > 0 && !/\s$/.test(last.text)) {
+						next[next.length - 1] = { ...last, text: `${last.text} ` };
+					}
+					next.push({ id: newSegmentId(), kind: 'file', path: rel });
+					next.push({ id: newSegmentId(), kind: 'text', text: '' });
+					return next;
+				});
+				setLayoutMode('agent');
+				queueMicrotask(() => composerRichHeroRef.current?.focus());
+			},
+			addToNewChat: async (rel) => {
+				const r = (await shell.invoke('threads:create')) as { id: string };
+				await refreshThreads();
+				await shell.invoke('threads:select', r.id);
+				setCurrentId(r.id);
+				setLastTurnUsage(null);
+				setAwaitingReply(false);
+				setStreaming('');
+				setStreamingThinking('');
+				clearStreamingToolPreviewNow();
+				resetLiveAgentBlocks();
+				streamStartedAtRef.current = null;
+				firstTokenAtRef.current = null;
+				setParsedPlan(null);
+				setPlanFilePath(null);
+				setPlanFileRelPath(null);
+				await loadMessages(r.id);
+				setComposerSegments([
+					{ id: newSegmentId(), kind: 'file', path: rel },
+					{ id: newSegmentId(), kind: 'text', text: '' },
+				]);
+				setInlineResendSegments([]);
+				setResendFromUserIndex(null);
+				setLayoutMode('agent');
+				queueMicrotask(() => composerRichHeroRef.current?.focus());
+			},
+			rename: async (rel) => {
+				const parts = normPath(rel).split('/').filter(Boolean);
+				const base = parts[parts.length - 1] ?? rel;
+				const next = window.prompt(t('explorer.renamePrompt'), base);
+				if (next == null || next.trim() === '' || next.trim() === base) {
+					return;
+				}
+				const r = (await shell.invoke('fs:renameEntry', rel, next.trim())) as {
+					ok?: boolean;
+					newRel?: string;
+					error?: string;
+				};
+				if (!r?.ok) {
+					flashComposerAttachErr(r?.error ?? t('explorer.errRename'));
+					return;
+				}
+				const nr = r.newRel ?? rel;
+				const oldTid = tabIdFromPath(rel);
+				const newTid = tabIdFromPath(nr);
+				setOpenTabs((prev) =>
+					prev.map((tab) =>
+						normPath(tab.filePath) === normPath(rel)
+							? { ...tab, filePath: nr, id: newTid, dirty: tab.dirty }
+							: tab
+					)
+				);
+				if (activeTabId === oldTid) {
+					setActiveTabId(newTid);
+				}
+				if (normPath(filePath.trim()) === normPath(rel)) {
+					setFilePath(nr);
+				}
+				await refreshGit();
+			},
+			delete: async (rel, isDir) => {
+				const ok = isDir
+					? window.confirm(t('explorer.deleteConfirmDir'))
+					: window.confirm(t('explorer.deleteConfirmFile'));
+				if (!ok) {
+					return;
+				}
+				const r = (await shell.invoke('fs:removeEntry', rel, isDir)) as { ok?: boolean; error?: string };
+				if (!r?.ok) {
+					flashComposerAttachErr(r?.error ?? t('explorer.errDelete'));
+					return;
+				}
+				const norm = normPath(rel);
+				const curActive = activeTabId;
+				setOpenTabs((prev) => {
+					const next = prev.filter((t) => {
+						const p = normPath(t.filePath);
+						if (isDir) {
+							const pref = norm.endsWith('/') ? norm : `${norm}/`;
+							return p !== norm && !p.startsWith(pref);
+						}
+						return p !== norm;
+					});
+					const activeGone = curActive != null && !next.some((t) => t.id === curActive);
+					if (activeGone) {
+						const oldIdx = prev.findIndex((t) => t.id === curActive);
+						const pick = next[Math.min(oldIdx, Math.max(0, next.length - 1))] ?? null;
+						queueMicrotask(() => {
+							setActiveTabId(pick?.id ?? null);
+							if (pick) {
+								setFilePath(pick.filePath);
+								void (async () => {
+									try {
+										const rr = (await shell.invoke('fs:readFile', pick.filePath)) as {
+											ok?: boolean;
+											content?: string;
+										};
+										if (rr.ok && rr.content !== undefined) {
+											setEditorValue(rr.content);
+										}
+									} catch {
+										setEditorValue('');
+									}
+								})();
+							} else {
+								setFilePath('');
+								setEditorValue('');
+							}
+						});
+					}
+					return next;
+				});
+				await refreshGit();
+			},
+		};
+	}, [
+		shell,
+		workspace,
+		t,
+		openFileInTab,
+		appendEditorTerminal,
+		setEditorTerminalVisible,
+		setLayoutMode,
+		setComposerSegments,
+		flashComposerAttachErr,
+		refreshThreads,
+		loadMessages,
+		setCurrentId,
+		setLastTurnUsage,
+		setAwaitingReply,
+		setStreaming,
+		setStreamingThinking,
+		clearStreamingToolPreviewNow,
+		resetLiveAgentBlocks,
+		setParsedPlan,
+		setPlanFilePath,
+		setPlanFileRelPath,
+		setInlineResendSegments,
+		setResendFromUserIndex,
+		activeTabId,
+		setOpenTabs,
+		setActiveTabId,
+		setFilePath,
+		setEditorValue,
+		refreshGit,
+		filePath,
+	]);
 
 	useEffect(() => {
 		if (!editorTerminalVisible || !workspace || layoutMode !== 'editor') {
@@ -3968,6 +3988,11 @@ export default function App() {
 	/** 切换线程：恢复「粘底」，等 messages / 流式更新后再滚（避免旧列表闪滚） */
 	useLayoutEffect(() => {
 		pinMessagesToBottomRef.current = true;
+		messagesTrackScrollHeightRef.current = 0;
+		if (messagesShrinkScrollTimerRef.current !== null) {
+			window.clearTimeout(messagesShrinkScrollTimerRef.current);
+			messagesShrinkScrollTimerRef.current = null;
+		}
 	}, [currentId]);
 
 	/** 用户发出新消息：强制跟到底部 */
@@ -4000,11 +4025,34 @@ export default function App() {
 			return;
 		}
 		const ro = new ResizeObserver(() => {
-			scheduleMessagesScrollToBottom();
+			const h = track.scrollHeight;
+			const prev = messagesTrackScrollHeightRef.current;
+			messagesTrackScrollHeightRef.current = h;
+			// 变高：新内容 / 展开，立即粘底（仍由 schedule 合并到单帧）
+			if (h >= prev - 2) {
+				if (messagesShrinkScrollTimerRef.current !== null) {
+					window.clearTimeout(messagesShrinkScrollTimerRef.current);
+					messagesShrinkScrollTimerRef.current = null;
+				}
+				scheduleMessagesScrollToBottom();
+				return;
+			}
+			// 变矮：多为折叠动画中间帧，避免每帧 scrollTo 造成整区闪烁；结束后补一次即可贴底
+			if (messagesShrinkScrollTimerRef.current !== null) {
+				window.clearTimeout(messagesShrinkScrollTimerRef.current);
+			}
+			messagesShrinkScrollTimerRef.current = window.setTimeout(() => {
+				messagesShrinkScrollTimerRef.current = null;
+				scheduleMessagesScrollToBottom();
+			}, 340);
 		});
 		ro.observe(track);
 		return () => {
 			ro.disconnect();
+			if (messagesShrinkScrollTimerRef.current !== null) {
+				window.clearTimeout(messagesShrinkScrollTimerRef.current);
+				messagesShrinkScrollTimerRef.current = null;
+			}
 			if (messagesScrollToBottomRafRef.current !== null) {
 				cancelAnimationFrame(messagesScrollToBottomRafRef.current);
 				messagesScrollToBottomRafRef.current = null;
@@ -4251,11 +4299,9 @@ export default function App() {
 		const plusRef = slot === 'bottom' ? plusAnchorBottomRef : plusAnchorInlineRef;
 		const modelRef = slot === 'bottom' ? modelPillBottomRef : modelPillInlineRef;
 		const slotKey: ComposerAnchorSlot = slot === 'bottom' ? 'bottom' : 'inline';
-		const isFollowUpBar = slot === 'bottom';
-		const inputPlaceholder = isFollowUpBar ? followUpComposerPlaceholder : composerPlaceholder;
-		const inputClass = isFollowUpBar
-			? 'ref-capsule-input ref-followup-rich-input'
-			: 'ref-capsule-input ref-capsule-input--stacked-chat';
+		const isBottomSlot = slot === 'bottom';
+		const inputPlaceholder = isBottomSlot ? followUpComposerPlaceholder : composerPlaceholder;
+		const inputClass = 'ref-capsule-input ref-capsule-input--stacked-chat';
 
 		const barStart = (
 			<div className="ref-capsule-bar-start">
@@ -4288,11 +4334,6 @@ export default function App() {
 						</button>
 					) : null}
 				</div>
-			</div>
-		);
-
-		const barEnd = (
-			<div className="ref-capsule-bar-end">
 				<div className="ref-model-pill-anchor" ref={modelRef}>
 					<button
 						type="button"
@@ -4309,6 +4350,11 @@ export default function App() {
 						<IconChevron className="ref-model-chev" />
 					</button>
 				</div>
+			</div>
+		);
+
+		const barEnd = (
+			<div className="ref-capsule-bar-end">
 				<button
 					type="button"
 					className="ref-mic-btn"
@@ -4369,20 +4415,6 @@ export default function App() {
 				onKeyDown={onComposerKeyDown}
 			/>
 		);
-
-		if (isFollowUpBar) {
-			return (
-				<div className={['ref-capsule', 'ref-capsule--followup-bar', extraClass].filter(Boolean).join(' ')}>
-					<div className="ref-followup-bar-row">
-						{barStart}
-						<div className="ref-followup-input-shell">
-							<div className="ref-followup-input-body">{richInput}</div>
-						</div>
-						{barEnd}
-					</div>
-				</div>
-			);
-		}
 
 		return (
 			<div className={['ref-capsule', 'ref-capsule--stacked-chat', extraClass].filter(Boolean).join(' ')}>
@@ -5444,6 +5476,7 @@ export default function App() {
 										selectedRel={filePath.trim()}
 										treeEpoch={treeEpoch}
 										onOpenFile={(rel) => void onExplorerOpenFile(rel)}
+										explorerActions={workspaceExplorerActions}
 									/>
 								) : (
 									<p className="ref-explorer-placeholder">{t('app.explorerPlaceholder')}</p>
@@ -5821,6 +5854,7 @@ export default function App() {
 											selectedRel={filePath.trim()}
 											treeEpoch={treeEpoch}
 											onOpenFile={(rel) => void onExplorerOpenFile(rel)}
+											explorerActions={workspaceExplorerActions}
 										/>
 									) : (
 										<p className="ref-explorer-placeholder">{t('app.explorerPlaceholder')}</p>
@@ -6311,8 +6345,6 @@ export default function App() {
 							onOpenSkillCreator={startSkillCreatorFlow}
 							onOpenWorkspaceSkillFile={handleOpenWorkspaceSkillFile}
 							onDeleteWorkspaceSkillDisk={handleDeleteWorkspaceSkillDisk}
-							streamSmooth={streamSmoothUi}
-							onStreamSmoothChange={onStreamSmoothChange}
 						/>
 					</div>
 				</div>
