@@ -709,6 +709,14 @@ export function registerIpc(): void {
 		if (idx?.tsLspEnabled === false) {
 			void tsLspSession.dispose();
 		}
+		const syncedColorMode = next.ui?.colorMode;
+		if (syncedColorMode === 'light' || syncedColorMode === 'dark' || syncedColorMode === 'system') {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) {
+					win.webContents.send('async-shell:themeMode', { colorMode: syncedColorMode });
+				}
+			}
+		}
 		return next;
 	});
 

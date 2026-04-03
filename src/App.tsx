@@ -1973,6 +1973,20 @@ export default function App() {
 	}, [shell, refreshThreads, refreshGit, t, setLocale]);
 
 	useEffect(() => {
+		if (!shell?.subscribeThemeMode) {
+			return;
+		}
+		return shell.subscribeThemeMode((payload) => {
+			const next = (payload as { colorMode?: unknown } | null)?.colorMode;
+			if (next === 'light' || next === 'dark' || next === 'system') {
+				setTransitionOrigin(undefined);
+				setColorMode(next);
+				writeStoredColorMode(next);
+			}
+		});
+	}, [shell, setTransitionOrigin]);
+
+	useEffect(() => {
 		if (!shell || !currentId) {
 			return;
 		}

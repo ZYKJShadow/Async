@@ -83,6 +83,9 @@ let chatSeq = 0;
 const layoutHandlers = new Map();
 let layoutSeq = 0;
 
+const themeModeHandlers = new Map();
+let themeModeSeq = 0;
+
 ipcRenderer.on('async-shell:chat', (_event, payload) => {
 	for (const fn of chatHandlers.values()) {
 		try {
@@ -97,6 +100,16 @@ ipcRenderer.on('async-shell:layout', () => {
 	for (const fn of layoutHandlers.values()) {
 		try {
 			fn();
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:themeMode', (_event, payload) => {
+	for (const fn of themeModeHandlers.values()) {
+		try {
+			fn(payload);
 		} catch (e) {
 			console.error(e);
 		}
@@ -133,5 +146,10 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++layoutSeq;
 		layoutHandlers.set(id, callback);
 		return () => layoutHandlers.delete(id);
+	},
+	subscribeThemeMode(callback) {
+		const id = ++themeModeSeq;
+		themeModeHandlers.set(id, callback);
+		return () => themeModeHandlers.delete(id);
 	},
 });
