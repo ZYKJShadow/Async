@@ -328,7 +328,6 @@ export const messagesEn: Record<string, string> = {
 	'settings.navAria': 'Settings categories',
 	'settings.resizeSidebarAria': 'Resize settings sidebar',
 	'settings.resizeSidebarTitle': 'Drag to resize; double-click to reset width',
-	'settings.userChip': 'You / Async',
 	'settings.nav.general': 'General',
 	'settings.nav.appearance': 'Appearance',
 	'settings.nav.plan': 'Plan & Usage',

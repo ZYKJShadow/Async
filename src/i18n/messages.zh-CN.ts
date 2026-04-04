@@ -330,7 +330,6 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.navAria': '设置分类',
 	'settings.resizeSidebarAria': '调整设置左侧栏宽度',
 	'settings.resizeSidebarTitle': '拖拽调整宽度，双击恢复默认',
-	'settings.userChip': '我 / Async',
 	'settings.nav.general': '通用',
 	'settings.nav.appearance': '外观',
 	'settings.nav.plan': '计划与用量',

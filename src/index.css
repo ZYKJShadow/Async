@@ -9004,32 +9004,6 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	color: var(--void-fg-3);
 }
 
-.ref-settings-sidebar-foot {
-	padding: 12px 14px 0;
-	margin-top: auto;
-	border-top: 1px solid var(--void-border-soft);
-}
-
-.ref-settings-user-chip {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-}
-
-.ref-settings-user-avatar {
-	width: 28px;
-	height: 28px;
-	border-radius: 999px;
-	background: linear-gradient(135deg, var(--void-ring), #a78bfa);
-	opacity: 0.85;
-	flex-shrink: 0;
-}
-
-.ref-settings-user-text {
-	font-size: 11px;
-	color: var(--void-fg-3);
-}
-
 .ref-settings-main {
 	flex: 1;
 	min-width: 0;

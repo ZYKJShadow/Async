@@ -584,12 +584,6 @@ export function SettingsPage({
 							</button>
 						))}
 					</nav>
-					<div className="ref-settings-sidebar-foot">
-						<div className="ref-settings-user-chip">
-							<div className="ref-settings-user-avatar" aria-hidden />
-							<span className="ref-settings-user-text">{t('settings.userChip')}</span>
-						</div>
-					</div>
 				</aside>
 
 				<div
