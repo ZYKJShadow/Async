@@ -346,6 +346,7 @@ export const messagesEn: Record<string, string> = {
 	'settings.nav.dev': 'Dev',
 	'settings.title.general': 'General',
 	'settings.title.appearance': 'Appearance',
+	'settings.title.agents': 'Agents',
 	'settings.appearance.lead': 'Use a light or dark interface, or match your system. Theme changes animate smoothly.',
 	'settings.appearance.light': 'Light',
 	'settings.appearance.dark': 'Dark',
@@ -585,6 +586,12 @@ export const messagesEn: Record<string, string> = {
 
 	'agentSettings.leadCursor':
 		'Rules, skills, and subagents for the agent. Filter by scope above. Workspace folders for `.cursor`, `.claude`, and `.async` are merged automatically.',
+	'agentBehavior.lead':
+		'Execution behavior, safety gates, and agent runtime controls. Library-style items such as rules, skills, and subagents are grouped separately.',
+	'agentBehavior.executionTitle': 'Execution & safety',
+	'agentBehavior.libraryTitle': 'Agent library',
+	'agentBehavior.libraryHint':
+		'Rules, skills, subagents, and custom slash commands now live under “Rules, Skills, Subagents” so behavior settings and reusable prompt assets are easier to find.',
 	'agentSettings.scopeFilterAll': 'All',
 	'agentSettings.scopeFilterUser': 'All projects',
 	'agentSettings.scopeFilterProject': 'This project',

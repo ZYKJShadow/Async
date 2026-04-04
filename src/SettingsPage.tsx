@@ -16,6 +16,9 @@ import { useI18n, type AppLocale } from './i18n';
 import { VoidSelect } from './VoidSelect';
 
 const SettingsAgentPanel = lazy(() => import('./SettingsAgentPanel').then((m) => ({ default: m.SettingsAgentPanel })));
+const SettingsAgentBehaviorPanel = lazy(() =>
+	import('./SettingsAgentBehaviorPanel').then((m) => ({ default: m.SettingsAgentBehaviorPanel }))
+);
 const EditorSettingsPanel = lazy(() => import('./EditorSettingsPanel').then((m) => ({ default: m.EditorSettingsPanel })));
 const SettingsIndexingPanel = lazy(() => import('./SettingsIndexingPanel').then((m) => ({ default: m.SettingsIndexingPanel })));
 const SettingsMcpPanel = lazy(() => import('./SettingsMcpPanel').then((m) => ({ default: m.SettingsMcpPanel })));
@@ -48,16 +51,16 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'general', label: t('settings.nav.general') },
 		{ id: 'appearance', label: t('settings.nav.appearance') },
 		{ id: 'editor', label: t('settings.nav.editor') },
-		{ id: 'plan', label: t('settings.nav.plan'), soon: true },
-		{ id: 'agents', label: t('settings.nav.agents'), soon: true },
-		{ id: 'tab', label: t('settings.nav.tab'), soon: true },
 		{ id: 'models', label: t('settings.nav.models'), badge: 1 },
+		{ id: 'agents', label: t('settings.nav.agents') },
+		{ id: 'rules', label: t('settings.nav.rules') },
+		{ id: 'indexing', label: t('settings.nav.indexing') },
+		{ id: 'tools', label: t('settings.nav.tools') },
+		{ id: 'plan', label: t('settings.nav.plan'), soon: true },
+		{ id: 'tab', label: t('settings.nav.tab'), soon: true },
 		{ id: 'cloud', label: t('settings.nav.cloud'), soon: true },
 		{ id: 'plugins', label: t('settings.nav.plugins'), soon: true },
-		{ id: 'rules', label: t('settings.nav.rules') },
-		{ id: 'tools', label: t('settings.nav.tools') },
 		{ id: 'hooks', label: t('settings.nav.hooks'), soon: true },
-		{ id: 'indexing', label: t('settings.nav.indexing') },
 		{ id: 'network', label: t('settings.nav.network'), soon: true },
 		{ id: 'beta', label: t('settings.nav.beta'), soon: true },
 		{ id: 'dev', label: t('settings.nav.dev'), soon: true },
@@ -137,6 +140,101 @@ function IconPlug({ className }: { className?: string }) {
 	);
 }
 
+function IconEditor({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="M4 20h4l10-10a2 2 0 0 0-4-4L4 16v4Z" strokeLinecap="round" strokeLinejoin="round" />
+			<path d="m13.5 6.5 4 4" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function IconBotNav({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<rect x="5" y="8" width="14" height="11" rx="3" />
+			<path d="M12 3v3M8 13h.01M16 13h.01M9 19v2M15 19v2" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function IconListChecks({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="m4 7 2 2 3-3M4 17 6 19 9 16M13 7h7M13 17h7" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+function IconDatabase({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<ellipse cx="12" cy="5" rx="7" ry="3" />
+			<path d="M5 5v14c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3" />
+		</svg>
+	);
+}
+
+function IconCloudNav({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="M7 18a4 4 0 1 1 .9-7.9A5 5 0 0 1 20 12a3 3 0 0 1-1 5.8H7Z" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+function IconPuzzle({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="M10 5a2 2 0 1 1 4 0v1h3a1 1 0 0 1 1 1v3h-1a2 2 0 1 0 0 4h1v3a1 1 0 0 1-1 1h-3v-1a2 2 0 1 0-4 0v1H7a1 1 0 0 1-1-1v-3h1a2 2 0 1 0 0-4H6V7a1 1 0 0 1 1-1h3V5Z" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+function IconHook({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="M10 12a4 4 0 1 1 8 0v1a6 6 0 1 1-12 0V7" strokeLinecap="round" strokeLinejoin="round" />
+			<path d="M10 7h4" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function IconGlobe({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<circle cx="12" cy="12" r="9" />
+			<path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
+		</svg>
+	);
+}
+
+function IconFlask({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="M10 2v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-3.5L14 8V2" strokeLinecap="round" strokeLinejoin="round" />
+			<path d="M8.5 14h7" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function IconTerminalNav({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="m4 17 6-5-6-5M12 19h8" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+function IconTabs({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="M4 7h8l2 3h6v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" strokeLinecap="round" strokeLinejoin="round" />
+			<path d="M4 7V5a2 2 0 0 1 2-2h5l2 3" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
 function IconSunNav({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -152,10 +250,32 @@ function navIcon(id: SettingsNavId) {
 			return <IconGear />;
 		case 'appearance':
 			return <IconSunNav />;
+		case 'editor':
+			return <IconEditor />;
+		case 'agents':
+			return <IconBotNav />;
 		case 'models':
 			return <IconChip />;
+		case 'rules':
+			return <IconListChecks />;
 		case 'tools':
 			return <IconPlug />;
+		case 'indexing':
+			return <IconDatabase />;
+		case 'cloud':
+			return <IconCloudNav />;
+		case 'plugins':
+			return <IconPuzzle />;
+		case 'hooks':
+			return <IconHook />;
+		case 'network':
+			return <IconGlobe />;
+		case 'beta':
+			return <IconFlask />;
+		case 'dev':
+			return <IconTerminalNav />;
+		case 'tab':
+			return <IconTabs />;
 		default:
 			return <IconGear />;
 	}
@@ -440,15 +560,7 @@ export function SettingsPage({
 								type="button"
 								className={`ref-settings-nav-row ${nav === item.id ? 'is-active' : ''}`}
 								onClick={() => {
-									if (
-										item.soon &&
-										item.id !== 'models' &&
-										item.id !== 'general' &&
-										item.id !== 'appearance' &&
-										item.id !== 'editor' &&
-										item.id !== 'indexing' &&
-										item.id !== 'tools'
-									) {
+									if (item.soon) {
 										return;
 									}
 									startNavTransition(() => {
@@ -489,6 +601,7 @@ export function SettingsPage({
 							<h1 className="ref-settings-title">
 								{nav === 'general' ? t('settings.title.general') : null}
 								{nav === 'appearance' ? t('settings.title.appearance') : null}
+								{nav === 'agents' ? t('settings.title.agents') : null}
 								{nav === 'models' ? t('settings.title.models') : null}
 								{nav === 'rules' ? t('settings.title.rules') : null}
 								{nav === 'editor' ? t('settings.title.editor') : null}
@@ -496,6 +609,7 @@ export function SettingsPage({
 								{nav === 'indexing' ? t('settings.title.indexing') : null}
 								{nav !== 'general' &&
 								nav !== 'appearance' &&
+								nav !== 'agents' &&
 								nav !== 'models' &&
 								nav !== 'rules' &&
 								nav !== 'editor' &&
@@ -560,6 +674,12 @@ export function SettingsPage({
 						{nav === 'appearance' ? (
 							<Suspense fallback={<SettingsPanelSkeleton />}>
 								<SettingsAppearancePanel value={colorMode} onChange={onChangeColorMode} />
+							</Suspense>
+						) : null}
+
+						{nav === 'agents' ? (
+							<Suspense fallback={<SettingsPanelSkeleton />}>
+								<SettingsAgentBehaviorPanel value={agentCustomization} onChange={onChangeAgentCustomization} />
 							</Suspense>
 						) : null}
 
