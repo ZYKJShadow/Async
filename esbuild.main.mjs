@@ -15,6 +15,7 @@ const ctx = await esbuild.context({
 	outfile: path.join(__dirname, 'electron', 'main.bundle.cjs'),
 	external: ['electron', 'node-pty'],
 	sourcemap: true,
+	minify: !isWatch,
 });
 
 if (isWatch) {
