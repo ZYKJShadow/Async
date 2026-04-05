@@ -14,6 +14,7 @@ import {
 	stopWorkspaceFileIndex,
 	getWorkspaceFileIndexLiveStats,
 	registerKnownWorkspaceRelPath,
+	setWorkspaceFsTouchNotifier,
 } from '../workspaceFileIndex.js';
 import {
 	getSettings,
@@ -519,6 +520,14 @@ function appendPlanExecuteToSystem(
 
 export function registerIpc(): void {
 	registerTerminalPtyIpc();
+
+	setWorkspaceFsTouchNotifier(() => {
+		for (const win of BrowserWindow.getAllWindows()) {
+			if (!win.isDestroyed()) {
+				win.webContents.send('async-shell:workspaceFsTouched');
+			}
+		}
+	});
 
 	ipcMain.handle('async-shell:ping', () => ({ ok: true, message: 'pong' }));
 

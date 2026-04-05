@@ -516,6 +516,9 @@ function GitDiffLines({ diff, t }: { diff: string; t: TFunction }) {
 	);
 }
 
+/** 圆角发送钮内：几何居中在屏上易显偏左上，viewBox 内略向右下修正 */
+const SEND_ICON_VIEWBOX_NUDGE = 'translate(12.55 13.1)';
+
 function IconArrowUp({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -526,16 +529,20 @@ function IconArrowUp({ className }: { className?: string }) {
 
 function IconArrowDown({ className }: { className?: string }) {
 	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-			<path d="M12 5v14M5 12l7 7 7-7" strokeLinecap="round" strokeLinejoin="round" />
+		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+			<g transform="translate(12.55 10.9)">
+				<path d="M0-7v14M-7 0l7 7 7-7" />
+			</g>
 		</svg>
 	);
 }
 
 function IconStop({ className }: { className?: string }) {
 	return (
-		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-			<rect x="6" y="6" width="12" height="12" rx="2" />
+		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+			<g transform={SEND_ICON_VIEWBOX_NUDGE}>
+				<rect x="-6" y="-6" width="12" height="12" rx="2" />
+			</g>
 		</svg>
 	);
 }
@@ -2581,6 +2588,17 @@ export default function App() {
 		}
 		void refreshGit();
 	}, [workspace, shell, refreshGit]);
+
+	useEffect(() => {
+		const sub = shell?.subscribeWorkspaceFsTouched;
+		if (!shell || !sub) {
+			return;
+		}
+		const unsub = sub(() => {
+			void refreshGit();
+		});
+		return unsub;
+	}, [shell, refreshGit]);
 
 	useEffect(() => {
 		if (!shell || !workspace) {
@@ -6492,7 +6510,6 @@ export default function App() {
 				) : null}
 				{hasConversation ? (
 					<div className={`ref-scroll-jump-anchor ${showScrollToBottomButton ? 'is-visible' : ''}`} aria-hidden={!showScrollToBottomButton}>
-						<div className="ref-scroll-jump-fade" aria-hidden />
 						<button
 							type="button"
 							className="ref-scroll-jump-btn"

@@ -70,6 +70,32 @@ let watcher: chokidar.FSWatcher | null = null;
 let inFlightRefresh: Promise<string[]> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** 主进程注册：工作区文件在磁盘上变化时通知（用于刷新 Git 面板等） */
+let workspaceFsTouchNotifier: (() => void) | null = null;
+let workspaceFsTouchTimer: ReturnType<typeof setTimeout> | null = null;
+const WORKSPACE_FS_TOUCH_DEBOUNCE_MS = 400;
+
+export function setWorkspaceFsTouchNotifier(cb: (() => void) | null): void {
+	workspaceFsTouchNotifier = cb;
+}
+
+function scheduleWorkspaceFsTouchNotify(): void {
+	if (!workspaceFsTouchNotifier) {
+		return;
+	}
+	if (workspaceFsTouchTimer) {
+		clearTimeout(workspaceFsTouchTimer);
+	}
+	workspaceFsTouchTimer = setTimeout(() => {
+		workspaceFsTouchTimer = null;
+		try {
+			workspaceFsTouchNotifier?.();
+		} catch {
+			/* ignore */
+		}
+	}, WORKSPACE_FS_TOUCH_DEBOUNCE_MS);
+}
+
 function schedulePersistWorkspaceFileIndex(): void {
 	if (!cachedRoot) {
 		return;
@@ -263,6 +289,10 @@ export function stopWorkspaceFileIndex(): void {
 		clearTimeout(persistTimer);
 		persistTimer = null;
 	}
+	if (workspaceFsTouchTimer) {
+		clearTimeout(workspaceFsTouchTimer);
+		workspaceFsTouchTimer = null;
+	}
 	cachedRoot = null;
 	relPathSet = new Set();
 	inFlightRefresh = null;
@@ -302,6 +332,7 @@ function attachWatcher(rootNorm: string): void {
 				relPathSet.add(rel);
 				schedulePersistWorkspaceFileIndex();
 				void indexWorkspaceSourceFile(rootNorm, rel);
+				scheduleWorkspaceFsTouchNotify();
 			}
 		});
 	};
@@ -315,6 +346,7 @@ function attachWatcher(rootNorm: string): void {
 			relPathSet.add(rel);
 			schedulePersistWorkspaceFileIndex();
 			void indexWorkspaceSourceFile(rootNorm, rel);
+			scheduleWorkspaceFsTouchNotify();
 		}
 	};
 
@@ -327,6 +359,7 @@ function attachWatcher(rootNorm: string): void {
 			relPathSet.delete(rel);
 			schedulePersistWorkspaceFileIndex();
 			removeWorkspaceSymbolsForRel(rel);
+			scheduleWorkspaceFsTouchNotify();
 		}
 	};
 
@@ -346,6 +379,7 @@ function attachWatcher(rootNorm: string): void {
 		}
 		schedulePersistWorkspaceFileIndex();
 		removeWorkspaceSymbolsUnderPrefix(rel);
+		scheduleWorkspaceFsTouchNotify();
 	};
 
 	watcher.on('add', applyAdd);
