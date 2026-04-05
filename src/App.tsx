@@ -7763,32 +7763,32 @@ export default function App() {
 
 														<div className={`ref-collapse-grid ${showThreads ? 'is-open' : ''}`}>
 															<div className="ref-collapse-inner">
-																{showThreads ? (
-																	hasThreads ? (
-																		<div className="ref-agent-thread-tree">
+																{hasThreads ? (
+																	<div className="ref-agent-thread-tree" aria-hidden={!showThreads}>
+																		<div className="ref-agent-thread-cluster">
+																			<div className="ref-thread-section-label ref-thread-section-label--nested">
+																				{t('app.today')}
+																			</div>
+																			<div className="ref-thread-list ref-thread-list--nested">
+																				{todayThreads.map(renderThreadItem)}
+																			</div>
+																		</div>
+																		{archivedThreads.length > 0 ? (
 																			<div className="ref-agent-thread-cluster">
-																				<div className="ref-thread-section-label ref-thread-section-label--nested">
-																					{t('app.today')}
+																				<div className="ref-thread-section-label ref-thread-section-label--archived ref-thread-section-label--nested">
+																					{t('app.archived')}
 																				</div>
 																				<div className="ref-thread-list ref-thread-list--nested">
-																					{todayThreads.map(renderThreadItem)}
+																					{archivedThreads.map(renderThreadItem)}
 																				</div>
 																			</div>
-																			{archivedThreads.length > 0 ? (
-																				<div className="ref-agent-thread-cluster">
-																					<div className="ref-thread-section-label ref-thread-section-label--archived ref-thread-section-label--nested">
-																						{t('app.archived')}
-																					</div>
-																					<div className="ref-thread-list ref-thread-list--nested">
-																						{archivedThreads.map(renderThreadItem)}
-																					</div>
-																				</div>
-																			) : null}
-																		</div>
-																	) : (
-																		<div className="ref-agent-workspace-empty">{t('app.noThreads')}</div>
-																	)
-																) : null}
+																		) : null}
+																	</div>
+																) : (
+																	<div className="ref-agent-workspace-empty" aria-hidden={!showThreads}>
+																		{t('app.noThreads')}
+																	</div>
+																)}
 															</div>
 														</div>
 													</div>
@@ -8054,6 +8054,12 @@ export default function App() {
 													>
 														{t('app.openWorkspace')}
 													</button>
+												</div>
+											) : !gitStatusOk && gitLines[0]?.trim() ? (
+												<div className="ref-editor-sidebar-empty">
+													<p className="ref-editor-sidebar-empty-copy ref-git-error">
+														{t('app.gitLoadFailed')}: {gitLines[0]}
+													</p>
 												</div>
 											) : gitChangedPaths.length === 0 ? (
 												<div className="ref-editor-sidebar-empty">
@@ -8573,8 +8579,10 @@ export default function App() {
 											) : null}
 										</div>
 										<div className="ref-git-body">
-											{gitLines.length === 1 && gitLines[0]?.includes('Failed') ? (
-												<p className="ref-git-error">{t('app.gitLoadFailed')}</p>
+											{!gitStatusOk && gitLines[0]?.trim() ? (
+												<p className="ref-git-error" title={gitLines[0]}>
+													{t('app.gitLoadFailed')}: {gitLines[0]}
+												</p>
 											) : null}
 											{changeCount > 0 ? (
 												<div className="ref-git-cards">

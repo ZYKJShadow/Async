@@ -37,10 +37,57 @@ export async function gitBranch(): Promise<string> {
 
 export async function gitStatusPorcelain(): Promise<string> {
 	try {
-		return await git(['status', '--porcelain']);
+		/* 显式 v1，避免用户 alias / 将来默认把 --porcelain 变成 v2 导致解析失败 */
+		return await git(['status', '--porcelain=v1']);
 	} catch (e) {
 		throw new Error(`Git status failed: ${String(e)}`);
 	}
+}
+
+/** 当前工作区目录下的 Git 仓库根（绝对路径）；非仓库或失败时为 null */
+export async function gitRevParseShowToplevel(): Promise<string | null> {
+	const ws = getWorkspaceRoot();
+	if (!ws) {
+		return null;
+	}
+	try {
+		const { stdout } = await execFileAsync(
+			'git',
+			['-c', 'core.quotepath=false', 'rev-parse', '--show-toplevel'],
+			{
+				cwd: ws,
+				maxBuffer: 1024 * 1024,
+				windowsHide: true,
+				encoding: 'utf8',
+			}
+		);
+		const line = stdout.trim();
+		return line ? path.resolve(line) : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * `git status --porcelain` 的路径相对于仓库根；应用内路径相对于当前打开的文件夹。
+ * 将仓库相对路径转为工作区相对路径；若文件不在当前工作区内则返回 null。
+ */
+export function workspaceRelativeFromRepoRelative(
+	repoRelPath: string,
+	workspaceRoot: string,
+	gitTopLevel: string
+): string | null {
+	const norm = repoRelPath.replace(/\\/g, '/').replace(/^\.\//, '');
+	const full = path.resolve(gitTopLevel, norm);
+	const ws = path.resolve(workspaceRoot);
+	if (!isPathInsideRoot(full, ws)) {
+		return null;
+	}
+	const rel = path.relative(ws, full);
+	if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+		return null;
+	}
+	return rel.split(path.sep).join('/');
 }
 
 export type PathStatusEntry = { xy: string; label: string };

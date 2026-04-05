@@ -1796,13 +1796,33 @@ export function registerIpc(): void {
 			if (!root) {
 				return { ok: false as const, error: 'No workspace' };
 			}
-			const [porcelain, branch] = await Promise.all([
+			const [porcelain, branch, gitTop] = await Promise.all([
 				gitService.gitStatusPorcelain(),
 				gitService.gitBranch(),
+				gitService.gitRevParseShowToplevel(),
 			]);
 			const lines = porcelain ? porcelain.split('\n').filter(Boolean) : [];
-			const pathStatus = gitService.parseGitPathStatus(lines);
-			const changedPaths = gitService.listPorcelainPaths(lines);
+			if (!gitTop) {
+				return { ok: false as const, error: 'Not a Git repository' };
+			}
+			const rawPathStatus = gitService.parseGitPathStatus(lines);
+			const rawOrdered = gitService.listPorcelainPaths(lines);
+			const pathStatus: Record<string, gitService.PathStatusEntry> = {};
+			for (const [repoRel, entry] of Object.entries(rawPathStatus)) {
+				const wsRel = gitService.workspaceRelativeFromRepoRelative(repoRel, root, gitTop);
+				if (wsRel) {
+					pathStatus[wsRel] = entry;
+				}
+			}
+			const changedPaths: string[] = [];
+			const seen = new Set<string>();
+			for (const repoRel of rawOrdered) {
+				const wsRel = gitService.workspaceRelativeFromRepoRelative(repoRel, root, gitTop);
+				if (wsRel && !seen.has(wsRel)) {
+					seen.add(wsRel);
+					changedPaths.push(wsRel);
+				}
+			}
 			return { ok: true as const, branch, lines, pathStatus, changedPaths };
 		} catch (e) {
 			return { ok: false as const, error: String(e) };
