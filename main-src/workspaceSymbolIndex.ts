@@ -42,10 +42,13 @@ let fullRebuildTimer: ReturnType<typeof setTimeout> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let rebuildingAll = false;
 
+let lazyLoadAttempted = false;
+
 export function clearWorkspaceSymbolIndex(): void {
 	indexedRoot = null;
 	byLowerName.clear();
 	byFile.clear();
+	lazyLoadAttempted = false;
 	if (fullRebuildTimer) {
 		clearTimeout(fullRebuildTimer);
 		fullRebuildTimer = null;
@@ -286,7 +289,38 @@ export function removeWorkspaceSymbolsUnderPrefix(prefixRel: string): void {
 }
 
 /**
+ * 尝试从磁盘加载上次持久化的符号索引。返回 true 表示加载成功（跳过全量重建）。
+ */
+async function tryLoadFromDisk(rootNorm: string): Promise<boolean> {
+	const target = getWorkspaceSymbolsIndexPath(rootNorm);
+	try {
+		const raw = await fsp.readFile(target, 'utf8');
+		const data = JSON.parse(raw) as {
+			version?: number;
+			root?: string;
+			generatedAt?: string;
+			files?: Record<string, WorkspaceSymbolHit[]>;
+		};
+		if (data.version !== 1 || !data.files || typeof data.files !== 'object') {
+			return false;
+		}
+		byLowerName.clear();
+		byFile.clear();
+		for (const [rel, hits] of Object.entries(data.files)) {
+			if (!Array.isArray(hits)) {
+				continue;
+			}
+			addSymbols(rel, hits);
+		}
+		return byFile.size > 0;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * 全量重建（防抖）。在文件列表扫描完成后调用。
+ * 优先从磁盘加载缓存，仅在缓存缺失或过旧时才重新扫描文件。
  */
 export function scheduleWorkspaceSymbolFullRebuild(rootNorm: string, relativeFiles: string[]): void {
 	if (getSettings().indexing?.symbolIndexEnabled === false) {
@@ -299,8 +333,44 @@ export function scheduleWorkspaceSymbolFullRebuild(rootNorm: string, relativeFil
 	}
 	fullRebuildTimer = setTimeout(() => {
 		fullRebuildTimer = null;
-		void runFullRebuild(rootNorm, relativeFiles);
+		void (async () => {
+			const t0 = Date.now();
+			if (await tryLoadFromDisk(rootNorm)) {
+				console.log(`[symbolIndex] loaded from disk: ${byFile.size} files in ${Date.now() - t0}ms`);
+				lazyLoadAttempted = true;
+				return;
+			}
+			console.log(`[symbolIndex] disk cache miss, rebuilding ${relativeFiles.filter(isSourceRel).length} files…`);
+			await runFullRebuild(rootNorm, relativeFiles);
+			console.log(`[symbolIndex] rebuild done: ${byFile.size} files, ${byLowerName.size} symbols in ${Date.now() - t0}ms`);
+			lazyLoadAttempted = true;
+		})();
 	}, 400);
+}
+
+/**
+ * 懒加载：在首次需要符号索引时，从磁盘缓存加载或触发重建。
+ */
+export async function ensureSymbolIndexLoaded(rootNorm: string): Promise<void> {
+	if (lazyLoadAttempted || byFile.size > 0) {
+		return;
+	}
+	lazyLoadAttempted = true;
+	indexedRoot = rootNorm;
+	const t0 = Date.now();
+	if (await tryLoadFromDisk(rootNorm)) {
+		console.log(`[symbolIndex] lazy loaded from disk: ${byFile.size} files in ${Date.now() - t0}ms`);
+		return;
+	}
+	const { ensureWorkspaceFileIndex } = await import('./workspaceFileIndex.js');
+	const files = await ensureWorkspaceFileIndex(rootNorm);
+	scheduleWorkspaceSymbolFullRebuild(rootNorm, files);
+	console.log(`[symbolIndex] lazy rebuild scheduled in ${Date.now() - t0}ms`);
+}
+
+/** 让出事件循环，使 IPC 等高优先级回调有机会执行 */
+function yieldEventLoop(): Promise<void> {
+	return new Promise((r) => setImmediate(r));
 }
 
 async function runFullRebuild(rootNorm: string, relativeFiles: string[]): Promise<void> {
@@ -313,10 +383,13 @@ async function runFullRebuild(rootNorm: string, relativeFiles: string[]): Promis
 	byFile.clear();
 	rebuildingAll = true;
 	const targets = relativeFiles.filter(isSourceRel).slice(0, 12_000);
-	/* ????????? addSymbols ?? Map */
+	const YIELD_EVERY = 40;
 	try {
-		for (const rel of targets) {
-			await indexWorkspaceSourceFile(rootNorm, rel);
+		for (let i = 0; i < targets.length; i++) {
+			await indexWorkspaceSourceFile(rootNorm, targets[i]!);
+			if ((i + 1) % YIELD_EVERY === 0) {
+				await yieldEventLoop();
+			}
 		}
 	} finally {
 		rebuildingAll = false;

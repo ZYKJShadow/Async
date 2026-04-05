@@ -114,6 +114,7 @@ import { TsLspSession } from '../lsp/tsLspSession.js';
 import { setToolLspSession, setDelegateContext, clearDelegateContext } from '../agent/toolExecutor.js';
 import {
 	searchWorkspaceSymbols,
+	ensureSymbolIndexLoaded,
 	clearWorkspaceSymbolIndex,
 	getWorkspaceSymbolIndexStats,
 	scheduleWorkspaceSymbolFullRebuild,
@@ -180,11 +181,12 @@ async function appendMemoryAndRetrievalContext(params: {
 	if (modeExpandsWorkspaceFileContext(params.mode) && params.userText.trim().length > 8) {
 		const recentPaths = Object.keys(getThread(params.threadId)?.fileStates ?? {});
 		const enrichedQuery = buildEnrichedQuery(params.userText, getThread(params.threadId)?.messages ?? []);
-		const sem = buildSemanticContextBlock(
+		const sem = await buildSemanticContextBlock(
 			enrichedQuery,
 			6,
 			recentPaths,
-			params.atPaths.length > 0 ? params.atPaths : undefined
+			params.atPaths.length > 0 ? params.atPaths : undefined,
+			params.root
 		);
 		if (sem) {
 			next = appendSystemBlock(next, sem);
@@ -657,11 +659,12 @@ export function registerIpc(): void {
 
 	ipcMain.handle('workspace:get', () => ({ root: getWorkspaceRoot() }));
 
-	ipcMain.handle('workspace:searchSymbols', (_e, query: string) => {
+	ipcMain.handle('workspace:searchSymbols', async (_e, query: string) => {
 		const root = getWorkspaceRoot();
 		if (!root) {
 			return { ok: true as const, hits: [] as { name: string; path: string; line: number; kind: string }[] };
 		}
+		await ensureSymbolIndexLoaded(path.resolve(root));
 		const hits = searchWorkspaceSymbols(String(query ?? ''), 80);
 		return { ok: true as const, hits };
 	});
@@ -2030,15 +2033,13 @@ ipcMain.handle(
 			if (!root) {
 				return { ok: false as const, error: 'No workspace' };
 			}
-			const [porcelain, branch, gitTop] = await Promise.all([
-				gitService.gitStatusPorcelain(),
-				gitService.gitBranch(),
-				gitService.gitRevParseShowToplevel(),
-			]);
-			const lines = porcelain ? porcelain.split('\n').filter(Boolean) : [];
-			if (!gitTop) {
-				return { ok: false as const, error: 'Not a Git repository' };
+			const probe = await gitService.gitProbeContext();
+			if (!probe.ok) {
+				return { ok: false as const, error: probe.message };
 			}
+			const gitTop = probe.topLevel;
+			const [porcelain, branch] = await Promise.all([gitService.gitStatusPorcelain(), gitService.gitBranch()]);
+			const lines = porcelain ? porcelain.split('\n').filter(Boolean) : [];
 			const rawPathStatus = gitService.parseGitPathStatus(lines);
 			const rawOrdered = gitService.listPorcelainPaths(lines);
 			const pathStatus: Record<string, gitService.PathStatusEntry> = {};
@@ -2059,7 +2060,10 @@ ipcMain.handle(
 			}
 			return { ok: true as const, branch, lines, pathStatus, changedPaths };
 		} catch (e) {
-			return { ok: false as const, error: String(e) };
+			return {
+				ok: false as const,
+				error: gitService.normalizeGitFailureMessage(e, 'Failed to load changes'),
+			};
 		}
 	});
 
@@ -2097,14 +2101,16 @@ ipcMain.handle(
 				return { ok: false as const, error: 'No workspace' };
 			}
 			const list = Array.isArray(relPaths) ? relPaths : [];
-			const previews: Record<string, gitService.DiffPreview> = {};
-			for (const p of list) {
-				try {
-					previews[p] = await gitService.getDiffPreview(p);
-				} catch {
-					previews[p] = { diff: '', isBinary: false, additions: 0, deletions: 0 };
-				}
-			}
+			const entries = await Promise.all(
+				list.map(async (p): Promise<[string, gitService.DiffPreview]> => {
+					try {
+						return [p, await gitService.getDiffPreview(p)];
+					} catch {
+						return [p, { diff: '', isBinary: false, additions: 0, deletions: 0 }];
+					}
+				})
+			);
+			const previews: Record<string, gitService.DiffPreview> = Object.fromEntries(entries);
 			return { ok: true as const, previews };
 		} catch (e) {
 			return { ok: false as const, error: String(e) };
@@ -2149,14 +2155,17 @@ ipcMain.handle(
 			if (!root) {
 				return { ok: false as const, error: 'No workspace' };
 			}
-			const top = await gitService.gitRevParseShowToplevel();
-			if (!top) {
-				return { ok: false as const, error: 'Not a Git repository' };
+			const probe = await gitService.gitProbeContext();
+			if (!probe.ok) {
+				return { ok: false as const, error: probe.message };
 			}
 			const { branches, current } = await gitService.gitListLocalBranches();
 			return { ok: true as const, branches, current };
 		} catch (e) {
-			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+			return {
+				ok: false as const,
+				error: gitService.normalizeGitFailureMessage(e, 'Could not load branches'),
+			};
 		}
 	});
 
@@ -2166,14 +2175,17 @@ ipcMain.handle(
 			if (!root) {
 				return { ok: false as const, error: 'No workspace' };
 			}
-			const top = await gitService.gitRevParseShowToplevel();
-			if (!top) {
-				return { ok: false as const, error: 'Not a Git repository' };
+			const probe = await gitService.gitProbeContext();
+			if (!probe.ok) {
+				return { ok: false as const, error: probe.message };
 			}
 			await gitService.gitSwitchBranch(typeof branch === 'string' ? branch : '');
 			return { ok: true as const };
 		} catch (e) {
-			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+			return {
+				ok: false as const,
+				error: gitService.normalizeGitFailureMessage(e, 'Could not switch branch'),
+			};
 		}
 	});
 
@@ -2183,14 +2195,17 @@ ipcMain.handle(
 			if (!root) {
 				return { ok: false as const, error: 'No workspace' };
 			}
-			const top = await gitService.gitRevParseShowToplevel();
-			if (!top) {
-				return { ok: false as const, error: 'Not a Git repository' };
+			const probe = await gitService.gitProbeContext();
+			if (!probe.ok) {
+				return { ok: false as const, error: probe.message };
 			}
 			await gitService.gitCreateBranchAndSwitch(typeof name === 'string' ? name : '');
 			return { ok: true as const };
 		} catch (e) {
-			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+			return {
+				ok: false as const,
+				error: gitService.normalizeGitFailureMessage(e, 'Could not create branch'),
+			};
 		}
 	});
 

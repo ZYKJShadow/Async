@@ -1999,11 +1999,83 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-agent-empty-workspace {
 	margin-left: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 14px;
 	border: 1px dashed var(--void-border-soft);
-	background: transparent;
-	text-align: left;
+	border-radius: 16px;
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 78%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 94%, transparent) 100%);
+	opacity: 1;
+}
+
+.ref-agent-empty-workspace-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--void-bg-3) 88%, transparent);
+	color: var(--void-fg-2);
+}
+
+.ref-agent-empty-workspace-icon svg {
+	width: 16px;
+	height: 16px;
+}
+
+.ref-agent-empty-workspace-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.ref-agent-empty-workspace-title {
+	font-size: 13px;
+	font-weight: 700;
+	line-height: 1.35;
+	color: var(--void-fg-0);
+}
+
+.ref-agent-empty-workspace-body {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.55;
+	color: var(--void-fg-3);
+}
+
+.ref-agent-empty-workspace-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 12px;
+	border-radius: 11px;
+	border: 1px solid var(--void-border);
+	background: var(--void-bg-2);
+	color: var(--void-fg-0);
+	font-size: 12px;
+	font-weight: 600;
 	cursor: pointer;
 	font-family: inherit;
+	transition:
+		background 0.15s ease,
+		border-color 0.15s ease,
+		transform 0.15s ease;
+}
+
+.ref-agent-empty-workspace-btn:hover {
+	background: var(--void-bg-3);
+	border-color: var(--void-border-strong);
+	transform: translateY(-1px);
+}
+
+.ref-agent-empty-workspace-btn svg {
+	width: 14px;
+	height: 14px;
 }
 
 .ref-agent-settings-link {
@@ -8922,6 +8994,36 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font-size: 12px;
 	color: var(--void-fg-3);
 	margin: 8px 0;
+}
+
+.ref-git-empty-state {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 14px;
+	border: 1px solid var(--void-border-soft);
+	border-radius: 14px;
+	background: color-mix(in srgb, var(--void-bg-2) 72%, transparent);
+}
+
+.ref-git-empty-title {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.4;
+	color: var(--void-fg-0);
+}
+
+.ref-git-empty-copy,
+.ref-git-empty-detail {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--void-fg-3);
+}
+
+.ref-git-empty-detail {
+	word-break: break-word;
 }
 
 .ref-commit-field {

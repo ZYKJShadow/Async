@@ -24,6 +24,28 @@ type RenderUnit =
 	| Exclude<AssistantSegment, { type: 'thinking' }>
 	| { type: 'thinking_group'; chunks: ThinkingSegment[] };
 
+function thinkingGroupRenderMeta(
+	chunks: ThinkingSegment[],
+	liveThoughtMeta: Props['liveThoughtMeta']
+): { phase: 'thinking' | 'streaming' | 'done'; elapsedSeconds: number } {
+	const fallbackPhase = liveThoughtMeta?.phase ?? 'thinking';
+	const fallbackElapsed = liveThoughtMeta?.elapsedSeconds ?? 0;
+	const startedAt = chunks.find((chunk) => typeof chunk.startedAt === 'number')?.startedAt;
+	if (startedAt == null) {
+		return { phase: fallbackPhase, elapsedSeconds: fallbackElapsed };
+	}
+	const lastChunk = chunks[chunks.length - 1];
+	const endedAt =
+		lastChunk?.endedAt ??
+		[...chunks].reverse().find((chunk) => typeof chunk.endedAt === 'number')?.endedAt;
+	const stillRunning = lastChunk?.endedAt == null;
+	const endMs = stillRunning ? Date.now() : (endedAt ?? startedAt);
+	return {
+		phase: stillRunning ? fallbackPhase : 'done',
+		elapsedSeconds: Math.max(0, (endMs - startedAt) / 1000),
+	};
+}
+
 /** 当前 Explored 分组之后是否已出现工具类块（file_edit / 命令 / diff 等），用于回合未结束时提前折叠 */
 function activityGroupFollowedByToolLikeWork(units: RenderUnit[], groupIndex: number): boolean {
 	for (let k = groupIndex + 1; k < units.length; k++) {
@@ -219,10 +241,7 @@ export function ChatMarkdown({
 		);
 	}
 
-	const agentRootClass =
-		assistantBubbleVariant === 'error'
-			? 'ref-md-root ref-md-root--agent-chat ref-md-root--chat-error'
-			: 'ref-md-root ref-md-root--agent-chat';
+	const agentRootClass = 'ref-md-root ref-md-root--agent-chat';
 
 	if (renderUnits.length === 0) {
 		if (content.trim()) {
@@ -249,14 +268,15 @@ export function ChatMarkdown({
 					case 'markdown':
 						return <ReactMarkdown key={i} remarkPlugins={[remarkGfm]}>{seg.text}</ReactMarkdown>;
 					case 'thinking_group':
+						const thoughtMeta = thinkingGroupRenderMeta(seg.chunks, liveThoughtMeta);
 						return (
 							<ComposerThoughtBlock
 								key={seg.chunks[0]?.id ?? `thinking-${i}`}
-								phase={liveThoughtMeta?.phase ?? 'thinking'}
-								elapsedSeconds={liveThoughtMeta?.elapsedSeconds ?? 0}
+								phase={thoughtMeta.phase}
+								elapsedSeconds={thoughtMeta.elapsedSeconds}
 								chunks={seg.chunks.map((chunk) => ({ id: chunk.id, text: chunk.text }))}
 								streamingThinking={liveThoughtMeta?.streamingThinking ?? ''}
-								tokenUsage={liveThoughtMeta?.tokenUsage}
+								tokenUsage={thoughtMeta.phase === 'done' ? liveThoughtMeta?.tokenUsage : undefined}
 							/>
 						);
 					case 'diff':

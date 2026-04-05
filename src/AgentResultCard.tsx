@@ -219,7 +219,8 @@ export function AgentResultCard({
 		if (!streaming) return;
 		if (virtualEnabled) {
 			const last = Math.max(0, displayLines.length - 1);
-			streamVirtual.scrollToIndex(last, { align: 'end' });
+			// 推迟到微任务，避免在 useLayoutEffect 内触发 flushSync 警告
+			queueMicrotask(() => streamVirtual.scrollToIndex(last, { align: 'end' }));
 			return;
 		}
 		const el = streamScrollRef.current;

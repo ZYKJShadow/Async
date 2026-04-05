@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getWorkspaceRoot, resolveWorkspacePath, isPathInsideRoot } from '../workspace.js';
-import { formatSymbolSearchResults, searchWorkspaceSymbols } from '../workspaceSymbolIndex.js';
+import { formatSymbolSearchResults, searchWorkspaceSymbols, ensureSymbolIndexLoaded } from '../workspaceSymbolIndex.js';
 import type { ToolCall, ToolResult } from './agentTools.js';
 import { TsLspSession } from '../lsp/tsLspSession.js';
 import type { AgentLoopOptions, AgentLoopHandlers } from './agentLoop.js';
@@ -495,6 +495,7 @@ async function executeSearchFiles(call: ToolCall): Promise<ToolResult> {
 		call.arguments.search_symbols === true ||
 		call.arguments.mode === 'symbol';
 	if (symbolMode) {
+		await ensureSymbolIndexLoaded(path.resolve(root));
 		const hits = searchWorkspaceSymbols(pattern, MAX_SEARCH_RESULTS);
 		return {
 			toolCallId: call.id,

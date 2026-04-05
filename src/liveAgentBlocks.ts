@@ -35,7 +35,7 @@ export type LiveToolBlock = {
 
 export type LiveAgentBlock =
 	| { id: string; type: 'text'; text: string }
-	| { id: string; type: 'thinking'; text: string; sealed?: boolean }
+	| { id: string; type: 'thinking'; text: string; sealed?: boolean; startedAt: number; endedAt?: number }
 	| { id: string; type: 'sub_agent_delta'; parentToolCallId: string; depth: number; text: string }
 	| { id: string; type: 'sub_agent_thinking'; parentToolCallId: string; depth: number; text: string }
 	| LiveToolBlock
@@ -113,6 +113,7 @@ function shouldSealThinkingChunk(text: string): boolean {
 function appendRootThinking(blocks: LiveAgentBlock[], piece: string): LiveAgentBlock[] {
 	if (!piece) return blocks;
 	const base = blocks.slice();
+	const stamp = Date.now();
 	const lastBlock = base[base.length - 1];
 	let current =
 		lastBlock?.type === 'thinking' && !lastBlock.sealed
@@ -130,17 +131,40 @@ function appendRootThinking(blocks: LiveAgentBlock[], piece: string): LiveAgentB
 				type: 'thinking',
 				text: '',
 				sealed: false,
+				startedAt: stamp,
 			};
 			base.push(current);
 		}
 		current.text += char;
 		if (shouldSealThinkingChunk(current.text)) {
 			current.sealed = true;
+			current.endedAt = stamp;
 			current = null;
 		}
 	}
 
 	return base;
+}
+
+function closeTrailingRootThinking(blocks: LiveAgentBlock[], endedAt = Date.now()): LiveAgentBlock[] {
+	let changed = false;
+	const copy = blocks.slice();
+	for (let i = copy.length - 1; i >= 0; i -= 1) {
+		const block = copy[i];
+		if (block?.type !== 'thinking') {
+			break;
+		}
+		if (block.sealed && block.endedAt != null) {
+			continue;
+		}
+		copy[i] = {
+			...block,
+			sealed: true,
+			endedAt: block.endedAt ?? endedAt,
+		};
+		changed = true;
+	}
+	return changed ? copy : blocks;
 }
 
 function appendSubAgentDelta(
@@ -315,6 +339,9 @@ export function applyLiveAgentChatPayload(
 	payload: LiveAgentChatPayload
 ): LiveAgentBlocksState {
 	let { blocks } = state;
+	if (payload.type !== 'thinking_delta' || payload.parentToolCallId) {
+		blocks = closeTrailingRootThinking(blocks);
+	}
 
 	if (payload.type === 'delta') {
 		if (payload.parentToolCallId) {
@@ -388,7 +415,13 @@ export function liveBlocksToAssistantSegments(blocks: LiveAgentBlock[], t: TFunc
 		if (b.type === 'text' && b.text.trim()) {
 			out.push({ type: 'markdown', text: b.text });
 		} else if (b.type === 'thinking') {
-			out.push({ type: 'thinking', id: b.id, text: b.text });
+			out.push({
+				type: 'thinking',
+				id: b.id,
+				text: b.text,
+				startedAt: b.startedAt,
+				endedAt: b.endedAt,
+			});
 		} else if (b.type === 'sub_agent_delta') {
 			out.push({
 				type: 'sub_agent_markdown',

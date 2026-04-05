@@ -6,6 +6,56 @@ import { getWorkspaceRoot, isPathInsideRoot } from './workspace.js';
 
 const execFileAsync = promisify(execFile);
 
+const GIT_MISSING_MESSAGE = 'Git is not installed';
+const GIT_NOT_REPO_MESSAGE = 'Current workspace is not a Git repository';
+
+type ExecFileLikeError = Error & {
+	code?: string;
+	stderr?: string;
+	stdout?: string;
+};
+
+export type GitFailureKind = 'missing' | 'not_repo' | 'unknown';
+
+function gitErrorText(error: unknown): string {
+	if (error instanceof Error) {
+		const extra = error as ExecFileLikeError;
+		return [error.message, extra.stderr, extra.stdout].filter(Boolean).join('\n');
+	}
+	return String(error);
+}
+
+export function classifyGitFailure(error: unknown): GitFailureKind {
+	const text = gitErrorText(error);
+	const code =
+		error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
+	if (
+		code === 'ENOENT' ||
+		/\bENOENT\b/i.test(text) ||
+		/\bnot found\b/i.test(text) ||
+		/\bspawn\s+git(?:\.exe)?\b/i.test(text) ||
+		/\bgit(?:\.exe)?\b.*\bnot recognized\b/i.test(text) ||
+		/\bcannot find the file specified\b/i.test(text)
+	) {
+		return 'missing';
+	}
+	if (/not a git repository/i.test(text)) {
+		return 'not_repo';
+	}
+	return 'unknown';
+}
+
+export function normalizeGitFailureMessage(error: unknown, fallback = 'Git command failed'): string {
+	switch (classifyGitFailure(error)) {
+		case 'missing':
+			return GIT_MISSING_MESSAGE;
+		case 'not_repo':
+			return GIT_NOT_REPO_MESSAGE;
+		default:
+			return fallback;
+	}
+}
+
 function repoRoot(): string {
 	const root = getWorkspaceRoot();
 	if (!root) {
@@ -47,9 +97,17 @@ export async function gitStatusPorcelain(): Promise<string> {
 
 /** 当前工作区目录下的 Git 仓库根（绝对路径）；非仓库或失败时为 null */
 export async function gitRevParseShowToplevel(): Promise<string | null> {
+	const probe = await gitProbeContext();
+	return probe.ok ? probe.topLevel : null;
+}
+
+export async function gitProbeContext(): Promise<
+	| { ok: true; topLevel: string }
+	| { ok: false; reason: GitFailureKind; message: string }
+> {
 	const ws = getWorkspaceRoot();
 	if (!ws) {
-		return null;
+		return { ok: false, reason: 'unknown', message: 'No workspace' };
 	}
 	try {
 		const { stdout } = await execFileAsync(
@@ -63,9 +121,17 @@ export async function gitRevParseShowToplevel(): Promise<string | null> {
 			}
 		);
 		const line = stdout.trim();
-		return line ? path.resolve(line) : null;
-	} catch {
-		return null;
+		if (!line) {
+			return { ok: false, reason: 'unknown', message: 'Git command failed' };
+		}
+		return { ok: true, topLevel: path.resolve(line) };
+	} catch (error) {
+		const reason = classifyGitFailure(error);
+		return {
+			ok: false,
+			reason,
+			message: normalizeGitFailureMessage(error),
+		};
 	}
 }
 

@@ -3161,19 +3161,38 @@
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-empty,
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-empty-workspace {
 	color: var(--color-text-tertiary);
-	background: transparent;
-	opacity: 0.88;
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-soft) 74%, transparent) 0%, color-mix(in srgb, var(--surface-panel-bg) 92%, transparent) 100%);
+	opacity: 1;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-empty-workspace {
 	margin-top: 4px;
 	border-radius: 14px;
 	border: 1px dashed color-mix(in srgb, var(--surface-glass-stroke) 84%, transparent);
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 30%, transparent);
+	box-shadow:
+		inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent),
+		0 10px 26px color-mix(in srgb, black 10%, transparent);
 }
 
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-empty-workspace:hover {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 46%, transparent);
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-empty-workspace-icon {
+	background: color-mix(in srgb, var(--surface-panel-bg-strong) 88%, transparent);
+	color: var(--color-text-secondary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-empty-workspace-title {
+	color: var(--color-text-primary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-empty-workspace-btn {
+	border-color: color-mix(in srgb, var(--surface-glass-stroke) 84%, transparent);
+	background: color-mix(in srgb, var(--surface-panel-bg-strong) 92%, transparent);
+	color: var(--color-text-primary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-empty-workspace-btn:hover {
+	background: color-mix(in srgb, var(--surface-panel-bg-strong) 100%, transparent);
+	border-color: color-mix(in srgb, var(--color-accent) 20%, var(--surface-glass-stroke));
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-tree {

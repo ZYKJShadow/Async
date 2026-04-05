@@ -13,7 +13,7 @@ import {
 	type ReactNode,
 } from 'react';
 import type { editor as MonacoEditorNS } from 'monaco-editor';
-import Editor from '@monaco-editor/react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import { createTwoFilesPatch } from 'diff';
 import { PtyTerminalView } from './PtyTerminalView';
 import { DrawerPtyTerminal } from './DrawerPtyTerminal';
@@ -159,8 +159,16 @@ import { registerTsLspMonacoOnce } from './tsLspMonaco';
 import { monacoWorkspaceRootRef } from './tsLspWorkspaceRef';
 import { workspaceRelativeFileUrl } from './workspaceUri';
 import { voidShellDebugLog } from './tabCloseDebug';
+import {
+	classifyGitUnavailableReason,
+	gitBranchTriggerTitle,
+	gitUnavailableCopy,
+	type GitUnavailableReason,
+} from './gitAvailability';
+import { deriveOriginalContentFromUnifiedDiff } from './editorInlineDiff';
 
 const SettingsPage = lazy(() => import('./SettingsPage').then((m) => ({ default: m.SettingsPage })));
+
 type ProjectAgentSliceState = {
 	rules: AgentRule[];
 	skills: AgentSkill[];
@@ -265,6 +273,15 @@ type AgentFilePreviewState = {
 	readError: string | null;
 	additions: number;
 	deletions: number;
+	reviewMode: 'snapshot' | 'readonly';
+};
+
+type EditorInlineDiffState = {
+	filePath: string;
+	originalContent: string;
+	diff: string;
+	revealLine?: number;
+	revealEndLine?: number;
 	reviewMode: 'snapshot' | 'readonly';
 };
 
@@ -526,6 +543,29 @@ function changeBadgeVariant(gitLabel: string | undefined): string {
 		return k;
 	}
 	return 'misc';
+}
+
+function GitUnavailableState({
+	t,
+	reason,
+	detail,
+}: {
+	t: TFunction;
+	reason: Exclude<GitUnavailableReason, 'none'>;
+	detail?: string | null;
+}) {
+	const copy = gitUnavailableCopy(t, reason);
+	return (
+		<div className="ref-git-empty-state" role="status">
+			<p className="ref-git-empty-title">{copy.title}</p>
+			<p className="ref-git-empty-copy">{copy.body}</p>
+			{reason === 'error' && detail?.trim() ? (
+				<p className="ref-git-empty-detail" title={detail}>
+					{detail}
+				</p>
+			) : null}
+		</div>
+	);
 }
 
 function shellCommandPermissionMode(agent: AgentCustomization | undefined): CommandPermissionMode {
@@ -1290,6 +1330,7 @@ export default function App() {
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
 	const [filePath, setFilePath] = useState('');
 	const [editorValue, setEditorValue] = useState('');
+	const [editorInlineDiffByPath, setEditorInlineDiffByPath] = useState<Record<string, EditorInlineDiffState>>({});
 	const [saveToastKey, setSaveToastKey] = useState(0);
 	const [saveToastVisible, setSaveToastVisible] = useState(false);
 	const [subAgentBgToast, setSubAgentBgToast] = useState<{ key: number; ok: boolean; text: string } | null>(null);
@@ -1297,6 +1338,7 @@ export default function App() {
 	const [composerAttachErr, setComposerAttachErr] = useState<string | null>(null);
 	const composerAttachErrTimerRef = useRef<number | null>(null);
 	const monacoEditorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
+	const editorLoadRequestRef = useRef(0);
 	const [tsLspStatus, setTsLspStatus] = useState<'off' | 'starting' | 'ready' | 'error'>('off');
 	/** 打开文件后在 Monaco 中高亮的行范围（1-based，含 end） */
 	const pendingEditorHighlightRangeRef = useRef<{ start: number; end: number } | null>(null);
@@ -1590,6 +1632,9 @@ export default function App() {
 
 	const hasConversation = messages.length > 0 || !!streaming;
 	const changeCount = gitChangedPaths.length;
+	const gitUnavailableReason: GitUnavailableReason = gitStatusOk
+		? 'none'
+		: classifyGitUnavailableReason(gitLines[0]);
 	const gitPathsKey = useMemo(() => gitChangedPaths.join('\n'), [gitChangedPaths]);
 	const normalizedEditorSidebarSearchQuery = editorSidebarSearchQuery.trim().toLowerCase();
 	const editorSidebarSearchResults = useMemo(() => {
@@ -2168,55 +2213,71 @@ export default function App() {
 		}
 		void (async () => {
 			try {
-				const p = (await shell.invoke('async-shell:ping')) as { ok: boolean; message: string };
-				setIpcOk(p.ok ? t('app.ipcReady', { message: p.message }) : t('app.ipcError'));
+				const _t0 = performance.now();
+				const _lap = (label: string) => console.log(`[renderer-init] ${label}: +${Math.round(performance.now() - _t0)}ms`);
+
 				// 检查是否是空白窗口（新建窗口不恢复工作区）
 				const isBlankWindow =
 					typeof window !== 'undefined' &&
 					(window.location.search.includes('blank=1') || window.location.hash.includes('blank'));
+
+				// 第一批：互不依赖的 IPC 并行发送
+				const [p, w, paths] = await Promise.all([
+					shell.invoke('async-shell:ping') as Promise<{ ok: boolean; message: string }>,
+					isBlankWindow
+						? Promise.resolve({ root: null } as { root: string | null })
+						: (shell.invoke('workspace:get') as Promise<{ root: string | null }>),
+					shell.invoke('app:getPaths') as Promise<{ home?: string }>,
+				]);
+				_lap('batch1 (ping/workspace/paths)');
+				setIpcOk(p.ok ? t('app.ipcReady', { message: p.message }) : t('app.ipcError'));
 				if (!isBlankWindow) {
-					const w = (await shell.invoke('workspace:get')) as { root: string | null };
 					setWorkspace(w.root);
 				}
-				const paths = (await shell.invoke('app:getPaths')) as { home?: string };
 				if (paths.home) {
 					setHomePath(paths.home);
 				}
-				await refreshThreads();
-				const st = (await shell.invoke('settings:get')) as {
-					language?: string;
-					defaultModel?: string;
-					models?: {
-						providers?: UserLlmProvider[];
-						entries?: UserModelEntry[];
-						enabledIds?: string[];
-						thinkingByModelId?: Record<string, unknown>;
-					};
-					agent?: AgentCustomization;
-					editor?: Partial<EditorSettings>;
-					ui?: {
-						sidebarLayout?: { left?: unknown; right?: unknown };
-						colorMode?: string;
-						fontPreset?: unknown;
-						uiFontPreset?: unknown;
-						codeFontPreset?: unknown;
-						themePresetId?: unknown;
-						accentColor?: unknown;
-						backgroundColor?: unknown;
-						foregroundColor?: unknown;
-						translucentSidebar?: unknown;
-						contrast?: unknown;
-						usePointerCursors?: unknown;
-						uiFontSize?: unknown;
-						codeFontSize?: unknown;
-						layoutMode?: string;
-					};
-					indexing?: {
-						symbolIndexEnabled?: boolean;
-						semanticIndexEnabled?: boolean;
-						tsLspEnabled?: boolean;
-					};
-				};
+
+				// 第二批：threads 与 settings 并行加载
+				_lap('batch2 start');
+				const [, st] = await Promise.all([
+					refreshThreads(),
+					shell.invoke('settings:get') as Promise<{
+						language?: string;
+						defaultModel?: string;
+						models?: {
+							providers?: UserLlmProvider[];
+							entries?: UserModelEntry[];
+							enabledIds?: string[];
+							thinkingByModelId?: Record<string, unknown>;
+						};
+						agent?: AgentCustomization;
+						editor?: Partial<EditorSettings>;
+						ui?: {
+							sidebarLayout?: { left?: unknown; right?: unknown };
+							colorMode?: string;
+							fontPreset?: unknown;
+							uiFontPreset?: unknown;
+							codeFontPreset?: unknown;
+							themePresetId?: unknown;
+							accentColor?: unknown;
+							backgroundColor?: unknown;
+							foregroundColor?: unknown;
+							translucentSidebar?: unknown;
+							contrast?: unknown;
+							usePointerCursors?: unknown;
+							uiFontSize?: unknown;
+							codeFontSize?: unknown;
+							layoutMode?: string;
+						};
+						indexing?: {
+							symbolIndexEnabled?: boolean;
+							semanticIndexEnabled?: boolean;
+							tsLspEnabled?: boolean;
+						};
+					}>,
+				]);
+
 				setLocale(normalizeLocale(st.language));
 				const sl = st.ui?.sidebarLayout;
 				const left = typeof sl?.left === 'number' && Number.isFinite(sl.left) ? sl.left : null;
@@ -2279,12 +2340,19 @@ export default function App() {
 				writeStoredColorMode(nextColorMode);
 				const appearanceScheme = resolveEffectiveScheme(nextColorMode, readPrefersDark());
 				setAppearanceSettings(normalizeAppearanceSettings(st.ui, appearanceScheme));
-				// Load MCP servers
-				const mcpSt = (await shell.invoke('mcp:getServers')) as { servers?: McpServerConfig[] } | undefined;
+				_lap('batch2 (threads/settings + state apply)');
+
+				// 第三批：MCP 服务器状态与 Git 状态并行加载
+				const [mcpSt, mcpStatusRes] = await Promise.all([
+					shell.invoke('mcp:getServers') as Promise<{ servers?: McpServerConfig[] } | undefined>,
+					shell.invoke('mcp:getStatuses') as Promise<{ statuses?: McpServerStatus[] } | undefined>,
+				]);
 				setMcpServers(mcpSt?.servers ?? []);
-				const mcpStatusRes = (await shell.invoke('mcp:getStatuses')) as { statuses?: McpServerStatus[] } | undefined;
 				setMcpStatuses(mcpStatusRes?.statuses ?? []);
-				await refreshGit();
+				_lap('batch3 (mcp)');
+				// refreshGit 不阻塞 UI 渲染，fire-and-forget
+				void refreshGit();
+				_lap('init complete');
 			} catch (e) {
 				setIpcOk(String(e));
 			}
@@ -2758,42 +2826,27 @@ export default function App() {
 	}, [shell, workspace, indexingSettings.tsLspEnabled]);
 
 	useEffect(() => {
-		if (!shell || workspace) {
-			setHomeRecents([]);
-			return;
-		}
-		let cancelled = false;
-		void (async () => {
-			try {
-				const r = (await shell.invoke('workspace:listRecents')) as { paths?: string[] };
-				if (!cancelled) {
-					setHomeRecents(Array.isArray(r.paths) ? r.paths : []);
-				}
-			} catch {
-				if (!cancelled) {
-					setHomeRecents([]);
-				}
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [shell, workspace]);
-
-	useEffect(() => {
 		if (!shell) {
+			setHomeRecents([]);
 			setFolderRecents([]);
 			return;
 		}
+		if (workspace) {
+			setHomeRecents([]);
+		}
 		let cancelled = false;
 		void (async () => {
 			try {
 				const r = (await shell.invoke('workspace:listRecents')) as { paths?: string[] };
-				if (!cancelled) {
-					setFolderRecents(Array.isArray(r.paths) ? r.paths.slice(0, 14) : []);
+				if (cancelled) return;
+				const paths = Array.isArray(r.paths) ? r.paths : [];
+				if (!workspace) {
+					setHomeRecents(paths);
 				}
+				setFolderRecents(paths.slice(0, 14));
 			} catch {
 				if (!cancelled) {
+					setHomeRecents([]);
 					setFolderRecents([]);
 				}
 			}
@@ -2839,10 +2892,10 @@ export default function App() {
 		async (next: string) => {
 			clearWorkspaceConversationState();
 			setWorkspace(next);
+			// 并行而非串行，且 refreshGit 由 workspace 变化的 effect 触发，此处不重复调用
 			await refreshThreads();
-			await refreshGit();
 		},
-		[clearWorkspaceConversationState, refreshThreads, refreshGit]
+		[clearWorkspaceConversationState, refreshThreads]
 	);
 
 	const openWorkspaceByPath = useCallback(
@@ -4082,6 +4135,164 @@ export default function App() {
 		return e ? e.displayName.trim() || e.requestName || defaultModel : defaultModel;
 	}, [defaultModel, modelEntries, t]);
 
+	const setEditorInlineDiffState = useCallback((relPath: string, state: EditorInlineDiffState | null) => {
+		const normalizedRel = normalizeWorkspaceRelPath(relPath);
+		setEditorInlineDiffByPath((prev) => {
+			if (!state) {
+				if (!(normalizedRel in prev)) {
+					return prev;
+				}
+				const next = { ...prev };
+				delete next[normalizedRel];
+				return next;
+			}
+			return {
+				...prev,
+				[normalizedRel]: {
+					...state,
+					filePath: normalizedRel,
+				},
+			};
+		});
+	}, []);
+
+	const resolveEditorInlineDiff = useCallback(
+		async (
+			relPath: string,
+			content: string,
+			revealLine?: number,
+			revealEndLine?: number,
+			options?: AgentConversationFileOpenOptions
+		): Promise<EditorInlineDiffState | null> => {
+			if (!shell) {
+				return null;
+			}
+			const normalizedRel = normalizeWorkspaceRelPath(relPath);
+			const safeRevealLine =
+				typeof revealLine === 'number' && Number.isFinite(revealLine) && revealLine > 0
+					? Math.floor(revealLine)
+					: undefined;
+			const safeRevealEndLine =
+				typeof revealEndLine === 'number' && Number.isFinite(revealEndLine) && revealEndLine > 0
+					? Math.floor(revealEndLine)
+					: undefined;
+			const sourceDiff = typeof options?.diff === 'string' ? options.diff.trim() : '';
+			const sourceAllowsReviewActions = options?.allowReviewActions === true;
+			const isGitChanged = gitChangedPaths.some((path) => workspaceRelPathsEqual(path, normalizedRel));
+
+			let previewDiff = sourceDiff;
+			let originalContent = previewDiff ? deriveOriginalContentFromUnifiedDiff(content, previewDiff) : null;
+			let reviewMode: EditorInlineDiffState['reviewMode'] = 'readonly';
+
+			if (currentId && sourceAllowsReviewActions) {
+				try {
+					const snapshotResult = (await shell.invoke('agent:getFileSnapshot', currentId, normalizedRel)) as
+						| { ok: true; hasSnapshot: false }
+						| { ok: true; hasSnapshot: true; previousContent: string | null }
+						| { ok?: false };
+					if (snapshotResult?.ok && snapshotResult.hasSnapshot) {
+						originalContent = snapshotResult.previousContent ?? '';
+						previewDiff = createTwoFilesPatch(
+							`a/${normalizedRel}`,
+							`b/${normalizedRel}`,
+							originalContent,
+							content,
+							'',
+							'',
+							{ context: 3 }
+						).trim();
+						reviewMode = 'snapshot';
+					}
+				} catch {
+					/* ignore */
+				}
+			}
+
+			if ((!previewDiff || !originalContent) && gitStatusOk && isGitChanged) {
+				try {
+					const fullDiffResult = (await shell.invoke('git:diffPreview', {
+						relPath: normalizedRel,
+						full: true,
+					})) as
+						| { ok: true; preview: DiffPreview }
+						| { ok: false; error?: string };
+					if (fullDiffResult.ok && fullDiffResult.preview && !fullDiffResult.preview.isBinary) {
+						const gitPreviewDiff = String(fullDiffResult.preview.diff ?? '').trim();
+						if (gitPreviewDiff) {
+							const gitOriginal = deriveOriginalContentFromUnifiedDiff(content, gitPreviewDiff);
+							if (gitOriginal !== null) {
+								previewDiff = gitPreviewDiff;
+								originalContent = gitOriginal;
+								reviewMode = 'readonly';
+							}
+						}
+					}
+				} catch {
+					/* ignore */
+				}
+			}
+
+			if (!previewDiff || originalContent === null) {
+				return null;
+			}
+
+			return {
+				filePath: normalizedRel,
+				originalContent,
+				diff: previewDiff,
+				revealLine: safeRevealLine,
+				revealEndLine: safeRevealEndLine,
+				reviewMode,
+			};
+		},
+		[currentId, gitChangedPaths, gitStatusOk, shell]
+	);
+
+	const loadFileIntoEditor = useCallback(
+		async (
+			relPath: string,
+			revealLine?: number,
+			revealEndLine?: number,
+			options?: AgentConversationFileOpenOptions
+		) => {
+			if (!shell) {
+				return;
+			}
+			const requestId = ++editorLoadRequestRef.current;
+			const normalizedRel = normalizeWorkspaceRelPath(relPath);
+			try {
+				const r = (await shell.invoke('fs:readFile', normalizedRel)) as { ok: boolean; content?: string };
+				if (requestId !== editorLoadRequestRef.current) {
+					return;
+				}
+				if (r.ok && r.content !== undefined) {
+					setEditorValue(r.content);
+					const inlineDiff = await resolveEditorInlineDiff(
+						normalizedRel,
+						r.content,
+						revealLine,
+						revealEndLine,
+						options
+					);
+					if (requestId !== editorLoadRequestRef.current) {
+						return;
+					}
+					setEditorInlineDiffState(normalizedRel, inlineDiff);
+				} else {
+					setEditorValue('');
+					setEditorInlineDiffState(normalizedRel, null);
+				}
+			} catch (err) {
+				if (requestId !== editorLoadRequestRef.current) {
+					return;
+				}
+				setEditorValue(t('app.readFileFailed', { detail: String(err) }));
+				setEditorInlineDiffState(normalizedRel, null);
+			}
+		},
+		[resolveEditorInlineDiff, setEditorInlineDiffState, shell, t]
+	);
+
 	const onLoadFile = async () => {
 		if (!shell || !filePath.trim()) {
 			return;
@@ -4090,9 +4301,12 @@ export default function App() {
 			const r = (await shell.invoke('fs:readFile', filePath.trim())) as { ok: boolean; content?: string };
 			if (r.ok && r.content !== undefined) {
 				setEditorValue(r.content);
+				const inlineDiff = await resolveEditorInlineDiff(filePath.trim(), r.content);
+				setEditorInlineDiffState(filePath.trim(), inlineDiff);
 			}
 		} catch (e) {
 			setEditorValue(t('app.readFileFailed', { detail: String(e) }));
+			setEditorInlineDiffState(filePath.trim(), null);
 		}
 	};
 
@@ -4108,6 +4322,8 @@ export default function App() {
 		setSaveToastVisible(true);
 		setTimeout(() => setSaveToastVisible(false), 1900);
 		await refreshGit();
+		const inlineDiff = await resolveEditorInlineDiff(filePath.trim(), editorValue);
+		setEditorInlineDiffState(filePath.trim(), inlineDiff);
 	};
 
 	/** Open a file in the tab bar (or activate existing tab) and load it into the editor */
@@ -4116,7 +4332,7 @@ export default function App() {
 			rel: string,
 			revealLine?: number,
 			revealEndLine?: number,
-			opts?: { background?: boolean }
+			opts?: ({ background?: boolean } & AgentConversationFileOpenOptions)
 		) => {
 			if (!shell) return;
 			const tid = tabIdFromPath(rel);
@@ -4162,15 +4378,13 @@ export default function App() {
 				pendingEditorHighlightRangeRef.current = null;
 			}
 			try {
-				const r = (await shell.invoke('fs:readFile', rel)) as { ok: boolean; content?: string };
-				if (r.ok && r.content !== undefined) {
-					setEditorValue(r.content);
-				}
+				await loadFileIntoEditor(rel, revealLine, revealEndLine, opts);
 			} catch (err) {
 				setEditorValue(t('app.readFileFailed', { detail: String(err) }));
+				setEditorInlineDiffState(rel, null);
 			}
 		},
-		[layoutMode, shell, t]
+		[layoutMode, loadFileIntoEditor, setEditorInlineDiffState, shell, t]
 	);
 
 	const openAgentSidebarFilePreview = useCallback(
@@ -4181,7 +4395,7 @@ export default function App() {
 			options?: AgentConversationFileOpenOptions
 		) => {
 			if (!shell || layoutMode !== 'agent') {
-				await openFileInTab(rel, revealLine, revealEndLine);
+				await openFileInTab(rel, revealLine, revealEndLine, options);
 				return;
 			}
 
@@ -4577,6 +4791,7 @@ export default function App() {
 			}
 			const nextTabs = openTabs.filter((t2) => t2.id !== tabId);
 			setOpenTabs(nextTabs);
+			setEditorInlineDiffState(tabId.replace(/^tab:/, ''), null);
 
 			if (tabId !== activeTabId) {
 				return;
@@ -4585,38 +4800,24 @@ export default function App() {
 			setActiveTabId(newActive?.id ?? null);
 			if (newActive) {
 				setFilePath(newActive.filePath);
-				if (shell) {
-					void (async () => {
-						try {
-							const r = (await shell.invoke('fs:readFile', newActive.filePath)) as { ok: boolean; content?: string };
-							if (r.ok && r.content !== undefined) {
-								setEditorValue(r.content);
-							}
-						} catch {
-							/* ignore */
-						}
-					})();
-				}
+				void loadFileIntoEditor(newActive.filePath);
 			} else {
 				setFilePath('');
 				setEditorValue('');
 			}
 		},
-		[openTabs, activeTabId, shell]
+		[openTabs, activeTabId, loadFileIntoEditor]
 	);
 
 	const onSelectTab = useCallback(async (tabId: string) => {
 		setActiveTabId(tabId);
 		const tab = openTabs.find((t2) => t2.id === tabId);
-		if (tab && shell) {
+		if (tab) {
 			setFilePath(tab.filePath);
 			pendingEditorHighlightRangeRef.current = null;
-			try {
-				const r = (await shell.invoke('fs:readFile', tab.filePath)) as { ok: boolean; content?: string };
-				if (r.ok && r.content !== undefined) setEditorValue(r.content);
-			} catch { /* ignore */ }
+			void loadFileIntoEditor(tab.filePath);
 		}
-	}, [openTabs, shell]);
+	}, [openTabs, loadFileIntoEditor]);
 
 	// Cmd+S / Ctrl+S keyboard shortcut
 	useEffect(() => {
@@ -4812,7 +5013,7 @@ export default function App() {
 				await openAgentSidebarFilePreview(rel, revealLine, revealEndLine, options);
 				return;
 			}
-			await openFileInTab(rel, revealLine, revealEndLine);
+			await openFileInTab(rel, revealLine, revealEndLine, options);
 		},
 		[layoutMode, openAgentSidebarFilePreview, openFileInTab]
 	);
@@ -4846,6 +5047,10 @@ export default function App() {
 		() => openTabs.find((t2) => t2.filePath === filePath.trim()),
 		[openTabs, filePath]
 	);
+	const activeEditorInlineDiff = useMemo(() => {
+		const fp = normalizeWorkspaceRelPath(filePath.trim());
+		return fp ? editorInlineDiffByPath[fp] ?? null : null;
+	}, [editorInlineDiffByPath, filePath]);
 	const markdownPaneMode = useMemo(() => {
 		const fp = filePath.trim();
 		if (!fp) {
@@ -4869,6 +5074,13 @@ export default function App() {
 		}
 		return stripPlanFrontmatterForPreview(fp, editorValue);
 	}, [filePath, editorValue]);
+	const monacoOriginalDocumentPath = useMemo(() => {
+		const fp = filePath.trim();
+		if (!fp) {
+			return '';
+		}
+		return `inline-diff-original:///${fp.replace(/\\/g, '/')}`;
+	}, [filePath]);
 
 	const editorActivePlanPathKey = useMemo(() => {
 		const fp = filePath.trim();
@@ -4882,6 +5094,27 @@ export default function App() {
 		() => Boolean(editorActivePlanPathKey && executedPlanKeys.includes(editorActivePlanPathKey)),
 		[editorActivePlanPathKey, executedPlanKeys]
 	);
+
+	useEffect(() => {
+		if (!gitStatusOk) {
+			return;
+		}
+		setEditorInlineDiffByPath((prev) => {
+			let changed = false;
+			const next: Record<string, EditorInlineDiffState> = {};
+			for (const [path, state] of Object.entries(prev)) {
+				if (
+					state.reviewMode === 'readonly' &&
+					!gitChangedPaths.some((changedPath) => workspaceRelPathsEqual(changedPath, path))
+				) {
+					changed = true;
+					continue;
+				}
+				next[path] = state;
+			}
+			return changed ? next : prev;
+		});
+	}, [gitChangedPaths, gitStatusOk]);
 
 	const showPlanFileEditorChrome =
 		hasConversation && !!currentId && isPlanMdPath(filePath.trim());
@@ -5034,6 +5267,16 @@ export default function App() {
 	const onMonacoMount = useCallback(
 		(ed: MonacoEditorNS.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => {
 			monacoEditorRef.current = ed;
+			if (shell) {
+				registerTsLspMonacoOnce(monaco, shell, workspace);
+			}
+		},
+		[shell, workspace]
+	);
+
+	const onMonacoDiffMount = useCallback(
+		(diffEditor: MonacoEditorNS.IStandaloneDiffEditor, monaco: typeof import('monaco-editor')) => {
+			monacoEditorRef.current = diffEditor.getModifiedEditor();
 			if (shell) {
 				registerTsLspMonacoOnce(monaco, shell, workspace);
 			}
@@ -6631,7 +6874,7 @@ export default function App() {
 					ref={composerGitBranchAnchorRef}
 					type="button"
 					className="ref-composer-git-branch-trigger"
-					title={gitStatusOk ? t('git.branchPicker.triggerTitle') : t('git.branchPicker.notRepo')}
+					title={gitBranchTriggerTitle(t, gitStatusOk, gitUnavailableReason)}
 					aria-label={`${t('app.tabGit')}: ${gitBranch}`}
 					aria-expanded={gitBranchPickerOpen}
 					aria-haspopup="dialog"
@@ -6653,7 +6896,16 @@ export default function App() {
 				</button>
 			</div>
 		),
-		[commandPermissionMode, gitBranch, gitBranchPickerOpen, gitStatusOk, onChangeCommandPermissionMode, shell, t]
+		[
+			commandPermissionMode,
+			gitBranch,
+			gitBranchPickerOpen,
+			gitStatusOk,
+			gitUnavailableReason,
+			onChangeCommandPermissionMode,
+			shell,
+			t,
+		]
 	);
 
 	const renderStackedChatComposer = (
@@ -7753,7 +8005,11 @@ export default function App() {
 						void openFileInTab(
 							agentFilePreview.relPath,
 							agentFilePreview.revealLine,
-							agentFilePreview.revealEndLine
+							agentFilePreview.revealEndLine,
+							{
+								diff: agentFilePreview.diff,
+								allowReviewActions: agentFilePreview.reviewMode === 'snapshot',
+							}
 						)
 					}
 					onAcceptHunk={
@@ -8410,13 +8666,23 @@ export default function App() {
 
 									<div className="ref-agent-workspace-stack">
 										{agentSidebarWorkspaces.length === 0 ? (
-											<button
-												type="button"
-												className="ref-agent-empty-workspace"
-												onClick={() => setWorkspacePickerOpen(true)}
-											>
-												{t('app.openWorkspace')}
-											</button>
+											<div className="ref-agent-empty-workspace" role="status">
+												<span className="ref-agent-empty-workspace-icon" aria-hidden>
+													<IconExplorer />
+												</span>
+												<div className="ref-agent-empty-workspace-copy">
+													<span className="ref-agent-empty-workspace-title">{t('app.openWorkspace')}</span>
+													<p className="ref-agent-empty-workspace-body">{t('app.explorerPlaceholder')}</p>
+												</div>
+												<button
+													type="button"
+													className="ref-agent-empty-workspace-btn"
+													onClick={() => setWorkspacePickerOpen(true)}
+												>
+													<IconExplorer />
+													<span>{t('app.openWorkspace')}</span>
+												</button>
+											</div>
 										) : (
 											agentSidebarWorkspaces.map((ws) => {
 												const hasThreads = ws.isCurrent && ws.threadCount > 0;
@@ -8844,11 +9110,9 @@ export default function App() {
 														{t('app.openWorkspace')}
 													</button>
 												</div>
-											) : !gitStatusOk && gitLines[0]?.trim() ? (
+											) : gitUnavailableReason !== 'none' ? (
 												<div className="ref-editor-sidebar-empty">
-													<p className="ref-editor-sidebar-empty-copy ref-git-error">
-														{t('app.gitLoadFailed')}: {gitLines[0]}
-													</p>
+													<GitUnavailableState t={t} reason={gitUnavailableReason} detail={gitLines[0] ?? ''} />
 												</div>
 											) : gitChangedPaths.length === 0 ? (
 												<div className="ref-editor-sidebar-empty">
@@ -9140,31 +9404,64 @@ export default function App() {
 												</div>
 											) : (
 												<div className="ref-monaco-fill">
-													<Editor
-														key={filePath.trim()}
-														height="100%"
-														theme={monacoChromeTheme}
-														path={monacoDocumentPath || filePath.trim()}
-														language={languageFromFilePath(filePath.trim())}
-														value={editorValue}
-														onChange={(v) => {
-															setEditorValue(v ?? '');
-															setOpenTabs((prev) =>
-																prev.map((tab) =>
-																	tab.filePath === filePath.trim() ? { ...tab, dirty: true } : tab
-																)
-															);
-														}}
-														onMount={onMonacoMount}
-														options={{
-															...editorSettingsToMonacoOptions(editorSettings),
-															scrollbar: {
-																verticalScrollbarSize: 8,
-																horizontalScrollbarSize: 8,
-																useShadows: false,
-															},
-														}}
-													/>
+													{activeEditorInlineDiff ? (
+														<DiffEditor
+															key={`diff:${filePath.trim()}`}
+															height="100%"
+															theme={monacoChromeTheme}
+															original={activeEditorInlineDiff.originalContent}
+															modified={editorValue}
+															originalModelPath={monacoOriginalDocumentPath}
+															modifiedModelPath={monacoDocumentPath || filePath.trim()}
+															language={languageFromFilePath(filePath.trim())}
+															onChange={(v) => {
+																setEditorValue(v ?? '');
+																setOpenTabs((prev) =>
+																	prev.map((tab) =>
+																		tab.filePath === filePath.trim() ? { ...tab, dirty: true } : tab
+																	)
+																);
+															}}
+															onMount={onMonacoDiffMount}
+															options={{
+																...editorSettingsToMonacoOptions(editorSettings),
+																renderSideBySide: false,
+																originalEditable: false,
+																enableSplitViewResizing: false,
+																scrollbar: {
+																	verticalScrollbarSize: 8,
+																	horizontalScrollbarSize: 8,
+																	useShadows: false,
+																},
+															}}
+														/>
+													) : (
+														<Editor
+															key={filePath.trim()}
+															height="100%"
+															theme={monacoChromeTheme}
+															path={monacoDocumentPath || filePath.trim()}
+															language={languageFromFilePath(filePath.trim())}
+															value={editorValue}
+															onChange={(v) => {
+																setEditorValue(v ?? '');
+																setOpenTabs((prev) =>
+																	prev.map((tab) =>
+																		tab.filePath === filePath.trim() ? { ...tab, dirty: true } : tab
+																	)
+																);
+															}}
+															onMount={onMonacoMount}
+															options={{
+																...editorSettingsToMonacoOptions(editorSettings),
+																scrollbar: {
+																	verticalScrollbarSize: 8,
+																	horizontalScrollbarSize: 8,
+																	useShadows: false,
+																},
+															}}
+														/>
+													)}
 												</div>
 											)}
 										</div>
@@ -9357,25 +9654,26 @@ export default function App() {
 											<span className="ref-branch-chip">{gitBranch || 'master'}</span>
 										</div>
 										<div className="ref-git-summary ref-git-summary--rich">
-											{changeCount > 0 ? (
+											{gitUnavailableReason !== 'none' ? (
+												<span className="ref-git-count ref-git-count--muted">
+													{gitUnavailableCopy(t, gitUnavailableReason).title}
+												</span>
+											) : changeCount > 0 ? (
 												<span className="ref-git-count">{t('app.gitUncommitted', { count: String(changeCount) })}</span>
 											) : (
 												<span className="ref-git-count ref-git-count--muted">{t('app.gitNoChanges')}</span>
 											)}
-											{diffTotals.additions > 0 ? (
+											{gitUnavailableReason === 'none' && diffTotals.additions > 0 ? (
 												<span className="ref-git-stat-add">+{diffTotals.additions}</span>
 											) : null}
-											{diffTotals.deletions > 0 ? (
+											{gitUnavailableReason === 'none' && diffTotals.deletions > 0 ? (
 												<span className="ref-git-stat-del">-{diffTotals.deletions}</span>
 											) : null}
 										</div>
 										<div className="ref-git-body">
-											{!gitStatusOk && gitLines[0]?.trim() ? (
-												<p className="ref-git-error" title={gitLines[0]}>
-													{t('app.gitLoadFailed')}: {gitLines[0]}
-												</p>
-											) : null}
-											{changeCount > 0 ? (
+											{gitUnavailableReason !== 'none' ? (
+												<GitUnavailableState t={t} reason={gitUnavailableReason} detail={gitLines[0] ?? ''} />
+											) : changeCount > 0 ? (
 												<div className="ref-git-cards">
 													{gitChangedPaths.map((rel) => {
 														const pr = diffPreviews[rel];
@@ -9420,21 +9718,31 @@ export default function App() {
 													})}
 												</div>
 											) : null}
-											<input
-												className="ref-commit-field"
-												placeholder={t('app.commitPlaceholder')}
-												value={commitMsg}
-												onChange={(e) => setCommitMsg(e.target.value)}
-											/>
-											<div className="ref-commit-actions">
-												<button type="button" className="ref-commit-btn" onClick={() => void onCommitOnly()}>
-													{t('app.commit')}
-												</button>
-												<button type="button" className="ref-commit-btn-secondary" onClick={() => void onCommitAndPush()}>
-													{t('app.commitPush')}
-												</button>
-											</div>
-											{gitActionError ? <p className="ref-git-action-error">{gitActionError}</p> : null}
+											{gitUnavailableReason === 'none' ? (
+												<>
+													<input
+														className="ref-commit-field"
+														placeholder={t('app.commitPlaceholder')}
+														value={commitMsg}
+														onChange={(e) => setCommitMsg(e.target.value)}
+													/>
+													<div className="ref-commit-actions">
+														<button type="button" className="ref-commit-btn" onClick={() => void onCommitOnly()}>
+															{t('app.commit')}
+														</button>
+														<button
+															type="button"
+															className="ref-commit-btn-secondary"
+															onClick={() => void onCommitAndPush()}
+														>
+															{t('app.commitPush')}
+														</button>
+													</div>
+												</>
+											) : null}
+											{gitUnavailableReason === 'none' && gitActionError ? (
+												<p className="ref-git-action-error">{gitActionError}</p>
+											) : null}
 										</div>
 									</div>
 								</div>

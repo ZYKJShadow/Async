@@ -6,11 +6,9 @@ import {
 	indexWorkspaceSourceFile,
 	removeWorkspaceSymbolsForRel,
 	removeWorkspaceSymbolsUnderPrefix,
-	scheduleWorkspaceSymbolFullRebuild,
 	clearWorkspaceSymbolIndex,
 } from './workspaceSymbolIndex.js';
 import {
-	scheduleWorkspaceSemanticRebuild,
 	clearWorkspaceSemanticIndex,
 } from './workspaceSemanticIndex.js';
 import { getSettings } from './settingsStore.js';
@@ -409,23 +407,14 @@ export async function ensureWorkspaceFileIndex(rootAbs: string): Promise<string[
 	}
 
 	inFlightRefresh = (async () => {
+		const t0 = Date.now();
 		const list = await scanFullAsync(rootNorm);
+		console.log(`[fileIndex] scan done: ${list.length} files in ${Date.now() - t0}ms`);
 		relPathSet = new Set(list);
 		attachWatcher(rootNorm);
+		console.log(`[fileIndex] watcher attached: +${Date.now() - t0}ms`);
 		schedulePersistWorkspaceFileIndex();
-		const sorted = sortedFromSet();
-		const idx = getSettings().indexing;
-		if (idx?.symbolIndexEnabled !== false) {
-			scheduleWorkspaceSymbolFullRebuild(rootNorm, sorted);
-		} else {
-			clearWorkspaceSymbolIndex();
-		}
-		if (idx?.semanticIndexEnabled !== false) {
-			scheduleWorkspaceSemanticRebuild(rootNorm, sorted);
-		} else {
-			clearWorkspaceSemanticIndex();
-		}
-		return sorted;
+		return sortedFromSet();
 	})();
 
 	try {

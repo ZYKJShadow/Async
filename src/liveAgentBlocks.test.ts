@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	applyLiveAgentChatPayload,
 	createEmptyLiveAgentBlocks,
@@ -7,6 +7,10 @@ import {
 import { defaultT } from './i18n';
 
 describe('liveAgentBlocks', () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it('folds deltas and tool_input_delta into blocks', () => {
 		let st = createEmptyLiveAgentBlocks();
 		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'Hi ' });
@@ -120,5 +124,38 @@ describe('liveAgentBlocks', () => {
 		expect(texts).toHaveLength(2);
 		expect(texts[0] && texts[0].type === 'text' && texts[0].text).toBe('A');
 		expect(texts[1] && texts[1].type === 'text' && texts[1].text).toBe('B');
+	});
+
+	it('closes each root thinking block with its own timing once later output starts', () => {
+		vi.useFakeTimers();
+
+		let st = createEmptyLiveAgentBlocks();
+		vi.setSystemTime(new Date('2026-04-05T12:00:00.000Z'));
+		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: 'Inspect state' });
+
+		vi.setSystemTime(new Date('2026-04-05T12:00:02.000Z'));
+		st = applyLiveAgentChatPayload(st, { type: 'tool_progress', name: 'search_files', phase: 'executing' });
+
+		vi.setSystemTime(new Date('2026-04-05T12:00:05.000Z'));
+		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: 'Prepare patch' });
+
+		vi.setSystemTime(new Date('2026-04-05T12:00:09.000Z'));
+		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'Done.' });
+
+		const segs = liveBlocksToAssistantSegments(st.blocks, defaultT);
+		const thinkingSegs = segs.filter((s) => s.type === 'thinking');
+		expect(thinkingSegs).toHaveLength(2);
+		expect(thinkingSegs[0] && thinkingSegs[0].type === 'thinking' && thinkingSegs[0].startedAt).toBe(
+			Date.parse('2026-04-05T12:00:00.000Z')
+		);
+		expect(thinkingSegs[0] && thinkingSegs[0].type === 'thinking' && thinkingSegs[0].endedAt).toBe(
+			Date.parse('2026-04-05T12:00:02.000Z')
+		);
+		expect(thinkingSegs[1] && thinkingSegs[1].type === 'thinking' && thinkingSegs[1].startedAt).toBe(
+			Date.parse('2026-04-05T12:00:05.000Z')
+		);
+		expect(thinkingSegs[1] && thinkingSegs[1].type === 'thinking' && thinkingSegs[1].endedAt).toBe(
+			Date.parse('2026-04-05T12:00:09.000Z')
+		);
 	});
 });

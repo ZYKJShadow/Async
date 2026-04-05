@@ -29,23 +29,40 @@ function resolveAppIconPath(): string | undefined {
 initWindowsConsoleUtf8();
 
 app.whenReady().then(() => {
+	const t0 = Date.now();
+	const lap = (label: string) => console.log(`[startup] ${label}: +${Date.now() - t0}ms`);
+
 	const appIconPath = resolveAppIconPath();
 	configureAppWindowIcon(appIconPath);
 	if (process.platform === 'darwin' && appIconPath) {
 		app.dock.setIcon(appIconPath);
 	}
+	lap('icon configured');
 
 	const userData = app.getPath('userData');
 	initSettingsStore(userData);
+	lap('settingsStore init');
+
 	const restored = getRestorableWorkspace();
+	lap('restorableWorkspace resolved');
+
 	if (restored) {
 		setWorkspaceRoot(restored);
-		void ensureWorkspaceFileIndex(restored).catch(() => {});
+		void ensureWorkspaceFileIndex(restored)
+			.then(() => lap('workspaceFileIndex ready'))
+			.catch(() => {});
 	}
 	initThreadStore(userData, restored ?? null);
+	lap('threadStore init');
+
 	ensureDefaultThread(restored ?? null);
+	lap('defaultThread ensured');
+
 	registerIpc();
+	lap('IPC registered');
+
 	createAppWindow();
+	lap('window created');
 
 	app.on('activate', () => {
 		if (BrowserWindow.getAllWindows().length === 0) {
