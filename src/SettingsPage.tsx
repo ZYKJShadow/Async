@@ -24,6 +24,7 @@ const EditorSettingsPanel = lazy(() => import('./EditorSettingsPanel').then((m) 
 const SettingsIndexingPanel = lazy(() => import('./SettingsIndexingPanel').then((m) => ({ default: m.SettingsIndexingPanel })));
 const SettingsMcpPanel = lazy(() => import('./SettingsMcpPanel').then((m) => ({ default: m.SettingsMcpPanel })));
 const SettingsAppearancePanel = lazy(() => import('./SettingsAppearancePanel').then((m) => ({ default: m.SettingsAppearancePanel })));
+const SettingsUsageStatsPanel = lazy(() => import('./SettingsUsageStatsPanel').then((m) => ({ default: m.SettingsUsageStatsPanel })));
 
 export type SettingsNavId =
 	| 'general'
@@ -57,7 +58,7 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'rules', label: t('settings.nav.rules') },
 		{ id: 'indexing', label: t('settings.nav.indexing') },
 		{ id: 'tools', label: t('settings.nav.tools') },
-		{ id: 'plan', label: t('settings.nav.plan'), soon: true },
+		{ id: 'plan', label: t('settings.nav.plan') },
 		{ id: 'tab', label: t('settings.nav.tab'), soon: true },
 		{ id: 'cloud', label: t('settings.nav.cloud'), soon: true },
 		{ id: 'plugins', label: t('settings.nav.plugins'), soon: true },
@@ -236,6 +237,14 @@ function IconTabs({ className }: { className?: string }) {
 	);
 }
 
+function IconBarChart({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<path d="M18 20V10M12 20V4M6 20v-6" strokeLinecap="round" />
+		</svg>
+	);
+}
+
 function IconSunNav({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -277,6 +286,8 @@ function navIcon(id: SettingsNavId) {
 			return <IconTerminalNav />;
 		case 'tab':
 			return <IconTabs />;
+		case 'plan':
+			return <IconBarChart />;
 		default:
 			return <IconGear />;
 	}
@@ -609,6 +620,7 @@ export function SettingsPage({
 								{nav === 'editor' ? t('settings.title.editor') : null}
 								{nav === 'tools' ? t('settings.title.tools') : null}
 								{nav === 'indexing' ? t('settings.title.indexing') : null}
+								{nav === 'plan' ? t('settings.title.usage') : null}
 								{nav !== 'general' &&
 								nav !== 'appearance' &&
 								nav !== 'agents' &&
@@ -616,7 +628,8 @@ export function SettingsPage({
 								nav !== 'rules' &&
 								nav !== 'editor' &&
 								nav !== 'tools' &&
-								nav !== 'indexing'
+								nav !== 'indexing' &&
+								nav !== 'plan'
 									? t('settings.title.comingSoon')
 									: null}
 							</h1>
@@ -911,6 +924,12 @@ export function SettingsPage({
 							</Suspense>
 						) : null}
 
+						{nav === 'plan' ? (
+							<Suspense fallback={<SettingsPanelSkeleton />}>
+								<SettingsUsageStatsPanel shell={shell} modelEntries={modelEntries} modelProviders={modelProviders} />
+							</Suspense>
+						) : null}
+
 						{nav === 'tools' ? (
 							<Suspense fallback={<SettingsPanelSkeleton />}>
 								<SettingsMcpPanel
@@ -931,7 +950,8 @@ export function SettingsPage({
 						nav !== 'rules' &&
 						nav !== 'editor' &&
 						nav !== 'tools' &&
-						nav !== 'indexing' ? (
+						nav !== 'indexing' &&
+						nav !== 'plan' ? (
 							<div className="ref-settings-panel">
 								<p className="ref-settings-lead">{t('settings.comingCategory')}</p>
 							</div>

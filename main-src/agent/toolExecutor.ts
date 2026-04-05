@@ -101,8 +101,15 @@ export type ToolWriteSnapshot = {
 	previousContent: string | null;
 };
 
+export type ToolAfterWriteSnapshot = {
+	path: string;
+	previousContent: string | null;
+	nextContent: string;
+};
+
 export type ToolExecutionHooks = {
 	beforeWrite?: (snapshot: ToolWriteSnapshot) => void | Promise<void>;
+	afterWrite?: (snapshot: ToolAfterWriteSnapshot) => void | Promise<void>;
 };
 
 function formatMcpToolResultForAgent(result: McpToolResult): string {
@@ -335,6 +342,7 @@ function executeWriteToFile(call: ToolCall, hooks: ToolExecutionHooks): ToolResu
 	void hooks.beforeWrite?.({ path: relPath, previousContent });
 	fs.mkdirSync(path.dirname(full), { recursive: true });
 	fs.writeFileSync(full, content, 'utf8');
+	void hooks.afterWrite?.({ path: relPath, previousContent, nextContent: content });
 
 	const lineCount = content.split('\n').length;
 	return {
@@ -427,6 +435,7 @@ function executeStrReplace(call: ToolCall, hooks: ToolExecutionHooks): ToolResul
 	const patched = source.slice(0, idx) + newStr + source.slice(idx + matchLen);
 	void hooks.beforeWrite?.({ path: relPath, previousContent: source });
 	fs.writeFileSync(full, patched, 'utf8');
+	void hooks.afterWrite?.({ path: relPath, previousContent: source, nextContent: patched });
 
 	return {
 		toolCallId: call.id,
@@ -784,6 +793,11 @@ async function executeAgentDelegate(call: ToolCall, execCtx: ToolExecutionContex
 		};
 
 		try {
+			const baseHooks = prevCtx.options.toolHooks;
+			const hooksForSub =
+				subComposerMode === 'agent' || !baseHooks
+					? baseHooks
+					: { ...baseHooks, afterWrite: undefined };
 			await runAgentLoop(
 				prevCtx.settings,
 				subMessages,
@@ -793,6 +807,7 @@ async function executeAgentDelegate(call: ToolCall, execCtx: ToolExecutionContex
 					composerMode: subComposerMode,
 					toolPoolOverride: baseToolDefs,
 					delegateExecutionDepth: childDepth,
+					toolHooks: hooksForSub,
 					...(mergedAppend ? { agentSystemAppend: mergedAppend } : {}),
 				},
 				handlers

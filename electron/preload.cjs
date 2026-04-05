@@ -21,6 +21,8 @@ const INVOKE_CHANNELS = new Set([
 	'workspace:indexing:rebuild',
 	'settings:get',
 	'settings:set',
+	'usageStats:get',
+	'usageStats:pickDirectory',
 	'theme:applyChrome',
 	'threads:list',
 	'threads:messages',

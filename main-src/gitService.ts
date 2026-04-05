@@ -252,7 +252,8 @@ function isBinaryBuffer(buf: Buffer): boolean {
 	return false;
 }
 
-function countDiffLineStats(diff: string): { additions: number; deletions: number } {
+/** 统计 unified diff 文本中的 +/- 行数（忽略 diff 头与 hunk 头）。 */
+export function countDiffLineStats(diff: string): { additions: number; deletions: number } {
 	let additions = 0;
 	let deletions = 0;
 	for (const line of diff.split('\n')) {

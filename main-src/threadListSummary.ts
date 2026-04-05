@@ -1,6 +1,7 @@
 import type { ChatMessage } from './threadStore.js';
 import { listAgentDiffChunks } from './agent/applyAgentDiffs.js';
 import { flattenAssistantTextPartsForSearch } from '../src/agentStructuredMessage.js';
+import { countDiffLinesInChunk } from './diffLineCount.js';
 
 export type ThreadRowSummary = {
 	/** 末条为用户且其后无助手回复 → 进行中 / 草稿样式 */
@@ -23,19 +24,6 @@ function visibleMessages(msgs: ChatMessage[]): ChatMessage[] {
 function firstLine(text: string, maxLen: number): string {
 	const line = text.replace(/\r\n/g, '\n').split('\n')[0]?.trim() ?? '';
 	return line.length > maxLen ? `${line.slice(0, maxLen)}…` : line;
-}
-
-function countDiffLinesInChunk(chunk: string): { add: number; del: number } {
-	let add = 0;
-	let del = 0;
-	for (const line of chunk.split('\n')) {
-		if (line.startsWith('+') && !line.startsWith('+++')) {
-			add++;
-		} else if (line.startsWith('-') && !line.startsWith('---')) {
-			del++;
-		}
-	}
-	return { add, del };
 }
 
 export function summarizeThreadForSidebar(thread: { messages: ChatMessage[] }): ThreadRowSummary {

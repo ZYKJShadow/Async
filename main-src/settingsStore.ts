@@ -140,6 +140,14 @@ export type ShellSettings = {
 	 * 若某工具名以列表中任一条目开头，则不会进入模型可见工具表（仅影响动态 MCP 工具，不含 ListMcpResourcesTool 等内置项）。
 	 */
 	mcpToolDenyPrefixes?: string[];
+	/**
+	 * 统计与用量：默认关闭；开启后写入用户指定目录下的 usage-stats.json（不按工作区分片）。
+	 */
+	usageStats?: {
+		enabled?: boolean;
+		/** 绝对路径，用户选择的数据目录 */
+		dataDir?: string | null;
+	};
 };
 
 const defaultSettings: ShellSettings = {
@@ -421,8 +429,25 @@ export function getSettings(): ShellSettings {
 	return { ...cached };
 }
 
+/** 已开启且配置了目录时返回解析后的绝对路径，否则 null（不写统计）。 */
+export function resolveUsageStatsDataDir(settings: ShellSettings): string | null {
+	const u = settings.usageStats;
+	if (!u?.enabled) {
+		return null;
+	}
+	const dir = typeof u.dataDir === 'string' ? u.dataDir.trim() : '';
+	if (!dir) {
+		return null;
+	}
+	try {
+		return path.resolve(dir);
+	} catch {
+		return null;
+	}
+}
+
 export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
-	const { ui: partialUi, indexing: partialIndexing, ...partialRest } = partial;
+	const { ui: partialUi, indexing: partialIndexing, usageStats: partialUsageStats, ...partialRest } = partial;
 
 	const mergedIndexing =
 		partialIndexing !== undefined
@@ -483,6 +508,11 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 			? partial.mcp.servers
 			: cached.mcpServers;
 
+	const mergedUsageStats =
+		partialUsageStats !== undefined
+			? { ...(cached.usageStats ?? {}), ...partialUsageStats }
+			: cached.usageStats;
+
 	cached = {
 		...cached,
 		...partialRest,
@@ -495,6 +525,7 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 		ui: mergedUi,
 		indexing: partialIndexing !== undefined ? mergedIndexing : cached.indexing,
 		mcpServers: mergedMcp,
+		usageStats: mergedUsageStats,
 	};
 	cached = migrateDefaultModelRemoveAuto(cached).next;
 	cached = migrateProviderModelLayout(cached).next;

@@ -19,6 +19,7 @@ import {
 import {
 	getSettings,
 	patchSettings,
+	resolveUsageStatsDataDir,
 	getRecentWorkspaces,
 	rememberWorkspace,
 	removeRecentWorkspace,
@@ -69,6 +70,8 @@ import {
 	formatAgentApplyFooter,
 	formatAgentApplyIncremental,
 } from '../agent/applyAgentDiffs.js';
+import { countLineChangesBetweenTexts, countDiffLinesInChunk } from '../diffLineCount.js';
+import { recordAgentLineDelta, recordTokenUsageEvent, getUsageStatsForDataDir } from '../workspaceUsageStats.js';
 import { runAgentLoop } from '../agent/agentLoop.js';
 import {
 	createMistakeLimitReachedHandler,
@@ -215,6 +218,25 @@ const toolApprovalWaiters = new Map<string, (approved: boolean) => void>();
 /** 连续失败后恢复：recoveryId → resolve(decision) */
 const mistakeLimitWaiters = new Map<string, (d: MistakeLimitDecision) => void>();
 
+function activeUsageStatsDir(): string | null {
+	return resolveUsageStatsDataDir(getSettings());
+}
+
+function recordTurnTokenUsageStats(
+	modelSelection: string,
+	mode: ComposerMode,
+	usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
+): void {
+	recordTokenUsageEvent(activeUsageStatsDir(), {
+		modelId: modelSelection,
+		mode,
+		input: usage?.inputTokens,
+		output: usage?.outputTokens,
+		cacheRead: usage?.cacheReadTokens,
+		cacheWrite: usage?.cacheWriteTokens,
+	});
+}
+
 function runChatStream(
 	win: BrowserWindow,
 	threadId: string,
@@ -358,6 +380,14 @@ function runChatStream(
 									previousContent === null
 								);
 							},
+							...(mode === 'agent' && activeUsageStatsDir()
+								? {
+										afterWrite: ({ previousContent, nextContent }) => {
+											const { additions, deletions } = countLineChangesBetweenTexts(previousContent, nextContent);
+											recordAgentLineDelta(activeUsageStatsDir(), { add: additions, del: deletions });
+										},
+									}
+								: {}),
 						},
 						...(agentSystemAppend?.trim() ? { agentSystemAppend: agentSystemAppend.trim() } : {}),
 					},
@@ -375,6 +405,7 @@ function runChatStream(
 						onDone: (full, usage) => {
 							updateLastAssistant(threadId, full);
 							accumulateTokenUsage(threadId, usage?.inputTokens, usage?.outputTokens);
+							recordTurnTokenUsageStats(modelSelection, mode, usage);
 							queueExtractMemories({
 								threadId,
 								workspaceRoot,
@@ -416,6 +447,7 @@ function runChatStream(
 				onDone: (full, usage) => {
 					updateLastAssistant(threadId, full);
 					accumulateTokenUsage(threadId, usage?.inputTokens, usage?.outputTokens);
+					recordTurnTokenUsageStats(modelSelection, mode, usage);
 					queueExtractMemories({
 						threadId,
 						workspaceRoot,
@@ -1065,6 +1097,29 @@ export function registerIpc(): void {
 		return { ok: true as const, fileStates: t.fileStates ?? {} };
 	});
 
+	ipcMain.handle('usageStats:get', () => {
+		const s = getSettings();
+		if (!s.usageStats?.enabled) {
+			return { ok: false as const, reason: 'disabled' as const };
+		}
+		const dir = resolveUsageStatsDataDir(s);
+		if (!dir) {
+			return { ok: false as const, reason: 'no-directory' as const };
+		}
+		return getUsageStatsForDataDir(dir);
+	});
+
+	ipcMain.handle('usageStats:pickDirectory', async (event) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		const r = await dialog.showOpenDialog(win ?? undefined, {
+			properties: ['openDirectory', 'createDirectory'],
+		});
+		if (r.canceled || !r.filePaths[0]) {
+			return { ok: false as const };
+		}
+		return { ok: true as const, path: r.filePaths[0] };
+	});
+
 	ipcMain.handle('threads:messages', (_e, threadId: string) => {
 		const t = getThread(threadId);
 		if (!t) {
@@ -1126,6 +1181,11 @@ export function registerIpc(): void {
 			return { applied: [] as string[], failed: [{ path: '(invalid)', reason: '参数无效' }] };
 		}
 		const ar = applyAgentDiffChunk(chunk);
+		const statsDir = activeUsageStatsDir();
+		if (statsDir && ar.applied.length > 0) {
+			const { add, del } = countDiffLinesInChunk(chunk);
+			recordAgentLineDelta(statsDir, { add, del });
+		}
 		const inc = formatAgentApplyIncremental(ar);
 		if (inc) {
 			appendToLastAssistant(threadId, inc);
@@ -1152,6 +1212,16 @@ export function registerIpc(): void {
 				};
 			}
 			const ar = applyAgentPatchItems(items);
+			const statsDir = activeUsageStatsDir();
+			if (statsDir && ar.succeededIds.length > 0) {
+				const ok = new Set(ar.succeededIds);
+				for (const it of items) {
+					if (ok.has(it.id)) {
+						const { add, del } = countDiffLinesInChunk(it.chunk);
+						recordAgentLineDelta(statsDir, { add, del });
+					}
+				}
+			}
 			const { succeededIds, ...rest } = ar;
 			const foot = formatAgentApplyFooter(rest);
 			if (foot) {

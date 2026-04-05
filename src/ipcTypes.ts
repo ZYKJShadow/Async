@@ -147,3 +147,21 @@ export type PlanSaveResult = {
 	relPath?: string;
 	error?: string;
 };
+
+/** 与 `usageStats:get` 主进程返回一致 */
+export type UsageStatsAgentDay = { add: number; del: number };
+
+export type UsageStatsTokenEvent = {
+	at: number;
+	modelId: string;
+	input?: number;
+	output?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+	mode?: string;
+};
+
+export type UsageStatsGetResponse =
+	| { ok: true; dataDir: string; agentLineByDay: Record<string, UsageStatsAgentDay>; tokenEvents: UsageStatsTokenEvent[] }
+	| { ok: false; reason: 'disabled' }
+	| { ok: false; reason: 'no-directory' };

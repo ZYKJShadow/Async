@@ -53,6 +53,25 @@
 	--void-shadow-card: 0 24px 80px rgba(0, 0, 0, 0.35);
 	--void-shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
 	--surface-code-bg: color-mix(in srgb, var(--void-bg-2) 94%, var(--void-fg-0) 6%);
+	--ref-usage-heat-0: rgba(110, 118, 129, 0.35);
+	--ref-usage-heat-1: rgba(0, 120, 90, 0.45);
+	--ref-usage-heat-2: rgba(0, 140, 100, 0.65);
+	--ref-usage-heat-3: rgba(0, 170, 120, 0.85);
+	--ref-usage-heat-4: #34d399;
+	--ref-usage-chart-grid: rgba(255, 255, 255, 0.06);
+	--ref-usage-chart-axis: rgba(255, 255, 255, 0.45);
+	--ref-usage-chart-0: #818cf8;
+	--ref-usage-chart-1: #c084fc;
+	--ref-usage-chart-2: #f472b6;
+	--ref-usage-chart-3: #fb923c;
+	--ref-usage-chart-4: #facc15;
+	--ref-usage-chart-5: #4ade80;
+	--ref-usage-chart-6: #22d3ee;
+	--ref-usage-chart-7: #94a3b8;
+	--ref-usage-chart-8: #64748b;
+	--ref-usage-tooltip-bg: rgba(20, 24, 32, 0.96);
+	--ref-usage-tooltip-border: rgba(255, 255, 255, 0.1);
+	--ref-usage-tooltip-fg: rgba(255, 255, 255, 0.9);
 }
 
 :root[data-color-scheme='light'] {
@@ -90,6 +109,25 @@
 	--void-shadow-soft: 0 1px 0 rgba(0, 0, 0, 0.06) inset;
 	/* 对话 Markdown 代码块等（未加载 mac-codex theme 时仍可读） */
 	--surface-code-bg: color-mix(in srgb, var(--void-bg-3) 94%, var(--void-fg-0) 6%);
+	--ref-usage-heat-0: rgba(30, 40, 50, 0.12);
+	--ref-usage-heat-1: rgba(0, 100, 70, 0.35);
+	--ref-usage-heat-2: rgba(0, 120, 85, 0.5);
+	--ref-usage-heat-3: rgba(0, 140, 95, 0.7);
+	--ref-usage-heat-4: #059669;
+	--ref-usage-chart-grid: rgba(0, 0, 0, 0.06);
+	--ref-usage-chart-axis: rgba(0, 0, 0, 0.55);
+	--ref-usage-chart-0: #6366f1;
+	--ref-usage-chart-1: #a855f7;
+	--ref-usage-chart-2: #db2777;
+	--ref-usage-chart-3: #ea580c;
+	--ref-usage-chart-4: #ca8a04;
+	--ref-usage-chart-5: #16a34a;
+	--ref-usage-chart-6: #0891b2;
+	--ref-usage-chart-7: #64748b;
+	--ref-usage-chart-8: #475569;
+	--ref-usage-tooltip-bg: rgba(255, 255, 255, 0.98);
+	--ref-usage-tooltip-border: rgba(0, 0, 0, 0.08);
+	--ref-usage-tooltip-fg: rgba(0, 0, 0, 0.85);
 }
 
 @supports (view-transition-name: none) {
@@ -15914,6 +15952,442 @@ select.ref-settings-native-select:focus {
 .ref-settings-mcp-doc a:hover {
 	text-decoration: underline;
 }
+
+/* —— 设置：统计与用量 —— */
+.ref-settings-usage {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.ref-settings-usage-setup {
+	padding: 14px 16px;
+	margin-bottom: 12px;
+	border-radius: 10px;
+	border: 1px solid var(--void-border-soft);
+	background: rgba(255, 255, 255, 0.02);
+}
+
+.ref-settings-usage-enable-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--void-fg-1);
+	cursor: pointer;
+	margin-bottom: 12px;
+}
+
+.ref-settings-usage-enable-row input {
+	width: 16px;
+	height: 16px;
+	accent-color: var(--void-accent);
+}
+
+.ref-settings-usage-dir-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.ref-settings-usage-dir-label {
+	font-size: 12px;
+	color: var(--void-fg-3);
+	flex-shrink: 0;
+}
+
+.ref-settings-usage-dir-path {
+	flex: 1;
+	min-width: 160px;
+	font-size: 11px;
+	padding: 6px 10px;
+	border-radius: 6px;
+	background: var(--surface-code-bg);
+	color: var(--void-fg-2);
+	word-break: break-all;
+}
+
+.ref-settings-usage-pick-dir {
+	padding: 6px 12px;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-soft);
+	background: rgba(255, 255, 255, 0.05);
+	color: var(--void-fg-1);
+	font-size: 12px;
+	flex-shrink: 0;
+}
+
+.ref-settings-usage-pick-dir:hover {
+	background: rgba(255, 255, 255, 0.09);
+}
+
+.ref-settings-usage-file-hint {
+	margin: 0 0 4px !important;
+}
+
+.ref-settings-usage-warn {
+	margin: 8px 0 0;
+	font-size: 12px;
+	color: #fbbf24;
+}
+
+.ref-settings-usage-toolbar {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.ref-settings-usage-refresh {
+	padding: 6px 12px;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-soft);
+	background: rgba(255, 255, 255, 0.04);
+	color: var(--void-fg-1);
+	font-size: 12px;
+}
+
+.ref-settings-usage-refresh:hover:not(:disabled) {
+	background: rgba(255, 255, 255, 0.08);
+}
+
+.ref-settings-usage-refresh:disabled {
+	opacity: 0.5;
+}
+
+.ref-settings-usage-section {
+	padding-bottom: 8px;
+	border-bottom: 1px solid var(--void-border-soft);
+}
+
+.ref-settings-usage-section:last-child {
+	border-bottom: none;
+}
+
+.ref-settings-usage-h2 {
+	margin: 0 0 6px;
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--void-fg-0);
+}
+
+.ref-settings-usage-muted {
+	margin: 0 0 12px;
+	font-size: 12px;
+	color: var(--void-fg-3);
+	line-height: 1.45;
+}
+
+.ref-settings-usage-big-num {
+	font-size: 32px;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	color: var(--void-fg-0);
+}
+
+.ref-settings-usage-big-label {
+	font-size: 12px;
+	color: var(--void-fg-3);
+	margin-bottom: 16px;
+}
+
+.ref-settings-usage-heat-head {
+	margin-left: 28px;
+	margin-bottom: 4px;
+}
+
+.ref-settings-usage-months {
+	display: grid;
+	gap: 2px;
+	font-size: 10px;
+	color: var(--void-fg-3);
+}
+
+.ref-settings-usage-month-lab {
+	text-align: center;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ref-settings-usage-heat-wrap {
+	display: flex;
+	gap: 6px;
+	align-items: stretch;
+}
+
+.ref-settings-usage-dow {
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	padding: 2px 0;
+	width: 18px;
+	font-size: 9px;
+	color: var(--void-fg-3);
+	text-align: right;
+}
+
+.ref-settings-usage-grid {
+	display: grid;
+	gap: 3px;
+	flex: 1;
+	min-width: 0;
+}
+
+.ref-settings-usage-week {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.ref-settings-usage-cell {
+	width: 100%;
+	aspect-ratio: 1;
+	max-width: 12px;
+	max-height: 12px;
+	border-radius: 2px;
+	background: var(--ref-usage-heat-0);
+}
+
+.ref-settings-usage-cell--lv1 {
+	background: var(--ref-usage-heat-1);
+}
+.ref-settings-usage-cell--lv2 {
+	background: var(--ref-usage-heat-2);
+}
+.ref-settings-usage-cell--lv3 {
+	background: var(--ref-usage-heat-3);
+}
+.ref-settings-usage-cell--lv4 {
+	background: var(--ref-usage-heat-4);
+}
+
+.ref-settings-usage-legend {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-top: 12px;
+	font-size: 11px;
+	color: var(--void-fg-3);
+}
+
+.ref-settings-usage-legend-sq {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	border-radius: 2px;
+	flex-shrink: 0;
+}
+
+.ref-settings-usage-kpis {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 12px;
+	margin-top: 16px;
+}
+
+.ref-settings-usage-kpi-label {
+	font-size: 11px;
+	color: var(--void-fg-3);
+	margin-bottom: 4px;
+}
+
+.ref-settings-usage-kpi-val {
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--void-fg-1);
+}
+
+.ref-settings-usage-tok-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.ref-settings-usage-seg {
+	display: inline-flex;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-soft);
+	overflow: hidden;
+}
+
+.ref-settings-usage-seg button {
+	padding: 6px 12px;
+	font-size: 12px;
+	border: none;
+	background: transparent;
+	color: var(--void-fg-2);
+	cursor: pointer;
+}
+
+.ref-settings-usage-seg button.is-active {
+	background: rgba(255, 255, 255, 0.08);
+	color: var(--void-fg-0);
+}
+
+.ref-settings-usage-csv {
+	padding: 6px 12px;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-soft);
+	background: rgba(255, 255, 255, 0.04);
+	color: var(--void-fg-1);
+	font-size: 12px;
+}
+
+.ref-settings-usage-csv:hover {
+	background: rgba(255, 255, 255, 0.08);
+}
+
+.ref-settings-usage-chart-meta {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--void-fg-2);
+	margin-bottom: 8px;
+}
+
+.ref-settings-usage-chart-wrap {
+	width: 100%;
+	min-height: 280px;
+}
+
+.ref-settings-usage-empty-chart {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 200px;
+	color: var(--void-fg-3);
+	font-size: 13px;
+}
+
+.ref-settings-usage-table-wrap {
+	overflow: auto;
+	max-height: min(520px, 58vh);
+	margin-top: 16px;
+	border: 1px solid var(--void-border-soft);
+	border-radius: 8px;
+}
+
+.ref-settings-usage-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.ref-settings-usage-table th,
+.ref-settings-usage-table td {
+	padding: 8px 10px;
+	text-align: left;
+	border-bottom: 1px solid var(--void-border-soft);
+}
+
+.ref-settings-usage-table th {
+	position: sticky;
+	top: 0;
+	background: var(--void-bg-1);
+	color: var(--void-fg-2);
+	font-weight: 500;
+}
+
+.ref-settings-usage-mono {
+	font-family: var(--void-code-font-family);
+	font-size: 11px;
+}
+
+.ref-settings-usage-chart-tooltip {
+	padding: 10px 12px;
+	background: var(--ref-usage-tooltip-bg);
+	border: 1px solid var(--ref-usage-tooltip-border);
+	border-radius: 8px;
+	min-width: 160px;
+}
+
+.ref-settings-usage-chart-tooltip-label {
+	color: var(--ref-usage-tooltip-fg);
+	font-size: 12px;
+	font-weight: 600;
+	margin-bottom: 6px;
+}
+
+.ref-settings-usage-chart-tooltip-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.ref-settings-usage-chart-tooltip-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--ref-usage-tooltip-fg);
+	line-height: 1.35;
+	margin-top: 4px;
+}
+
+.ref-settings-usage-chart-tooltip-swatch {
+	width: 8px;
+	height: 8px;
+	border-radius: 2px;
+	flex-shrink: 0;
+}
+
+.ref-settings-usage-chart-tooltip-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-settings-usage-chart-tooltip-val {
+	font-variant-numeric: tabular-nums;
+	flex-shrink: 0;
+}
+
+.ref-settings-usage-table-pager {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin-top: 10px;
+	font-size: 12px;
+	color: var(--void-fg-2);
+}
+
+.ref-settings-usage-table-pager-info {
+	font-variant-numeric: tabular-nums;
+}
+
+.ref-settings-usage-table-pager-btns {
+	display: flex;
+	gap: 8px;
+}
+
+.ref-settings-usage-pager-btn {
+	padding: 6px 12px;
+	border-radius: 6px;
+	border: 1px solid var(--void-border-soft);
+	background: var(--void-bg-1);
+	color: var(--void-fg-1);
+	font-size: 12px;
+}
+
+.ref-settings-usage-pager-btn:hover:not(:disabled) {
+	background: var(--void-bg-2);
+}
+
+.ref-settings-usage-pager-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
 :root[data-platform='win32'] {
 	--ref-titlebar-right-safe: 148px;
 }
