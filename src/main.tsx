@@ -13,7 +13,8 @@ import './styles/mac-codex.css';
 const initialScheme = resolveEffectiveScheme(readStoredColorMode(), readPrefersDark());
 document.documentElement.setAttribute('data-ui-style', APP_UI_STYLE);
 document.documentElement.setAttribute('data-color-scheme', initialScheme);
-const platformRaw = navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent;
+const userAgentData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
+const platformRaw = userAgentData?.platform ?? navigator.platform ?? navigator.userAgent;
 const platform = /win/i.test(platformRaw) ? 'win32' : /mac/i.test(platformRaw) ? 'darwin' : 'linux';
 document.documentElement.setAttribute('data-platform', platform);
 

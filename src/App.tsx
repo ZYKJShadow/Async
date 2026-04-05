@@ -18,22 +18,17 @@ import { createTwoFilesPatch } from 'diff';
 import { PtyTerminalView } from './PtyTerminalView';
 import { DrawerPtyTerminal } from './DrawerPtyTerminal';
 import { ChatMarkdown } from './ChatMarkdown';
-import { FileTypeIcon, languageFromFilePath } from './fileTypeIcons';
+import { languageFromFilePath } from './fileTypeIcons';
 import { OpenWorkspaceModal } from './OpenWorkspaceModal';
-import { WorkspaceExplorer, type GitPathStatusMap, type WorkspaceExplorerActions } from './WorkspaceExplorer';
+import { type WorkspaceExplorerActions } from './WorkspaceExplorer';
 import {
-	type AgentPendingPatch,
 	type ChatPlanExecutePayload,
 	type ChatStreamPayload,
 	coerceThinkingByModelId,
 	type ThinkingLevel,
 	type TurnTokenUsage,
 } from './ipcTypes';
-import {
-	applyLiveAgentChatPayload,
-	createEmptyLiveAgentBlocks,
-	type LiveAgentBlocksState,
-} from './liveAgentBlocks';
+import { applyLiveAgentChatPayload } from './liveAgentBlocks';
 import { AgentReviewPanel } from './AgentReviewPanel';
 import { AgentFileChangesPanel } from './AgentFileChanges';
 import { AgentFilePreviewPanel } from './AgentFilePreviewPanel';
@@ -91,11 +86,10 @@ import {
 	type UserLlmProvider,
 	type UserModelEntry,
 } from './modelCatalog';
-import { ComposerPlusMenu, ComposerModeIcon, composerModeLabel, type ComposerMode } from './ComposerPlusMenu';
+import { ComposerPlusMenu, type ComposerMode } from './ComposerPlusMenu';
 import { ComposerThoughtBlock } from './ComposerThoughtBlock';
 import { ComposerAtMenu } from './ComposerAtMenu';
 import { ComposerSlashMenu } from './ComposerSlashMenu';
-import { ComposerRichInput } from './ComposerRichInput';
 import { PlanQuestionDialog } from './PlanQuestionDialog';
 import { SkillScopeDialog } from './SkillScopeDialog';
 import { RuleWizardDialog } from './RuleWizardDialog';
@@ -143,7 +137,7 @@ import {
 import { normalizeIndexingSettings, type IndexingSettingsState } from './indexingSettingsTypes';
 import { defaultEditorSettings, editorSettingsToMonacoOptions, type EditorSettings } from './EditorSettingsPanel';
 import type { McpServerConfig, McpServerStatus } from './mcpTypes';
-import { EditorTabBar, tabIdFromPath, type EditorTab, type MarkdownTabView } from './EditorTabBar';
+import { EditorTabBar, tabIdFromPath, type MarkdownTabView } from './EditorTabBar';
 import {
 	initialMarkdownViewForTab,
 	isMarkdownEditorPath,
@@ -166,19 +160,29 @@ import {
 	type GitUnavailableReason,
 } from './gitAvailability';
 import { deriveOriginalContentFromUnifiedDiff } from './editorInlineDiff';
+import {
+	IconArrowDown, IconExplorer, IconCloudOutline, IconServerOutline,
+	IconGitSCM, IconSearch, IconRefresh, IconDoc, IconChevron,
+	IconPlus, IconCloseSmall, IconPencil, IconTrash, IconCheckCircle, IconSettings,
+	IconPlugin, IconHistory, IconDotsHorizontal, IconArrowUpRight, IconEye,
+} from './icons';
 import { useGitIntegration } from './hooks/useGitIntegration';
 import { useWorkspaceManager } from './hooks/useWorkspaceManager';
 import { useThreads } from './hooks/useThreads';
-import { type ThreadInfo, type ChatMessage, normalizeThreadRow } from './threadTypes';
+import { type ThreadInfo } from './threadTypes';
 import { useAgentFileReview, type AgentFilePreviewState } from './hooks/useAgentFileReview';
 import { useComposer } from './hooks/useComposer';
 import {
 	useEditorTabs,
 	type EditorInlineDiffState,
-	type EditorPtySession,
 	clampEditorTerminalHeight,
+	EDITOR_TERMINAL_H_MAX_RATIO,
+	EDITOR_TERMINAL_H_MIN,
 	EDITOR_TERMINAL_HEIGHT_KEY,
 } from './hooks/useEditorTabs';
+import { ChatComposer, type ComposerAnchorSlot } from './ChatComposer';
+import { EditorLeftSidebar } from './EditorLeftSidebar';
+import { changeBadgeLabel, GitUnavailableState } from './gitBadge';
 
 const SettingsPage = lazy(() => import('./SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
@@ -408,55 +412,6 @@ function readSidebarLayout(): { left: number; right: number } {
 	return defaultQuarterRailWidths();
 }
 
-function changeBadgeLabel(gitLabel: string, t: TFunction): string {
-	switch (gitLabel) {
-		case 'U':
-			return t('git.badge.new');
-		case 'M':
-			return t('git.badge.modified');
-		case 'A':
-			return t('git.badge.added');
-		case 'D':
-			return t('git.badge.deleted');
-		case 'R':
-			return t('git.badge.renamed');
-		case 'I':
-			return t('git.badge.ignored');
-		default:
-			return gitLabel;
-	}
-}
-
-function changeBadgeVariant(gitLabel: string | undefined): string {
-	const k = String(gitLabel ?? '').toLowerCase();
-	if (k === 'u' || k === 'm' || k === 'a' || k === 'd' || k === 'i' || k === 'r' || k === 'c' || k === 't') {
-		return k;
-	}
-	return 'misc';
-}
-
-function GitUnavailableState({
-	t,
-	reason,
-	detail,
-}: {
-	t: TFunction;
-	reason: Exclude<GitUnavailableReason, 'none'>;
-	detail?: string | null;
-}) {
-	const copy = gitUnavailableCopy(t, reason);
-	return (
-		<div className="ref-git-empty-state" role="status">
-			<p className="ref-git-empty-title">{copy.title}</p>
-			<p className="ref-git-empty-copy">{copy.body}</p>
-			{reason === 'error' && detail?.trim() ? (
-				<p className="ref-git-empty-detail" title={detail}>
-					{detail}
-				</p>
-			) : null}
-		</div>
-	);
-}
 
 function shellCommandPermissionMode(agent: AgentCustomization | undefined): CommandPermissionMode {
 	return agent?.confirmShellCommands === false ? 'always' : 'ask';
@@ -486,307 +441,6 @@ function GitDiffLines({ diff, t }: { diff: string; t: TFunction }) {
 		</div>
 	);
 }
-
-/** 暂停方块：水平略偏右以贴近描边类图标的观感；垂直保持 viewBox 中心 y=12，避免在圆钮内显偏下 */
-const STOP_ICON_VIEWBOX_NUDGE = 'translate(12.55 12)';
-
-function IconArrowUp({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-			<path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-		</svg>
-	);
-}
-
-function IconArrowDown({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-			<g transform="translate(12.55 10.9)">
-				<path d="M0-7v14M-7 0l7 7 7-7" />
-			</g>
-		</svg>
-	);
-}
-
-function IconStop({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-			<g transform={STOP_ICON_VIEWBOX_NUDGE}>
-				<rect x="-6" y="-6" width="12" height="12" rx="2" />
-			</g>
-		</svg>
-	);
-}
-
-function IconExplorer({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<path
-				d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
-}
-
-function IconCloudOutline({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" strokeLinejoin="round" />
-		</svg>
-	);
-}
-
-function IconServerOutline({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<rect x="2" y="3" width="20" height="7" rx="2" />
-			<rect x="2" y="14" width="20" height="7" rx="2" />
-			<circle cx="6" cy="6.5" r="1" fill="currentColor" />
-			<circle cx="6" cy="17.5" r="1" fill="currentColor" />
-		</svg>
-	);
-}
-
-function IconGitSCM({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<circle cx="6" cy="6" r="2" />
-			<circle cx="18" cy="18" r="2" />
-			<circle cx="18" cy="6" r="2" />
-			<path d="M6 8v4a2 2 0 0 0 2 2h8M16 8V6" />
-		</svg>
-	);
-}
-
-function useAsyncShell() {
-	return window.asyncShell;
-}
-
-function isEditableDomTarget(target: EventTarget | null): boolean {
-	if (!(target instanceof HTMLElement)) {
-		return false;
-	}
-	const tag = target.tagName.toLowerCase();
-	return tag === 'input' || tag === 'textarea' || target.isContentEditable;
-}
-
-function IconSearch({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<circle cx="11" cy="11" r="7" />
-			<path d="M21 21l-4.3-4.3" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconRefresh({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" strokeLinecap="round" />
-			<path d="M3 3v5h5" strokeLinecap="round" />
-			<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" strokeLinecap="round" />
-			<path d="M16 21h5v-5" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconDoc({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-			<polyline points="14 2 14 8 20 8" />
-		</svg>
-	);
-}
-
-function IconNewFile({ className }: { className?: string }) {
-	return (
-		<svg
-			className={className}
-			width="15"
-			height="15"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.9"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden
-		>
-			<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
-			<path d="M14 3v5h5" />
-			<path d="M12 12v6M9 15h6" />
-		</svg>
-	);
-}
-
-function IconNewFolder({ className }: { className?: string }) {
-	return (
-		<svg
-			className={className}
-			width="15"
-			height="15"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.9"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden
-		>
-			<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5Z" />
-			<path d="M12 11.5v5M9.5 14h5" />
-		</svg>
-	);
-}
-
-function IconChevron({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<path d="M6 9l6 6 6-6" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconMic({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" strokeLinejoin="round" />
-			<path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3M8 22h8" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconPlus({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-			<path d="M12 5v14M5 12h14" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconCloseSmall({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconPencil({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" strokeLinecap="round" strokeLinejoin="round" />
-		</svg>
-	);
-}
-
-function IconTrash({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6" strokeLinecap="round" strokeLinejoin="round" />
-		</svg>
-	);
-}
-
-function IconCheckCircle({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-			<circle cx="12" cy="12" r="9" />
-			<path d="M8 12l2.5 2.5 5-5" />
-		</svg>
-	);
-}
-
-function IconSettings({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-			<circle cx="12" cy="12" r="3"></circle>
-			<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-		</svg>
-	);
-}
-
-function IconPlugin({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-			<path d="M9 7.5V6a3 3 0 1 1 6 0v1.5" />
-			<path d="M7.5 10h9A2.5 2.5 0 0 1 19 12.5v1A2.5 2.5 0 0 1 16.5 16H14v3a1 1 0 0 1-2 0v-3h-2.5A2.5 2.5 0 0 1 7 13.5v-1A2.5 2.5 0 0 1 9.5 10Z" />
-			<path d="M5 13h2M17 13h2" />
-		</svg>
-	);
-}
-
-function IconHistory({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-			<path d="M3 12a9 9 0 1 0 3-6.7" />
-			<path d="M3 4v4h4" />
-			<path d="M12 7v5l3 2" />
-		</svg>
-	);
-}
-
-function IconDotsHorizontal({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-			<circle cx="5" cy="12" r="1.5" />
-			<circle cx="12" cy="12" r="1.5" />
-			<circle cx="19" cy="12" r="1.5" />
-		</svg>
-	);
-}
-
-function IconArrowUpRight({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M7 17L17 7" strokeLinecap="round" />
-			<path d="M8 7h9v9" strokeLinecap="round" strokeLinejoin="round" />
-		</svg>
-	);
-}
-
-function IconEye({ className }: { className?: string }) {
-	return (
-		<svg
-			className={className}
-			width="15"
-			height="15"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.9"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden
-		>
-			<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
-			<circle cx="12" cy="12" r="3" />
-		</svg>
-	);
-}
-
-function IconArchive({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
-			<rect x="3" y="4" width="18" height="5" rx="1.5" />
-			<path d="M5 9v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9" strokeLinecap="round" />
-			<path d="M10 13h4" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconImageOutline({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-			<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-			<circle cx="8.5" cy="8.5" r="1.5" />
-			<path d="M21 15l-5-5L5 21" />
-		</svg>
-	);
-}
-
 
 function threadFileBasename(rel: string): string {
 	const n = rel.replace(/\\/g, '/');
@@ -838,6 +492,16 @@ function threadRowTitle(tr: TFunction, t: ThreadInfo): string {
 			: tr('app.draftPrefix', { title: t.title });
 	}
 	return t.title;
+}
+
+function useAsyncShell() {
+	return window.asyncShell;
+}
+
+function isEditableDomTarget(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) return false;
+	const tag = target.tagName.toLowerCase();
+	return tag === 'input' || tag === 'textarea' || target.isContentEditable;
 }
 
 export default function App() {
@@ -938,7 +602,6 @@ export default function App() {
 		collapsedAgentWorkspacePaths,
 		setCollapsedAgentWorkspacePaths,
 		tsLspStatus,
-		setTsLspStatus,
 	} = useWorkspaceManager(shell, indexingSettings.tsLspEnabled);
 
 	const {
@@ -956,7 +619,6 @@ export default function App() {
 		treeEpoch,
 		gitBranchPickerOpen,
 		setGitBranchPickerOpen,
-		gitPathsKey,
 		diffTotals,
 		refreshGit,
 		onGitBranchListFresh,
@@ -964,7 +626,6 @@ export default function App() {
 
 	const {
 		threads,
-		setThreads,
 		threadSearch,
 		setThreadSearch,
 		currentId,
@@ -1071,8 +732,6 @@ export default function App() {
 		composerMode,
 		setComposerMode,
 		composerAttachErr,
-		setComposerAttachErr,
-		composerAttachErrTimerRef,
 		streamingThinking,
 		setStreamingThinking,
 		streamingToolPreview,
@@ -1256,6 +915,8 @@ export default function App() {
 		editorLoadRequestRef,
 		pendingEditorHighlightRangeRef,
 	} = useEditorTabs();
+	const monacoDiffChangeDisposableRef = useRef<{ dispose(): void } | null>(null);
+	useEffect(() => () => monacoDiffChangeDisposableRef.current?.dispose(), []);
 
 	const [subAgentBgToast, setSubAgentBgToast] = useState<{ key: number; ok: boolean; text: string } | null>(null);
 	const subAgentBgToastTimerRef = useRef<number | null>(null);
@@ -1315,7 +976,6 @@ export default function App() {
 	const modelPillBottomRef = useRef<HTMLDivElement>(null);
 	const modelPillInlineRef = useRef<HTMLDivElement>(null);
 	const composerGitBranchAnchorRef = useRef<HTMLButtonElement>(null);
-	type ComposerAnchorSlot = 'hero' | 'bottom' | 'inline';
 	const [plusMenuAnchorSlot, setPlusMenuAnchorSlot] = useState<ComposerAnchorSlot>('bottom');
 	const [modelPickerAnchorSlot, setModelPickerAnchorSlot] = useState<ComposerAnchorSlot>('bottom');
 
@@ -4884,6 +4544,8 @@ export default function App() {
 
 	const onMonacoMount = useCallback(
 		(ed: MonacoEditorNS.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => {
+			monacoDiffChangeDisposableRef.current?.dispose();
+			monacoDiffChangeDisposableRef.current = null;
 			monacoEditorRef.current = ed;
 			if (shell) {
 				registerTsLspMonacoOnce(monaco, shell, workspace);
@@ -4894,12 +4556,23 @@ export default function App() {
 
 	const onMonacoDiffMount = useCallback(
 		(diffEditor: MonacoEditorNS.IStandaloneDiffEditor, monaco: typeof import('monaco-editor')) => {
-			monacoEditorRef.current = diffEditor.getModifiedEditor();
+			const modifiedEditor = diffEditor.getModifiedEditor();
+			const modifiedModel = modifiedEditor.getModel();
+			monacoDiffChangeDisposableRef.current?.dispose();
+			monacoDiffChangeDisposableRef.current =
+				modifiedModel?.onDidChangeContent(() => {
+					const nextValue = modifiedEditor.getValue();
+					setEditorValue(nextValue);
+					setOpenTabs((prev) =>
+						prev.map((tab) => (tab.filePath === filePath.trim() ? { ...tab, dirty: true } : tab))
+					);
+				}) ?? null;
+			monacoEditorRef.current = modifiedEditor;
 			if (shell) {
 				registerTsLspMonacoOnce(monaco, shell, workspace);
 			}
 		},
-		[shell, workspace]
+		[filePath, setEditorValue, setOpenTabs, shell, workspace]
 	);
 
 	const searchWorkspaceSymbolsFn = useCallback(
@@ -6526,149 +6199,44 @@ export default function App() {
 		]
 	);
 
-	const renderStackedChatComposer = (
-		slot: 'bottom' | 'inline',
-		composer: { segments: ComposerSegment[]; setSegments: typeof setComposerSegments; canSend: boolean },
-		extraClass?: string,
-		/** 仅 Agent 中间栏显示输入下方的 Git 分支行；Editor 侧栏聊天为 false */
-		showGitBranchRow = true
-	) => {
-		const richRef = slot === 'bottom' ? composerRichBottomRef : composerRichInlineRef;
-		const plusRef = slot === 'bottom' ? plusAnchorBottomRef : plusAnchorInlineRef;
-		const modelRef = slot === 'bottom' ? modelPillBottomRef : modelPillInlineRef;
-		const slotKey: ComposerAnchorSlot = slot === 'bottom' ? 'bottom' : 'inline';
-		const isBottomSlot = slot === 'bottom';
-		const inputPlaceholder =
-			isBottomSlot && hasConversation ? followUpComposerPlaceholder : composerPlaceholder;
-		const inputClass = 'ref-capsule-input ref-capsule-input--stacked-chat';
+	// 共享给 ChatComposer 的 stable props（不含 slot/segments/canSend/extraClass/showGitBranchRow）
+	const sharedComposerProps = {
+		composerRichHeroRef,
+		composerRichBottomRef,
+		composerRichInlineRef,
+		plusAnchorHeroRef,
+		plusAnchorBottomRef,
+		plusAnchorInlineRef,
+		modelPillHeroRef,
+		modelPillBottomRef,
+		modelPillInlineRef,
+		composerMode,
+		hasConversation,
+		composerPlaceholder,
+		followUpComposerPlaceholder,
+		plusMenuOpen,
+		modelPickerOpen,
+		modelPillLabel,
+		awaitingReply,
+		resendFromUserIndex,
+		composerGitBranchRowEl,
+		setPlusMenuAnchorSlot,
+		setModelPickerOpen,
+		setPlusMenuOpen,
+		setModelPickerAnchorSlot,
+		onAbort,
+		onSend: () => void onSend(),
+		onNewThread: () => void onNewThread(),
+		onExplorerOpenFile: (rel: string) => void onExplorerOpenFile(rel),
+		persistComposerAttachments,
+		syncComposerOverlays,
+		setResendFromUserIndex,
+		setInlineResendSegments,
+		slashCommandKeyDown: slashCommand.handleSlashKeyDown,
+		atMentionKeyDown: atMention.handleAtKeyDown,
+	} as const;
 
-		const barStart = (
-			<div className="ref-capsule-bar-start">
-				<div className="ref-plus-anchor ref-editor-rail-mode-cluster" ref={plusRef}>
-					<button
-						type="button"
-						className={`ref-mode-chip ref-mode-chip--${composerMode} ref-mode-chip--opens-menu is-active`}
-						aria-expanded={plusMenuOpen}
-						aria-haspopup="menu"
-						title={t('app.addPlusTitle')}
-						aria-label={t('app.addPlusAria')}
-						onClick={() => {
-							setPlusMenuAnchorSlot(slotKey);
-							setModelPickerOpen(false);
-							setPlusMenuOpen((o) => !o);
-						}}
-					>
-						<ComposerModeIcon mode={composerMode} className="ref-mode-chip-ico" />
-						<span className="ref-mode-chip-label">{composerModeLabel(composerMode, t)}</span>
-						<IconChevron className="ref-mode-chip-menu-chev" />
-					</button>
-				</div>
-				<div className="ref-model-pill-anchor" ref={modelRef}>
-					<button
-						type="button"
-						className="ref-model-pill"
-						aria-expanded={modelPickerOpen}
-						aria-haspopup="listbox"
-						onClick={() => {
-							setModelPickerAnchorSlot(slotKey);
-							setPlusMenuOpen(false);
-							setModelPickerOpen((o) => !o);
-						}}
-					>
-						<span className="ref-model-name">{modelPillLabel}</span>
-						<IconChevron className="ref-model-chev" />
-					</button>
-				</div>
-			</div>
-		);
-
-		const barEnd = (
-			<div className="ref-capsule-bar-end">
-				<button
-					type="button"
-					className="ref-mic-btn"
-					disabled
-					title={t('app.voiceSoonTitle')}
-					aria-label={t('app.voiceSoonAria')}
-				>
-					<IconMic className="ref-mic-btn-svg" />
-				</button>
-				<button
-					type="button"
-					className={`ref-send-btn ${awaitingReply ? 'is-stop' : ''}`}
-					title={awaitingReply ? t('app.stopGeneration') : t('app.send')}
-					aria-label={awaitingReply ? t('app.stopGeneration') : t('app.send')}
-					disabled={!awaitingReply && !composer.canSend}
-					onClick={() => (awaitingReply ? void onAbort() : void onSend())}
-				>
-					{awaitingReply ? <IconStop className="ref-send-icon" /> : <IconArrowUp className="ref-send-icon" />}
-				</button>
-			</div>
-		);
-
-		const onComposerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-			if (slashCommand.handleSlashKeyDown(e)) {
-				return;
-			}
-			if (atMention.handleAtKeyDown(e)) {
-				return;
-			}
-			if (e.key === 'Escape' && resendFromUserIndex !== null && slot === 'inline') {
-				e.preventDefault();
-				setResendFromUserIndex(null);
-				setInlineResendSegments([]);
-				return;
-			}
-			if (e.key === 'Tab' && e.shiftKey) {
-				e.preventDefault();
-				void onNewThread();
-				return;
-			}
-			if (e.key === 'Enter' && !e.shiftKey) {
-				e.preventDefault();
-				void onSend();
-			}
-		};
-
-		const richInput = (
-			<ComposerRichInput
-				innerRef={richRef}
-				segments={composer.segments}
-				onSegmentsChange={composer.setSegments}
-				className={inputClass}
-				placeholder={inputPlaceholder}
-				onFilePreview={(rel) => void onExplorerOpenFile(rel)}
-				onComposerAttachFiles={persistComposerAttachments}
-				onRichInput={(root) => syncComposerOverlays(root, slotKey)}
-				onRichSelect={(root) => syncComposerOverlays(root, slotKey)}
-				onKeyDown={onComposerKeyDown}
-			/>
-		);
-
-		const capsule = (
-			<div className={['ref-capsule', 'ref-capsule--stacked-chat', extraClass].filter(Boolean).join(' ')}>
-				<div className="ref-composer-stacked-body">{richInput}</div>
-				<div className="ref-capsule-bar ref-capsule-bar--stacked">
-					{barStart}
-					{barEnd}
-				</div>
-			</div>
-		);
-		if (!isBottomSlot) {
-			return capsule;
-		}
-		if (!showGitBranchRow) {
-			return capsule;
-		}
-		return (
-			<div className="ref-composer-stack-with-branch">
-				{capsule}
-				{composerGitBranchRowEl}
-			</div>
-		);
-	};
-
-	const renderChatMessageList = (hideModeReset = false): ReactNode[] => {
+	const renderChatMessageList = (): ReactNode[] => {
 		const t0 = import.meta.env.DEV ? performance.now() : 0;
 		const nodes = displayMessages.map((m, i) => {
 			const convoKey = messagesThreadId ?? currentId ?? 'no-thread';
@@ -6750,15 +6318,15 @@ export default function App() {
 			if (m.role === 'user' && isEditingThisUser) {
 				const inner = (
 					<div ref={inlineResendRootRef} className="ref-msg-slot ref-msg-slot--composer">
-						{renderStackedChatComposer(
-							'inline',
-							{
-								segments: inlineResendSegments,
-								setSegments: setInlineResendSegments,
-								canSend: canSendInlineResend,
-							},
-							'ref-capsule--inline-edit'
-						)}
+						<ChatComposer
+							{...sharedComposerProps}
+							slot="inline"
+							segments={inlineResendSegments}
+							setSegments={setInlineResendSegments}
+							canSend={canSendInlineResend}
+							extraClass="ref-capsule--inline-edit"
+							showGitBranchRow={false}
+						/>
 					</div>
 				);
 				return i === lastUserMessageIndex ? (
@@ -6881,121 +6449,22 @@ export default function App() {
 					className="ref-messages-track"
 					ref={messagesTrackRef}
 				>
-					{renderChatMessageList(isEditorRail)}
+					{renderChatMessageList()}
 				</div>
 			</div>
 		) : null;
 
 		const editorRailHeroComposer =
 			isEditorRail && !hasConversation ? (
-				<div className="ref-capsule ref-capsule--editor-rail-hero">
-					<div className="ref-composer-hero-body">
-						<ComposerRichInput
-							innerRef={composerRichHeroRef}
-							segments={composerSegments}
-							onSegmentsChange={setComposerSegments}
-							className="ref-capsule-input"
-							placeholder={composerPlaceholder}
-							onFilePreview={(rel) => void onExplorerOpenFile(rel)}
-							onComposerAttachFiles={persistComposerAttachments}
-							onRichInput={(root) => syncComposerOverlays(root, 'hero')}
-							onRichSelect={(root) => syncComposerOverlays(root, 'hero')}
-							onKeyDown={(e) => {
-								if (slashCommand.handleSlashKeyDown(e)) {
-									return;
-								}
-								if (atMention.handleAtKeyDown(e)) {
-									return;
-								}
-								if (e.key === 'Escape' && resendFromUserIndex !== null) {
-									e.preventDefault();
-									setResendFromUserIndex(null);
-									setInlineResendSegments([]);
-									return;
-								}
-								if (e.key === 'Tab' && e.shiftKey) {
-									e.preventDefault();
-									void onNewThread();
-									return;
-								}
-								if (e.key === 'Enter' && !e.shiftKey) {
-									e.preventDefault();
-									void onSend();
-								}
-							}}
-						/>
-					</div>
-					<div className="ref-capsule-bar ref-capsule-bar--editor-rail">
-						<div className="ref-editor-rail-bar-left">
-							<div className="ref-plus-anchor ref-editor-rail-mode-cluster" ref={plusAnchorHeroRef}>
-								<button
-									type="button"
-									className={`ref-mode-chip ref-mode-chip--${composerMode} ref-mode-chip--opens-menu is-active`}
-									aria-expanded={plusMenuOpen}
-									aria-haspopup="menu"
-									title={t('app.addPlusTitle')}
-									aria-label={t('app.addPlusAria')}
-									onClick={() => {
-										setPlusMenuAnchorSlot('hero');
-										setModelPickerOpen(false);
-										setPlusMenuOpen((o) => !o);
-									}}
-								>
-									<ComposerModeIcon mode={composerMode} className="ref-mode-chip-ico" />
-									<span className="ref-mode-chip-label">{composerModeLabel(composerMode, t)}</span>
-									<IconChevron className="ref-mode-chip-menu-chev" />
-								</button>
-							</div>
-							<div className="ref-model-pill-anchor" ref={modelPillHeroRef}>
-								<button
-									type="button"
-									className="ref-model-pill"
-									aria-expanded={modelPickerOpen}
-									aria-haspopup="listbox"
-									onClick={() => {
-										setModelPickerAnchorSlot('hero');
-										setPlusMenuOpen(false);
-										setModelPickerOpen((o) => !o);
-									}}
-								>
-									<span className="ref-model-name">{modelPillLabel}</span>
-									<IconChevron className="ref-model-chev" />
-								</button>
-							</div>
-						</div>
-						<div className="ref-capsule-bar-spacer" />
-						<div className="ref-editor-rail-bar-right">
-							<button
-								type="button"
-								className="ref-mic-btn"
-								disabled
-								title={t('app.comingSoon')}
-								aria-label={t('app.comingSoon')}
-							>
-								<IconImageOutline className="ref-mic-btn-svg" />
-							</button>
-							<button
-								type="button"
-								className="ref-mic-btn"
-								disabled
-								title={t('app.voiceSoonTitle')}
-								aria-label={t('app.voiceSoonAria')}
-							>
-								<IconMic className="ref-mic-btn-svg" />
-							</button>
-							<button
-								type="button"
-								className={`ref-send-btn ${awaitingReply ? 'is-stop' : ''}`}
-								title={awaitingReply ? t('app.stopGeneration') : t('app.send')}
-								aria-label={awaitingReply ? t('app.stopGeneration') : t('app.send')}
-								disabled={!awaitingReply && !canSendComposer}
-								onClick={() => (awaitingReply ? void onAbort() : void onSend())}
-							>
-								{awaitingReply ? <IconStop className="ref-send-icon" /> : <IconArrowUp className="ref-send-icon" />}
-							</button>
-						</div>
-					</div>
-				</div>
+				<ChatComposer
+					{...sharedComposerProps}
+					slot="hero"
+					variant="editor-hero"
+					segments={composerSegments}
+					setSegments={setComposerSegments}
+					canSend={canSendComposer}
+					showGitBranchRow={false}
+				/>
 			) : null;
 
 		const editorContextStrip = isEditorRail ? (
@@ -7163,18 +6632,16 @@ export default function App() {
 					</div>
 				) : null}
 				{!isEditorRail ? agentPlanSummaryCard : null}
-				{hasConversation || !isEditorRail
-					? renderStackedChatComposer(
-							'bottom',
-							{
-								segments: composerSegments,
-								setSegments: setComposerSegments,
-								canSend: canSendComposer,
-							},
-							undefined,
-							!isEditorRail
-						)
-					: null}
+				{hasConversation || !isEditorRail ? (
+					<ChatComposer
+						{...sharedComposerProps}
+						slot="bottom"
+						segments={composerSegments}
+						setSegments={setComposerSegments}
+						canSend={canSendComposer}
+						showGitBranchRow={!isEditorRail}
+					/>
+				) : null}
 			</div>
 		);
 
@@ -8496,302 +7963,38 @@ export default function App() {
 						</div>
 					</div>
 					) : (
-					/* ═══ Editor 布局：左侧 = 文件树 ═══ */
-					<div className="ref-left-editor-nest">
-						<div className="ref-editor-activity-bar" aria-label={t('app.rightSidebarViews')}>
-							<button
-								type="button"
-								className={`ref-editor-sidebar-tab ${editorLeftSidebarView === 'explorer' ? 'is-active' : ''}`}
-								title={t('app.tabExplorer')}
-								aria-label={t('app.tabExplorer')}
-								aria-pressed={editorLeftSidebarView === 'explorer'}
-								onClick={() => setEditorLeftSidebarView('explorer')}
-							>
-								<IconExplorer />
-							</button>
-							<button
-								type="button"
-								className={`ref-editor-sidebar-tab ${editorLeftSidebarView === 'search' ? 'is-active' : ''}`}
-								title={t('app.tabSearch')}
-								aria-label={t('app.tabSearch')}
-								aria-pressed={editorLeftSidebarView === 'search'}
-								onClick={() => setEditorLeftSidebarView('search')}
-							>
-								<IconSearch />
-							</button>
-							<button
-								type="button"
-								className={`ref-editor-sidebar-tab ${editorLeftSidebarView === 'git' ? 'is-active' : ''}`}
-								title={t('app.tabGit')}
-								aria-label={t('app.tabGit')}
-								aria-pressed={editorLeftSidebarView === 'git'}
-								onClick={() => setEditorLeftSidebarView('git')}
-							>
-								<IconGitSCM />
-							</button>
-							<div className="ref-editor-activity-spacer" aria-hidden />
-							<button
-								type="button"
-								className="ref-editor-sidebar-tab"
-								title={t('settings.nav.plugins')}
-								aria-label={t('settings.nav.plugins')}
-								onClick={() => openSettingsPage('plugins')}
-							>
-								<IconPlugin />
-							</button>
-							<button
-								type="button"
-								className="ref-editor-sidebar-tab"
-								title={t('app.openWorkspace')}
-								aria-label={t('app.openWorkspace')}
-								onClick={() => setWorkspacePickerOpen(true)}
-							>
-								<IconChevron />
-							</button>
-						</div>
-						<div className="ref-editor-sidebar-pane">
-						<>
-							{editorLeftSidebarView === 'explorer' ? (
-								<>
-									<div className="ref-editor-sidebar-section-bar">
-										<button
-											type="button"
-											className="ref-editor-sidebar-section-toggle"
-											onClick={(event) => {
-												event.currentTarget.blur();
-												toggleEditorExplorerCollapsed();
-											}}
-											aria-expanded={!editorExplorerCollapsed}
-										>
-											<div className="ref-editor-sidebar-section-title">
-											<IconChevron className="ref-editor-sidebar-section-chevron" />
-											<span className="ref-editor-sidebar-section-name">{editorSidebarWorkspaceLabel}</span>
-											</div>
-										</button>
-										{workspace && shell ? (
-											<div className="ref-editor-sidebar-section-actions">
-												<button
-													type="button"
-													className="ref-editor-sidebar-action"
-													title={t('app.fileMenu.newFile')}
-													aria-label={t('app.fileMenu.newFile')}
-													onClick={() => void fileMenuNewFile()}
-												>
-													<IconNewFile />
-												</button>
-												<button
-													type="button"
-													className="ref-editor-sidebar-action"
-													title={t('app.openWorkspace')}
-													aria-label={t('app.openWorkspace')}
-													onClick={() => setWorkspacePickerOpen(true)}
-												>
-													<IconNewFolder />
-												</button>
-												<button
-													type="button"
-													className="ref-editor-sidebar-action"
-													aria-label={t('app.explorerRefreshAria')}
-													title={t('common.refresh')}
-													onClick={() => void refreshGit()}
-												>
-													<IconRefresh />
-												</button>
-												<button
-													type="button"
-													className="ref-editor-sidebar-action"
-													title={t('app.workspaceMenuOpenInExplorer')}
-													aria-label={t('app.workspaceMenuOpenInExplorer')}
-													onClick={() => void revealWorkspaceInOs(workspace)}
-												>
-													<IconArrowUpRight />
-												</button>
-											</div>
-										) : null}
-									</div>
-									<div
-										ref={editorExplorerScrollRef}
-										className={`ref-editor-sidebar-scroll ref-editor-sidebar-scroll--explorer ${
-											editorExplorerCollapsed ? 'is-collapsed' : ''
-										}`}
-									>
-										{workspace && shell ? (
-										<WorkspaceExplorer
-											key={workspace}
-											shell={shell}
-											pathStatus={gitPathStatus}
-											selectedRel={editorSidebarSelectedRel}
-											treeEpoch={treeEpoch}
-											onOpenFile={(rel) => void onExplorerOpenFile(rel)}
-											directoryIconMode="hidden"
-											indentBase={0}
-											indentStep={8}
-											explorerActions={workspaceExplorerActions}
-										/>
-										) : (
-											<div className="ref-editor-sidebar-empty">
-												<p className="ref-editor-sidebar-empty-copy">{t('app.explorerPlaceholder')}</p>
-												<button
-													type="button"
-													className="ref-open-workspace ref-open-workspace--inline"
-													onClick={() => setWorkspacePickerOpen(true)}
-												>
-													{t('app.openWorkspace')}
-												</button>
-												<div className="ref-ipc-hint">{ipcOk}</div>
-											</div>
-										)}
-									</div>
-								</>
-							) : null}
-							{editorLeftSidebarView === 'search' ? (
-								<>
-									<div className="ref-editor-sidebar-section-bar">
-										<div className="ref-editor-sidebar-section-title">
-											<span className="ref-editor-sidebar-section-name">{t('app.tabSearch')}</span>
-										</div>
-									</div>
-									<div className="ref-editor-sidebar-search-field">
-										<IconSearch className="ref-editor-sidebar-search-icon" />
-										<input
-											ref={editorSidebarSearchInputRef}
-											type="search"
-											value={editorSidebarSearchQuery}
-											onChange={(e) => setEditorSidebarSearchQuery(e.target.value)}
-											className="ref-editor-sidebar-search-input"
-											placeholder={t('app.editorSidebarSearchPlaceholder')}
-											aria-label={t('app.tabSearch')}
-										/>
-									</div>
-									<div className="ref-editor-sidebar-scroll ref-editor-sidebar-scroll--list">
-										<div className="ref-editor-sidebar-file-list">
-											{!workspace || !shell ? (
-												<div className="ref-editor-sidebar-empty">
-													<p className="ref-editor-sidebar-empty-copy">{t('app.explorerPlaceholder')}</p>
-													<button
-														type="button"
-														className="ref-open-workspace ref-open-workspace--inline"
-														onClick={() => setWorkspacePickerOpen(true)}
-													>
-														{t('app.openWorkspace')}
-													</button>
-												</div>
-											) : !normalizedEditorSidebarSearchQuery ? (
-												<div className="ref-editor-sidebar-empty">
-													<p className="ref-editor-sidebar-empty-copy">{t('app.editorSidebarSearchHint')}</p>
-												</div>
-											) : editorSidebarSearchResults.length === 0 ? (
-												<div className="ref-editor-sidebar-empty">
-													<p className="ref-editor-sidebar-empty-copy">{t('app.editorSidebarSearchEmpty')}</p>
-												</div>
-											) : (
-												editorSidebarSearchResults.map((result) => (
-													<button
-														key={result.rel}
-														type="button"
-														className={`ref-editor-sidebar-file-row ${editorSidebarSelectedRel === result.rel ? 'is-active' : ''}`}
-														onClick={() => void onExplorerOpenFile(result.rel)}
-														title={result.rel}
-													>
-														<span className="ref-editor-sidebar-file-icon" aria-hidden>
-															<FileTypeIcon fileName={result.fileName} />
-														</span>
-														<span className="ref-editor-sidebar-file-main">
-															<span className="ref-editor-sidebar-file-name">{result.fileName}</span>
-															<span className="ref-editor-sidebar-file-path">{result.dir || workspaceBasename}</span>
-														</span>
-													</button>
-												))
-											)}
-										</div>
-									</div>
-								</>
-							) : null}
-						{editorLeftSidebarView === 'git' ? (
-							<>
-									<div className="ref-editor-sidebar-section-bar">
-										<div className="ref-editor-sidebar-section-title">
-											<span className="ref-editor-sidebar-section-name">{t('app.tabGit')}</span>
-										</div>
-										{workspace && shell ? (
-											<div className="ref-editor-sidebar-section-actions">
-												<button
-													type="button"
-													className="ref-editor-sidebar-action"
-													aria-label={t('app.explorerRefreshAria')}
-													title={t('common.refresh')}
-													onClick={() => void refreshGit()}
-												>
-													<IconRefresh />
-												</button>
-											</div>
-										) : null}
-									</div>
-									<div className="ref-editor-sidebar-scroll ref-editor-sidebar-scroll--list">
-										<div className="ref-editor-sidebar-file-list">
-											{!workspace || !shell ? (
-												<div className="ref-editor-sidebar-empty">
-													<p className="ref-editor-sidebar-empty-copy">{t('app.explorerPlaceholder')}</p>
-													<button
-														type="button"
-														className="ref-open-workspace ref-open-workspace--inline"
-														onClick={() => setWorkspacePickerOpen(true)}
-													>
-														{t('app.openWorkspace')}
-													</button>
-												</div>
-											) : gitUnavailableReason !== 'none' ? (
-												<div className="ref-editor-sidebar-empty">
-													<GitUnavailableState t={t} reason={gitUnavailableReason} detail={gitLines[0] ?? ''} />
-												</div>
-											) : gitChangedPaths.length === 0 ? (
-												<div className="ref-editor-sidebar-empty">
-													<p className="ref-editor-sidebar-empty-copy">{t('app.gitNoChanges')}</p>
-												</div>
-											) : (
-												gitChangedPaths.map((rel) => {
-													const normalizedRel = rel.replace(/\\/g, '/');
-													const fileName = normalizedRel.includes('/')
-														? normalizedRel.slice(normalizedRel.lastIndexOf('/') + 1)
-														: normalizedRel;
-													const dir = normalizedRel.includes('/')
-														? normalizedRel.slice(0, normalizedRel.lastIndexOf('/'))
-														: workspaceBasename;
-													const status = gitPathStatus[rel];
-													const label = status?.label ?? '';
-													return (
-														<button
-															key={rel}
-															type="button"
-															className={`ref-editor-sidebar-file-row ${editorSidebarSelectedRel === normalizedRel ? 'is-active' : ''}`}
-															onClick={() => void onExplorerOpenFile(rel)}
-															title={normalizedRel}
-														>
-															<span className="ref-editor-sidebar-file-icon" aria-hidden>
-																<FileTypeIcon fileName={fileName} />
-															</span>
-															<span className="ref-editor-sidebar-file-main">
-																<span className="ref-editor-sidebar-file-name">{fileName}</span>
-																<span className="ref-editor-sidebar-file-path">{dir}</span>
-															</span>
-															<span
-																className={`ref-explorer-badge ref-explorer-badge--${changeBadgeVariant(label)}`}
-																title={status ? changeBadgeLabel(status.label, t) : t('app.gitChangedFallback')}
-															>
-																{label || '•'}
-															</span>
-														</button>
-													);
-												})
-											)}
-										</div>
-									</div>
-								</>
-							) : null}
-						</>
-						</div>
-					</div>
-					)}
+				/* ═══ Editor 布局：左侧 = 文件树 ═══ */
+				<EditorLeftSidebar
+					shell={shell}
+					workspace={workspace}
+					workspaceBasename={workspaceBasename}
+					ipcOk={ipcOk}
+					editorLeftSidebarView={editorLeftSidebarView}
+					setEditorLeftSidebarView={setEditorLeftSidebarView}
+					editorExplorerCollapsed={editorExplorerCollapsed}
+					toggleEditorExplorerCollapsed={toggleEditorExplorerCollapsed}
+					editorSidebarWorkspaceLabel={editorSidebarWorkspaceLabel}
+					editorSidebarSelectedRel={editorSidebarSelectedRel}
+					editorExplorerScrollRef={editorExplorerScrollRef}
+					workspaceExplorerActions={workspaceExplorerActions}
+					gitPathStatus={gitPathStatus}
+					treeEpoch={treeEpoch}
+					editorSidebarSearchQuery={editorSidebarSearchQuery}
+					setEditorSidebarSearchQuery={setEditorSidebarSearchQuery}
+					normalizedEditorSidebarSearchQuery={normalizedEditorSidebarSearchQuery}
+					editorSidebarSearchResults={editorSidebarSearchResults}
+					editorSidebarSearchInputRef={editorSidebarSearchInputRef}
+					gitUnavailableReason={gitUnavailableReason}
+					gitLines={gitLines}
+					gitChangedPaths={gitChangedPaths}
+					fileMenuNewFile={() => void fileMenuNewFile()}
+					revealWorkspaceInOs={(p) => void revealWorkspaceInOs(p)}
+					refreshGit={() => void refreshGit()}
+					onExplorerOpenFile={(rel) => void onExplorerOpenFile(rel)}
+					setWorkspacePickerOpen={setWorkspacePickerOpen}
+					openSettingsPage={openSettingsPage}
+				/>
+				)}
 				</aside>
 
 				<div
@@ -9044,14 +8247,6 @@ export default function App() {
 															originalModelPath={monacoOriginalDocumentPath}
 															modifiedModelPath={monacoDocumentPath || filePath.trim()}
 															language={languageFromFilePath(filePath.trim())}
-															onChange={(v) => {
-																setEditorValue(v ?? '');
-																setOpenTabs((prev) =>
-																	prev.map((tab) =>
-																		tab.filePath === filePath.trim() ? { ...tab, dirty: true } : tab
-																	)
-																);
-															}}
 															onMount={onMonacoDiffMount}
 															options={{
 																...editorSettingsToMonacoOptions(editorSettings),

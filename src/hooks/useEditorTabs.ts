@@ -14,8 +14,8 @@ export type EditorInlineDiffState = {
 };
 
 export const EDITOR_TERMINAL_HEIGHT_KEY = 'async:editor-terminal-height-v1';
-const EDITOR_TERMINAL_H_MIN = 120;
-const EDITOR_TERMINAL_H_MAX_RATIO = 0.65;
+export const EDITOR_TERMINAL_H_MIN = 120;
+export const EDITOR_TERMINAL_H_MAX_RATIO = 0.65;
 
 export function clampEditorTerminalHeight(h: number): number {
 	if (typeof window === 'undefined') return Math.max(EDITOR_TERMINAL_H_MIN, Math.round(h));
