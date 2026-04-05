@@ -1,4 +1,4 @@
-# Async Shell
+# Async IDE
 
 <p align="center">
   <img src="docs/assets/async-logo-desktop.svg" width="120" height="120" alt="Async Logo" />
@@ -26,11 +26,11 @@
 
 ## Why this project exists
 
-Async Shell is an attempt to build a **Cursor-like coding workflow in the open**. The idea is simple: put the agent, Monaco editor, Git, diff/review flow, and terminal in one desktop app, but keep the stack transparent and hackable.
+Async IDE is an attempt to build a **Cursor-like coding workflow in the open**. The idea is simple: put the agent, Monaco editor, Git, diff/review flow, and terminal in one desktop app, but keep the stack transparent and hackable.
 
 The project is released under **Apache 2.0**, uses **BYOK** model access, and keeps threads, settings, and plans **local-first** by default.
 
-| Aspect | **Cursor** | **Async Shell** |
+| Aspect | **Cursor** | **Async IDE** |
 | --- | --- | --- |
 | **License / delivery** | Proprietary product | **Open source** codebase you can inspect and fork |
 | **Model access** | Product billing / built-in integrations | **BYOK** for OpenAI, Anthropic, Gemini, and compatible APIs |
@@ -39,9 +39,9 @@ The project is released under **Apache 2.0**, uses **BYOK** model access, and ke
 
 ---
 
-## What is Async Shell?
+## What is Async IDE?
 
-Async Shell is an open-source desktop app for working with coding agents. Instead of treating AI as a sidebar chat, it is built around an **Agent Loop**: thinking, planning, tool execution, code edits, and review all happen in the same workspace.
+Async IDE is an open-source desktop app for working with coding agents. Instead of treating AI as a sidebar chat, it is built around an **Agent Loop**: thinking, planning, tool execution, code edits, and review all happen in the same workspace.
 
 ### Why use Async?
 
@@ -242,7 +242,7 @@ This rasterizes `docs/assets/async-logo.svg` into `resources/icons/icon.png` and
 
 ## Acknowledgements
 
-Async Shell is obviously shaped by workflows popularized by Cursor and by the broader coding-agent ecosystem.
+Async IDE is obviously shaped by workflows popularized by Cursor and by the broader coding-agent ecosystem.
 
 And yes, special thanks to Claude Code for its accidental source-map-powered "open-source release". That unplanned peek behind the curtain made a lot of ideas easier to study, compare, and rebuild properly in the open.
 

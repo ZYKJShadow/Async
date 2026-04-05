@@ -1,8 +1,10 @@
 /**
- * Rasterize docs/assets/async-logo.svg → resources/icons/icon.png (256×256).
- * Run: node scripts/export-app-icon.mjs (requires devDependency `sharp`).
+ * Rasterize docs/assets/async-logo.svg into:
+ * - resources/icons/icon.png
+ * - resources/icons/icon.ico
+ * - public/favicon.png
  */
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,18 +13,19 @@ const root = path.join(__dirname, '..');
 const svgPath = path.join(root, 'docs', 'assets', 'async-logo.svg');
 const outDir = path.join(root, 'resources', 'icons');
 const outPng = path.join(outDir, 'icon.png');
+const outIco = path.join(outDir, 'icon.ico');
 const publicDir = path.join(root, 'public');
 const faviconPng = path.join(publicDir, 'favicon.png');
 
 const sharp = (await import('sharp')).default;
+const pngToIco = (await import('png-to-ico')).default;
 
 await mkdir(outDir, { recursive: true });
 await mkdir(publicDir, { recursive: true });
 const svg = await readFile(svgPath);
 
-// 深色圆角底（四角透明）+ 居中 LOGO
 const size = 256;
-const cornerRadius = Math.round(size * 0.156); // ~40px，略圆但不「药丸」
+const cornerRadius = Math.round(size * 0.156);
 const logoPx = Math.round(size * 0.86);
 
 const roundedPlateSvg = Buffer.from(
@@ -33,12 +36,19 @@ const roundedPlateSvg = Buffer.from(
 
 const plate = await sharp(roundedPlateSvg).ensureAlpha().png().toBuffer();
 const logo = await sharp(svg).resize(logoPx, logoPx).png().toBuffer();
-
-await sharp(plate)
+const appIconPng = await sharp(plate)
 	.composite([{ input: logo, gravity: 'center' }])
 	.png()
-	.toFile(outPng);
+	.toBuffer();
 
-await sharp(outPng).resize(32, 32).png().toFile(faviconPng);
+await writeFile(outPng, appIconPng);
 
-console.log('[export-app-icon] wrote', outPng, 'and', faviconPng);
+const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+const icoFrames = await Promise.all(
+	icoSizes.map((sizePx) => sharp(appIconPng).resize(sizePx, sizePx).png().toBuffer()),
+);
+await writeFile(outIco, await pngToIco(icoFrames));
+
+await sharp(appIconPng).resize(32, 32).png().toFile(faviconPng);
+
+console.log('[export-app-icon] wrote', outPng, outIco, 'and', faviconPng);

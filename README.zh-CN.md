@@ -1,4 +1,4 @@
-# Async Shell
+# Async IDE
 
 <p align="center">
   <img src="docs/assets/async-logo-desktop.svg" width="120" height="120" alt="Async Logo" />
@@ -30,7 +30,7 @@
 
 你可以把它理解成一个 AI 原生桌面工作区：Agent、Monaco 编辑器、Git、Diff 审阅、终端都放在一起，但底层是透明的、可以自己研究也可以自己改。项目使用 **Apache 2.0** 协议，模型接入走 **BYOK**，线程、设置、计划默认都是 **本地优先**。
 
-| 维度 | **Cursor** | **Async Shell** |
+| 维度 | **Cursor** | **Async IDE** |
 | --- | --- | --- |
 | **交付方式** | 商业产品 | **开源代码**，可读、可改、可自建 |
 | **模型接入** | 平台内计费 / 集成 | **BYOK**，支持 OpenAI、Anthropic、Gemini 和兼容接口 |
@@ -39,9 +39,9 @@
 
 ---
 
-## Async Shell 是什么？
+## Async IDE 是什么？
 
-Async Shell 是一款开源的 AI 原生桌面应用，定位是你和 Agent 之间的主战场。它不是那种缝在编辑器侧边的聊天插件，而是从 **Agent 循环**出发，把多模型对话、自主工具执行、审阅确认都塞进同一个工作区里。
+Async IDE 是一款开源的 AI 原生桌面应用，定位是你和 Agent 之间的主战场。它不是那种缝在编辑器侧边的聊天插件，而是从 **Agent 循环**出发，把多模型对话、自主工具执行、审阅确认都塞进同一个工作区里。
 
 ### 为什么选 Async？
 
@@ -239,7 +239,7 @@ npm run icons
 
 ## 致谢
 
-确实也得认真感谢一下 Claude Code 带来的“开源时刻”，Async Shell 这种开源替代方案，也算是间接受益者之一。
+确实也得认真感谢一下 Claude Code 带来的“开源时刻”，Async IDE 这种开源替代方案，也算是间接受益者之一。
 
 ---
 

@@ -1,5 +1,5 @@
 {
-  "name": "async-shell",
+  "name": "async-ide",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -17,8 +17,53 @@
     "dev": "npm run build:main && node scripts/free-port-5173.mjs && concurrently -k \"npm run build:main:watch\" \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "dev:debug": "npm run build:main && node scripts/free-port-5173.mjs && concurrently -k \"npm run build:main:watch\" \"vite\" \"wait-on http://127.0.0.1:5173 && cross-env ASYNC_SHELL_DEVTOOLS=1 electron .\"",
     "start:electron": "npm run desktop",
+    "rebuild:native": "electron-builder install-app-deps",
+    "release:win": "npm run build && npm run icons && npm run rebuild:native && electron-builder --win nsis msi --x64 --publish never",
+    "release:win:dir": "npm run build && npm run icons && npm run rebuild:native && electron-builder --win dir --x64 --publish never",
     "test": "vitest run",
     "test:watch": "vitest"
+  },
+  "build": {
+    "appId": "com.asyncshell.app",
+    "productName": "Async IDE",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "resources/**/*",
+      "node_modules/**/*",
+      "package.json",
+      "!electron/**/*.map"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "win": {
+      "icon": "resources/icons/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "msi",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true
+    }
   },
   "devDependencies": {
     "@types/diff": "^5.2.3",
@@ -29,7 +74,9 @@
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
     "electron": "41.1.0",
+    "electron-builder": "^26.8.1",
     "esbuild": "^0.24.2",
+    "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5",
     "typescript": "^5.9.3",
     "vite": "^6.0.3",
