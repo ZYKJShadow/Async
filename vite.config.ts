@@ -6,8 +6,19 @@ export default defineConfig({
 	base: './',
 	root: '.',
 	build: {
+		target: 'esnext',
 		outDir: 'dist',
 		emptyOutDir: true,
+		rollupOptions: {
+			output: {
+				manualChunks: {
+					monaco: ['monaco-editor'],
+				},
+			},
+		},
+	},
+	optimizeDeps: {
+		include: ['monaco-editor', 'react', 'react-dom'],
 	},
 	server: {
 		host: '127.0.0.1',
