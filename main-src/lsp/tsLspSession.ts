@@ -93,7 +93,7 @@ export class TsLspSession {
 
 		await this.connection.sendRequest('initialize' as never, {
 			processId: null,
-			clientInfo: { name: 'async-shell', version: '0.0.1' },
+			clientInfo: { name: 'async-shell', version: '0.0.2' },
 			rootUri,
 			capabilities: {
 				textDocument: {

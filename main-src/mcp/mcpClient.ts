@@ -21,7 +21,7 @@ import type {
 import type { McpClientLike } from './mcpToolResolve.js';
 
 const DEFAULT_TIMEOUT = 30_000;
-const ASYNC_SHELL_MCP_VERSION = '0.0.1';
+const ASYNC_SHELL_MCP_VERSION = '0.0.2';
 
 function mergeStdioEnv(extra?: Record<string, string>): Record<string, string> {
 	const out: Record<string, string> = { ...getDefaultEnvironment() };
