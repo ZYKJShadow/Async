@@ -75,17 +75,12 @@ export function useGitIntegration(shell: Shell | undefined, workspace: string | 
 		void refreshGit();
 	}, [workspace, shell, refreshGit]);
 
-	// 文件系统变化时刷新 git 状态
-	useEffect(() => {
-		const sub = shell?.subscribeWorkspaceFsTouched;
-		if (!shell || !sub) {
-			return;
-		}
-		const unsub = sub(() => {
-			void refreshGit();
-		});
-		return unsub;
-	}, [shell, refreshGit]);
+	// 注意：已移除文件系统变化时的自动刷新
+	// Git 状态现在只在以下场景刷新：
+	// 1. workspace 变化时
+	// 2. 用户打开源代码管理视图时（由组件手动调用 refreshGit）
+	// 3. AI 修改代码后（agent review/commit/revert 等操作）
+	// 这样可以避免高频的文件系统事件导致不必要的 Git 命令执行
 
 	// diffPreviews 懒加载：在 gitChangedPaths 稳定后异步拉取，不阻塞 refreshGit 关键路径
 	const diffPreviewsGenRef = useRef(0);

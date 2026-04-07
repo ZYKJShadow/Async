@@ -1,4 +1,4 @@
-import { memo, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react';
+import { memo, useEffect, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react';
 import { AgentFilePreviewPanel } from './AgentFilePreviewPanel';
 import { ChatMarkdown } from './ChatMarkdown';
 import { VoidSelect } from './VoidSelect';
@@ -226,6 +226,12 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 	onCommitAndPush,
 	gitActionError,
 }: AgentRightSidebarProps) {
+	// 用户打开 Git 视图时刷新状态
+	useEffect(() => {
+		if (view === 'git' && open) {
+			void refreshGit();
+		}
+	}, [view, open, refreshGit]);
 	const agentFilePreviewTitle =
 		agentFilePreview?.relPath?.split('/').pop() || agentFilePreview?.relPath || t('app.filePreview');
 	const gitTitle =

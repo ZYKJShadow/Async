@@ -6869,6 +6869,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 .ref-model-pill {
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: 8px;
 	padding: 8px 14px;
 	border-radius: var(--void-pill);
@@ -9785,12 +9786,12 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	color: var(--void-fg-3);
 	font-size: 12px;
 	cursor: pointer;
-	padding: 4px 0 4px 2px;
+	padding: 4px 6px;
 	border-radius: 6px;
 	opacity: 0;
 	pointer-events: none;
 	font-family: inherit;
-	text-align: right;
+	text-align: center;
 	white-space: nowrap;
 	line-height: 1.35;
 	flex-shrink: 0;
