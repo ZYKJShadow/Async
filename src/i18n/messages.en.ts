@@ -453,10 +453,6 @@ export const messagesEn: Record<string, string> = {
 	'settings.general.lead3': ' in the sidebar.',
 	'settings.language': 'Display language',
 	'settings.languageHint': 'Applies immediately; saved to local settings.',
-	'settings.layoutMode': 'Default workspace layout',
-	'settings.layoutModeHint': 'Switch between the Agent workspace and the Editor workspace.',
-	'settings.layoutModeAgent': 'Agent',
-	'settings.layoutModeEditor': 'Editor',
 	'settings.languageZh': '简体中文',
 	'settings.languageEn': 'English',
 	'settings.modelsHint':

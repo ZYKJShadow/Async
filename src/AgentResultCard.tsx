@@ -106,8 +106,8 @@ export function AgentResultCard({
 	onOpenFile,
 	animateLineReveal = false,
 }: Props) {
-	/** read / list_dir 结果通常行数多，不做「快速逐行列出」动画 */
-	const enableLineRevealAnim = animateLineReveal && kind !== 'read' && kind !== 'dir';
+	/** 所有结果类型都不使用逐行动画，直接显示全文 */
+	const enableLineRevealAnim = false;
 
 	const [expanded, setExpanded] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);

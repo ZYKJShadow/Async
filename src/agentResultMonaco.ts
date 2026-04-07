@@ -124,7 +124,8 @@ async function colorizeJoinedLinesDirect(
 	try {
 		const monaco = await getMonaco();
 		monaco.editor.setTheme(getVoidMonacoThemeFromDom());
-		const html = await monaco.editor.colorize(text, languageId, { tabSize: 2 });
+		// 确保语言已被 Monaco 识别
+		const html = await monaco.editor.colorize(text, languageId, {});
 		let out = splitMonacoColorizedHtml(html);
 		if (out.length < lines.length) {
 			while (out.length < lines.length) out.push('');

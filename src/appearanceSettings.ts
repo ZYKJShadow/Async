@@ -994,6 +994,10 @@ export function shouldMigrateChromeWhenLeavingScheme(appearance: AppAppearanceSe
 	if (appearanceMatchesBuiltinChromeSeed(appearance, fromScheme)) {
 		return true;
 	}
+	// Cursor 主题也需要迁移
+	if (appearanceMatchesThemePreset(appearance, 'cursor', fromScheme)) {
+		return true;
+	}
 	if (fromScheme === 'dark') {
 		return appearanceUsesUnambiguousDarkAutoChrome(appearance) || matchesLegacyIndexBuiltin(appearance, 'dark');
 	}

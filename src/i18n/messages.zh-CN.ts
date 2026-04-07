@@ -455,10 +455,6 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.general.lead3': ' 配置。',
 	'settings.language': '界面语言',
 	'settings.languageHint': '切换后立即生效；将保存到本机设置。',
-	'settings.layoutMode': '默认工作区布局',
-	'settings.layoutModeHint': '在 Agent 工作区和 Editor 工作区之间切换。',
-	'settings.layoutModeAgent': 'Agent',
-	'settings.layoutModeEditor': 'Editor',
 	'settings.languageZh': '简体中文',
 	'settings.languageEn': 'English',
 	'settings.modelsHint':

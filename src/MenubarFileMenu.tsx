@@ -20,6 +20,7 @@ export type MenubarFileMenuProps = {
 	shortcutSave: string;
 	onNewFile: () => void;
 	onNewWindow: () => void;
+	onNewEditorWindow: () => void;
 	onOpenFile: () => void;
 	onOpenFolder: () => void;
 	onOpenRecentPath: (absPath: string) => void;
@@ -49,6 +50,7 @@ export function MenubarFileMenu({
 	shortcutSave,
 	onNewFile,
 	onNewWindow,
+	onNewEditorWindow,
 	onOpenFile,
 	onOpenFolder,
 	onOpenRecentPath,
@@ -89,6 +91,18 @@ export function MenubarFileMenu({
 				}}
 			>
 				<span>{t('app.fileMenu.newWindow')}</span>
+			</button>
+			<button
+				type="button"
+				role="menuitem"
+				className="ref-menu-dropdown-item ref-menu-dropdown-item--row"
+				disabled={!isDesktopShell}
+				onClick={() => {
+					onNewEditorWindow();
+					onClose();
+				}}
+			>
+				<span>{t('app.fileMenu.newEditorWindow')}</span>
 			</button>
 			<div className="ref-menu-dropdown-sep" role="separator" />
 			<button

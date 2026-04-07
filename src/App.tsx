@@ -6361,8 +6361,6 @@ function AppMainWorkspaceInner() {
 								effectiveColorScheme={effectiveScheme}
 								appearanceSettings={appearanceSettings}
 								onChangeAppearanceSettings={setAppearanceSettings}
-								layoutMode={layoutMode}
-								onChangeLayoutMode={(next) => void switchLayoutModeFromSettings(next)}
 							/>
 						</Suspense>
 					</div>

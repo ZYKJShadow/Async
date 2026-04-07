@@ -168,6 +168,7 @@ export const AppMenubar = memo(function AppMenubar(props: AppMenubarProps) {
 								shortcutSave={saveShortcutLabel()}
 								onNewFile={onNewFile}
 								onNewWindow={onNewWindow}
+								onNewEditorWindow={onNewEditorWindow}
 								onOpenFile={onOpenFile}
 								onOpenFolder={onOpenFolder}
 								onOpenRecentPath={onOpenRecentPath}
