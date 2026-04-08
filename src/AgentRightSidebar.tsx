@@ -12,18 +12,19 @@ import {
 	IconArrowUpRight,
 } from './icons';
 import type { TFunction } from './i18n';
-import type { ModelPickerItem } from './ModelPickerDropdown';
 import type { PlanTodoItem, ParsedPlan } from './planParser';
-import { gitUnavailableCopy, type GitUnavailableReason } from './gitAvailability';
+import {
+	classifyGitUnavailableReason,
+	gitUnavailableCopy,
+	type GitUnavailableReason,
+} from './gitAvailability';
 import type { AgentFilePreviewState } from './hooks/useAgentFileReview';
-import type { GitPathStatusMap } from './WorkspaceExplorer';
 import { AgentGitScmChangedCards } from './GitScmVirtualLists';
+import { useAppShellChrome, useAppShellGit, useAppShellSettings } from './app/appShellContexts';
 
 type AgentRightSidebarView = 'git' | 'plan' | 'file';
-type DiffPreview = { diff: string; isBinary: boolean; additions: number; deletions: number };
 
 export type AgentRightSidebarProps = {
-	t: TFunction;
 	open: boolean;
 	view: AgentRightSidebarView;
 	hasAgentPlanSidebarContent: boolean;
@@ -36,7 +37,6 @@ export type AgentRightSidebarProps = {
 	planFilePath: string | null;
 	agentPlanBuildModelId: string;
 	setAgentPlanBuildModelId: Dispatch<SetStateAction<string>>;
-	modelPickerItems: ModelPickerItem[];
 	awaitingReply: boolean;
 	agentPlanEffectivePlan: ParsedPlan | null;
 	onPlanBuild: (modelId: string) => void;
@@ -61,22 +61,11 @@ export type AgentRightSidebarProps = {
 	onAcceptAgentFilePreviewHunk: (patch: string) => void;
 	onRevertAgentFilePreviewHunk: (patch: string) => void;
 	agentFilePreviewBusyPatch: string | null;
-	changeCount: number;
-	gitUnavailableReason: GitUnavailableReason;
-	gitLines: string[];
-	refreshGit: () => void;
-	gitBranch: string;
-	diffTotals: { additions: number; deletions: number };
-	gitChangedPaths: string[];
-	diffPreviews: Record<string, DiffPreview>;
-	gitPathStatus: GitPathStatusMap;
-	diffLoading: boolean;
 	onOpenGitDiff: (rel: string, diff: string | null) => void;
 	commitMsg: string;
 	setCommitMsg: Dispatch<SetStateAction<string>>;
 	onCommitOnly: () => void;
 	onCommitAndPush: () => void;
-	gitActionError: string | null;
 };
 
 type CommitAction = 'commit' | 'commit-push' | 'commit-pr';
@@ -282,8 +271,485 @@ function RightSidebarTabs({
 	);
 }
 
+/** Plan 面板：`modelPickerItems` 来自 Settings context，避免仅模型列表变化时整份 sidebar props 失效。 */
+const AgentRightSidebarPlanPanel = memo(function AgentRightSidebarPlanPanel({
+	hasAgentPlanSidebarContent,
+	closeSidebar,
+	openView,
+	planPreviewTitle,
+	planPreviewMarkdown,
+	planDocumentMarkdown,
+	planFileRelPath,
+	planFilePath,
+	agentPlanBuildModelId,
+	setAgentPlanBuildModelId,
+	awaitingReply,
+	agentPlanEffectivePlan,
+	onPlanBuild,
+	planReviewIsBuilt,
+	agentPlanTodoDoneCount,
+	agentPlanTodos,
+	onPlanAddTodo,
+	planTodoDraftOpen,
+	planTodoDraftInputRef,
+	planTodoDraftText,
+	setPlanTodoDraftText,
+	onPlanAddTodoSubmit,
+	onPlanAddTodoCancel,
+	onPlanTodoToggle,
+}: {
+	hasAgentPlanSidebarContent: boolean;
+	closeSidebar: () => void;
+	openView: (view: AgentRightSidebarView) => void;
+	planPreviewTitle: string;
+	planPreviewMarkdown: string;
+	planDocumentMarkdown: string;
+	planFileRelPath: string | null;
+	planFilePath: string | null;
+	agentPlanBuildModelId: string;
+	setAgentPlanBuildModelId: Dispatch<SetStateAction<string>>;
+	awaitingReply: boolean;
+	agentPlanEffectivePlan: ParsedPlan | null;
+	onPlanBuild: (modelId: string) => void;
+	planReviewIsBuilt: boolean;
+	agentPlanTodoDoneCount: number;
+	agentPlanTodos: PlanTodoItem[];
+	onPlanAddTodo: () => void;
+	planTodoDraftOpen: boolean;
+	planTodoDraftInputRef: RefObject<HTMLInputElement | null>;
+	planTodoDraftText: string;
+	setPlanTodoDraftText: Dispatch<SetStateAction<string>>;
+	onPlanAddTodoSubmit: () => void;
+	onPlanAddTodoCancel: () => void;
+	onPlanTodoToggle: (id: string) => void;
+}) {
+	const { t } = useAppShellChrome();
+	const { modelPickerItems } = useAppShellSettings();
+
+	return (
+		<div className="ref-agent-plan-doc-shell">
+			{planPreviewMarkdown ? (
+				<section className="ref-agent-plan-doc" aria-label={t('app.tabPlan')}>
+					<div className="ref-agent-plan-doc-toolbar">
+						<div className="ref-agent-plan-doc-title-stack">
+							<span className="ref-agent-plan-doc-label">{t('app.tabPlan')}</span>
+							<span className="ref-agent-plan-doc-title">{planPreviewTitle || t('app.planSidebarWaiting')}</span>
+							{planFileRelPath || planFilePath ? (
+								<span className="ref-agent-plan-doc-path">{planFileRelPath ?? planFilePath}</span>
+							) : null}
+						</div>
+						<div className="ref-agent-plan-doc-toolbar-actions">
+							<RightSidebarTabs
+								t={t}
+								hasPlan={hasAgentPlanSidebarContent}
+								activeView="plan"
+								openView={openView}
+								closeSidebar={closeSidebar}
+							/>
+						</div>
+					</div>
+					<div className="ref-agent-plan-doc-scroll">
+						<div className="ref-agent-plan-doc-surface">
+							<div className="ref-agent-plan-doc-surface-tools">
+								<VoidSelect
+									variant="compact"
+									className="ref-agent-plan-model-inline"
+									ariaLabel={t('plan.review.model')}
+									value={agentPlanBuildModelId}
+									disabled={modelPickerItems.length === 0}
+									onChange={setAgentPlanBuildModelId}
+									options={[
+										{ value: '', label: t('plan.review.pickModel'), disabled: true },
+										...modelPickerItems.map((m) => ({ value: m.id, label: m.label })),
+									]}
+								/>
+								<button
+									type="button"
+									className="ref-agent-plan-build-btn"
+									disabled={
+										awaitingReply ||
+										!agentPlanEffectivePlan ||
+										!agentPlanBuildModelId.trim() ||
+										modelPickerItems.length === 0
+									}
+									onClick={() => onPlanBuild(agentPlanBuildModelId)}
+								>
+									{t('plan.review.build')}
+								</button>
+								{planReviewIsBuilt ? (
+									<span className="ref-agent-plan-built-chip" role="status">
+										{t('app.planEditorBuilt')}
+									</span>
+								) : null}
+							</div>
+							<div className="ref-agent-plan-doc-markdown ref-agent-plan-preview-markdown">
+								<ChatMarkdown content={planDocumentMarkdown} />
+							</div>
+							<div className="ref-agent-plan-doc-todos">
+								<div className="ref-agent-plan-doc-todos-head">
+									<div className="ref-agent-plan-doc-todos-title-wrap">
+										<span className="ref-agent-plan-doc-todos-title">
+											{t('plan.review.todo', {
+												done: String(agentPlanTodoDoneCount),
+												total: String(agentPlanTodos.length),
+											})}
+										</span>
+										<span className="ref-agent-plan-doc-todos-note">{t('plan.review.label')}</span>
+									</div>
+									<button
+										type="button"
+										className="ref-agent-plan-doc-add-todo-btn ref-agent-plan-add-todo-btn"
+										disabled={!agentPlanEffectivePlan}
+										onClick={onPlanAddTodo}
+									>
+										{t('plan.review.addTodo')}
+									</button>
+								</div>
+								{planTodoDraftOpen ? (
+									<div className="ref-agent-plan-doc-todo-draft">
+										<input
+											ref={planTodoDraftInputRef}
+											type="text"
+											className="ref-agent-plan-doc-todo-draft-input"
+											value={planTodoDraftText}
+											placeholder={t('plan.review.addTodoPrompt')}
+											onChange={(e) => setPlanTodoDraftText(e.target.value)}
+											onKeyDown={(e) => {
+												if (e.key === 'Enter') {
+													e.preventDefault();
+													onPlanAddTodoSubmit();
+												} else if (e.key === 'Escape') {
+													e.preventDefault();
+													onPlanAddTodoCancel();
+												}
+											}}
+										/>
+										<div className="ref-agent-plan-doc-todo-draft-actions">
+											<button
+												type="button"
+												className="ref-plan-brief-review-btn"
+												onClick={onPlanAddTodoCancel}
+											>
+												{t('common.cancel')}
+											</button>
+											<button
+												type="button"
+												className="ref-agent-plan-build-btn ref-agent-plan-build-btn--draft"
+												disabled={!planTodoDraftText.trim()}
+												onClick={onPlanAddTodoSubmit}
+											>
+												{t('common.save')}
+											</button>
+										</div>
+									</div>
+								) : null}
+								<div className="ref-agent-plan-doc-todos-list">
+									{agentPlanTodos.length > 0 ? (
+										agentPlanTodos.map((todo) => (
+											<button
+												key={todo.id}
+												type="button"
+												className={`ref-plan-todo ${todo.status === 'completed' ? 'is-done' : ''}`}
+												onClick={() => onPlanTodoToggle(todo.id)}
+											>
+												<input
+													type="checkbox"
+													checked={todo.status === 'completed'}
+													readOnly
+													tabIndex={-1}
+												/>
+												<span className="ref-plan-todo-text">{todo.content}</span>
+											</button>
+										))
+									) : (
+										<div className="ref-agent-plan-doc-empty-todos">{t('plan.review.todoEmpty')}</div>
+									)}
+								</div>
+							</div>
+						</div>
+					</div>
+				</section>
+			) : (
+				<section className="ref-agent-plan-status-card ref-agent-plan-status-card--doc" aria-live="polite">
+					<div className="ref-agent-plan-doc-toolbar">
+						<div className="ref-agent-plan-doc-title-stack">
+							<span className="ref-agent-plan-doc-label">{t('app.tabPlan')}</span>
+							<span className="ref-agent-plan-status-title">{t('app.planSidebarWaiting')}</span>
+						</div>
+						<RightSidebarTabs
+							t={t}
+							hasPlan={hasAgentPlanSidebarContent}
+							activeView="plan"
+							openView={openView}
+							closeSidebar={closeSidebar}
+						/>
+					</div>
+					<div className="ref-agent-plan-status-main">
+						<div className="ref-agent-plan-status-title">{t('app.planSidebarWaiting')}</div>
+						<p className="ref-agent-plan-status-body">{t('app.planSidebarDescription')}</p>
+					</div>
+				</section>
+			)}
+		</div>
+	);
+});
+
+const AgentRightSidebarFilePanel = memo(function AgentRightSidebarFilePanel({
+	hasAgentPlanSidebarContent,
+	closeSidebar,
+	openView,
+	agentFilePreview,
+	openFileInTab,
+	onAcceptAgentFilePreviewHunk,
+	onRevertAgentFilePreviewHunk,
+	agentFilePreviewBusyPatch,
+}: {
+	hasAgentPlanSidebarContent: boolean;
+	closeSidebar: () => void;
+	openView: (view: AgentRightSidebarView) => void;
+	agentFilePreview: AgentFilePreviewState | null;
+	openFileInTab: AgentRightSidebarProps['openFileInTab'];
+	onAcceptAgentFilePreviewHunk: (patch: string) => void;
+	onRevertAgentFilePreviewHunk: (patch: string) => void;
+	agentFilePreviewBusyPatch: string | null;
+}) {
+	const { t } = useAppShellChrome();
+	const agentFilePreviewTitle =
+		agentFilePreview?.relPath?.split('/').pop() || agentFilePreview?.relPath || t('app.filePreview');
+
+	return agentFilePreview ? (
+		<div className="ref-agent-review-shell">
+			<div className="ref-agent-review-head">
+				<div className="ref-agent-review-title-stack">
+					<span className="ref-agent-review-kicker">{t('app.filePreview')}</span>
+					<span className="ref-agent-review-title">{agentFilePreviewTitle}</span>
+				</div>
+				<RightSidebarTabs
+					t={t}
+					hasPlan={hasAgentPlanSidebarContent}
+					activeView="file"
+					openView={openView}
+					closeSidebar={closeSidebar}
+				/>
+			</div>
+			<div className="ref-right-panel-stage">
+				<AgentFilePreviewPanel
+					filePath={agentFilePreview.relPath}
+					content={agentFilePreview.content}
+					diff={agentFilePreview.diff}
+					loading={agentFilePreview.loading}
+					readError={agentFilePreview.readError}
+					isBinary={agentFilePreview.isBinary}
+					revealLine={agentFilePreview.revealLine}
+					revealEndLine={agentFilePreview.revealEndLine}
+					onOpenInEditor={() =>
+						openFileInTab(
+							agentFilePreview.relPath,
+							agentFilePreview.revealLine,
+							agentFilePreview.revealEndLine,
+							{
+								diff: agentFilePreview.diff,
+								allowReviewActions: agentFilePreview.reviewMode === 'snapshot',
+							}
+						)
+					}
+					onAcceptHunk={
+						agentFilePreview.reviewMode === 'snapshot'
+							? (patch) => onAcceptAgentFilePreviewHunk(patch)
+							: undefined
+					}
+					onRevertHunk={
+						agentFilePreview.reviewMode === 'snapshot'
+							? (patch) => onRevertAgentFilePreviewHunk(patch)
+							: undefined
+					}
+					busyHunkPatch={agentFilePreviewBusyPatch}
+				/>
+			</div>
+		</div>
+	) : (
+		<div className="ref-agent-review-shell">
+			<div className="ref-agent-review-head">
+				<div className="ref-agent-review-title-stack">
+					<span className="ref-agent-review-kicker">{t('app.filePreview')}</span>
+					<span className="ref-agent-review-title">{t('app.filePreview')}</span>
+				</div>
+				<RightSidebarTabs
+					t={t}
+					hasPlan={hasAgentPlanSidebarContent}
+					activeView="file"
+					openView={openView}
+					closeSidebar={closeSidebar}
+				/>
+			</div>
+			<div className="ref-right-panel-stage">
+				<div className="ref-agent-plan-status-main">
+					<div className="ref-agent-plan-status-title">{t('app.filePreview')}</div>
+					<p className="ref-agent-plan-status-body">{t('app.selectFileToView')}</p>
+				</div>
+			</div>
+		</div>
+	);
+});
+
+/** Git 面板：只订阅 AppShell Git/Chrome context，父级因消息/流式重渲时若 Git 切片未变则可跳过本 subtree。 */
+const AgentRightSidebarGitPanel = memo(function AgentRightSidebarGitPanel({
+	hasAgentPlanSidebarContent,
+	gitViewActive,
+	openView,
+	closeSidebar,
+	onOpenGitDiff,
+	commitMsg,
+	setCommitMsg,
+	onCommitOnly,
+	onCommitAndPush,
+}: {
+	hasAgentPlanSidebarContent: boolean;
+	gitViewActive: boolean;
+	openView: (view: AgentRightSidebarView) => void;
+	closeSidebar: () => void;
+	onOpenGitDiff: (rel: string, diff: string | null) => void;
+	commitMsg: string;
+	setCommitMsg: Dispatch<SetStateAction<string>>;
+	onCommitOnly: () => void;
+	onCommitAndPush: () => void;
+}) {
+	const { t } = useAppShellChrome();
+	const {
+		gitBranch,
+		gitLines,
+		gitPathStatus,
+		gitChangedPaths,
+		gitStatusOk,
+		diffPreviews,
+		diffLoading,
+		gitActionError,
+		refreshGit,
+		diffTotals,
+	} = useAppShellGit();
+
+	const changeCount = gitChangedPaths.length;
+	const gitUnavailableReason: GitUnavailableReason = gitStatusOk
+		? 'none'
+		: classifyGitUnavailableReason(gitLines[0]);
+
+	useEffect(() => {
+		if (gitViewActive) {
+			void refreshGit();
+		}
+	}, [gitViewActive, refreshGit]);
+
+	const [showCommitModal, setShowCommitModal] = useState(false);
+	const gitTitle =
+		changeCount > 0 ? t('app.gitUncommitted', { count: String(changeCount) }) : t('app.gitNoChanges');
+
+	return (
+		<div className="ref-agent-review-shell">
+			<div className="ref-agent-review-head">
+				<div className="ref-agent-review-title-stack">
+					<span className="ref-agent-review-kicker">{t('app.tabGit')}</span>
+					<span className="ref-agent-review-title">{gitTitle}</span>
+				</div>
+				<div className="ref-agent-review-actions">
+					{gitUnavailableReason === 'none' && changeCount > 0 && (
+						<button
+							type="button"
+							className="ref-git-commit-btn-top"
+							onClick={() => setShowCommitModal(true)}
+						>
+							<IconGitSCM />
+							<span>{t('app.commit')}</span>
+							<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+								<path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+							</svg>
+						</button>
+					)}
+					<RightSidebarTabs
+						t={t}
+						hasPlan={hasAgentPlanSidebarContent}
+						activeView="git"
+						openView={openView}
+						closeSidebar={closeSidebar}
+					/>
+				</div>
+			</div>
+			<div className="ref-right-panel-stage">
+				<div className="ref-right-panel-view ref-right-panel-view--agent">
+					<div className="ref-right-git-stack">
+						<div className="ref-right-toolbar">
+							<button
+								type="button"
+								className="ref-icon-tile"
+								aria-label={t('app.gitRefreshAria')}
+								onClick={() => void refreshGit()}
+							>
+								<IconRefresh />
+							</button>
+							<span className="ref-local-label">{t('app.gitLocal')}</span>
+							<span className="ref-branch-chip">{gitBranch || 'master'}</span>
+						</div>
+						<div className="ref-git-summary ref-git-summary--rich">
+							{gitUnavailableReason !== 'none' ? (
+								<span className="ref-git-count ref-git-count--muted">
+									{gitUnavailableCopy(t, gitUnavailableReason).title}
+								</span>
+							) : changeCount > 0 ? (
+								<span className="ref-git-count">{t('app.gitUncommitted', { count: String(changeCount) })}</span>
+							) : (
+								<span className="ref-git-count ref-git-count--muted">{t('app.gitNoChanges')}</span>
+							)}
+							{gitUnavailableReason === 'none' && diffTotals.additions > 0 ? (
+								<span className="ref-git-stat-add">+{diffTotals.additions}</span>
+							) : null}
+							{gitUnavailableReason === 'none' && diffTotals.deletions > 0 ? (
+								<span className="ref-git-stat-del">-{diffTotals.deletions}</span>
+							) : null}
+						</div>
+						<div className="ref-git-body">
+							{gitUnavailableReason !== 'none' ? (
+								<GitUnavailableState t={t} reason={gitUnavailableReason} detail={gitLines[0] ?? ''} />
+							) : changeCount > 0 ? (
+								<AgentGitScmChangedCards
+									paths={gitChangedPaths}
+									diffPreviews={diffPreviews}
+									gitPathStatus={gitPathStatus}
+									diffLoading={diffLoading}
+									t={t}
+									onOpenGitDiff={onOpenGitDiff}
+								/>
+							) : null}
+							{gitUnavailableReason === 'none' && gitActionError ? (
+								<p className="ref-git-action-error">{gitActionError}</p>
+							) : null}
+						</div>
+					</div>
+				</div>
+			</div>
+
+			{showCommitModal ? (
+				<CommitModal
+					t={t}
+					gitBranch={gitBranch}
+					changeCount={changeCount}
+					diffTotals={diffTotals}
+					commitMsg={commitMsg}
+					setCommitMsg={setCommitMsg}
+					onClose={() => setShowCommitModal(false)}
+					onCommit={(action, includeUnstaged, isDraft) => {
+						setShowCommitModal(false);
+						if (action === 'commit') {
+							onCommitOnly();
+						} else if (action === 'commit-push') {
+							onCommitAndPush();
+						}
+					}}
+				/>
+			) : null}
+		</div>
+	);
+});
+
 export const AgentRightSidebar = memo(function AgentRightSidebar({
-	t,
 	open,
 	view,
 	hasAgentPlanSidebarContent,
@@ -296,7 +762,6 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 	planFilePath,
 	agentPlanBuildModelId,
 	setAgentPlanBuildModelId,
-	modelPickerItems,
 	awaitingReply,
 	agentPlanEffectivePlan,
 	onPlanBuild,
@@ -316,386 +781,71 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 	onAcceptAgentFilePreviewHunk,
 	onRevertAgentFilePreviewHunk,
 	agentFilePreviewBusyPatch,
-	changeCount,
-	gitUnavailableReason,
-	gitLines,
-	refreshGit,
-	gitBranch,
-	diffTotals,
-	gitChangedPaths,
-	diffPreviews,
-	gitPathStatus,
-	diffLoading,
 	onOpenGitDiff,
 	commitMsg,
 	setCommitMsg,
 	onCommitOnly,
 	onCommitAndPush,
-	gitActionError,
 }: AgentRightSidebarProps) {
-	// 用户打开 Git 视图时刷新状态
-	useEffect(() => {
-		if (view === 'git' && open) {
-			void refreshGit();
-		}
-	}, [view, open, refreshGit]);
-	
-	const [showCommitModal, setShowCommitModal] = useState(false);
-	
-	const agentFilePreviewTitle =
-		agentFilePreview?.relPath?.split('/').pop() || agentFilePreview?.relPath || t('app.filePreview');
-	const gitTitle =
-		changeCount > 0 ? t('app.gitUncommitted', { count: String(changeCount) }) : t('app.gitNoChanges');
+	const { t } = useAppShellChrome();
 
 	let content: ReactNode;
 
 	if (view === 'plan') {
 		content = (
-			<div className="ref-agent-plan-doc-shell">
-				{planPreviewMarkdown ? (
-					<section className="ref-agent-plan-doc" aria-label={t('app.tabPlan')}>
-						<div className="ref-agent-plan-doc-toolbar">
-							<div className="ref-agent-plan-doc-title-stack">
-								<span className="ref-agent-plan-doc-label">{t('app.tabPlan')}</span>
-								<span className="ref-agent-plan-doc-title">{planPreviewTitle || t('app.planSidebarWaiting')}</span>
-								{planFileRelPath || planFilePath ? (
-									<span className="ref-agent-plan-doc-path">{planFileRelPath ?? planFilePath}</span>
-								) : null}
-							</div>
-							<div className="ref-agent-plan-doc-toolbar-actions">
-								<RightSidebarTabs
-									t={t}
-									hasPlan={hasAgentPlanSidebarContent}
-									activeView="plan"
-									openView={openView}
-									closeSidebar={closeSidebar}
-								/>
-							</div>
-						</div>
-						<div className="ref-agent-plan-doc-scroll">
-							<div className="ref-agent-plan-doc-surface">
-								<div className="ref-agent-plan-doc-surface-tools">
-									<VoidSelect
-										variant="compact"
-										className="ref-agent-plan-model-inline"
-										ariaLabel={t('plan.review.model')}
-										value={agentPlanBuildModelId}
-										disabled={modelPickerItems.length === 0}
-										onChange={setAgentPlanBuildModelId}
-										options={[
-											{ value: '', label: t('plan.review.pickModel'), disabled: true },
-											...modelPickerItems.map((m) => ({ value: m.id, label: m.label })),
-										]}
-									/>
-									<button
-										type="button"
-										className="ref-agent-plan-build-btn"
-										disabled={
-											awaitingReply ||
-											!agentPlanEffectivePlan ||
-											!agentPlanBuildModelId.trim() ||
-											modelPickerItems.length === 0
-										}
-										onClick={() => onPlanBuild(agentPlanBuildModelId)}
-									>
-										{t('plan.review.build')}
-									</button>
-									{planReviewIsBuilt ? (
-										<span className="ref-agent-plan-built-chip" role="status">
-											{t('app.planEditorBuilt')}
-										</span>
-									) : null}
-								</div>
-								<div className="ref-agent-plan-doc-markdown ref-agent-plan-preview-markdown">
-									<ChatMarkdown content={planDocumentMarkdown} />
-								</div>
-								<div className="ref-agent-plan-doc-todos">
-									<div className="ref-agent-plan-doc-todos-head">
-										<div className="ref-agent-plan-doc-todos-title-wrap">
-											<span className="ref-agent-plan-doc-todos-title">
-												{t('plan.review.todo', {
-													done: String(agentPlanTodoDoneCount),
-													total: String(agentPlanTodos.length),
-												})}
-											</span>
-											<span className="ref-agent-plan-doc-todos-note">{t('plan.review.label')}</span>
-										</div>
-										<button
-											type="button"
-											className="ref-agent-plan-doc-add-todo-btn ref-agent-plan-add-todo-btn"
-											disabled={!agentPlanEffectivePlan}
-											onClick={onPlanAddTodo}
-										>
-											{t('plan.review.addTodo')}
-										</button>
-									</div>
-									{planTodoDraftOpen ? (
-										<div className="ref-agent-plan-doc-todo-draft">
-											<input
-												ref={planTodoDraftInputRef}
-												type="text"
-												className="ref-agent-plan-doc-todo-draft-input"
-												value={planTodoDraftText}
-												placeholder={t('plan.review.addTodoPrompt')}
-												onChange={(e) => setPlanTodoDraftText(e.target.value)}
-												onKeyDown={(e) => {
-													if (e.key === 'Enter') {
-														e.preventDefault();
-														onPlanAddTodoSubmit();
-													} else if (e.key === 'Escape') {
-														e.preventDefault();
-														onPlanAddTodoCancel();
-													}
-												}}
-											/>
-											<div className="ref-agent-plan-doc-todo-draft-actions">
-												<button
-													type="button"
-													className="ref-plan-brief-review-btn"
-													onClick={onPlanAddTodoCancel}
-												>
-													{t('common.cancel')}
-												</button>
-												<button
-													type="button"
-													className="ref-agent-plan-build-btn ref-agent-plan-build-btn--draft"
-													disabled={!planTodoDraftText.trim()}
-													onClick={onPlanAddTodoSubmit}
-												>
-													{t('common.save')}
-												</button>
-											</div>
-										</div>
-									) : null}
-									<div className="ref-agent-plan-doc-todos-list">
-										{agentPlanTodos.length > 0 ? (
-											agentPlanTodos.map((todo) => (
-												<button
-													key={todo.id}
-													type="button"
-													className={`ref-plan-todo ${todo.status === 'completed' ? 'is-done' : ''}`}
-													onClick={() => onPlanTodoToggle(todo.id)}
-												>
-													<input
-														type="checkbox"
-														checked={todo.status === 'completed'}
-														readOnly
-														tabIndex={-1}
-													/>
-													<span className="ref-plan-todo-text">{todo.content}</span>
-												</button>
-											))
-										) : (
-											<div className="ref-agent-plan-doc-empty-todos">{t('plan.review.todoEmpty')}</div>
-										)}
-									</div>
-								</div>
-							</div>
-						</div>
-					</section>
-				) : (
-					<section className="ref-agent-plan-status-card ref-agent-plan-status-card--doc" aria-live="polite">
-						<div className="ref-agent-plan-doc-toolbar">
-							<div className="ref-agent-plan-doc-title-stack">
-								<span className="ref-agent-plan-doc-label">{t('app.tabPlan')}</span>
-								<span className="ref-agent-plan-status-title">{t('app.planSidebarWaiting')}</span>
-							</div>
-							<RightSidebarTabs
-								t={t}
-								hasPlan={hasAgentPlanSidebarContent}
-								activeView="plan"
-								openView={openView}
-								closeSidebar={closeSidebar}
-							/>
-						</div>
-						<div className="ref-agent-plan-status-main">
-							<div className="ref-agent-plan-status-title">{t('app.planSidebarWaiting')}</div>
-							<p className="ref-agent-plan-status-body">{t('app.planSidebarDescription')}</p>
-						</div>
-					</section>
-				)}
-			</div>
+			<AgentRightSidebarPlanPanel
+				hasAgentPlanSidebarContent={hasAgentPlanSidebarContent}
+				closeSidebar={closeSidebar}
+				openView={openView}
+				planPreviewTitle={planPreviewTitle}
+				planPreviewMarkdown={planPreviewMarkdown}
+				planDocumentMarkdown={planDocumentMarkdown}
+				planFileRelPath={planFileRelPath}
+				planFilePath={planFilePath}
+				agentPlanBuildModelId={agentPlanBuildModelId}
+				setAgentPlanBuildModelId={setAgentPlanBuildModelId}
+				awaitingReply={awaitingReply}
+				agentPlanEffectivePlan={agentPlanEffectivePlan}
+				onPlanBuild={onPlanBuild}
+				planReviewIsBuilt={planReviewIsBuilt}
+				agentPlanTodoDoneCount={agentPlanTodoDoneCount}
+				agentPlanTodos={agentPlanTodos}
+				onPlanAddTodo={onPlanAddTodo}
+				planTodoDraftOpen={planTodoDraftOpen}
+				planTodoDraftInputRef={planTodoDraftInputRef}
+				planTodoDraftText={planTodoDraftText}
+				setPlanTodoDraftText={setPlanTodoDraftText}
+				onPlanAddTodoSubmit={onPlanAddTodoSubmit}
+				onPlanAddTodoCancel={onPlanAddTodoCancel}
+				onPlanTodoToggle={onPlanTodoToggle}
+			/>
 		);
 	} else if (view === 'file') {
-		content = agentFilePreview ? (
-			<div className="ref-agent-review-shell">
-				<div className="ref-agent-review-head">
-					<div className="ref-agent-review-title-stack">
-						<span className="ref-agent-review-kicker">{t('app.filePreview')}</span>
-						<span className="ref-agent-review-title">{agentFilePreviewTitle}</span>
-					</div>
-					<RightSidebarTabs
-						t={t}
-						hasPlan={hasAgentPlanSidebarContent}
-						activeView="file"
-						openView={openView}
-						closeSidebar={closeSidebar}
-					/>
-				</div>
-				<div className="ref-right-panel-stage">
-					<AgentFilePreviewPanel
-						filePath={agentFilePreview.relPath}
-						content={agentFilePreview.content}
-						diff={agentFilePreview.diff}
-						loading={agentFilePreview.loading}
-						readError={agentFilePreview.readError}
-						isBinary={agentFilePreview.isBinary}
-						revealLine={agentFilePreview.revealLine}
-						revealEndLine={agentFilePreview.revealEndLine}
-						onOpenInEditor={() =>
-							openFileInTab(
-								agentFilePreview.relPath,
-								agentFilePreview.revealLine,
-								agentFilePreview.revealEndLine,
-								{
-									diff: agentFilePreview.diff,
-									allowReviewActions: agentFilePreview.reviewMode === 'snapshot',
-								}
-							)
-						}
-						onAcceptHunk={
-							agentFilePreview.reviewMode === 'snapshot'
-								? (patch) => onAcceptAgentFilePreviewHunk(patch)
-								: undefined
-						}
-						onRevertHunk={
-							agentFilePreview.reviewMode === 'snapshot'
-								? (patch) => onRevertAgentFilePreviewHunk(patch)
-								: undefined
-						}
-						busyHunkPatch={agentFilePreviewBusyPatch}
-					/>
-				</div>
-			</div>
-		) : (
-			<div className="ref-agent-review-shell">
-				<div className="ref-agent-review-head">
-					<div className="ref-agent-review-title-stack">
-						<span className="ref-agent-review-kicker">{t('app.filePreview')}</span>
-						<span className="ref-agent-review-title">{t('app.filePreview')}</span>
-					</div>
-					<RightSidebarTabs
-						t={t}
-						hasPlan={hasAgentPlanSidebarContent}
-						activeView="file"
-						openView={openView}
-						closeSidebar={closeSidebar}
-					/>
-				</div>
-				<div className="ref-right-panel-stage">
-						<div className="ref-agent-plan-status-main">
-							<div className="ref-agent-plan-status-title">{t('app.filePreview')}</div>
-							<p className="ref-agent-plan-status-body">{t('app.selectFileToView')}</p>
-						</div>
-					</div>
-				</div>
+		content = (
+			<AgentRightSidebarFilePanel
+				hasAgentPlanSidebarContent={hasAgentPlanSidebarContent}
+				closeSidebar={closeSidebar}
+				openView={openView}
+				agentFilePreview={agentFilePreview}
+				openFileInTab={openFileInTab}
+				onAcceptAgentFilePreviewHunk={onAcceptAgentFilePreviewHunk}
+				onRevertAgentFilePreviewHunk={onRevertAgentFilePreviewHunk}
+				agentFilePreviewBusyPatch={agentFilePreviewBusyPatch}
+			/>
 		);
 	} else {
 		content = (
-			<div className="ref-agent-review-shell">
-				<div className="ref-agent-review-head">
-					<div className="ref-agent-review-title-stack">
-						<span className="ref-agent-review-kicker">{t('app.tabGit')}</span>
-						<span className="ref-agent-review-title">{gitTitle}</span>
-					</div>
-					<div className="ref-agent-review-actions">
-						{gitUnavailableReason === 'none' && changeCount > 0 && (
-							<button
-								type="button"
-								className="ref-git-commit-btn-top"
-								onClick={() => setShowCommitModal(true)}
-							>
-								<IconGitSCM />
-								<span>{t('app.commit')}</span>
-								<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-									<path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-								</svg>
-							</button>
-						)}
-						<RightSidebarTabs
-							t={t}
-							hasPlan={hasAgentPlanSidebarContent}
-							activeView="git"
-							openView={openView}
-							closeSidebar={closeSidebar}
-						/>
-					</div>
-				</div>
-				<div className="ref-right-panel-stage">
-					<div className="ref-right-panel-view ref-right-panel-view--agent">
-						<div className="ref-right-git-stack">
-							<div className="ref-right-toolbar">
-								<button
-									type="button"
-									className="ref-icon-tile"
-									aria-label={t('app.gitRefreshAria')}
-									onClick={refreshGit}
-								>
-									<IconRefresh />
-								</button>
-								<span className="ref-local-label">{t('app.gitLocal')}</span>
-								<span className="ref-branch-chip">{gitBranch || 'master'}</span>
-							</div>
-							<div className="ref-git-summary ref-git-summary--rich">
-								{gitUnavailableReason !== 'none' ? (
-									<span className="ref-git-count ref-git-count--muted">
-										{gitUnavailableCopy(t, gitUnavailableReason).title}
-									</span>
-								) : changeCount > 0 ? (
-									<span className="ref-git-count">{t('app.gitUncommitted', { count: String(changeCount) })}</span>
-								) : (
-									<span className="ref-git-count ref-git-count--muted">{t('app.gitNoChanges')}</span>
-								)}
-								{gitUnavailableReason === 'none' && diffTotals.additions > 0 ? (
-									<span className="ref-git-stat-add">+{diffTotals.additions}</span>
-								) : null}
-								{gitUnavailableReason === 'none' && diffTotals.deletions > 0 ? (
-									<span className="ref-git-stat-del">-{diffTotals.deletions}</span>
-								) : null}
-							</div>
-							<div className="ref-git-body">
-								{gitUnavailableReason !== 'none' ? (
-									<GitUnavailableState t={t} reason={gitUnavailableReason} detail={gitLines[0] ?? ''} />
-								) : changeCount > 0 ? (
-									<AgentGitScmChangedCards
-										paths={gitChangedPaths}
-										diffPreviews={diffPreviews}
-										gitPathStatus={gitPathStatus}
-										diffLoading={diffLoading}
-										t={t}
-										onOpenGitDiff={onOpenGitDiff}
-									/>
-								) : null}
-								{gitUnavailableReason === 'none' && gitActionError ? (
-									<p className="ref-git-action-error">{gitActionError}</p>
-								) : null}
-							</div>
-						</div>
-					</div>
-				</div>
-				
-				{showCommitModal && (
-					<CommitModal
-						t={t}
-						gitBranch={gitBranch}
-						changeCount={changeCount}
-						diffTotals={diffTotals}
-						commitMsg={commitMsg}
-						setCommitMsg={setCommitMsg}
-						onClose={() => setShowCommitModal(false)}
-						onCommit={(action, includeUnstaged, isDraft) => {
-							setShowCommitModal(false);
-							// TODO: Pass includeUnstaged and isDraft to commit functions
-							if (action === 'commit') {
-								onCommitOnly();
-							} else if (action === 'commit-push') {
-								onCommitAndPush();
-							}
-							// commit-pr can be implemented later
-						}}
-					/>
-				)}
-			</div>
+			<AgentRightSidebarGitPanel
+				hasAgentPlanSidebarContent={hasAgentPlanSidebarContent}
+				gitViewActive={open && view === 'git'}
+				openView={openView}
+				closeSidebar={closeSidebar}
+				onOpenGitDiff={onOpenGitDiff}
+				commitMsg={commitMsg}
+				setCommitMsg={setCommitMsg}
+				onCommitOnly={onCommitOnly}
+				onCommitAndPush={onCommitAndPush}
+			/>
 		);
 	}
 

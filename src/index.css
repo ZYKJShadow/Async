@@ -5115,6 +5115,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-scroll-jump-anchor {
 	position: relative;
+	width: 100%;
 	height: 0;
 	z-index: 8;
 	pointer-events: none;
@@ -5132,10 +5133,12 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-scroll-jump-btn {
 	position: absolute;
-	left: 50%;
+	left: 0;
+	right: 0;
 	bottom: 18px;
 	width: 38px;
 	height: 38px;
+	margin-inline: auto;
 	padding: 0;
 	border: 1px solid color-mix(in srgb, var(--void-border) 80%, transparent);
 	border-radius: 999px;
@@ -5147,12 +5150,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 		);
 	box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
 	color: var(--void-fg-1);
-	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	cursor: pointer;
 	pointer-events: auto;
 	backdrop-filter: blur(18px) saturate(1.08);
 	-webkit-backdrop-filter: blur(18px) saturate(1.08);
-	line-height: 0;
 	transition:
 		transform 0.18s ease,
 		background 0.18s ease,
@@ -5169,21 +5173,19 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 		);
 	border-color: color-mix(in srgb, var(--void-border) 100%, transparent);
 	color: var(--void-fg-0);
-	transform: translateX(-50%) translateY(-1px);
+	transform: translateY(-1px);
 }
 
 .ref-scroll-jump-btn:active {
-	transform: translateX(-50%) translateY(1px);
+	transform: translateY(1px);
 }
 
 .ref-scroll-jump-btn .ref-scroll-jump-btn-icon {
-	position: absolute;
-	left: calc(50% - 8px);
-	top: calc(50% - 8px);
 	width: 16px;
 	height: 16px;
 	margin: 0;
 	display: block;
+	flex-shrink: 0;
 }
 
 .ref-capsule {
@@ -6349,7 +6351,9 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-capsule--stacked-chat .ref-send-btn,
 .ref-capsule--stacked-chat .ref-mic-btn {
-	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .ref-capsule--stacked-chat .ref-send-btn {
@@ -6362,15 +6366,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	height: 32px;
 }
 
-/* 32px 圆钮 + 15px 图标 → 半像素留白；主栏变宽后抗锯齿变化显偏。16px + calc 贴齐整数格。 */
 .ref-capsule--stacked-chat .ref-send-btn .ref-send-icon,
 .ref-capsule--stacked-chat .ref-mic-btn .ref-mic-btn-svg {
-	position: absolute;
-	left: calc(50% - 8px);
-	top: calc(50% - 8px);
 	width: 16px;
 	height: 16px;
 	margin: 0;
+	display: block;
+	flex-shrink: 0;
 }
 
 .ref-capsule--stacked-chat .ref-model-pill {

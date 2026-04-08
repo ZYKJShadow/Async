@@ -5415,7 +5415,6 @@ function AppMainWorkspaceInner() {
 
 
 	const agentRightSidebarProps = useAgentRightSidebarProps({
-		t,
 		open: agentRightSidebarOpen,
 		view: agentRightSidebarView,
 		hasAgentPlanSidebarContent,
@@ -5429,7 +5428,6 @@ function AppMainWorkspaceInner() {
 		planFilePath,
 		agentPlanBuildModelId,
 		setAgentPlanBuildModelId,
-		modelPickerItems,
 		awaitingReply,
 		agentPlanEffectivePlan,
 		onPlanBuild,
@@ -5449,23 +5447,10 @@ function AppMainWorkspaceInner() {
 		onAcceptAgentFilePreviewHunk,
 		onRevertAgentFilePreviewHunk,
 		agentFilePreviewBusyPatch,
-		workspace,
-		changeCount,
-		gitUnavailableReason,
-		gitLines,
-		refreshGit,
-		loadGitDiffPreviews,
-		gitBranch,
-		diffTotals,
-		gitChangedPaths,
-		diffPreviews,
-		gitPathStatus,
-		diffLoading,
 		commitMsg,
 		setCommitMsg,
 		onCommitOnly,
 		onCommitAndPush,
-		gitActionError,
 	});
 
 	const editorMainPanelProps = useEditorMainPanelProps({
@@ -6016,13 +6001,8 @@ function AppMainWorkspaceInner() {
 					normalizedEditorSidebarSearchQuery={normalizedEditorSidebarSearchQuery}
 					editorSidebarSearchResults={editorSidebarSearchResults}
 					editorSidebarSearchInputRef={editorSidebarSearchInputRef}
-					gitUnavailableReason={gitUnavailableReason}
-					gitLines={gitLines}
-					gitChangedPaths={gitChangedPaths}
 					fileMenuNewFile={() => void fileMenuNewFile()}
 					revealWorkspaceInOs={(p) => void revealWorkspaceInOs(p)}
-					refreshGit={refreshGit}
-					loadGitDiffPreviews={loadGitDiffPreviews}
 					onExplorerOpenFile={(rel) => void onExplorerOpenFile(rel)}
 					setWorkspacePickerOpen={setWorkspacePickerOpen}
 					openSettingsPage={openSettingsPage}
