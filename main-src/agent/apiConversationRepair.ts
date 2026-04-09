@@ -20,15 +20,18 @@ const SYNTHETIC_ANTHROPIC_TOOL =
 	'Tool result unavailable: conversation pairing repair — missing or invalid tool response.';
 
 function dedupeOpenAIAssistantToolCalls(
-	assist: OpenAI.Chat.ChatCompletionAssistantMessageParam
+	assist: OpenAI.Chat.ChatCompletionAssistantMessageParam,
+	globalSeenToolCallIds?: Set<string>
 ): OpenAI.Chat.ChatCompletionAssistantMessageParam {
 	const tc = assist.tool_calls;
 	if (!tc?.length) return assist;
-	const seen = new Set<string>();
+	const seenLocal = new Set<string>();
 	const next = tc.filter((x) => {
 		const id = x.id;
-		if (!id || seen.has(id)) return false;
-		seen.add(id);
+		if (!id || seenLocal.has(id)) return false;
+		if (globalSeenToolCallIds?.has(id)) return false;
+		seenLocal.add(id);
+		globalSeenToolCallIds?.add(id);
 		return true;
 	});
 	return next.length === tc.length ? assist : { ...assist, tool_calls: next };
@@ -40,6 +43,8 @@ function dedupeOpenAIAssistantToolCalls(
  */
 export function repairOpenAIToolPairing(messages: OAIMsg[]): OAIMsg[] {
 	const out: OAIMsg[] = [];
+	/** 跨 assistant 消息去重 tool_call id（对齐 Claude Code `ensureToolResultPairing` / CC-1212） */
+	const globalSeenToolCallIds = new Set<string>();
 	let i = 0;
 	while (i < messages.length) {
 		const m = messages[i]!;
@@ -53,13 +58,15 @@ export function repairOpenAIToolPairing(messages: OAIMsg[]): OAIMsg[] {
 			const raw = m as OpenAI.Chat.ChatCompletionAssistantMessageParam;
 			const tc = raw.tool_calls;
 			if (Array.isArray(tc) && tc.length > 0) {
-				const assist = dedupeOpenAIAssistantToolCalls(raw);
+				const assist = dedupeOpenAIAssistantToolCalls(raw, globalSeenToolCallIds);
 				const idOrder = (assist.tool_calls ?? [])
 					.map((x) => x.id)
 					.filter((id): id is string => typeof id === 'string' && id.length > 0);
 				const ids = new Set(idOrder);
 				if (ids.size === 0) {
-					out.push(assist);
+					// 跨消息去重后无任何 tool_call 保留：避免向 API 提交空 tool_calls 数组
+					const { tool_calls: _tc, ...rest } = assist;
+					out.push({ ...rest, content: assist.content ?? null } as OAIMsg);
 					i++;
 					continue;
 				}
@@ -96,14 +103,18 @@ export function repairOpenAIToolPairing(messages: OAIMsg[]): OAIMsg[] {
 	return out;
 }
 
-function dedupeAnthropicAssistantToolUses(content: ContentBlockParam[]): ContentBlockParam[] {
-	const seen = new Set<string>();
+function dedupeAnthropicAssistantToolUses(
+	content: ContentBlockParam[],
+	globalSeenToolUseIds?: Set<string>
+): ContentBlockParam[] {
+	const seenLocal = new Set<string>();
 	const out: ContentBlockParam[] = [];
 	for (const b of content) {
 		if (b.type === 'tool_use') {
 			const id = b.id;
-			if (seen.has(id)) continue;
-			seen.add(id);
+			if (seenLocal.has(id) || globalSeenToolUseIds?.has(id)) continue;
+			seenLocal.add(id);
+			globalSeenToolUseIds?.add(id);
 		}
 		out.push(b);
 	}
@@ -115,12 +126,13 @@ function dedupeAnthropicAssistantToolUses(content: ContentBlockParam[]): Content
  */
 export function repairAnthropicToolPairing(messages: MessageParam[]): MessageParam[] {
 	const out: MessageParam[] = [];
+	const globalSeenToolUseIds = new Set<string>();
 	let i = 0;
 	while (i < messages.length) {
 		const m = messages[i]!;
 
 		if (m.role === 'assistant' && Array.isArray(m.content)) {
-			const dedupedContent = dedupeAnthropicAssistantToolUses(m.content);
+			const dedupedContent = dedupeAnthropicAssistantToolUses(m.content, globalSeenToolUseIds);
 			const toolUseIds: string[] = [];
 			for (const b of dedupedContent) {
 				if (b.type === 'tool_use') {
@@ -187,10 +199,23 @@ export function repairAnthropicToolPairing(messages: MessageParam[]): MessagePar
 		if (m.role === 'user') {
 			const c = m.content;
 			if (Array.isArray(c) && c.length > 0) {
-				const onlyTr = (c as ContentBlockParam[]).every((b) => b.type === 'tool_result');
+				const blocks = c as ContentBlockParam[];
+				const onlyTr = blocks.every((b) => b.type === 'tool_result');
 				if (onlyTr) {
 					const prev = out[out.length - 1];
 					if (!prev || prev.role !== 'assistant') {
+						// 对齐 CC：首条 transcript 仅为孤儿 tool_result 时剥离；若会清空且尚无输出，插入占位 user
+						if (out.length === 0) {
+							out.push({
+								role: 'user',
+								content: [
+									{
+										type: 'text',
+										text: '[Orphaned tool result removed due to conversation repair]',
+									},
+								],
+							});
+						}
 						i++;
 						continue;
 					}

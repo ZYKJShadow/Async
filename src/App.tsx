@@ -65,6 +65,10 @@ import {
 	userMessageToSegments,
 	type ComposerSegment,
 } from './composerSegments';
+import {
+	computeComposerContextUsedEstimate,
+	DEFAULT_CONTEXT_WINDOW_TOKENS_UI,
+} from './contextMeterFormat';
 import { getAtMentionRange } from './composerAtMention';
 import { textBeforeCaretForAt } from './composerRichDom';
 import { useComposerAtMention, type AtComposerSlot } from './useComposerAtMention';
@@ -666,6 +670,7 @@ function AppMainWorkspaceInner() {
 		clearInFlightIpcRouting,
 		streamThreadRef,
 		ipcInFlightChatThreadIdRef,
+		ipcStreamNonceRef,
 		offThreadStreamDraftsRef,
 		streamStartedAtRef,
 		firstTokenAtRef,
@@ -830,6 +835,7 @@ function AppMainWorkspaceInner() {
 		composerMode,
 		streamThreadRef,
 		ipcInFlightChatThreadIdRef,
+		ipcStreamNonceRef,
 		offThreadStreamDraftsRef,
 		streamingToolPreviewClearTimerRef,
 		setStreamingToolPreview,
@@ -1366,7 +1372,7 @@ function AppMainWorkspaceInner() {
 			setStreamingThinking('');
 			clearStreamingToolPreviewNow();
 			resetLiveAgentBlocks();
-			beginStream(targetThreadId);
+			const streamNonce = beginStream(targetThreadId);
 			setMessages((m) => [...m, { role: 'user', content: visible }]);
 
 			const r = (await shell.invoke('chat:send', {
@@ -1374,6 +1380,7 @@ function AppMainWorkspaceInner() {
 				text: '',
 				mode: 'agent',
 				modelId: defaultModel,
+				streamNonce,
 				skillCreator: { userNote: tailWire, scope },
 			})) as { ok?: boolean; error?: string };
 
@@ -1445,7 +1452,7 @@ function AppMainWorkspaceInner() {
 			setStreamingThinking('');
 			clearStreamingToolPreviewNow();
 			resetLiveAgentBlocks();
-			beginStream(targetThreadId);
+			const streamNonce = beginStream(targetThreadId);
 			setMessages((m) => [...m, { role: 'user', content: visible }]);
 
 			const r = (await shell.invoke('chat:send', {
@@ -1453,6 +1460,7 @@ function AppMainWorkspaceInner() {
 				text: '',
 				mode: 'agent',
 				modelId: defaultModel,
+				streamNonce,
 				ruleCreator: {
 					userNote: tailWire,
 					ruleScope,
@@ -1512,7 +1520,7 @@ function AppMainWorkspaceInner() {
 			setStreamingThinking('');
 			clearStreamingToolPreviewNow();
 			resetLiveAgentBlocks();
-			beginStream(targetThreadId);
+			const streamNonce = beginStream(targetThreadId);
 			setMessages((m) => [...m, { role: 'user', content: visible }]);
 
 			const r = (await shell.invoke('chat:send', {
@@ -1520,6 +1528,7 @@ function AppMainWorkspaceInner() {
 				text: '',
 				mode: 'agent',
 				modelId: defaultModel,
+				streamNonce,
 				subagentCreator: { userNote: tailWire, scope },
 			})) as { ok?: boolean; error?: string };
 
@@ -2739,12 +2748,16 @@ function AppMainWorkspaceInner() {
 				skills: agentCustomization.skills ?? [],
 				subagents: agentCustomization.subagents ?? [],
 				commands: agentCustomization.commands ?? [],
+				shellPermissionMode: agentCustomization.shellPermissionMode,
 				confirmShellCommands: agentCustomization.confirmShellCommands,
 				skipSafeShellCommandsConfirm: agentCustomization.skipSafeShellCommandsConfirm,
 				confirmWritesBeforeExecute: agentCustomization.confirmWritesBeforeExecute,
 				maxConsecutiveMistakes: agentCustomization.maxConsecutiveMistakes,
 				mistakeLimitEnabled: agentCustomization.mistakeLimitEnabled,
 				backgroundForkAgent: agentCustomization.backgroundForkAgent,
+				toolPermissionRules: agentCustomization.toolPermissionRules ?? [],
+				shouldAvoidPermissionPrompts: agentCustomization.shouldAvoidPermissionPrompts,
+				memoryExtraction: agentCustomization.memoryExtraction,
 			},
 			editor: editorSettings,
 			indexing: {
@@ -4186,6 +4199,8 @@ function AppMainWorkspaceInner() {
 		searchFiles,
 		onFileChipPreview: onAtMentionFileChipPreview,
 		fileIndexReadyTick: atFileIndexReadyTick,
+		layoutMode,
+		editorPreviewFile: editorSidebarSelectedRel,
 	});
 	const slashCommand = useComposerSlashCommand(getComposerSegmentsSetter, composerRichSurface, {
 		t,
@@ -4538,11 +4553,10 @@ function AppMainWorkspaceInner() {
 		});
 	}, [syncMessagesScrollIndicators]);
 
-	/** 切换线程：恢复「粘底」，等 messages / 流式更新后再滚（避免旧列表闪滚） */
+	/** 切换线程：始终从底部开始，等 messages / 流式更新后再滚（避免旧列表闪滚） */
 	useLayoutEffect(() => {
 		pendingMessagesScrollRestoreRef.current = currentId;
-		const saved = currentId ? messagesScrollSnapshotByThreadRef.current.get(currentId) : null;
-		pinMessagesToBottomRef.current = saved?.pinned ?? true;
+		pinMessagesToBottomRef.current = true;
 		suppressScrollToBottomButtonRef.current = false;
 		setShowScrollToBottomButton(false);
 		if (suppressScrollToBottomButtonTimerRef.current !== null) {
@@ -4556,7 +4570,7 @@ function AppMainWorkspaceInner() {
 		}
 	}, [currentId]);
 
-	/** 线程 / 工作区切回后恢复各自滚动位置；若之前处于底部则继续粘底，否则回到离开时的位置 */
+	/** 线程 / 工作区切回后始终滚到消息列表最底部（与渐进渲染窗口配合） */
 	useLayoutEffect(() => {
 		if (!hasConversation || !currentId || messagesThreadId !== currentId) {
 			return;
@@ -4572,15 +4586,9 @@ function AppMainWorkspaceInner() {
 			if (!el) {
 				return;
 			}
-			const saved = messagesScrollSnapshotByThreadRef.current.get(currentId);
 			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-			if (!saved || saved.pinned) {
-				pinMessagesToBottomRef.current = true;
-				el.scrollTop = maxScroll;
-			} else {
-				pinMessagesToBottomRef.current = false;
-				el.scrollTop = Math.min(saved.scrollTop, maxScroll);
-			}
+			pinMessagesToBottomRef.current = true;
+			el.scrollTop = maxScroll;
 			pendingMessagesScrollRestoreRef.current = null;
 			syncMessagesScrollIndicators();
 		});
@@ -4917,6 +4925,31 @@ function AppMainWorkspaceInner() {
 		setModelPickerOpen(false);
 	}, []);
 
+	const composerContextMeter = useMemo(() => {
+		if (!hasSelectedModel || !defaultModel.trim()) {
+			return null;
+		}
+		const entry = modelEntries.find((e) => e.id === defaultModel);
+		const raw = entry?.contextWindowTokens;
+		const isDefaultMax = raw == null || !Number.isFinite(raw) || raw <= 0;
+		const maxTokens = isDefaultMax ? DEFAULT_CONTEXT_WINDOW_TOKENS_UI : Math.floor(raw);
+		const usedEstimate = computeComposerContextUsedEstimate({
+			messages,
+			streaming,
+			streamingThinking,
+			composerSegments,
+		});
+		return { maxTokens, usedEstimate, isDefaultMax };
+	}, [
+		hasSelectedModel,
+		defaultModel,
+		modelEntries,
+		messages,
+		streaming,
+		streamingThinking,
+		composerSegments,
+	]);
+
 	// 共享给 ChatComposer（send/abort/newThread/openFile 由 ComposerActionsContext 注入，避免对象整体因箭头函数重建）
 	const sharedComposerProps = useMemo(
 		() => ({
@@ -4940,6 +4973,7 @@ function AppMainWorkspaceInner() {
 			resendFromUserIndex,
 			composerGitBranchAnchorRef,
 			onBeforeToggleGitBranchPicker,
+			composerContextMeter,
 			setPlusMenuAnchorSlot,
 			setModelPickerOpen,
 			setPlusMenuOpen,
@@ -4972,6 +5006,7 @@ function AppMainWorkspaceInner() {
 			resendFromUserIndex,
 			composerGitBranchAnchorRef,
 			onBeforeToggleGitBranchPicker,
+			composerContextMeter,
 			setPlusMenuAnchorSlot,
 			setModelPickerOpen,
 			setPlusMenuOpen,

@@ -231,12 +231,16 @@ export function useSettings(
 			skills: Array.isArray(ag?.skills) ? ag.skills : [],
 			subagents: Array.isArray(ag?.subagents) ? ag.subagents : [],
 			commands: Array.isArray(ag?.commands) ? ag.commands : [],
+			shellPermissionMode: ag?.shellPermissionMode ?? defs.shellPermissionMode,
 			confirmShellCommands: ag?.confirmShellCommands ?? defs.confirmShellCommands,
 			skipSafeShellCommandsConfirm: ag?.skipSafeShellCommandsConfirm ?? defs.skipSafeShellCommandsConfirm,
 			confirmWritesBeforeExecute: ag?.confirmWritesBeforeExecute ?? defs.confirmWritesBeforeExecute,
 			maxConsecutiveMistakes: ag?.maxConsecutiveMistakes ?? defs.maxConsecutiveMistakes,
 			mistakeLimitEnabled: ag?.mistakeLimitEnabled ?? defs.mistakeLimitEnabled,
 			backgroundForkAgent: ag?.backgroundForkAgent ?? defs.backgroundForkAgent,
+			toolPermissionRules: Array.isArray(ag?.toolPermissionRules) ? ag.toolPermissionRules : [],
+			shouldAvoidPermissionPrompts: ag?.shouldAvoidPermissionPrompts ?? defs.shouldAvoidPermissionPrompts,
+			memoryExtraction: ag?.memoryExtraction !== undefined ? { ...ag.memoryExtraction } : undefined,
 		});
 
 		if (st?.editor) {

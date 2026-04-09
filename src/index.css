@@ -3248,29 +3248,24 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	gap: 22px;
 }
 
-.ref-messages-track--virtual {
-	display: block;
-	position: relative;
-	gap: 0;
-	align-items: stretch;
-	min-width: 0;
+/* 向上懒加载触发器：占极少布局高度，IntersectionObserver root 为 .ref-messages */
+.ref-messages-top-sentinel {
+	flex-shrink: 0;
 	width: 100%;
+	height: 1px;
+	margin: 0;
+	padding: 0;
+	pointer-events: none;
 }
 
-/* 虚拟行内为绝对定位子树；与 .ref-messages-track 的 flex+align-items:center 一致，否则气泡贴左不居中 */
-.ref-msg-virtual-row {
+/* 包裹单行消息以便测量 offsetHeight，布局与直接子项一致（列内居中、满宽） */
+.ref-msg-row-measure {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	min-height: 0;
 	width: 100%;
-	box-sizing: border-box;
-}
-
-/* transform 排布下列内 sticky 无效，降级为普通块避免错误粘附 */
-.ref-messages.ref-messages--virtual .ref-msg-sticky-user-wrap {
-	position: relative;
-	top: auto;
+	min-width: 0;
+	flex-shrink: 0;
 }
 
 /* ??????/????????????????????????? */
@@ -4071,6 +4066,91 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	gap: 8px;
 }
 
+/* 命令行整行可点：指针手势；箭头紧跟命令文字右侧，摘要靠右；不可拖选 */
+.ref-agent-activity-main--cmd-toggle {
+	cursor: pointer;
+	outline: none;
+	border-radius: 6px;
+	margin: -1px -4px;
+	padding: 1px 4px;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.ref-agent-activity-main--cmd-toggle,
+.ref-agent-activity-main--cmd-toggle * {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.ref-agent-activity-cmd-inline {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	flex: 0 1 auto;
+	max-width: 100%;
+}
+
+/* 摘要紧跟箭头：不用全局 summary 的 margin-left，间距交给 cmd-inline 的 gap */
+.ref-agent-activity-cmd-inline .ref-agent-activity-summary,
+.ref-activity-group-row-cmd-inline .ref-agent-activity-summary {
+	margin-left: 0;
+}
+
+.ref-agent-activity-cmd-inline > :first-child {
+	min-width: 0;
+}
+
+.ref-agent-activity-main--cmd-toggle:hover {
+	background: color-mix(in srgb, var(--void-bg-3) 50%, transparent);
+}
+
+.ref-agent-activity-main--cmd-toggle:focus-visible {
+	outline: 2px solid var(--void-ring, #818cf8);
+	outline-offset: 1px;
+}
+
+.ref-agent-activity-text-cluster {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+}
+
+.ref-activity-inline-chevron {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	margin: 0;
+	padding: 0;
+	border: none;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--void-fg-3, #8a8a8a);
+	opacity: 0.62;
+	pointer-events: none;
+	flex-shrink: 0;
+	transition: opacity 0.14s ease, color 0.14s ease, transform 0.14s ease;
+}
+
+.ref-agent-activity-main--cmd-toggle:hover .ref-activity-inline-chevron,
+.ref-activity-group-row-top--cmd-toggle:hover .ref-activity-inline-chevron,
+.ref-activity-inline-chevron.is-open {
+	opacity: 0.95;
+	color: var(--void-fg-2, #b0b0b0);
+}
+
+.ref-activity-inline-chevron-svg {
+	transition: transform 0.16s ease;
+}
+
+.ref-activity-inline-chevron-svg.is-open {
+	transform: rotate(90deg);
+}
+
 .ref-agent-activity-dot {
 	flex-shrink: 0;
 	width: 8px;
@@ -4349,6 +4429,62 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	min-width: 0;
 }
 
+.ref-activity-group-row-top--cmd-toggle {
+	align-items: center;
+	cursor: pointer;
+	outline: none;
+	border-radius: 6px;
+	margin: -1px -6px;
+	padding: 1px 6px;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.ref-activity-group-row-top--cmd-toggle,
+.ref-activity-group-row-top--cmd-toggle * {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.ref-activity-group-row-top--cmd-toggle:hover {
+	background: color-mix(in srgb, var(--void-bg-3) 50%, transparent);
+}
+
+.ref-activity-group-row-top--cmd-toggle:focus-visible {
+	outline: 2px solid var(--void-ring, #818cf8);
+	outline-offset: 1px;
+}
+
+.ref-activity-group-row-top--cmd-toggle .ref-activity-group-row-dot-wrap {
+	align-self: center;
+}
+
+.ref-activity-group-row-main--cmd-head {
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.ref-activity-group-row-cmd-inline {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	flex: 0 1 auto;
+	max-width: 100%;
+}
+
+.ref-activity-group-row-cmd-inline > :first-child {
+	min-width: 0;
+}
+
+.ref-activity-group-row-text-cluster {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+}
+
 /* ?????????????????????????? */
 .ref-activity-group-row-dot-wrap {
 	display: flex;
@@ -4406,7 +4542,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	min-width: 0;
 }
 
-/* ??? AgentResultCard?search_files / read_file / list_dir ???????? ??? */
+/* AgentResultCard: Read / Glob / Grep result bodies */
 .ref-result-card {
 	margin: 4px 0 2px 16px;
 	border-radius: 8px;
@@ -5621,6 +5757,86 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	padding: 0 14px 0 8px;
 }
 
+.ref-composer-git-branch-trailing {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+	flex-shrink: 0;
+}
+
+.ref-composer-context-meter-wrap {
+	position: relative;
+	display: flex;
+	flex-shrink: 0;
+	outline: none;
+}
+
+.ref-composer-context-meter-wrap:focus-visible .ref-composer-context-meter {
+	outline: 2px solid color-mix(in srgb, var(--void-ring, var(--void-accent)) 55%, transparent);
+	outline-offset: 2px;
+	border-radius: 999px;
+}
+
+.ref-composer-context-meter {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: default;
+	color: var(--void-fg-2);
+}
+
+.ref-composer-context-meter-tip {
+	position: absolute;
+	bottom: calc(100% + 10px);
+	right: 0;
+	width: max-content;
+	max-width: min(288px, 86vw);
+	padding: 10px 12px;
+	border-radius: 8px;
+	background: var(--void-bg-3);
+	border: 1px solid var(--void-border);
+	box-shadow:
+		0 12px 36px color-mix(in srgb, var(--void-fg-0) 12%, transparent),
+		0 0 0 1px var(--void-border-soft);
+	color: var(--void-fg-1);
+	font-size: 11px;
+	line-height: 1.5;
+	z-index: 120;
+	pointer-events: none;
+	opacity: 0;
+	visibility: hidden;
+	transition:
+		opacity 0.14s ease,
+		visibility 0.14s ease;
+	text-align: left;
+}
+
+.ref-composer-context-meter-tip-line {
+	margin: 0;
+}
+
+.ref-composer-context-meter-tip-line + .ref-composer-context-meter-tip-line {
+	margin-top: 6px;
+}
+
+.ref-composer-context-meter-tip-line--muted {
+	color: var(--void-fg-3);
+	font-size: 10px;
+	line-height: 1.45;
+}
+
+.ref-composer-context-meter-wrap:hover .ref-composer-context-meter-tip,
+.ref-composer-context-meter-wrap:focus-visible .ref-composer-context-meter-tip {
+	opacity: 1;
+	visibility: visible;
+}
+
+.ref-composer-context-meter-track {
+	stroke: color-mix(in srgb, var(--void-fg-3) 55%, var(--void-border));
+	opacity: 0.9;
+}
+
 .ref-command-permission {
 	flex-shrink: 0;
 	max-width: min(220px, 52vw);
@@ -5632,6 +5848,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	--ref-command-permission-bg: color-mix(in srgb, var(--void-bg-2) 88%, transparent);
 	--ref-command-permission-bg-hover: color-mix(in srgb, var(--void-bg-3) 90%, transparent);
 	--ref-command-permission-bg-active: color-mix(in srgb, var(--void-ring) 8%, var(--void-bg-2));
+	/* 与 12px 中文搭配：16px 行框易裁底笔；18px 与两侧图标格同高，对齐且留白够 */
+	--ref-command-permission-trigger-track: 18px;
 	display: inline-flex;
 	align-items: center;
 	gap: 7px;
@@ -5645,7 +5863,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	color: var(--ref-command-permission-tone);
 	font-size: 12px;
 	font-weight: 500;
-	line-height: 1.2;
+	line-height: normal;
 	font-family: inherit;
 	cursor: pointer;
 	transition:
@@ -5676,12 +5894,20 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	background: var(--ref-command-permission-bg-active);
 }
 
-.ref-command-permission-trigger--ask {
+.ref-command-permission-trigger--ask-every-time {
 	--ref-command-permission-tone: var(--void-git-added);
 	--ref-command-permission-border: color-mix(in srgb, var(--void-git-added) 26%, var(--void-border-soft));
 	--ref-command-permission-bg: color-mix(in srgb, var(--void-git-added) 12%, var(--void-bg-2));
 	--ref-command-permission-bg-hover: color-mix(in srgb, var(--void-git-added) 17%, var(--void-bg-3));
 	--ref-command-permission-bg-active: color-mix(in srgb, var(--void-git-added) 20%, var(--void-bg-2));
+}
+
+.ref-command-permission-trigger--rules {
+	--ref-command-permission-tone: var(--void-accent);
+	--ref-command-permission-border: color-mix(in srgb, var(--void-accent) 28%, var(--void-border-soft));
+	--ref-command-permission-bg: color-mix(in srgb, var(--void-accent) 10%, var(--void-bg-2));
+	--ref-command-permission-bg-hover: color-mix(in srgb, var(--void-accent) 15%, var(--void-bg-3));
+	--ref-command-permission-bg-active: color-mix(in srgb, var(--void-accent) 18%, var(--void-bg-2));
 }
 
 .ref-command-permission-trigger--always {
@@ -5693,18 +5919,19 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-command-permission-trigger-ico-wrap,
+.ref-command-permission-trigger-chev-wrap {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: var(--ref-command-permission-trigger-track);
+	height: var(--ref-command-permission-trigger-track);
+}
+
 .ref-command-permission-trigger-ico,
 .ref-command-permission-trigger-chev {
 	display: block;
 	flex-shrink: 0;
-}
-
-.ref-command-permission-trigger-ico-wrap {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 16px;
-	height: 16px;
 }
 
 .ref-command-permission-trigger-ico {
@@ -5714,10 +5941,25 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-command-permission-trigger-label {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
 	min-width: 0;
-	overflow: hidden;
+	max-width: 100%;
+	height: var(--ref-command-permission-trigger-track);
+	overflow: visible;
+}
+
+.ref-command-permission-trigger-label-text {
+	display: block;
+	min-width: 0;
+	max-width: 100%;
+	overflow-x: hidden;
+	overflow-y: visible;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	/* 1.5×12px = 18px，与轨道同高；纵向不裁切，横向仍可有省略号（Chromium/Electron 下 overflow-x:hidden 即可） */
+	line-height: 1.5;
 }
 
 .ref-command-permission-trigger-chev {
@@ -5785,9 +6027,14 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	color: color-mix(in srgb, var(--ref-command-option-tone) 88%, var(--void-fg-0));
 }
 
-.ref-command-permission-option--ask {
+.ref-command-permission-option--ask-every-time {
 	--ref-command-option-tone: var(--void-git-added);
 	--ref-command-option-bg-selected: color-mix(in srgb, var(--void-git-added) 15%, transparent);
+}
+
+.ref-command-permission-option--rules {
+	--ref-command-option-tone: var(--void-accent);
+	--ref-command-option-bg-selected: color-mix(in srgb, var(--void-accent) 15%, transparent);
 }
 
 .ref-command-permission-option--always {
@@ -5826,6 +6073,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	line-height: 1.35;
 }
 
 .ref-composer-git-branch-trigger {
@@ -12135,6 +12383,56 @@ select.ref-settings-native-select:focus {
 
 .ref-settings-agent-remove:hover {
 	color: #f87171;
+}
+
+.ref-settings-tool-perm-rule-fields {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 12px;
+	align-items: flex-start;
+}
+
+/* 与 .ref-void-select-trigger（min-height 42px）同高，避免「策略 / 工具名」两列因 flex-end 底对齐而一高一低 */
+.ref-settings-tool-perm-rule-fields > .ref-settings-field {
+	margin-bottom: 0;
+}
+
+.ref-settings-tool-perm-rule-fields > .ref-settings-field input[type='text'] {
+	min-height: 42px;
+	box-sizing: border-box;
+}
+
+.ref-settings-tool-perm-rule-footer {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: 12px;
+	padding-top: 10px;
+	border-top: 1px solid var(--void-border-soft);
+}
+
+.ref-settings-tool-perm-rule-delete {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 12px;
+	font-size: 12px;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-soft);
+	background: var(--void-bg-1);
+	color: var(--void-fg-2);
+	cursor: pointer;
+	font-family: inherit;
+}
+
+.ref-settings-tool-perm-rule-delete:hover {
+	color: #f87171;
+	border-color: color-mix(in srgb, #f87171 35%, var(--void-border-soft));
+	background: color-mix(in srgb, #f87171 6%, var(--void-bg-1));
+}
+
+.ref-settings-tool-perm-rule-delete-ico {
+	flex-shrink: 0;
+	opacity: 0.9;
 }
 
 .ref-settings-agent-empty {

@@ -49,7 +49,7 @@ type StreamingSendRuntime = {
 	setStreamingThinking: Dispatch<SetStateAction<string>>;
 	clearStreamingToolPreviewNow: () => void;
 	resetLiveAgentBlocks: () => void;
-	beginStream: (threadId: string) => void;
+	beginStream: (threadId: string) => number;
 	resetStreamingSession: (options?: { clearThread?: boolean }) => void;
 	clearInFlightIpcRouting: (threadId?: string | null) => void;
 	ipcInFlightChatThreadIdRef: MutableRefObject<string | null>;
@@ -69,6 +69,7 @@ type StreamingSubscriptionRuntime = {
 	composerMode: ComposerMode;
 	streamThreadRef: MutableRefObject<string | null>;
 	ipcInFlightChatThreadIdRef: MutableRefObject<string | null>;
+	ipcStreamNonceRef: MutableRefObject<number>;
 	offThreadStreamDraftsRef: MutableRefObject<Record<string, { streaming: string; streamingThinking: string }>>;
 	streamingToolPreviewClearTimerRef: MutableRefObject<number | null>;
 	setStreamingToolPreview: Dispatch<
@@ -127,6 +128,8 @@ export function useStreamingChat() {
 	const streamThreadRef = useRef<string | null>(null);
 	/** 与主进程流式 IPC 路由：切工作区时勿清空，否则后台仍在跑但前端丢事件 */
 	const ipcInFlightChatThreadIdRef = useRef<string | null>(null);
+	/** 每次 beginStream 递增，与主进程回包 streamNonce 对齐，丢弃上一轮迟到的 done/error */
+	const ipcStreamNonceRef = useRef(0);
 	const offThreadStreamDraftsRef = useRef<Record<string, { streaming: string; streamingThinking: string }>>({});
 	const streamStartedAtRef = useRef<number | null>(null);
 	const firstTokenAtRef = useRef<number | null>(null);
@@ -161,6 +164,8 @@ export function useStreamingChat() {
 		firstTokenAtRef.current = null;
 		setStreaming('');
 		setAwaitingReply(true);
+		ipcStreamNonceRef.current += 1;
+		return ipcStreamNonceRef.current;
 	}, []);
 
 	const markFirstToken = useCallback(() => {
@@ -241,6 +246,7 @@ export function useStreamingChat() {
 		clearInFlightIpcRouting,
 		streamThreadRef,
 		ipcInFlightChatThreadIdRef,
+		ipcStreamNonceRef,
 		offThreadStreamDraftsRef,
 		streamStartedAtRef,
 		firstTokenAtRef,
@@ -285,7 +291,7 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 		rt.setStreamingThinking('');
 		rt.clearStreamingToolPreviewNow();
 		rt.resetLiveAgentBlocks();
-		rt.beginStream(targetThreadId);
+		const streamNonce = rt.beginStream(targetThreadId);
 
 		if (opts?.planExecute && opts.planBuildPathKey) {
 			const pathKey = opts.planBuildPathKey.trim().toLowerCase();
@@ -297,35 +303,81 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 		if (rt.resendFromUserIndex !== null) {
 			const resendIdx = rt.resendFromUserIndex;
 			rt.setResendFromUserIndex(null);
-			const result = (await rt.shell.invoke('chat:editResend', {
-				threadId: targetThreadId,
-				visibleIndex: resendIdx,
-				text,
-				mode: opts?.modeOverride ?? rt.composerMode,
-				modelId: effectiveModelId,
-			})) as { ok?: boolean };
+			try {
+				const result = (await rt.shell.invoke('chat:editResend', {
+					threadId: targetThreadId,
+					visibleIndex: resendIdx,
+					text,
+					mode: opts?.modeOverride ?? rt.composerMode,
+					modelId: effectiveModelId,
+					streamNonce,
+				})) as { ok?: boolean };
 
-			if (!result?.ok) {
-				rt.setAwaitingReply(false);
+				if (!result?.ok) {
+					rt.clearInFlightIpcRouting(targetThreadId);
+					rt.resetStreamingSession({ clearThread: false });
+					rt.streamStartedAtRef.current = null;
+					rt.setResendFromUserIndex(resendIdx);
+					const paths = await rt.ensureWorkspaceFileListLoaded();
+					rt.setInlineResendSegments(userMessageToSegments(text, paths));
+					rt.flashComposerAttachErr(rt.t('app.chatSendFailed'));
+					void rt.loadMessages(targetThreadId);
+				} else {
+					void rt.refreshThreads();
+				}
+			} catch (e) {
+				rt.clearInFlightIpcRouting(targetThreadId);
+				rt.resetStreamingSession({ clearThread: false });
 				rt.streamStartedAtRef.current = null;
 				rt.setResendFromUserIndex(resendIdx);
 				const paths = await rt.ensureWorkspaceFileListLoaded();
 				rt.setInlineResendSegments(userMessageToSegments(text, paths));
+				rt.flashComposerAttachErr(e instanceof Error ? e.message : String(e));
 				void rt.loadMessages(targetThreadId);
-			} else {
-				void rt.refreshThreads();
 			}
 			return;
 		}
 
-		await rt.shell.invoke('chat:send', {
-			threadId: targetThreadId,
-			text,
-			mode: opts?.modeOverride ?? rt.composerMode,
-			modelId: effectiveModelId,
-			planExecute: opts?.planExecute,
-		});
-		void rt.refreshThreads();
+		try {
+			const sendResult = (await rt.shell.invoke('chat:send', {
+				threadId: targetThreadId,
+				text,
+				mode: opts?.modeOverride ?? rt.composerMode,
+				modelId: effectiveModelId,
+				planExecute: opts?.planExecute,
+				streamNonce,
+			})) as { ok?: boolean; error?: string };
+
+			if (!sendResult?.ok) {
+				rt.clearInFlightIpcRouting(targetThreadId);
+				rt.resetStreamingSession({ clearThread: false });
+				rt.streamStartedAtRef.current = null;
+				rt.clearStreamingToolPreviewNow();
+				rt.resetLiveAgentBlocks();
+				if (sendResult?.error === 'no-model') {
+					rt.flashComposerAttachErr(rt.t('app.noModelSelected'));
+				} else {
+					const reason =
+						sendResult?.error === 'no-window'
+							? rt.t('app.chatSendFailedNoWindow')
+							: sendResult?.error
+								? rt.t('app.chatSendFailedReason', { reason: sendResult.error })
+								: rt.t('app.chatSendFailed');
+					rt.flashComposerAttachErr(reason);
+				}
+				void rt.loadMessages(targetThreadId);
+				return;
+			}
+			void rt.refreshThreads();
+		} catch (e) {
+			rt.clearInFlightIpcRouting(targetThreadId);
+			rt.resetStreamingSession({ clearThread: false });
+			rt.streamStartedAtRef.current = null;
+			rt.clearStreamingToolPreviewNow();
+			rt.resetLiveAgentBlocks();
+			rt.flashComposerAttachErr(e instanceof Error ? e.message : String(e));
+			void rt.loadMessages(targetThreadId);
+		}
 	}, []);
 
 	const abortActiveStream = useCallback(async () => {
@@ -368,6 +420,12 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 			const payload = raw as ChatStreamPayload;
 			const inFlight = rt.ipcInFlightChatThreadIdRef.current;
 			if (!inFlight || payload.threadId !== inFlight) {
+				return;
+			}
+			if (
+				payload.streamNonce !== undefined &&
+				payload.streamNonce !== rt.ipcStreamNonceRef.current
+			) {
 				return;
 			}
 
@@ -691,15 +749,19 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 					rt.setPlanQuestionRequestId(null);
 					rt.clearStreamingToolPreviewNow();
 					rt.resetLiveAgentBlocks();
-					rt.setMessages((messages) => [
-						...messages,
-						{
-							role: 'assistant',
-							content: rt.t('app.errorPrefix', { message: translateChatError(payload.message, rt.t) }),
-						},
-					]);
+					const errorLine = rt.t('app.errorPrefix', {
+						message: translateChatError(payload.message, rt.t),
+					});
+					rt.setMessages((messages) => {
+						const last = messages[messages.length - 1];
+						if (last?.role === 'assistant' && last.content === errorLine) {
+							return messages;
+						}
+						return [...messages, { role: 'assistant', content: errorLine }];
+					});
+				} else {
+					void rt.loadMessages(payload.threadId);
 				}
-				void rt.loadMessages(payload.threadId);
 				void rt.refreshThreads();
 			}
 		});

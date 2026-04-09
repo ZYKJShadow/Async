@@ -7,11 +7,14 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { ModelRequestParadigm, ShellSettings } from '../../settingsStore.js';
 import { resolveModelRequest } from '../../llm/modelResolve.js';
 import {
+	getAgentToolCallsSinceMemoryBaseline,
 	getMemoryExtractedMessageCount,
 	getThread,
 	saveMemoryExtractedMessageCount,
+	saveMemoryExtractionToolBaseline,
 	type ChatMessage,
 } from '../../threadStore.js';
+import { parseAgentAssistantPayload } from '../../../src/agentStructuredMessage.js';
 import { ensureMemoryDirExists } from '../../memdir/memdir.js';
 import { scanMemoryFiles, type MemoryHeader } from '../../memdir/memoryScan.js';
 import { getAutoMemEntrypoint, getAutoMemPath } from '../../memdir/paths.js';
@@ -35,6 +38,47 @@ const MAX_SOURCE_MESSAGES = 12;
 const MAX_SOURCE_CHARS = 16_000;
 const inFlight = new Map<string, Promise<void>>();
 const rerunRequested = new Set<string>();
+
+/** 对齐 Claude Code `SessionMemory` 默认的数量级（其用 token，此处用消息/工具计数近似） */
+const DEFAULT_MIN_NON_SYSTEM_BEFORE_FIRST = 4;
+const DEFAULT_MIN_NON_SYSTEM_BETWEEN = 3;
+const DEFAULT_MIN_TOOL_CALLS_BETWEEN = 3;
+
+function lastAssistantMessageUsedTools(messages: ChatMessage[]): boolean {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]!;
+		if (m.role !== 'assistant') continue;
+		const payload = parseAgentAssistantPayload(m.content);
+		if (payload?.parts.some((p) => p.type === 'tool')) return true;
+		if (m.content.includes('<tool_call')) return true;
+		return false;
+	}
+	return false;
+}
+
+/**
+ * 是否应排队后台记忆抽取（对齐 CC `shouldExtractMemory`：消息间隔 ∧ (工具次数 ∨ 末轮无工具)）。
+ */
+export function shouldRunMemoryExtractionForThread(threadId: string, settings: ShellSettings): boolean {
+	const cfg = settings.agent?.memoryExtraction;
+	if (cfg?.enabled === false) return false;
+	const thread = getThread(threadId);
+	if (!thread) return false;
+	const nonSystem = thread.messages.filter((m) => m.role !== 'system');
+	const startIdx = getMemoryExtractedMessageCount(threadId);
+	const newMsgs = nonSystem.length - startIdx;
+	if (newMsgs < 1) return false;
+
+	const minFirst = cfg?.minNonSystemMessagesBeforeFirst ?? DEFAULT_MIN_NON_SYSTEM_BEFORE_FIRST;
+	if (startIdx === 0 && nonSystem.length < minFirst) return false;
+
+	const minMsg = cfg?.minNonSystemMessagesBetween ?? DEFAULT_MIN_NON_SYSTEM_BETWEEN;
+	const minTools = cfg?.minToolCallsBetween ?? DEFAULT_MIN_TOOL_CALLS_BETWEEN;
+	const toolsSince = getAgentToolCallsSinceMemoryBaseline(threadId);
+	const noToolsLastTurn = !lastAssistantMessageUsedTools(thread.messages);
+
+	return newMsgs >= minMsg && (toolsSince >= minTools || noToolsLastTurn);
+}
 
 const EXTRACTION_SYSTEM_PROMPT = `You are a background memory extraction subagent.
 
@@ -299,6 +343,7 @@ async function runExtractionOnce(threadId: string, workspaceRoot: string, settin
 	}
 	if (extracted.memories.length === 0 && extracted.forget.length === 0) {
 		saveMemoryExtractedMessageCount(threadId, thread.messages.filter((m) => m.role !== 'system').length);
+		saveMemoryExtractionToolBaseline(threadId);
 		return;
 	}
 	await writeExtractionResult({
@@ -307,6 +352,7 @@ async function runExtractionOnce(threadId: string, workspaceRoot: string, settin
 		result: extracted,
 	});
 	saveMemoryExtractedMessageCount(threadId, thread.messages.filter((m) => m.role !== 'system').length);
+	saveMemoryExtractionToolBaseline(threadId);
 }
 
 export function queueExtractMemories(params: {
@@ -317,6 +363,9 @@ export function queueExtractMemories(params: {
 }): void {
 	const { threadId, workspaceRoot, settings, modelSelection } = params;
 	if (!workspaceRoot) {
+		return;
+	}
+	if (!shouldRunMemoryExtractionForThread(threadId, settings)) {
 		return;
 	}
 	if (inFlight.has(threadId)) {

@@ -1,38 +1,44 @@
-import { BrowserWindow, type WebContents } from 'electron';
-import { TsLspSession } from './lsp/tsLspSession.js';
+import { app, BrowserWindow, type WebContents } from 'electron';
+import { WorkspaceLspManager } from './lsp/workspaceLspManager.js';
+import { getSettings } from './settingsStore.js';
 
-const sessionsByWebContentsId = new Map<number, TsLspSession>();
+const managersByWebContentsId = new Map<number, WorkspaceLspManager>();
 
-export function getTsLspSessionForWebContents(wc: WebContents): TsLspSession {
-	let s = sessionsByWebContentsId.get(wc.id);
-	if (!s) {
-		s = new TsLspSession();
-		sessionsByWebContentsId.set(wc.id, s);
+export function getWorkspaceLspManagerForWebContents(wc: WebContents): WorkspaceLspManager {
+	let m = managersByWebContentsId.get(wc.id);
+	if (!m) {
+		m = new WorkspaceLspManager(getSettings, () => app.getAppPath());
+		managersByWebContentsId.set(wc.id, m);
 		const id = wc.id;
 		wc.once('destroyed', () => {
-			const cur = sessionsByWebContentsId.get(id);
-			if (cur === s) {
-				sessionsByWebContentsId.delete(id);
+			const cur = managersByWebContentsId.get(id);
+			if (cur === m) {
+				managersByWebContentsId.delete(id);
 			}
-			void s!.dispose().catch(() => {});
+			void m!.dispose().catch(() => {});
 		});
 	}
-	return s;
+	return m;
 }
 
-export async function disposeTsLspSessionForWebContents(wc: WebContents): Promise<void> {
-	const s = sessionsByWebContentsId.get(wc.id);
-	if (s) {
-		sessionsByWebContentsId.delete(wc.id);
-		await s.dispose();
+export async function disposeWorkspaceLspManagerForWebContents(wc: WebContents): Promise<void> {
+	const m = managersByWebContentsId.get(wc.id);
+	if (m) {
+		managersByWebContentsId.delete(wc.id);
+		await m.dispose();
 	}
 }
 
-/** 设置关闭 TS LSP 时清理所有窗口的语言服务子进程。 */
-export async function disposeAllTsLspSessions(): Promise<void> {
+/** @deprecated 使用 disposeWorkspaceLspManagerForWebContents */
+export const disposeTsLspSessionForWebContents = disposeWorkspaceLspManagerForWebContents;
+
+export async function disposeAllWorkspaceLspManagers(): Promise<void> {
 	for (const win of BrowserWindow.getAllWindows()) {
 		if (!win.isDestroyed()) {
-			await disposeTsLspSessionForWebContents(win.webContents);
+			await disposeWorkspaceLspManagerForWebContents(win.webContents);
 		}
 	}
 }
+
+/** @deprecated 使用 disposeAllWorkspaceLspManagers */
+export const disposeAllTsLspSessions = disposeAllWorkspaceLspManagers;

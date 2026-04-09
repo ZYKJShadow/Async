@@ -35,11 +35,11 @@ export function buildSubagentCreatorSystemAppend(
 
 	const toolBlock =
 		lang === 'en'
-			? `**Execution mode:** This turn runs in **Agent** with \`write_to_file\` and \`str_replace\`.
+			? `**Execution mode:** This turn runs in **Agent** with \`Write\` and \`Edit\`.
 - If a workspace is open, you **must** persist the subagent by editing project files—typically merge into \`.async/agent.json\` \`subagents\` (or the project's agent JSON Async uses). Do **not** only paste JSON for the user to copy; use tools, then confirm paths.
 - User-level / all-projects scope without workspace: tools cannot write app userData; state that clearly and give minimal manual registration steps—do not claim files were written.
 - Project scope requires workspace.`
-			: `**执行方式：** 本轮运行在 **Agent** 模式，可使用 \`write_to_file\` 和 \`str_replace\`。
+			: `**执行方式：** 本轮运行在 **Agent** 模式，可使用 \`Write\` 和 \`Edit\`。
 - 只要工作区已打开，就**必须**用工具把 Subagent 持久化到项目文件中，通常是合并进 \`.async/agent.json\` 的 \`subagents\`（或 Async 实际使用的项目级 agent JSON）。**不要**只贴一段 JSON 让用户自己复制；应直接改文件，并说明写入位置。
 - 如果是**用户级 / 所有项目**，但当前没有工作区，工具无法写入应用 userData。请明确说明这一点，只给出最小必要的手动添加步骤，不要声称已经写入。
 - **本项目**范围必须有工作区。`;

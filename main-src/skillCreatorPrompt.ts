@@ -35,12 +35,12 @@ export function buildSkillCreatorSystemAppend(
 
 	const toolBlock =
 		lang === 'en'
-			? `**Execution mode:** This turn runs in **Agent** with \`write_to_file\` and \`str_replace\` on the open workspace.
-- If a workspace is open, you **must** create the skill on disk under \`.async/skills/<slug>/SKILL.md\` (and update \`.async/agent.json\` skills list with \`str_replace\` when needed). Do **not** tell the user to copy-paste the full SKILL.md as the main deliverable—write it with tools, then summarize paths.
+			? `**Execution mode:** This turn runs in **Agent** with \`Write\` and \`Edit\` on the open workspace.
+- If a workspace is open, you **must** create the skill on disk under \`.async/skills/<slug>/SKILL.md\` (and update \`.async/agent.json\` skills list with \`Edit\` when needed). Do **not** tell the user to copy-paste the full SKILL.md as the main deliverable—write it with tools, then summarize paths.
 - For **user / all-projects** scope without a workspace open, you cannot write global app settings via tools; say so and either ask to open a repo to materialize files or give the minimal manual steps—never claim files were written.
 - Project scope requires a workspace: write under that root only.`
-			: `**执行方式：** 本轮为 **Agent**，可使用 \`write_to_file\`、\`str_replace\`。
-- 已打开工作区时，**必须**在磁盘创建 Skill：优先 \`.async/skills/<slug>/SKILL.md\`，必要时用 \`str_replace\` 更新 \`.async/agent.json\` 的 skills 列表。**禁止**把「请用户全文复制 SKILL.md」当作主要交付；应用工具写入后再用简短文字说明路径与触发方式。
+			: `**执行方式：** 本轮为 **Agent**，可使用 \`Write\`、\`Edit\`。
+- 已打开工作区时，**必须**在磁盘创建 Skill：优先 \`.async/skills/<slug>/SKILL.md\`，必要时用 \`Edit\` 更新 \`.async/agent.json\` 的 skills 列表。**禁止**把「请用户全文复制 SKILL.md」当作主要交付；应用工具写入后再用简短文字说明路径与触发方式。
 - **用户级 / 所有项目** 且未打开工作区时，无法用工具写应用全局配置，应说明限制，并请用户打开仓库以便落盘，或给出最简手动步骤；不要假装已写文件。
 - **本项目** 范围仅在有工作区时有效，路径相对工作区根目录。`;
 

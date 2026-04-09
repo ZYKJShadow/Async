@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	applyLiveAgentChatPayload,
 	createEmptyLiveAgentBlocks,
+	extractTodosFromLiveBlocks,
 	liveBlocksToAssistantSegments,
 } from './liveAgentBlocks';
 import { defaultT } from './i18n';
@@ -11,14 +12,59 @@ describe('liveAgentBlocks', () => {
 		vi.useRealTimers();
 	});
 
+	it('extractTodosFromLiveBlocks ignores TodoWrite streaming_args partialJson', () => {
+		let st = createEmptyLiveAgentBlocks();
+		st = applyLiveAgentChatPayload(st, {
+			type: 'tool_input_delta',
+			name: 'TodoWrite',
+			partialJson: '{"todos":[{"content":"A","status":"completed"},{"content":"B","status":"completed"}]}',
+			index: 0,
+		});
+		expect(extractTodosFromLiveBlocks(st.blocks)).toBeNull();
+	});
+
+	it('extractTodosFromLiveBlocks uses args after tool_call for TodoWrite', () => {
+		let st = createEmptyLiveAgentBlocks();
+		st = applyLiveAgentChatPayload(st, {
+			type: 'tool_input_delta',
+			name: 'TodoWrite',
+			partialJson: '{"todos":[{"content":"A","status":"completed"}]}',
+			index: 0,
+		});
+		st = applyLiveAgentChatPayload(st, {
+			type: 'tool_call',
+			name: 'TodoWrite',
+			args: '{"todos":[{"content":"A","status":"pending"},{"content":"B","status":"in_progress"}]}',
+			toolCallId: 'call-tw-1',
+		});
+		const todos = extractTodosFromLiveBlocks(st.blocks);
+		expect(todos).not.toBeNull();
+		expect(todos!.map((x) => x.status)).toEqual(['pending', 'in_progress']);
+	});
+
+	it('liveBlocksToAssistantSegments shows pending activity for TodoWrite streaming_args, not plan_todo', () => {
+		let st = createEmptyLiveAgentBlocks();
+		st = applyLiveAgentChatPayload(st, {
+			type: 'tool_input_delta',
+			name: 'TodoWrite',
+			partialJson: '{"todos":[{"content":"X","status":"completed"}]}',
+			index: 0,
+		});
+		const segs = liveBlocksToAssistantSegments(st.blocks, defaultT);
+		expect(segs.some((s) => s.type === 'plan_todo')).toBe(false);
+		const act = segs.filter((s) => s.type === 'activity');
+		expect(act.length).toBeGreaterThanOrEqual(1);
+		expect(act[0] && act[0].type === 'activity' && act[0].status).toBe('pending');
+	});
+
 	it('folds deltas and tool_input_delta into blocks', () => {
 		let st = createEmptyLiveAgentBlocks();
 		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'Hi ' });
 		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'there' });
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_input_delta',
-			name: 'read_file',
-			partialJson: '{"path":"a.ts"',
+			name: 'Read',
+			partialJson: '{"file_path":"a.ts"',
 			index: 0,
 		});
 		expect(st.blocks.filter((b) => b.type === 'text')).toHaveLength(1);
@@ -32,8 +78,8 @@ describe('liveAgentBlocks', () => {
 		let st = createEmptyLiveAgentBlocks();
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_input_delta',
-			name: 'write_to_file',
-			partialJson: '{"path":"x.txt","content":"ab',
+			name: 'Write',
+			partialJson: '{"file_path":"x.txt","content":"ab',
 			index: 0,
 		});
 		const segs = liveBlocksToAssistantSegments(st.blocks, defaultT);
@@ -47,19 +93,19 @@ describe('liveAgentBlocks', () => {
 		let st = createEmptyLiveAgentBlocks();
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_input_delta',
-			name: 'read_file',
+			name: 'Read',
 			partialJson: '{}',
 			index: 0,
 		});
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_call',
-			name: 'read_file',
-			args: '{"path":"p"}',
+			name: 'Read',
+			args: '{"file_path":"p"}',
 			toolCallId: 'call-1',
 		});
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_result',
-			name: 'read_file',
+			name: 'Read',
 			result: 'ok',
 			success: true,
 			toolCallId: 'call-1',
@@ -73,20 +119,20 @@ describe('liveAgentBlocks', () => {
 		let st = createEmptyLiveAgentBlocks();
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_call',
-			name: 'execute_command',
+			name: 'Bash',
 			args: '{"command":"npm test"}',
 			toolCallId: 'call-cmd-1',
 		});
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_result',
-			name: 'execute_command',
+			name: 'Bash',
 			result: 'ok',
 			success: true,
 			toolCallId: 'call-cmd-1',
 		});
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_call',
-			name: 'execute_command',
+			name: 'Bash',
 			args: '{"command":"npm test"}',
 			toolCallId: 'call-cmd-1',
 		});
@@ -99,14 +145,14 @@ describe('liveAgentBlocks', () => {
 		let st = createEmptyLiveAgentBlocks();
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_result',
-			name: 'execute_command',
+			name: 'Bash',
 			result: 'ok',
 			success: true,
 			toolCallId: 'call-cmd-2',
 		});
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_call',
-			name: 'execute_command',
+			name: 'Bash',
 			args: '{"command":"npm test"}',
 			toolCallId: 'call-cmd-2',
 		});
@@ -120,20 +166,20 @@ describe('liveAgentBlocks', () => {
 		let st = createEmptyLiveAgentBlocks();
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_call',
-			name: 'read_file',
-			args: '{"path":"p"}',
+			name: 'Read',
+			args: '{"file_path":"p"}',
 			toolCallId: 'call-read-1',
 		});
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_result',
-			name: 'read_file',
+			name: 'Read',
 			result: 'ok',
 			success: true,
 			toolCallId: 'call-read-1',
 		});
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_result',
-			name: 'read_file',
+			name: 'Read',
 			result: 'ok',
 			success: true,
 			toolCallId: 'call-read-1',
@@ -148,7 +194,7 @@ describe('liveAgentBlocks', () => {
 		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: 'Planning edits' });
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_progress',
-			name: 'search_files',
+			name: 'Grep',
 			phase: 'executing',
 		});
 		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'Done.' });
@@ -189,7 +235,7 @@ describe('liveAgentBlocks', () => {
 		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: '…' });
 		st = applyLiveAgentChatPayload(st, {
 			type: 'tool_input_delta',
-			name: 'read_file',
+			name: 'Read',
 			partialJson: '{}',
 			index: 0,
 		});
@@ -208,7 +254,7 @@ describe('liveAgentBlocks', () => {
 		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: 'Inspect state' });
 
 		vi.setSystemTime(new Date('2026-04-05T12:00:02.000Z'));
-		st = applyLiveAgentChatPayload(st, { type: 'tool_progress', name: 'search_files', phase: 'executing' });
+		st = applyLiveAgentChatPayload(st, { type: 'tool_progress', name: 'Grep', phase: 'executing' });
 
 		vi.setSystemTime(new Date('2026-04-05T12:00:05.000Z'));
 		st = applyLiveAgentChatPayload(st, { type: 'thinking_delta', text: 'Prepare patch' });

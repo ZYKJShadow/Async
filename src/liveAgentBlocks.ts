@@ -432,22 +432,26 @@ export function extractTodosFromLiveBlocks(
 ): Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> | null {
 	let lastTodos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> | null = null;
 	for (const b of blocks) {
-		if (b.type === 'tool' && b.name === 'TodoWrite') {
-			let parsedArgs: Record<string, unknown> = {};
-			try {
-				parsedArgs = JSON.parse(b.argsJson || b.partialJson || '{}');
-			} catch { /* ignore */ }
-			const todosRaw = Array.isArray(parsedArgs.todos) ? parsedArgs.todos : [];
-			if (todosRaw.length > 0) {
-				lastTodos = todosRaw.map((item: Record<string, unknown>, idx: number) => ({
-					id: `live-todo-${idx}`,
-					content: String(item.content ?? ''),
-					status: (['pending', 'in_progress', 'completed'].includes(String(item.status))
-						? String(item.status)
-						: 'pending') as 'pending' | 'in_progress' | 'completed',
-					activeForm: typeof item.activeForm === 'string' ? item.activeForm : undefined,
-				}));
-			}
+		if (b.type !== 'tool' || b.name !== 'TodoWrite') continue;
+		// 流式参数阶段的 partialJson 常会间歇性 parse 成功但语义错误（误显示已完成等）；只信 tool_call 落盘后的完整 args。
+		if (b.phase === 'streaming_args') continue;
+
+		let parsedArgs: Record<string, unknown> = {};
+		try {
+			parsedArgs = JSON.parse(b.argsJson || b.partialJson || '{}');
+		} catch {
+			/* ignore */
+		}
+		const todosRaw = Array.isArray(parsedArgs.todos) ? parsedArgs.todos : [];
+		if (todosRaw.length > 0) {
+			lastTodos = todosRaw.map((item: Record<string, unknown>, idx: number) => ({
+				id: `live-todo-${idx}`,
+				content: String(item.content ?? ''),
+				status: (['pending', 'in_progress', 'completed'].includes(String(item.status))
+					? String(item.status)
+					: 'pending') as 'pending' | 'in_progress' | 'completed',
+				activeForm: typeof item.activeForm === 'string' ? item.activeForm : undefined,
+			}));
 		}
 	}
 	return lastTodos;
@@ -498,11 +502,20 @@ export function liveBlocksToAssistantSegments(blocks: LiveAgentBlock[], t: TFunc
 			});
 		} else if (b.type === 'tool') {
 			if (b.name === 'TodoWrite') {
-				// 从工具参数中解析 todos 列表，生成 plan_todo 段而非 activity 段
+				if (b.phase === 'streaming_args') {
+					out.push({
+						type: 'activity',
+						text: t('agent.toolPending', { name: t('agent.tool.TodoWrite') }),
+						status: 'pending',
+					});
+					continue;
+				}
 				let parsedArgs: Record<string, unknown> = {};
 				try {
 					parsedArgs = JSON.parse(b.argsJson || b.partialJson || '{}');
-				} catch { /* ignore */ }
+				} catch {
+					/* ignore */
+				}
 				const todosRaw = Array.isArray(parsedArgs.todos) ? parsedArgs.todos : [];
 				const todos = todosRaw.map((item: Record<string, unknown>, idx: number) => ({
 					id: `live-todo-${idx}`,
@@ -514,8 +527,17 @@ export function liveBlocksToAssistantSegments(blocks: LiveAgentBlock[], t: TFunc
 				}));
 				if (todos.length > 0) {
 					out.push({ type: 'plan_todo', todos });
+				} else {
+					out.push({
+						type: 'activity',
+						text:
+							b.phase === 'running'
+								? t('agent.toolPending', { name: t('agent.tool.TodoWrite') })
+								: t('agent.todoWrite.updated'),
+						status: b.phase === 'running' ? 'pending' : 'success',
+					});
 				}
-				continue; // 跳过默认的 activity 生成
+				continue;
 			}
 			if (b.phase === 'streaming_args') {
 				out.push(

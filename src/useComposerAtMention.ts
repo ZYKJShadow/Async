@@ -29,6 +29,17 @@ type RichRefs = {
 	inline: React.RefObject<HTMLDivElement | null>;
 };
 
+function makeFileAtMenuItem(slash: string): AtMenuItem {
+	const base = slash.split('/').pop() || slash;
+	return {
+		id: `ws:${slash}`,
+		label: base,
+		subtitle: slash,
+		insertText: `@${slash}`,
+		icon: 'file' as const,
+	};
+}
+
 export function useComposerAtMention(
 	getSegmentsSetter: (slot: AtComposerSlot) => React.Dispatch<React.SetStateAction<ComposerSegment[]>>,
 	richRefs: RichRefs,
@@ -41,6 +52,10 @@ export function useComposerAtMention(
 		onFileChipPreview: (relPath: string) => void;
 		/** 主进程首次索引扫描完成时递增，用于菜单打开期间重跑当前 query */
 		fileIndexReadyTick?: number;
+		/** 当前布局模式：agent 优先展示近期 git 改动文件；editor 优先展示左侧预览文件 */
+		layoutMode?: 'agent' | 'editor';
+		/** editor 布局下左侧当前预览的文件（相对路径） */
+		editorPreviewFile?: string;
 	}
 ) {
 	const atSlotRef = useRef<AtComposerSlot>('bottom');
@@ -65,8 +80,35 @@ export function useComposerAtMention(
 	const [atFileSearchLoading, setAtFileSearchLoading] = useState(false);
 	const searchSeqRef = useRef(0);
 
+	/**
+	 * `gitChangedPaths` 作为 useEffect 依赖会让 git 刷新时（每次 setState 新数组）重复触发
+	 * IPC 搜索；用 ref 旁路后仅在 atOpen/atQuery 变化时真正跑 IPC。
+	 */
+	const searchArgsRef = useRef({
+		searchFiles: opts.searchFiles,
+		gitChangedPaths: opts.gitChangedPaths,
+	});
+	searchArgsRef.current.searchFiles = opts.searchFiles;
+	searchArgsRef.current.gitChangedPaths = opts.gitChangedPaths;
+
+	/** 空 query 时是否已有足够的置顶项可直接展示，无需走 IPC */
+	const hasPinnedForEmptyQuery =
+		(opts.layoutMode === 'agent' && opts.gitChangedPaths.length > 0) ||
+		(opts.layoutMode === 'editor' && !!opts.editorPreviewFile);
+
 	useEffect(() => {
 		if (!atOpen) {
+			setFileItems([]);
+			setAtFileSearchLoading(false);
+			return;
+		}
+		/**
+		 * 空 query 场景：按 ≤3 个置顶文件直接展示，跳过 IPC 调用。
+		 * 避免每次按下 @ 都把整包 gitChangedPaths 通过 IPC 序列化到主进程再拿回来，
+		 * 也避免首帧把大菜单渲染出来后又被覆写，主线程因此明显卡顿。
+		 */
+		if (!atQuery && hasPinnedForEmptyQuery) {
+			searchSeqRef.current += 1;
 			setFileItems([]);
 			setAtFileSearchLoading(false);
 			return;
@@ -77,9 +119,9 @@ export function useComposerAtMention(
 		const timer = window.setTimeout(() => {
 			void (async () => {
 				try {
-					const items = await opts.searchFiles(
+					const items = await searchArgsRef.current.searchFiles(
 						atQuery,
-						opts.gitChangedPaths,
+						searchArgsRef.current.gitChangedPaths,
 						AT_MENU_FILE_RESULTS_LIMIT
 					);
 					if (seq !== searchSeqRef.current) {
@@ -106,18 +148,39 @@ export function useComposerAtMention(
 		return () => {
 			window.clearTimeout(timer);
 		};
-	}, [atOpen, atQuery, opts.searchFiles, opts.gitChangedPaths, opts.fileIndexReadyTick ?? 0]);
+	}, [atOpen, atQuery, hasPinnedForEmptyQuery, opts.fileIndexReadyTick ?? 0]);
 
 	const filteredStatic = useMemo(
 		() => filterAtMenuItems(staticItems, atQuery),
 		[staticItems, atQuery]
 	);
 
-	/** 文件命中优先，静态项殿后；文件条数已由 IPC limit 收紧 */
-	const filtered = useMemo(
-		() => [...fileItems, ...filteredStatic],
-		[fileItems, filteredStatic]
-	);
+	/** 文件命中优先，静态项殿后；空 query 时按布局将置顶文件提前，且最多展示 3 个文件 */
+	const filtered = useMemo(() => {
+		if (!atQuery) {
+			const normPath = (p: string) => p.replace(/\\/g, '/');
+			let pinned: AtMenuItem[] = [];
+
+			if (opts.layoutMode === 'agent') {
+				// agent 布局：取最近 git 改动的前 3 个文件置顶
+				pinned = opts.gitChangedPaths
+					.slice(0, 3)
+					.map((p) => makeFileAtMenuItem(normPath(p)));
+			} else if (opts.layoutMode === 'editor') {
+				// editor 布局：将左侧当前预览文件置顶
+				const preview = opts.editorPreviewFile ? normPath(opts.editorPreviewFile) : '';
+				if (preview) {
+					pinned = [makeFileAtMenuItem(preview)];
+				}
+			}
+
+			const pinnedIds = new Set(pinned.map((i) => i.id));
+			const rest = fileItems.filter((i) => !pinnedIds.has(i.id));
+			const files = [...pinned, ...rest].slice(0, 3);
+			return [...files, ...filteredStatic];
+		}
+		return [...fileItems, ...filteredStatic];
+	}, [atQuery, fileItems, filteredStatic, opts.layoutMode, opts.editorPreviewFile, opts.gitChangedPaths]);
 
 	const filteredRef = useRef(filtered);
 	const highlightRef = useRef(atHighlight);

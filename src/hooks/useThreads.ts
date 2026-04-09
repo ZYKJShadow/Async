@@ -44,6 +44,28 @@ function awaitTransitionPaintCommitted(): Promise<void> {
 	});
 }
 
+function isPersistedAssistantErrorLine(content: string): boolean {
+	return content.startsWith('错误：') || content.startsWith('Error: ');
+}
+
+function incomingMissesOnlyTrailingAssistantError(prev: ChatMessage[], incoming: ChatMessage[]): boolean {
+	if (prev.length !== incoming.length + 1 || prev.length === 0) {
+		return false;
+	}
+	const last = prev[prev.length - 1];
+	if (!last || last.role !== 'assistant' || !isPersistedAssistantErrorLine(last.content)) {
+		return false;
+	}
+	for (let i = 0; i < incoming.length; i++) {
+		const a = prev[i];
+		const b = incoming[i];
+		if (!a || !b || a.role !== b.role || a.content !== b.content) {
+			return false;
+		}
+	}
+	return true;
+}
+
 /**
  * 管理线程列表、当前线程、消息及导航历史。
  * 暴露 resetThreadState() 供切换工作区时统一清空。
@@ -210,6 +232,12 @@ export function useThreads(shell: Shell | undefined) {
 								const incoming = r.messages!;
 								setMsgState((prev) => {
 									if (prev.threadId === id && chatMessagesListEqual(prev.messages, incoming)) {
+										return prev;
+									}
+									if (
+										prev.threadId === id &&
+										incomingMissesOnlyTrailingAssistantError(prev.messages, incoming)
+									) {
 										return prev;
 									}
 									return { messages: incoming, threadId: id };

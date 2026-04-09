@@ -42,7 +42,10 @@ export type AgentPendingPatch = {
 /** 子 Agent 嵌套流：与主线程事件共用 type，凭 parentToolCallId 区分 */
 export type ChatStreamNest = { parentToolCallId?: string; nestingDepth?: number };
 
-export type ChatStreamPayload =
+/** 与渲染端 ipcStreamNonceRef 对齐，丢弃被 abort 的前一轮迟到 done/error */
+export type ChatStreamNonce = { streamNonce?: number };
+
+type ChatStreamPayloadCore =
 	| ({ threadId: string; type: 'delta'; text: string } & ChatStreamNest)
 	| { threadId: string; type: 'done'; text: string; pendingAgentPatches?: AgentPendingPatch[]; usage?: TurnTokenUsage }
 	| { threadId: string; type: 'error'; message: string }
@@ -93,6 +96,8 @@ export type ChatStreamPayload =
 			success: boolean;
 	  };
 
+export type ChatStreamPayload = ChatStreamPayloadCore & ChatStreamNonce;
+
 /** Skill 创建向导：用户输入在 `userNote`；主进程注入内置系统提示并写入简短可见气泡 */
 export type ChatSkillCreatorPayload = {
 	userNote: string;
@@ -131,6 +136,8 @@ export type ChatSendPayload = {
 	ruleCreator?: ChatRuleCreatorPayload;
 	subagentCreator?: ChatSubagentCreatorPayload;
 	planExecute?: ChatPlanExecutePayload;
+	/** 与 beginStream 同步递增，防止快速连发时前一轮迟到的 done 清空新一轮流 */
+	streamNonce?: number;
 };
 
 /** `plan:save` IPC 载荷 */

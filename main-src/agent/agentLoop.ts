@@ -23,6 +23,7 @@ import { assembleAgentToolPool, filterMcpToolsByDenyPrefixes } from './agentTool
 import type { TurnTokenUsage } from '../llm/types.js';
 import { llmSdkResponseHeadTimeoutMs } from '../llm/sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from '../llm/llmTransportRetry.js';
+import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import { composeSystem, temperatureForMode } from '../llm/modePrompts.js';
 import {
 	anthropicEffectiveMaxTokens,
@@ -45,7 +46,7 @@ import {
 	type ToolCall,
 } from './agentTools.js';
 import { executeTool, type ToolExecutionHooks } from './toolExecutor.js';
-import type { TsLspSession } from '../lsp/tsLspSession.js';
+import type { WorkspaceLspManager } from '../lsp/workspaceLspManager.js';
 import { getMcpManager } from '../mcp/index.js';
 import { getMcpServerConfigs } from '../settingsStore.js';
 import { repairAgentThreadMessagesForApi } from './agentToolProtocolRepair.js';
@@ -74,14 +75,15 @@ const DEFAULT_MAX_CONSECUTIVE_MISTAKES = 5;
 
 /** 只读类工具：不向 UI 发送 tool_input_delta，避免参数 JSON 流式刷新；完成后由活动行渐入展示 */
 const READ_TOOLS_SKIP_INPUT_DELTA = new Set([
-	'read_file',
+	'Read',
+	'Glob',
+	'Grep',
 	'list_dir',
-	'search_files',
+	'LSP',
 	'ListMcpResourcesTool',
 	'ReadMcpResourceTool',
 	'ask_plan_question',
 	'Agent',
-	'delegate_task',
 	'Task',
 ]);
 
@@ -90,7 +92,7 @@ function shouldEmitToolInputDelta(toolName: string): boolean {
 }
 
 /** 写入类工具：每发一帧参数增量后让出 Node 事件循环，便于 Electron 先把 IPC 交给渲染进程绘制 */
-const WRITE_TOOLS_STREAM_YIELD = new Set(['str_replace', 'write_to_file']);
+const WRITE_TOOLS_STREAM_YIELD = new Set(['Edit', 'Write']);
 
 function yieldForToolInputStreamUi(toolName: string): Promise<void> {
 	if (!WRITE_TOOLS_STREAM_YIELD.has(toolName)) {
@@ -195,8 +197,8 @@ export type AgentLoopOptions = {
 	delegateExecutionDepth?: number;
 	/** 发起 Agent 的窗口当前工作区根 */
 	workspaceRoot?: string | null;
-	/** 与 workspaceRoot 同窗的 TS LSP 会话 */
-	toolLspSession?: TsLspSession | null;
+	/** 与 workspaceRoot 同窗的多语言 LSP 路由（插件 `.lsp.json` + 可选 settings.lsp 迁移 + 若存在则探测 typescript-language-server） */
+	workspaceLspManager?: WorkspaceLspManager | null;
 	/** 当前会话线程 ID，用于 TodoWrite 等按线程隔离状态的工具 */
 	threadId?: string | null;
 	/**
@@ -234,20 +236,28 @@ function unwrapAssistantContentEnvelope(text: string): string {
  * 许多 OpenAI 兼容网关会先流式下发 `function.arguments`，`function.name` 晚几帧才到。
  * 若仅在 `name` 已有时才触发 `onToolInputDelta`，则整段参数流式阶段 UI 完全收不到增量，代码卡片会像「一次性出现」。
  * 根据已出现的 JSON 键名猜测工具（与 agentTools 名称一致）；正式 `name` 到达后下一轮 chunk 会纠正。
- * `read_file` / `list_dir` / `search_files` 不发 `onToolInputDelta`（见 READ_TOOLS_SKIP_INPUT_DELTA）。
+ * `Read` / `Glob` / `Grep` / `list_dir` 等只读工具不发 `onToolInputDelta`（见 READ_TOOLS_SKIP_INPUT_DELTA）。**Bash** 会发增量（命令参数流式展示）。
  */
 function inferOpenAIToolNameFromPartialArguments(partial: string): string {
 	const c = partial.replace(/\s+/g, '');
 	if (!c) return '';
-	if (c.includes('"old_str"') || c.includes('"new_str"')) return 'str_replace';
-	if (c.includes('"content"')) return 'write_to_file';
-	if (c.includes('"pattern"')) return 'search_files';
-	if (c.includes('"command"')) return 'execute_command';
+	if (c.includes('"old_str"') || c.includes('"new_str"') || c.includes('"old_string"') || c.includes('"new_string"'))
+		return 'Edit';
+	if (c.includes('"content"')) return 'Write';
+	if (c.includes('"pattern"')) return 'Grep';
+	if (
+		/\"operation\"\s*:\s*\"(goToDefinition|findReferences|hover|documentSymbol|workspaceSymbol|goToImplementation|prepareCallHierarchy|incomingCalls|outgoingCalls|getDiagnostics)\"/.test(
+			c
+		)
+	)
+		return 'LSP';
+	if (c.includes('"filePath"')) return 'LSP';
+	if (c.includes('"command"')) return 'Bash';
 	if (c.includes('"run_in_background"')) return 'Agent';
 	if (c.includes('"prompt"') || c.includes('"subagent_type"')) return 'Agent';
-	// read_file 常带行号；仅有 path 的片段多是 write_to_file 正在流出 path，content 尚未到
-	if (c.includes('"start_line"') || c.includes('"end_line"')) return 'read_file';
-	if (c.includes('"path"')) return 'write_to_file';
+	if (c.includes('"offset"') || c.includes('"limit"') || c.includes('"start_line"') || c.includes('"end_line"')) return 'Read';
+	if (c.includes('"file_path"')) return 'Read';
+	if (c.includes('"path"')) return 'Read';
 	if (c.includes('"question"') && c.includes('"options"')) return 'ask_plan_question';
 	return '';
 }
@@ -303,11 +313,15 @@ async function prepareMcpConnectionsForSession(composerMode: ComposerMode): Prom
 	if (composerMode !== 'agent' && composerMode !== 'plan') {
 		return;
 	}
+	const mcpT0 = Date.now();
 	const mgr = getMcpManager();
 	mgr.loadConfigs(getMcpServerConfigs());
 	await mgr.startAll().catch((e) => {
 		console.warn('[AgentLoop] MCP startAll:', e instanceof Error ? e.message : e);
 	});
+	console.log(
+		`[AgentLoop] MCP prepare done (${Date.now() - mcpT0}ms) mode=${composerMode} — slow here usually means MCP servers starting or timing out`
+	);
 }
 
 export async function runAgentLoop(
@@ -316,8 +330,18 @@ export async function runAgentLoop(
 	options: AgentLoopOptions,
 	handlers: AgentLoopHandlers
 ): Promise<void> {
+	const loopT0 = Date.now();
+	const tid = options.threadId ?? 'n/a';
+	console.log(
+		`[AgentLoop] runAgentLoop enter thread=${tid} paradigm=${options.paradigm} mode=${options.composerMode} msgCount=${threadMessages.length}`
+	);
+	const repairStart = Date.now();
 	const messagesForApi = repairAgentThreadMessagesForApi(threadMessages);
+	console.log(`[AgentLoop] repairAgentThreadMessagesForApi (${Date.now() - repairStart}ms) thread=${tid}`);
 	await prepareMcpConnectionsForSession(options.composerMode);
+	console.log(
+		`[AgentLoop] after MCP prepare, before ${options.paradigm === 'anthropic' ? 'Anthropic' : 'OpenAI'} loop (${Date.now() - loopT0}ms since runAgentLoop enter) thread=${tid}`
+	);
 	switch (options.paradigm) {
 		case 'anthropic':
 			return runAnthropicLoop(settings, messagesForApi, options, handlers);
@@ -329,7 +353,7 @@ export async function runAgentLoop(
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
-/** 最大只读工具并发数，避免大批量 read_file 同时打盘 */
+/** 最大只读工具并发数，避免大批量 Read/Glob 同时打盘 */
 const MAX_TOOL_CONCURRENCY = 10;
 
 /**
@@ -427,6 +451,8 @@ async function runOpenAILoop(
 	const baseURL = options.requestBaseURL?.trim() || undefined;
 	const model = options.requestModelId.trim();
 	if (!model) { handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。'); return; }
+
+	const openaiSyncPrepStart = Date.now();
 
 	const proxyRaw = (options.requestProxyUrl?.trim() || settings.openAI?.proxyUrl?.trim()) ?? '';
 	let httpAgent: InstanceType<typeof HttpsProxyAgent> | undefined;
@@ -547,7 +573,7 @@ async function runOpenAILoop(
 		const result = await executeTool(toolCall, options.toolHooks, {
 			delegateExecutionDepth: options.delegateExecutionDepth ?? 0,
 			workspaceRoot: options.workspaceRoot ?? null,
-			toolLspSession: options.toolLspSession ?? null,
+			workspaceLspManager: options.workspaceLspManager ?? null,
 			threadId: options.threadId ?? null,
 		});
 		console.log(`[AgentLoop] tool=${tc.name} — executeTool done (${Date.now() - execStart}ms, error=${result.isError})`);
@@ -594,6 +620,9 @@ async function runOpenAILoop(
 
 	const streamTimeoutConfig = resolveStreamTimeouts(settings);
 	const maxRounds = resolveAgentMaxRounds(settings);
+	console.log(
+		`[AgentLoop] OpenAI sync prep done (${Date.now() - openaiSyncPrepStart}ms) convMsgs=${conversation.length} tools=${tools.length} thread=${options.threadId ?? 'n/a'}`
+	);
 	console.log(
 		`[AgentLoop] OpenAI loop start — idleMs=${streamTimeoutConfig.idleMs} hardMs=${streamTimeoutConfig.hardMs} watchdog=${streamTimeoutConfig.idleWatchdogEnabled} maxRounds=${maxRounds ?? '∞'}`
 	);
@@ -707,8 +736,9 @@ async function runOpenAILoop(
 				handlers.onDone(structured.serialize(), accUsage);
 				return;
 			}
-			synthesizeMissingOpenAIToolResults(conversation, turnToolCalls, e instanceof Error ? e.message : String(e));
-			handlers.onError(e instanceof Error ? e.message : String(e));
+			const errText = formatLlmSdkError(e);
+			synthesizeMissingOpenAIToolResults(conversation, turnToolCalls, errText);
+			handlers.onError(errText);
 			return;
 		}
 		timeoutMgr.stop();
@@ -934,7 +964,7 @@ async function runAnthropicLoop(
 		const result = await executeTool(toolCall, options.toolHooks, {
 			delegateExecutionDepth: options.delegateExecutionDepth ?? 0,
 			workspaceRoot: options.workspaceRoot ?? null,
-			toolLspSession: options.toolLspSession ?? null,
+			workspaceLspManager: options.workspaceLspManager ?? null,
 			threadId: options.threadId ?? null,
 		});
 		console.log(`[AgentLoop/A] tool=${tu.name} — executeTool done (${Date.now() - execStart}ms, error=${result.isError})`);
@@ -1121,8 +1151,9 @@ async function runAnthropicLoop(
 				handlers.onDone(structured.serialize(), accUsage);
 				return;
 			}
-			synthesizeMissingAnthropicToolResults(conversation, turnToolUses, e instanceof Error ? e.message : String(e));
-			handlers.onError(e instanceof Error ? e.message : String(e));
+			const errTextA = formatLlmSdkError(e);
+			synthesizeMissingAnthropicToolResults(conversation, turnToolUses, errTextA);
+			handlers.onError(errTextA);
 			return;
 		}
 		timeoutMgrA.stop();

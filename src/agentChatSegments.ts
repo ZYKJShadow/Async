@@ -277,7 +277,7 @@ function segmentTextWithFenceSupport(text: string): AssistantSegment[] {
 /** 与主进程写入一致：避免 tool 输出里含字面量 `</tool_result>` 时提前截断。 */
 const TOOL_RESULT_CLOSE_ESC = '</tool\u200c_result>';
 
-const WRITE_TOOLS = new Set(['str_replace', 'write_to_file']);
+const WRITE_TOOLS = new Set(['Edit', 'str_replace', 'Write', 'write_to_file']);
 
 const TOOL_CALL_OPEN = '<tool_call tool="';
 const PLAN_OPEN_1 = '<plan>';
@@ -700,6 +700,16 @@ function computeReadFileAgentLink(mk: ParsedMarker, path: string, inProgress: bo
 		}
 	}
 
+	const off = Number(mk.args.offset);
+	const lim = Number(mk.args.limit);
+	if (Number.isFinite(off) && off > 0) {
+		const o = Math.floor(off);
+		if (Number.isFinite(lim) && lim > 0) {
+			const l = Math.floor(lim);
+			return { path: p, startLine: o, endLine: Math.max(o, o + l - 1) };
+		}
+		return { path: p, startLine: o, endLine: o };
+	}
 	const sl = Number(mk.args.start_line);
 	const el = Number(mk.args.end_line);
 	const hasS = Number.isFinite(sl) && sl > 0;
@@ -752,32 +762,51 @@ function readFileActivityLabel(
 function extractResultSummary(name: string, result: string | undefined, t: TFunction): string | undefined {
 	if (!result) return undefined;
 	switch (name) {
+		case 'Read':
 		case 'read_file': {
 			const lines = result.split('\n');
 			const count = lines.filter((l) => /^\s*\d+\|/.test(l)).length || lines.length;
 			return t('agent.summary.readLines', { count });
+		}
+		case 'Glob': {
+			if (result === 'No files found') return t('agent.summary.noMatches');
+			const lines = result.split('\n').filter((l) => l.trim() && !/^Found\s/i.test(l));
+			return t('agent.summary.dirEntries', { count: lines.length });
 		}
 		case 'list_dir': {
 			const entries = result.split('\n').filter((l) => l.trim()).length;
 			if (result === '(empty directory)') return t('agent.summary.emptyDir');
 			return t('agent.summary.dirEntries', { count: entries });
 		}
-		case 'search_files': {
-			if (result === 'No matches found.') return t('agent.summary.noMatches');
+		case 'search_files':
+		case 'Grep': {
+			if (
+				result === 'No matches found.' ||
+				result === 'No files found' ||
+				result.startsWith('No matches found')
+			) {
+				return t('agent.summary.noMatches');
+			}
 			const lines = result.split('\n').filter((l) => l.trim());
 			return t('agent.summary.searchMatches', { count: lines.length });
 		}
+		case 'Bash':
 		case 'execute_command': {
 			const lines = result.split('\n').filter((l) => l.trim());
 			if (lines.length === 1 && result.includes('(command completed with no output)')) return t('agent.summary.cmdNoOutput');
 			return t('agent.summary.cmdOutput', { lines: lines.length });
 		}
+		case 'Write':
+		case 'write_to_file':
+		case 'Edit':
+		case 'str_replace':
+			return undefined;
 		default:
 			return undefined;
 	}
 }
 
-/** 解析 search_files 结果行：格式为 "path:lineNo:content" */
+/** 解析 Grep content / 旧 search_files 结果行：格式为 "path:lineNo:content" */
 function parseSearchResultLines(result: string): ActivityResultLine[] {
 	if (!result || result === 'No matches found.') return [];
 	return result
@@ -821,7 +850,7 @@ function parseDirResultLines(result: string): ActivityResultLine[] {
 		.map((line) => ({ text: line }));
 }
 
-/** 解析 execute_command 标准输出（保留空行，与终端一致） */
+/** 解析 Bash / execute_command 标准输出（保留空行，与终端一致） */
 function parseCommandResultLines(result: string): ActivityResultLine[] {
 	if (!result || result.includes('(command completed with no output)')) return [];
 	return result.split('\n').map((line) => ({ text: line }));
@@ -839,9 +868,23 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 		return '';
 	};
 
+	const filePathFromArgs = () => {
+		if (mk.args.file_path) return String(mk.args.file_path);
+		if (mk.args.path) return String(mk.args.path);
+		if (mk.isStreaming && mk.rawJson) {
+			return (
+				tailAfterKey(mk.rawJson, 'file_path') ??
+				tailAfterKey(mk.rawJson, 'path') ??
+				''
+			);
+		}
+		return '';
+	};
+
 	switch (mk.name) {
+		case 'Read':
 		case 'read_file': {
-			const p = getPath();
+			const p = filePathFromArgs();
 			const agentReadLink = computeReadFileAgentLink(mk, p, inProgress);
 			const resultLines =
 				!inProgress && !failed && mk.result
@@ -861,8 +904,9 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 				mk
 			);
 		}
+		case 'Write':
 		case 'write_to_file': {
-			const p = getPath();
+			const p = filePathFromArgs();
 			let text = t('agent.activity.wrote', { path: p });
 			if (typeof mk.result === 'string') {
 				if (mk.result.startsWith('Created ')) text = t('agent.activity.created', { path: p });
@@ -882,8 +926,9 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 				mk
 			);
 		}
+		case 'Edit':
 		case 'str_replace': {
-			const p = getPath();
+			const p = filePathFromArgs();
 			return withNestActivity(
 				{
 					type: 'activity',
@@ -894,6 +939,29 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 							: t('agent.activity.edited', { path: p }),
 					status: failed ? 'error' : inProgress ? 'pending' : 'success',
 					detail,
+				},
+				mk
+			);
+		}
+		case 'Glob': {
+			const pat = getPath('pattern') || '*';
+			const body =
+				mk.result?.replace(/^Found[^\n]*\n?/m, '').trim() ?? '';
+			const resultLines =
+				!inProgress && !failed && body && mk.result !== 'No files found'
+					? parseDirResultLines(body)
+					: undefined;
+			return withNestActivity(
+				{
+					type: 'activity',
+					text: inProgress
+						? t('agent.activity.searching', { pattern: pat })
+						: t('agent.activity.searched', { pattern: pat }),
+					status: inProgress ? 'pending' : 'success',
+					detail,
+					summary,
+					resultLines,
+					resultKind: resultLines ? 'dir' : undefined,
 				},
 				mk
 			);
@@ -917,12 +985,19 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 				mk
 			);
 		}
-		case 'search_files': {
+		case 'search_files':
+		case 'Grep': {
 			const pat = getPath('pattern');
-			const resultLines =
-				!inProgress && !failed && mk.result && mk.result !== 'No matches found.'
-					? parseSearchResultLines(mk.result)
-					: undefined;
+			const res = mk.result;
+			const canParseLines =
+				!inProgress &&
+				!failed &&
+				res &&
+				res !== 'No matches found.' &&
+				res !== 'No files found' &&
+				!res.startsWith('Found ') &&
+				!res.includes('total occurrence');
+			const resultLines = canParseLines ? parseSearchResultLines(res) : undefined;
 			return withNestActivity(
 				{
 					type: 'activity',
@@ -953,6 +1028,7 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 				mk
 			);
 		}
+		case 'Bash':
 		case 'execute_command': {
 			const cmd = getPath('command').slice(0, 60);
 			const resultLines =
@@ -1042,10 +1118,19 @@ function buildStreamingFileEditSegment(mk: ParsedMarker): FileEditSegment | null
 		return null;
 	}
 
-	const pathGuess = tailAfterKey(mk.rawJson, 'path') ?? String(mk.args.path ?? '');
-	if (mk.name === 'str_replace') {
-		const oldStr = tailAfterKey(mk.rawJson, 'old_str') ?? String(mk.args.old_str ?? '');
-		const newStr = tailAfterKey(mk.rawJson, 'new_str') ?? String(mk.args.new_str ?? '');
+	const pathGuess =
+		tailAfterKey(mk.rawJson, 'file_path') ??
+		tailAfterKey(mk.rawJson, 'path') ??
+		String(mk.args.file_path ?? mk.args.path ?? '');
+	if (mk.name === 'str_replace' || mk.name === 'Edit') {
+		const oldStr =
+			tailAfterKey(mk.rawJson, 'old_string') ??
+			tailAfterKey(mk.rawJson, 'old_str') ??
+			String(mk.args.old_string ?? mk.args.old_str ?? '');
+		const newStr =
+			tailAfterKey(mk.rawJson, 'new_string') ??
+			tailAfterKey(mk.rawJson, 'new_str') ??
+			String(mk.args.new_string ?? mk.args.new_str ?? '');
 		if (!pathGuess && !oldStr && !newStr) {
 			// 流式开头 JSON 尚未含可解析字段时仍占位，避免整段预览被跳过
 			return {
@@ -1240,11 +1325,12 @@ function extractToolSegments(content: string, t: TFunction): { segments: Assista
 		if (WRITE_TOOLS.has(mk.name)) {
 			if (normalizedMk.success) {
 				segments.push(activity);
-				const filePath = String(mk.args.path ?? '');
-				if (mk.name === 'str_replace') {
-					const oldStr = String(mk.args.old_str ?? '');
-					const newStr = String(mk.args.new_str ?? '');
-					const lineMatch = mk.result?.match(/at line (\d+)/);
+				const filePath = String(mk.args.file_path ?? mk.args.path ?? '');
+				if (mk.name === 'str_replace' || mk.name === 'Edit') {
+					const oldStr = String(mk.args.old_string ?? mk.args.old_str ?? '');
+					const newStr = String(mk.args.new_string ?? mk.args.new_str ?? '');
+					const lineMatch =
+						mk.result?.match(/at line (\d+)/) ?? mk.result?.match(/first at line (\d+)/);
 					segments.push({
 						type: 'file_edit',
 						path: filePath,
@@ -1655,6 +1741,10 @@ function mergeAdjacentMarkdown(segs: AssistantSegment[]): AssistantSegment[] {
 	return m;
 }
 
+function isExplorationActivity(seg: ActivitySegment): boolean {
+	return seg.resultKind === 'search' || seg.resultKind === 'read' || seg.resultKind === 'dir';
+}
+
 /** 为一组 activity 生成摘要标签（仿 Cursor "Explored N files, M searches"） */
 function buildGroupSummary(items: ActivitySegment[]): string {
 	let reads = 0, searches = 0, dirs = 0, cmds = 0, writes = 0, others = 0;
@@ -1694,14 +1784,23 @@ function groupActivities(segs: AssistantSegment[]): AssistantSegment[] {
 			i++;
 			continue;
 		}
-		// 收集连续的 activity（允许中间夹 file_edit，file_edit 不进 group）
+		const firstActivity = s as ActivitySegment;
+		if (!isExplorationActivity(firstActivity)) {
+			out.push(s);
+			i++;
+			continue;
+		}
+		// 仅收集连续的“探索类” activity（允许中间夹 file_edit，file_edit 不进 group）
 		const groupItems: ActivitySegment[] = [];
 		let j = i;
-		const firstNest = (s as ActivitySegment).nestParent ?? '';
+		const firstNest = firstActivity.nestParent ?? '';
 		while (j < segs.length && (segs[j]!.type === 'activity' || segs[j]!.type === 'file_edit')) {
 			if (segs[j]!.type === 'activity') {
 				const aj = segs[j] as ActivitySegment;
 				if ((aj.nestParent ?? '') !== firstNest) {
+					break;
+				}
+				if (!isExplorationActivity(aj)) {
 					break;
 				}
 				groupItems.push(aj);

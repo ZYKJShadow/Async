@@ -32,6 +32,8 @@ export type UnifiedChatOptions = {
 	requestProxyUrl?: string;
 	/** 单次补全输出 token 上限（已钳制） */
 	maxOutputTokens: number;
+	/** 模型上下文窗口（tokens），来自设置或解析；用于 `modelContext` 压缩阈值 */
+	contextWindowTokens?: number;
 	/** 本回合注入系统提示（Rules / Skills / Subagents / 导入规则） */
 	agentSystemAppend?: string;
 	/** 扩展思考 / reasoning 强度，默认 off */

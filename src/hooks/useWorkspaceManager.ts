@@ -246,7 +246,7 @@ export function useWorkspaceManager(shell: Shell | undefined) {
 	}, [workspace]);
 
 	// ── TS LSP ────────────────────────────────────────────────────────────────
-	// 不在渲染进程自动启动 language server。关闭工作区时通知主进程停止会话。
+	// 不在渲染进程自动启动 LSP。关闭工作区时通知主进程释放 WorkspaceLspManager。
 
 	useEffect(() => {
 		if (!shell || workspace) return;

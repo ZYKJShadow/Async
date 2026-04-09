@@ -4,15 +4,15 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolveWorkspacePath, isPathInsideRoot } from '../workspace.js';
 import { formatSymbolSearchResults, searchWorkspaceSymbols, ensureSymbolIndexLoaded } from '../workspaceSymbolIndex.js';
 import type { ToolCall, ToolResult } from './agentTools.js';
-import { TsLspSession } from '../lsp/tsLspSession.js';
+import type { WorkspaceLspManager } from '../lsp/workspaceLspManager.js';
 import type { AgentLoopOptions, AgentLoopHandlers } from './agentLoop.js';
-import { getSettings, type ShellSettings } from '../settingsStore.js';
+import type { ShellSettings } from '../settingsStore.js';
 import { getMcpManager } from '../mcp/index.js';
 import type { McpToolResult } from '../mcp/mcpTypes.js';
 import type { NestedAgentStreamEmit } from '../ipc/nestedAgentStream.js';
@@ -22,14 +22,15 @@ import { executeAskPlanQuestionTool } from './planQuestionTool.js';
 import type { ComposerMode } from '../llm/composerMode.js';
 import { buildSubagentSystemAppend, findConfiguredSubagent, resolveSubagentProfile } from './subagentProfile.js';
 import { shouldRunAgentInBackground } from './agentForkPolicy.js';
-import { windowsCmdUtf8Prefix, windowsPowerShellUtf8Command } from '../winUtf8.js';
+import { windowsPowerShellUtf8Command } from '../winUtf8.js';
 import { ensureAgentMemoryDirExists, loadAgentMemoryPrompt } from './agentMemory.js';
 import { buildRelevantMemoryContextBlock } from '../memdir/findRelevantMemories.js';
 import { extractMemoriesToDir } from '../services/extractMemories/extractMemories.js';
 import { setTodos, type TodoItem } from './todoStore.js';
+import { minimatch } from 'minimatch';
 
-/** @deprecated 每窗 LSP 经 ToolExecutionContext.toolLspSession 传入 */
-export function setToolLspSession(_session: TsLspSession): void {
+/** @deprecated 已由 WorkspaceLspManager 取代 */
+export function setToolLspSession(_session: unknown): void {
 	/* no-op */
 }
 
@@ -39,7 +40,7 @@ export type SubAgentBackgroundDonePayload = {
 	success: boolean;
 };
 
-/** Agent / delegate_task 嵌套子循环上下文（由 register.ts 注入）。 */
+/** Agent / Task 嵌套子循环上下文（由 register.ts 注入）。 */
 let _delegateContext: {
 	settings: ShellSettings;
 	options: Omit<AgentLoopOptions, 'signal'>;
@@ -71,7 +72,8 @@ export function clearDelegateContext(): void {
 	_delegateContext = null;
 }
 
-const DELEGATE_TOOL_ALIASES = new Set(['Agent', 'Task', 'delegate_task']);
+/** 与 Claude `AgentTool` 一致：主名 `Agent`，兼容旧会话/权限里的 `Task`。 */
+const SUBAGENT_TOOL_NAMES = new Set(['Agent', 'Task']);
 
 function coerceAgentDelegateArgs(call: ToolCall): {
 	task: string;
@@ -80,7 +82,7 @@ function coerceAgentDelegateArgs(call: ToolCall): {
 	runInBackground: boolean;
 } {
 	const a = call.arguments;
-	const task = String(a.task ?? a.prompt ?? a.description ?? '').trim();
+	const task = String(a.prompt ?? a.task ?? a.description ?? '').trim();
 	const context = String(a.context ?? '').trim();
 	const subagentType = typeof a.subagent_type === 'string' && a.subagent_type.trim() ? a.subagent_type.trim() : undefined;
 	const runInBackground = a.run_in_background === true || a.run_in_background === 'true';
@@ -92,8 +94,16 @@ const BACKGROUND_AGENT_TOOL_RESULT =
 
 const execFileAsync = promisify(execFile);
 
-const MAX_READ_SIZE = 200_000;
-const MAX_SEARCH_RESULTS = 80;
+/** Single Read call: max lines returned (aligned with Claude Code Read default cap). */
+const MAX_READ_LINES_PER_CALL = 2000;
+/** Refuse to load extremely large text files into memory in one shot. */
+const MAX_READ_FILE_BYTES = 2 * 1024 * 1024;
+
+const GLOB_MAX_RESULTS = 100;
+const GLOB_IGNORE_DIR_NAMES = new Set(['.git', 'node_modules', '.hg', '.svn', '.jj']);
+const MAX_SYMBOL_SEARCH_RESULTS = 80;
+const DEFAULT_GREP_HEAD_LIMIT = 250;
+const VCS_GREP_EXCLUDES = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'] as const;
 
 export type ToolWriteSnapshot = {
 	path: string;
@@ -133,6 +143,10 @@ function formatMcpToolResultForAgent(result: McpToolResult): string {
 }
 
 const MAX_MCP_RESOURCE_LIST_CHARS = 100_000;
+/** ReadMcpResource：与 Claude `ReadMcpResourceTool.maxResultSizeChars` 一致 */
+const MAX_MCP_RESOURCE_READ_CHARS = 100_000;
+/** Bash：与 Claude `BashTool.maxResultSizeChars` 一致 */
+const MAX_BASH_OUTPUT_CHARS = 30_000;
 
 async function executeListMcpResources(call: ToolCall): Promise<ToolResult> {
 	const filter = String(call.arguments.server ?? '').trim();
@@ -208,7 +222,9 @@ async function executeReadMcpResource(call: ToolCall): Promise<ToolResult> {
 		const raw = await client.readResource(uri);
 		const text = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
 		const clipped =
-			text.length > MAX_READ_SIZE ? text.slice(0, MAX_READ_SIZE) + '\n... (truncated)' : text;
+			text.length > MAX_MCP_RESOURCE_READ_CHARS
+				? text.slice(0, MAX_MCP_RESOURCE_READ_CHARS) + '\n... (truncated)'
+				: text;
 		return { toolCallId: call.id, name: call.name, content: clipped, isError: false };
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
@@ -245,7 +261,7 @@ async function executeMcpAgentTool(call: ToolCall): Promise<ToolResult> {
 export type ToolExecutionContext = {
 	delegateExecutionDepth?: number;
 	workspaceRoot?: string | null;
-	toolLspSession?: TsLspSession | null;
+	workspaceLspManager?: WorkspaceLspManager | null;
 	threadId?: string | null;
 };
 
@@ -256,23 +272,24 @@ export async function executeTool(
 ): Promise<ToolResult> {
 		try {
 		switch (call.name) {
-			case 'read_file':
+			case 'Read':
 				return executeReadFile(call, execCtx);
-			case 'write_to_file':
+			case 'Write':
 				return executeWriteToFile(call, hooks, execCtx);
-			case 'str_replace':
+			case 'Edit':
 				return executeStrReplace(call, hooks, execCtx);
+			case 'Glob':
+				return executeGlob(call, execCtx);
 			case 'list_dir':
 				return executeListDir(call, execCtx);
-			case 'search_files':
-				return await executeSearchFiles(call, execCtx);
-		case 'execute_command':
+			case 'Grep':
+				return await executeGrepTool(call, execCtx);
+		case 'Bash':
 			return await executeCommand(call, execCtx);
-		case 'get_diagnostics':
-			return await executeGetDiagnostics(call, execCtx);
+		case 'LSP':
+			return await executeLspTool(call, execCtx);
 		case 'Agent':
 		case 'Task':
-		case 'delegate_task':
 			return await executeAgentDelegate(call, execCtx);
 		case 'ListMcpResourcesTool':
 			return await executeListMcpResources(call);
@@ -306,41 +323,126 @@ function safePath(relPath: string, execCtx: ToolExecutionContext): string {
 	return full;
 }
 
-function executeReadFile(call: ToolCall, execCtx: ToolExecutionContext): ToolResult {
-	const relPath = String(call.arguments.path ?? '');
-	if (!relPath) return { toolCallId: call.id, name: call.name, content: 'Error: path is required', isError: true };
+function resolveAgentFilePath(raw: string, execCtx: ToolExecutionContext): { rel: string; full: string } {
+	const root = requireWorkspace(execCtx);
+	const trimmed = raw.trim();
+	if (!trimmed) throw new Error('file_path is required');
+	const full = path.isAbsolute(trimmed)
+		? path.normalize(trimmed)
+		: resolveWorkspacePath(trimmed.replace(/^[/\\]+/, ''), root);
+	if (!isPathInsideRoot(full, root)) throw new Error('Path escapes workspace boundary.');
+	const rel = path.relative(root, full).replace(/\\/g, '/') || '.';
+	return { rel, full };
+}
 
-	const full = safePath(relPath, execCtx);
+function readToolFileArg(call: ToolCall): string {
+	return String(call.arguments.file_path ?? call.arguments.path ?? '').trim();
+}
+
+function executeReadFile(call: ToolCall, execCtx: ToolExecutionContext): ToolResult {
+	const rawPath = readToolFileArg(call);
+	if (!rawPath) return { toolCallId: call.id, name: call.name, content: 'Error: file_path is required', isError: true };
+
+	let rel: string;
+	let full: string;
+	try {
+		({ rel, full } = resolveAgentFilePath(rawPath, execCtx));
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
+	}
+
 	if (!fs.existsSync(full)) {
-		return { toolCallId: call.id, name: call.name, content: `File not found: ${relPath}`, isError: true };
+		return { toolCallId: call.id, name: call.name, content: `File not found: ${rel}`, isError: true };
+	}
+	if (!fs.statSync(full).isFile()) {
+		return { toolCallId: call.id, name: call.name, content: `Not a file: ${rel}`, isError: true };
+	}
+
+	const st = fs.statSync(full);
+	if (st.size > MAX_READ_FILE_BYTES) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `File too large (${st.size} bytes). Use Read with offset and limit to read a portion, or use Grep.`,
+			isError: true,
+		};
 	}
 
 	const buf = fs.readFileSync(full);
 	if (buf.includes(0)) {
-		return { toolCallId: call.id, name: call.name, content: `Skipped binary file: ${relPath}`, isError: true };
+		return { toolCallId: call.id, name: call.name, content: `Skipped binary file: ${rel}`, isError: true };
 	}
 
-	let content = buf.toString('utf8').replace(/\r\n/g, '\n');
-	if (content.length > MAX_READ_SIZE) {
-		content = content.slice(0, MAX_READ_SIZE) + '\n... (truncated)';
+	let text = buf.toString('utf8').replace(/\r\n/g, '\n');
+	const lines = text.split('\n');
+
+	let offset = Math.max(1, Number(call.arguments.offset) || 1);
+	let limit: number | undefined;
+	if (call.arguments.limit !== undefined && call.arguments.limit !== null && String(call.arguments.limit) !== '') {
+		const l = Number(call.arguments.limit);
+		if (Number.isFinite(l) && l > 0) limit = Math.min(Math.floor(l), MAX_READ_LINES_PER_CALL);
+	}
+	const sl = call.arguments.start_line;
+	const el = call.arguments.end_line;
+	if (
+		(call.arguments.offset === undefined || call.arguments.offset === null || !Number.isFinite(Number(call.arguments.offset))) &&
+		Number(sl) > 0
+	) {
+		offset = Math.max(1, Math.floor(Number(sl)));
+		if (Number(el) > 0) {
+			const endL = Math.floor(Number(el));
+			limit = Math.min(Math.max(1, endL - offset + 1), MAX_READ_LINES_PER_CALL);
+		}
 	}
 
-	const lines = content.split('\n');
-	const startLine = Math.max(1, Number(call.arguments.start_line) || 1);
-	const endLine = Math.min(lines.length, Number(call.arguments.end_line) || lines.length);
+	if (offset > lines.length) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `offset ${offset} is past end of file (${lines.length} lines).`,
+			isError: true,
+		};
+	}
 
-	const slice = lines.slice(startLine - 1, endLine);
-	const numbered = slice.map((l, i) => `${String(startLine + i).padStart(6)}|${l}`).join('\n');
+	const effectiveLimit = limit ?? Math.min(MAX_READ_LINES_PER_CALL, lines.length - offset + 1);
+	const slice = lines.slice(offset - 1, offset - 1 + effectiveLimit);
+	const numbered = slice.map((l, i) => `${String(offset + i).padStart(6)}|${l}`).join('\n');
 
-	return { toolCallId: call.id, name: call.name, content: numbered, isError: false };
+	const totalLines = lines.length;
+	const footer =
+		offset + slice.length - 1 < totalLines
+			? `\n\n(${totalLines} lines total; use offset=${offset + slice.length} to read more.)`
+			: '';
+	const header =
+		effectiveLimit >= MAX_READ_LINES_PER_CALL && offset === 1 && totalLines > MAX_READ_LINES_PER_CALL
+			? `(First ${MAX_READ_LINES_PER_CALL} of ${totalLines} lines; use offset and limit to paginate.)\n\n`
+			: '';
+
+	return { toolCallId: call.id, name: call.name, content: header + numbered + footer, isError: false };
 }
 
 function executeWriteToFile(call: ToolCall, hooks: ToolExecutionHooks, execCtx: ToolExecutionContext): ToolResult {
-	const relPath = String(call.arguments.path ?? '');
+	const rawPath = readToolFileArg(call);
 	const content = String(call.arguments.content ?? '');
-	if (!relPath) return { toolCallId: call.id, name: call.name, content: 'Error: path is required', isError: true };
+	if (!rawPath) return { toolCallId: call.id, name: call.name, content: 'Error: file_path is required', isError: true };
 
-	const full = safePath(relPath, execCtx);
+	let relPath: string;
+	let full: string;
+	try {
+		({ rel: relPath, full } = resolveAgentFilePath(rawPath, execCtx));
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
+	}
 	const existed = fs.existsSync(full);
 	const previousContent = existed ? fs.readFileSync(full, 'utf8') : null;
 	void hooks.beforeWrite?.({ path: relPath, previousContent });
@@ -358,13 +460,36 @@ function executeWriteToFile(call: ToolCall, hooks: ToolExecutionHooks, execCtx: 
 }
 
 function executeStrReplace(call: ToolCall, hooks: ToolExecutionHooks, execCtx: ToolExecutionContext): ToolResult {
-	const relPath = String(call.arguments.path ?? '');
-	const rawOldStr = String(call.arguments.old_str ?? '');
-	const rawNewStr = String(call.arguments.new_str ?? '');
-	if (!relPath) return { toolCallId: call.id, name: call.name, content: 'Error: path is required', isError: true };
-	if (!rawOldStr) return { toolCallId: call.id, name: call.name, content: 'Error: old_str is required and must not be empty', isError: true };
+	const rawPath = readToolFileArg(call);
+	const rawOldStr = String(call.arguments.old_string ?? call.arguments.old_str ?? '');
+	const rawNewStr = String(call.arguments.new_string ?? call.arguments.new_str ?? '');
+	const replaceAll =
+		call.arguments.replace_all === true || call.arguments.replace_all === 'true' || call.arguments.replace_all === 1;
+	if (!rawPath) return { toolCallId: call.id, name: call.name, content: 'Error: file_path is required', isError: true };
+	if (!rawOldStr) {
+		return { toolCallId: call.id, name: call.name, content: 'Error: old_string is required and must not be empty', isError: true };
+	}
+	if (rawOldStr === rawNewStr && !replaceAll) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'Error: old_string and new_string are identical; nothing to change.',
+			isError: true,
+		};
+	}
 
-	const full = safePath(relPath, execCtx);
+	let relPath: string;
+	let full: string;
+	try {
+		({ rel: relPath, full } = resolveAgentFilePath(rawPath, execCtx));
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
+	}
 	if (!fs.existsSync(full)) {
 		return { toolCallId: call.id, name: call.name, content: `File not found: ${relPath}`, isError: true };
 	}
@@ -383,6 +508,40 @@ function executeStrReplace(call: ToolCall, hooks: ToolExecutionHooks, execCtx: T
 	const newStr = fileHasCRLF
 		? rawNewStr.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n')
 		: rawNewStr.replace(/\r\n/g, '\n');
+
+	if (replaceAll) {
+		let patchedAll = source;
+		let pos = 0;
+		let count = 0;
+		let firstLineNo = 1;
+		while (true) {
+			const found = patchedAll.indexOf(oldStr, pos);
+			if (found === -1) break;
+			if (count === 0) firstLineNo = patchedAll.slice(0, found).split('\n').length;
+			patchedAll = patchedAll.slice(0, found) + newStr + patchedAll.slice(found + oldStr.length);
+			pos = found + newStr.length;
+			count++;
+		}
+		if (count === 0) {
+			const preview = rawOldStr.length > 200 ? rawOldStr.slice(0, 200) + '...' : rawOldStr;
+			const hint = fileHasCRLF ? ' (note: file uses CRLF line endings)' : '';
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: `old_string not found in ${relPath}${hint}. Make sure the string matches exactly including whitespace and indentation.\nSearched for: ${preview}`,
+				isError: true,
+			};
+		}
+		void hooks.beforeWrite?.({ path: relPath, previousContent: source });
+		fs.writeFileSync(full, patchedAll, 'utf8');
+		void hooks.afterWrite?.({ path: relPath, previousContent: source, nextContent: patchedAll });
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Applied ${count} replacement(s) in ${relPath} (first at line ${firstLineNo})`,
+			isError: false,
+		};
+	}
 
 	let idx = source.indexOf(oldStr);
 	let matchLen = oldStr.length;
@@ -420,7 +579,7 @@ function executeStrReplace(call: ToolCall, hooks: ToolExecutionHooks, execCtx: T
 		return {
 			toolCallId: call.id,
 			name: call.name,
-			content: `old_str not found in ${relPath}${hint}. Make sure the string matches exactly including whitespace and indentation.\nSearched for: ${preview}`,
+			content: `old_string not found in ${relPath}${hint}. Make sure the string matches exactly including whitespace and indentation.\nSearched for: ${preview}`,
 			isError: true,
 		};
 	}
@@ -430,7 +589,7 @@ function executeStrReplace(call: ToolCall, hooks: ToolExecutionHooks, execCtx: T
 		return {
 			toolCallId: call.id,
 			name: call.name,
-			content: `old_str appears multiple times in ${relPath}. Include more surrounding context to make it unique.`,
+			content: `old_string appears multiple times in ${relPath}. Set replace_all to true to replace every occurrence, or include more surrounding context to make a single match unique.`,
 			isError: true,
 		};
 	}
@@ -468,6 +627,67 @@ function lfPosToOriginal(original: string, lfPos: number): number {
 	return origIdx;
 }
 
+function collectGlobFileRelPaths(scanRoot: string, workspaceRoot: string, out: string[]): void {
+	let entries: fs.Dirent[];
+	try {
+		entries = fs.readdirSync(scanRoot, { withFileTypes: true });
+	} catch {
+		return;
+	}
+	for (const e of entries) {
+		const full = path.join(scanRoot, e.name);
+		if (e.isDirectory()) {
+			if (GLOB_IGNORE_DIR_NAMES.has(e.name)) continue;
+			collectGlobFileRelPaths(full, workspaceRoot, out);
+		} else {
+			out.push(path.relative(workspaceRoot, full).replace(/\\/g, '/'));
+		}
+	}
+}
+
+function executeGlob(call: ToolCall, execCtx: ToolExecutionContext): ToolResult {
+	const pattern = String(call.arguments.pattern ?? '').trim();
+	if (!pattern) {
+		return { toolCallId: call.id, name: call.name, content: 'Error: pattern is required', isError: true };
+	}
+	const root = requireWorkspace(execCtx);
+	const sub = String(call.arguments.path ?? '').trim();
+	let scanRoot: string;
+	try {
+		scanRoot = sub ? safePath(sub, execCtx) : root;
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
+	}
+	if (!fs.existsSync(scanRoot) || !fs.statSync(scanRoot).isDirectory()) {
+		return { toolCallId: call.id, name: call.name, content: `Not a directory: ${sub || '.'}`, isError: true };
+	}
+	const allRel: string[] = [];
+	collectGlobFileRelPaths(scanRoot, root, allRel);
+	const mmOpts = { dot: true, nocase: process.platform === 'win32' } as const;
+	const matched = [...new Set(allRel)]
+		.filter((rel) => minimatch(rel, pattern, mmOpts))
+		.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+	const truncated = matched.length > GLOB_MAX_RESULTS;
+	const shown = truncated ? matched.slice(0, GLOB_MAX_RESULTS) : matched;
+	if (shown.length === 0) {
+		return { toolCallId: call.id, name: call.name, content: 'No files found', isError: false };
+	}
+	const header = truncated
+		? `Found at least ${matched.length} files (showing first ${GLOB_MAX_RESULTS})\n`
+		: `Found ${shown.length} file${shown.length === 1 ? '' : 's'}\n`;
+	return {
+		toolCallId: call.id,
+		name: call.name,
+		content: header + shown.join('\n'),
+		isError: false,
+	};
+}
+
 function executeListDir(call: ToolCall, execCtx: ToolExecutionContext): ToolResult {
 	const root = requireWorkspace(execCtx);
 	const relPath = String(call.arguments.path ?? '').trim();
@@ -489,7 +709,85 @@ function executeListDir(call: ToolCall, execCtx: ToolExecutionContext): ToolResu
 	return { toolCallId: call.id, name: call.name, content: lines.join('\n') || '(empty directory)', isError: false };
 }
 
-async function executeSearchFiles(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
+function grepFormatLimitInfo(appliedLimit: number | undefined, appliedOffset: number | undefined): string {
+	const parts: string[] = [];
+	if (appliedLimit !== undefined) parts.push(`limit: ${appliedLimit}`);
+	if (appliedOffset) parts.push(`offset: ${appliedOffset}`);
+	return parts.join(', ');
+}
+
+function applyGrepHeadLimit<T>(
+	items: T[],
+	headLimit: number | undefined,
+	offset: number
+): { items: T[]; appliedLimit?: number; appliedOffset?: number } {
+	const off = Math.max(0, Math.floor(Number(offset) || 0));
+	if (headLimit === 0) {
+		return { items: items.slice(off), appliedOffset: off > 0 ? off : undefined };
+	}
+	const effective = headLimit ?? DEFAULT_GREP_HEAD_LIMIT;
+	const sliced = items.slice(off, off + effective);
+	const truncated = items.length - off > effective;
+	return {
+		items: sliced,
+		appliedLimit: truncated ? effective : undefined,
+		appliedOffset: off > 0 ? off : undefined,
+	};
+}
+
+function expandUserGlobPatterns(globField: string): string[] {
+	const rawPatterns = globField.trim().split(/\s+/);
+	const out: string[] = [];
+	for (const raw of rawPatterns) {
+		if (!raw) continue;
+		if (raw.includes('{') && raw.includes('}')) {
+			out.push(raw);
+		} else {
+			out.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
+		}
+	}
+	return out;
+}
+
+async function runRipgrep(
+	rgArgs: string[],
+	cwd: string
+): Promise<{ stdout: string; stderr: string; code: number }> {
+	try {
+		const r = await execFileAsync('rg', rgArgs, {
+			cwd,
+			windowsHide: true,
+			maxBuffer: 20 * 1024 * 1024,
+			timeout: 30_000,
+			encoding: 'utf8',
+		});
+		return { stdout: (r.stdout as string) || '', stderr: (r.stderr as string) || '', code: 0 };
+	} catch (e: unknown) {
+		const err = e as { stdout?: string; stderr?: string; code?: number };
+		const code = typeof err.code === 'number' ? err.code : -1;
+		return {
+			stdout: err.stdout || '',
+			stderr: err.stderr || '',
+			code,
+		};
+	}
+}
+
+function sortGrepFilePathsByMtime(relPaths: string[], baseDir: string): string[] {
+	const withT = relPaths.map((f) => {
+		const full = path.join(baseDir, f);
+		try {
+			const st = fs.statSync(full);
+			return { f, t: st.mtimeMs };
+		} catch {
+			return { f, t: 0 };
+		}
+	});
+	withT.sort((a, b) => b.t - a.t || a.f.localeCompare(b.f, undefined, { sensitivity: 'base' }));
+	return withT.map((x) => x.f);
+}
+
+async function executeGrepTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
 	const root = requireWorkspace(execCtx);
 	const pattern = String(call.arguments.pattern ?? '');
 	if (!pattern) return { toolCallId: call.id, name: call.name, content: 'Error: pattern is required', isError: true };
@@ -501,7 +799,7 @@ async function executeSearchFiles(call: ToolCall, execCtx: ToolExecutionContext)
 	if (symbolMode) {
 		const rootNorm = path.resolve(root);
 		await ensureSymbolIndexLoaded(rootNorm);
-		const hits = searchWorkspaceSymbols(pattern, MAX_SEARCH_RESULTS, rootNorm);
+		const hits = searchWorkspaceSymbols(pattern, MAX_SYMBOL_SEARCH_RESULTS, rootNorm);
 		return {
 			toolCallId: call.id,
 			name: call.name,
@@ -510,59 +808,159 @@ async function executeSearchFiles(call: ToolCall, execCtx: ToolExecutionContext)
 		};
 	}
 
-	const subPath = String(call.arguments.path ?? '').trim();
-	const searchDir = subPath ? safePath(subPath, execCtx) : root;
-
+	let searchDirAbs: string;
 	try {
-		const isWin = process.platform === 'win32';
-		const shell = isWin ? process.env.ComSpec || 'cmd.exe' : '/bin/bash';
-		const grepCmd = `rg --line-number --max-count=5 --max-filesize=1M --no-heading --color=never -e ${JSON.stringify(pattern)} .`;
-		const cmdLine = isWin ? windowsCmdUtf8Prefix(grepCmd) : grepCmd;
-		const args = isWin ? ['/d', '/s', '/c', cmdLine] : ['-lc', cmdLine];
-		const { stdout } = await execFileAsync(shell, args, {
-			cwd: searchDir,
-			windowsHide: true,
-			maxBuffer: 2 * 1024 * 1024,
-			timeout: 30_000,
-			encoding: 'utf8',
-		});
-		const lines = (stdout || '').split('\n').filter(Boolean);
-		if (lines.length > MAX_SEARCH_RESULTS) {
-			const truncated = lines.slice(0, MAX_SEARCH_RESULTS);
-			truncated.push(`... and ${lines.length - MAX_SEARCH_RESULTS} more matches`);
-			return { toolCallId: call.id, name: call.name, content: truncated.join('\n'), isError: false };
-		}
-		return { toolCallId: call.id, name: call.name, content: lines.join('\n') || 'No matches found.', isError: false };
-	} catch (e: unknown) {
-		const err = e as { stdout?: string; stderr?: string; code?: number };
-		if (err.code === 1 && !err.stdout?.trim()) {
-			return { toolCallId: call.id, name: call.name, content: 'No matches found.', isError: false };
-		}
-		if (err.stdout?.trim()) {
-			const lines = err.stdout.split('\n').filter(Boolean);
-			if (lines.length > MAX_SEARCH_RESULTS) {
-				return { toolCallId: call.id, name: call.name, content: lines.slice(0, MAX_SEARCH_RESULTS).join('\n') + `\n... truncated`, isError: false };
-			}
-			return { toolCallId: call.id, name: call.name, content: lines.join('\n'), isError: false };
-		}
-		return { toolCallId: call.id, name: call.name, content: `Search failed: ${err.stderr || String(e)}`, isError: true };
+		const subPath = String(call.arguments.path ?? '').trim();
+		searchDirAbs = subPath ? safePath(subPath, execCtx) : root;
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
 	}
+
+	const outputModeRaw = call.arguments.output_mode;
+	const output_mode =
+		outputModeRaw === 'content' || outputModeRaw === 'files_with_matches' || outputModeRaw === 'count'
+			? outputModeRaw
+			: 'files_with_matches';
+
+	const multiline = call.arguments.multiline === true;
+	const caseInsensitive = call.arguments['-i'] === true;
+	const ctxNum = (k: string) => {
+		const v = call.arguments[k];
+		if (typeof v === 'number' && Number.isFinite(v)) return Math.max(0, Math.floor(v));
+		return undefined;
+	};
+	const contextBefore = ctxNum('-B');
+	const contextAfter = ctxNum('-A');
+	const contextC = ctxNum('-C');
+	const contextUnified = ctxNum('context');
+	const showLineNumbers = call.arguments['-n'] !== false;
+	const typeFilter = typeof call.arguments.type === 'string' && call.arguments.type.trim() ? call.arguments.type.trim() : '';
+	const globField = typeof call.arguments.glob === 'string' ? call.arguments.glob : '';
+	const globPatterns = globField ? expandUserGlobPatterns(globField) : [];
+
+	let headLimit: number | undefined;
+	if (call.arguments.head_limit === 0) headLimit = 0;
+	else if (typeof call.arguments.head_limit === 'number' && Number.isFinite(call.arguments.head_limit)) {
+		headLimit = Math.max(0, Math.floor(call.arguments.head_limit));
+	} else headLimit = undefined;
+
+	let offset = 0;
+	if (typeof call.arguments.offset === 'number' && Number.isFinite(call.arguments.offset)) {
+		offset = Math.max(0, Math.floor(call.arguments.offset));
+	}
+
+	const rgArgs: string[] = ['--hidden'];
+	for (const d of VCS_GREP_EXCLUDES) {
+		rgArgs.push('--glob', `!${d}`);
+	}
+	rgArgs.push('--max-columns', '500', '--color=never');
+	if (multiline) rgArgs.push('-U', '--multiline-dotall');
+	if (caseInsensitive) rgArgs.push('-i');
+
+	if (output_mode === 'files_with_matches') rgArgs.push('-l');
+	else if (output_mode === 'count') rgArgs.push('-c');
+
+	if (output_mode === 'content') {
+		if (showLineNumbers) rgArgs.push('-n');
+		else rgArgs.push('--no-line-number');
+		rgArgs.push('--no-heading');
+		const ctxU = contextUnified;
+		if (ctxU !== undefined) rgArgs.push('-C', String(ctxU));
+		else if (contextC !== undefined) rgArgs.push('-C', String(contextC));
+		else {
+			if (contextBefore !== undefined) rgArgs.push('-B', String(contextBefore));
+			if (contextAfter !== undefined) rgArgs.push('-A', String(contextAfter));
+		}
+	}
+
+	if (pattern.startsWith('-')) rgArgs.push('-e', pattern);
+	else rgArgs.push(pattern);
+
+	if (typeFilter) rgArgs.push('--type', typeFilter);
+	for (const g of globPatterns) {
+		rgArgs.push('--glob', g);
+	}
+	rgArgs.push('.');
+
+	const { stdout, stderr, code } = await runRipgrep(rgArgs, searchDirAbs);
+	if (code === 2 || (code !== 0 && code !== 1)) {
+		return { toolCallId: call.id, name: call.name, content: `Search failed: ${stderr || `exit ${code}`}`, isError: true };
+	}
+
+	const rawLines = stdout.split('\n').filter(Boolean);
+
+	if (output_mode === 'count' && rawLines.length === 0) {
+		return { toolCallId: call.id, name: call.name, content: 'No matches found.', isError: false };
+	}
+
+	if (output_mode === 'content') {
+		const { items, appliedLimit, appliedOffset } = applyGrepHeadLimit(rawLines, headLimit, offset);
+		const body = items.join('\n') || 'No matches found';
+		const lim = grepFormatLimitInfo(appliedLimit, appliedOffset);
+		const content = lim ? `${body}\n\n[Showing results with pagination = ${lim}]` : body;
+		return { toolCallId: call.id, name: call.name, content, isError: false };
+	}
+
+	if (output_mode === 'count') {
+		const normalized = rawLines.map((line) => {
+			const i = line.lastIndexOf(':');
+			if (i <= 0) return line;
+			const filePath = line.slice(0, i);
+			const rest = line.slice(i);
+			const rel = path.isAbsolute(filePath) ? path.relative(searchDirAbs, filePath).replace(/\\/g, '/') : filePath.replace(/\\/g, '/');
+			return rel + rest;
+		});
+		const { items, appliedLimit, appliedOffset } = applyGrepHeadLimit(normalized, headLimit, offset);
+		let totalMatches = 0;
+		let fileCount = 0;
+		for (const line of items) {
+			const i = line.lastIndexOf(':');
+			if (i <= 0) continue;
+			const n = parseInt(line.slice(i + 1), 10);
+			if (!Number.isNaN(n)) {
+				totalMatches += n;
+				fileCount += 1;
+			}
+		}
+		const rawContent = items.join('\n') || 'No matches found';
+		const lim = grepFormatLimitInfo(appliedLimit, appliedOffset);
+		const occ = totalMatches === 1 ? 'occurrence' : 'occurrences';
+		const fs_ = fileCount === 1 ? 'file' : 'files';
+		const summary = `\n\nFound ${totalMatches} total ${occ} across ${fileCount} ${fs_}.${lim ? ` with pagination = ${lim}` : ''}`;
+		return { toolCallId: call.id, name: call.name, content: rawContent + summary, isError: false };
+	}
+
+	let files = rawLines.map((f) => f.replace(/\\/g, '/'));
+	files = sortGrepFilePathsByMtime(files, searchDirAbs);
+	const { items, appliedLimit, appliedOffset } = applyGrepHeadLimit(files, headLimit, offset);
+	const lim = grepFormatLimitInfo(appliedLimit, appliedOffset);
+	if (items.length === 0) {
+		return { toolCallId: call.id, name: call.name, content: 'No files found', isError: false };
+	}
+	const fw = items.length === 1 ? 'file' : 'files';
+	const prefix = `Found ${items.length} ${fw}${lim ? ` ${lim}` : ''}`;
+	return { toolCallId: call.id, name: call.name, content: `${prefix}\n${items.join('\n')}`, isError: false };
 }
 
 const UNIX_INSPECT_RE = /^\s*(ls\b|cat\b|head\b|tail\b|wc\b|file\b|stat\b|less\b|more\b|sed\b|awk\b|find\s)/;
 const UNIX_REDIRECT: Record<string, string> = {
-	ls: 'Use list_dir to list directories, or read_file to inspect a file.',
-	cat: 'Use read_file to read file contents.',
-	head: 'Use read_file with start_line=1 and end_line=N to read the first N lines.',
-	tail: 'Use read_file with start_line and end_line to read the last portion of a file.',
-	wc: 'Use read_file to get the file content, then count in your response.',
-	file: 'Use read_file to inspect file contents.',
-	stat: 'Use list_dir to check if a file exists.',
-	less: 'Use read_file to read file contents.',
-	more: 'Use read_file to read file contents.',
-	sed: 'Use str_replace to make targeted edits to files.',
-	awk: 'Use read_file then process the content in your response.',
-	find: 'Use list_dir or search_files instead.',
+	ls: 'Use Glob or Bash to list files; use Read to inspect a file.',
+	cat: 'Use Read to read file contents.',
+	head: 'Use Read with offset=1 and limit=N.',
+	tail: 'Use Read with offset near the end and a limit.',
+	wc: 'Use Read to get file content, then count in your response.',
+	file: 'Use Read to inspect file contents.',
+	stat: 'Use Glob or Read to check if a path exists.',
+	less: 'Use Read to read file contents.',
+	more: 'Use Read to read file contents.',
+	sed: 'Use Edit to make targeted edits to files.',
+	awk: 'Use Read then process the content in your response.',
+	find: 'Use Glob or Grep instead.',
 };
 
 async function executeCommand(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
@@ -574,7 +972,7 @@ async function executeCommand(call: ToolCall, execCtx: ToolExecutionContext): Pr
 		const unixMatch = command.match(UNIX_INSPECT_RE);
 		if (unixMatch) {
 			const cmd = unixMatch[1]!.trim();
-			const hint = UNIX_REDIRECT[cmd] ?? 'Use the dedicated tools (read_file, list_dir, search_files) instead.';
+			const hint = UNIX_REDIRECT[cmd] ?? 'Use the dedicated tools (Read, Glob, Grep) instead.';
 			return {
 				toolCallId: call.id,
 				name: call.name,
@@ -603,8 +1001,8 @@ async function executeCommand(call: ToolCall, execCtx: ToolExecutionContext): Pr
 		if (stdout) output += stdout;
 		if (stderr) output += (output ? '\n--- stderr ---\n' : '') + stderr;
 		if (!output.trim()) output = '(command completed with no output)';
-		if (output.length > MAX_READ_SIZE) {
-			output = output.slice(0, MAX_READ_SIZE) + '\n... (truncated)';
+		if (output.length > MAX_BASH_OUTPUT_CHARS) {
+			output = output.slice(0, MAX_BASH_OUTPUT_CHARS) + '\n... (truncated)';
 		}
 		return { toolCallId: call.id, name: call.name, content: output, isError: false };
 	} catch (e: unknown) {
@@ -613,8 +1011,8 @@ async function executeCommand(call: ToolCall, execCtx: ToolExecutionContext): Pr
 		if (err.stdout) output += err.stdout;
 		if (err.stderr) output += (output ? '\n--- stderr ---\n' : '') + err.stderr;
 		if (!output.trim()) output = err.message ?? String(e);
-		if (output.length > MAX_READ_SIZE) {
-			output = output.slice(0, MAX_READ_SIZE) + '\n... (truncated)';
+		if (output.length > MAX_BASH_OUTPUT_CHARS) {
+			output = output.slice(0, MAX_BASH_OUTPUT_CHARS) + '\n... (truncated)';
 		}
 		return { toolCallId: call.id, name: call.name, content: `Exit code ${err.code ?? 'unknown'}\n${output}`, isError: true };
 	}
@@ -628,7 +1026,7 @@ async function executeAgentDelegate(call: ToolCall, execCtx: ToolExecutionContex
 		return {
 			toolCallId: call.id,
 			name: call.name,
-			content: 'Error: prompt/task is required (use `prompt` or `task`).',
+			content: 'Error: `prompt` is required (Claude Code `Agent` tool).',
 			isError: true,
 		};
 	}
@@ -672,7 +1070,7 @@ async function executeAgentDelegate(call: ToolCall, execCtx: ToolExecutionContex
 	let baseToolDefs = assembleAgentToolPool(subComposerMode, {
 		mcpToolDenyPrefixes: prevCtx.settings.mcpToolDenyPrefixes,
 	});
-	baseToolDefs = baseToolDefs.filter((d) => !DELEGATE_TOOL_ALIASES.has(d.name));
+	baseToolDefs = baseToolDefs.filter((d) => !SUBAGENT_TOOL_NAMES.has(d.name));
 
 	const childDepth = depth + 1;
 	const useBackgroundFork = shouldRunAgentInBackground({
@@ -899,75 +1297,318 @@ function executeTodoWrite(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 	};
 }
 
-async function executeGetDiagnostics(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
-	const relPath = String(call.arguments.path ?? '').trim();
-	if (!relPath) {
-		return { toolCallId: call.id, name: call.name, content: 'Error: path is required', isError: true };
+const LSP_MAX_OUTPUT_CHARS = 100_000;
+
+const LSP_OPERATION_SET = new Set([
+	'goToDefinition',
+	'findReferences',
+	'hover',
+	'documentSymbol',
+	'workspaceSymbol',
+	'goToImplementation',
+	'prepareCallHierarchy',
+	'incomingCalls',
+	'outgoingCalls',
+	'getDiagnostics',
+]);
+
+const LSP_POSITION_OPTIONAL = new Set(['getDiagnostics', 'workspaceSymbol']);
+
+function clampLspText(s: string): string {
+	if (s.length <= LSP_MAX_OUTPUT_CHARS) return s;
+	return s.slice(0, LSP_MAX_OUTPUT_CHARS) + '\n... (truncated)';
+}
+
+function lspRelUriPath(uri: string, workspaceRoot: string): string {
+	if (!uri.startsWith('file:')) return uri;
+	try {
+		const p = fileURLToPath(uri);
+		return path.relative(workspaceRoot, p).replace(/\\/g, '/') || '.';
+	} catch {
+		return uri;
+	}
+}
+
+function formatLspLocationish(res: unknown, workspaceRoot: string): string {
+	if (res == null) return '(no results)';
+	const arr = Array.isArray(res) ? res : [res];
+	const lines: string[] = [];
+	for (const item of arr) {
+		if (!item || typeof item !== 'object') continue;
+		const o = item as Record<string, unknown>;
+		const uri = (o.uri ?? o.targetUri) as string | undefined;
+		const range = (o.range ?? o.targetSelectionRange ?? o.targetRange) as
+			| { start?: { line: number; character: number } }
+			| undefined;
+		if (uri && range?.start) {
+			const rel = lspRelUriPath(uri, workspaceRoot);
+			const line = (range.start.line ?? 0) + 1;
+			const col = (range.start.character ?? 0) + 1;
+			lines.push(`${rel}:${line}:${col}`);
+		}
+	}
+	if (lines.length === 0) return typeof res === 'object' ? JSON.stringify(res).slice(0, 12_000) : String(res);
+	const cap = 500;
+	return (
+		lines.slice(0, cap).join('\n') + (lines.length > cap ? `\n... (${lines.length - cap} more locations)` : '')
+	);
+}
+
+function formatLspHover(raw: unknown): string {
+	if (raw == null) return '(no hover)';
+	if (typeof raw !== 'object') return String(raw);
+	const c = (raw as { contents?: unknown }).contents;
+	if (typeof c === 'string') return c;
+	if (c && typeof c === 'object' && 'value' in (c as object)) {
+		return String((c as { value?: string }).value ?? '');
+	}
+	if (Array.isArray(c)) {
+		return c.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join('\n');
+	}
+	return JSON.stringify(raw).slice(0, 12_000);
+}
+
+function formatLspDocumentSymbolsNode(s: unknown, indent: number, workspaceRoot: string): string[] {
+	if (!s || typeof s !== 'object') return [];
+	const o = s as Record<string, unknown>;
+	const lines: string[] = [];
+	const name = String(o.name ?? '?');
+	const kind = o.kind != null ? String(o.kind) : '';
+	let suffix = '';
+	if (o.range && typeof o.range === 'object') {
+		const st = (o.range as { start?: { line: number } }).start;
+		if (st) suffix = ` L${(st.line ?? 0) + 1}`;
+	}
+	if (o.location && typeof o.location === 'object') {
+		const loc = o.location as { uri: string; range?: { start: { line: number } } };
+		const rel = lspRelUriPath(loc.uri, workspaceRoot);
+		const ln = (loc.range?.start?.line ?? 0) + 1;
+		suffix = ` ${rel}:${ln}`;
+	}
+	lines.push(`${'  '.repeat(indent)}${name}${kind ? ` [${kind}]` : ''}${suffix}`);
+	const ch = o.children;
+	if (Array.isArray(ch)) {
+		for (const c of ch) lines.push(...formatLspDocumentSymbolsNode(c, indent + 1, workspaceRoot));
+	}
+	return lines;
+}
+
+function formatLspDocumentSymbolsResult(res: unknown, workspaceRoot: string): string {
+	if (!Array.isArray(res) || res.length === 0) return '(no symbols)';
+	const parts: string[] = [];
+	for (const s of res) parts.push(...formatLspDocumentSymbolsNode(s, 0, workspaceRoot));
+	const cap = 400;
+	return (
+		parts.slice(0, cap).join('\n') + (parts.length > cap ? '\n... (truncated)' : '')
+	);
+}
+
+function formatLspWorkspaceSymbols(res: unknown, workspaceRoot: string): string {
+	if (!Array.isArray(res) || res.length === 0) return '(no symbols)';
+	const lines: string[] = [];
+	for (const s of res as Array<{ name?: string; location?: { uri: string; range?: { start: { line: number } } } }>) {
+		if (!s?.location?.uri) continue;
+		const rel = lspRelUriPath(s.location.uri, workspaceRoot);
+		const line = (s.location.range?.start?.line ?? 0) + 1;
+		lines.push(`${s.name ?? '?'} — ${rel}:${line}`);
+		if (lines.length >= 300) break;
+	}
+	return lines.join('\n') || '(no symbols)';
+}
+
+function formatLspCallHierarchyPrepare(res: unknown, workspaceRoot: string): string {
+	if (res == null) return '(no items)';
+	const arr = Array.isArray(res) ? res : [res];
+	const lines: string[] = [];
+	for (const item of arr) {
+		if (!item || typeof item !== 'object') continue;
+		const o = item as Record<string, unknown>;
+		const name = String(o.name ?? '?');
+		const uri = o.uri as string | undefined;
+		const range = o.range as { start?: { line: number } } | undefined;
+		if (!uri) continue;
+		const rel = lspRelUriPath(uri, workspaceRoot);
+		const ln = (range?.start?.line ?? 0) + 1;
+		lines.push(`${name} — ${rel}:${ln}`);
+	}
+	return lines.join('\n') || '(no items)';
+}
+
+function formatLspCallHierarchyCalls(res: unknown, workspaceRoot: string, op: 'incomingCalls' | 'outgoingCalls'): string {
+	if (res == null || (Array.isArray(res) && res.length === 0)) return '(no calls)';
+	if (!Array.isArray(res)) return JSON.stringify(res).slice(0, 12_000);
+	const lines: string[] = [];
+	if (op === 'incomingCalls') {
+		for (const row of res as Array<{
+			from?: { name?: string; uri?: string; range?: { start: { line: number } } };
+		}>) {
+			const from = row.from;
+			if (!from?.uri) continue;
+			const rel = lspRelUriPath(from.uri, workspaceRoot);
+			const ln = (from.range?.start?.line ?? 0) + 1;
+			lines.push(`from ${from.name ?? '?'} @ ${rel}:${ln}`);
+		}
+	} else {
+		for (const row of res as Array<{ to?: { name?: string; uri?: string; range?: { start: { line: number } } } }>) {
+			const to = row.to;
+			if (!to?.uri) continue;
+			const rel = lspRelUriPath(to.uri, workspaceRoot);
+			const ln = (to.range?.start?.line ?? 0) + 1;
+			lines.push(`to ${to.name ?? '?'} @ ${rel}:${ln}`);
+		}
+	}
+	return lines.slice(0, 400).join('\n') || JSON.stringify(res).slice(0, 12_000);
+}
+
+async function executeLspTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
+	const args = call.arguments;
+	const op = String(args.operation ?? '').trim();
+	const filePathRaw = String(args.filePath ?? args.path ?? '').trim();
+	if (!op) {
+		return { toolCallId: call.id, name: call.name, content: 'Error: operation is required', isError: true };
+	}
+	if (!LSP_OPERATION_SET.has(op)) {
+		return { toolCallId: call.id, name: call.name, content: `Error: unknown LSP operation "${op}"`, isError: true };
+	}
+	if (!filePathRaw) {
+		return { toolCallId: call.id, name: call.name, content: 'Error: filePath is required', isError: true };
 	}
 
-	const ext = path.extname(relPath).toLowerCase();
-	if (!['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'].includes(ext)) {
-		return {
-			toolCallId: call.id,
-			name: call.name,
-			content: `Diagnostics are only supported for TypeScript/JavaScript files. Got: ${ext || '(no extension)'}`,
-			isError: true,
-		};
-	}
-
-	const lsp = execCtx.toolLspSession;
-	if (!lsp) {
-		return {
-			toolCallId: call.id,
-			name: call.name,
-			content: 'TypeScript language server session is not available.',
-			isError: true,
-		};
-	}
-
-	if (!lsp.isRunning) {
-		try {
-			const root = requireWorkspace(execCtx);
-			await lsp.start(root);
-		} catch (e) {
+	let line = typeof args.line === 'number' ? args.line : Number(args.line);
+	let character = typeof args.character === 'number' ? args.character : Number(args.character);
+	if (!LSP_POSITION_OPTIONAL.has(op)) {
+		if (!Number.isFinite(line) || !Number.isFinite(character) || line < 1 || character < 1) {
 			return {
 				toolCallId: call.id,
 				name: call.name,
-				content: `Could not start TypeScript language server: ${e instanceof Error ? e.message : String(e)}`,
+				content: 'Error: line and character must be positive integers (1-based, as shown in the editor).',
 				isError: true,
 			};
 		}
+	} else {
+		if (!Number.isFinite(line) || line < 1) line = 1;
+		if (!Number.isFinite(character) || character < 1) character = 1;
 	}
 
-	const full = safePath(relPath, execCtx);
-	if (!fs.existsSync(full)) {
-		return { toolCallId: call.id, name: call.name, content: `File not found: ${relPath}`, isError: true };
+	const root = requireWorkspace(execCtx);
+	let rel: string;
+	let full: string;
+	try {
+		({ rel, full } = resolveAgentFilePath(filePathRaw, execCtx));
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
+	}
+
+	if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+		return { toolCallId: call.id, name: call.name, content: `File not found or not a regular file: ${rel}`, isError: true };
+	}
+
+	const mgr = execCtx.workspaceLspManager;
+	if (!mgr) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'LSP manager is not available in this context.',
+			isError: true,
+		};
+	}
+
+	let session: Awaited<ReturnType<WorkspaceLspManager['sessionForFile']>>;
+	try {
+		session = await mgr.sessionForFile(full, root);
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Could not start language server: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
+	}
+	if (!session) {
+		const ext = path.extname(rel).toLowerCase() || '(none)';
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `No LSP server handles extension "${ext}". Add a Claude-style plugin under <asyncData>/plugins/<name>/ or <workspace>/.async/plugins/<name>/ with .lsp.json (command + extensionToLanguage), or use legacy settings.json "lsp.servers". For TS/JS, install typescript-language-server in the project or register it explicitly.`,
+			isError: false,
+		};
 	}
 
 	const text = fs.readFileSync(full, 'utf-8');
 	const uri = pathToFileURL(full).href;
 
 	try {
-		const items = await lsp.diagnostics(uri, text);
-		if (items === null) {
-			return {
-				toolCallId: call.id,
-				name: call.name,
-				content: 'Pull diagnostics not supported by the current language server. Try running tsc manually.',
-				isError: false,
-			};
+		let out = '';
+		switch (op) {
+			case 'getDiagnostics': {
+				const items = await session.diagnostics(uri, text);
+				if (items === null) {
+					out = 'Pull diagnostics not supported by the current language server. Try running tsc manually.';
+				} else if (items.length === 0) {
+					out = `No diagnostics in ${rel}.`;
+				} else {
+					out = items
+						.map((d) => {
+							const sev = SEVERITY_LABEL[d.severity ?? 1] ?? 'error';
+							const ln = (d.range.start.line ?? 0) + 1;
+							const col = (d.range.start.character ?? 0) + 1;
+							return `[${sev}] ${rel}:${ln}:${col} — ${d.message}`;
+						})
+						.join('\n');
+				}
+				break;
+			}
+			case 'goToDefinition':
+				out = formatLspLocationish(await session.definition(uri, line, character, text), root);
+				break;
+			case 'findReferences':
+				out = formatLspLocationish(await session.references(uri, line, character, text), root);
+				break;
+			case 'hover':
+				out = formatLspHover(await session.hover(uri, line, character, text));
+				break;
+			case 'documentSymbol':
+				out = formatLspDocumentSymbolsResult(await session.documentSymbols(uri, text), root);
+				break;
+			case 'workspaceSymbol':
+				await session.syncDocument(uri, text);
+				out = formatLspWorkspaceSymbols(await session.workspaceSymbol(''), root);
+				break;
+			case 'goToImplementation':
+				out = formatLspLocationish(await session.implementation(uri, line, character, text), root);
+				break;
+			case 'prepareCallHierarchy':
+				out = formatLspCallHierarchyPrepare(await session.prepareCallHierarchy(uri, line, character, text), root);
+				break;
+			case 'incomingCalls': {
+				const items = await session.prepareCallHierarchy(uri, line, character, text);
+				const arr = Array.isArray(items) ? items : items ? [items] : [];
+				if (arr.length === 0) out = 'No call hierarchy item at this position.';
+				else out = formatLspCallHierarchyCalls(await session.incomingCalls(arr[0]), root, 'incomingCalls');
+				break;
+			}
+			case 'outgoingCalls': {
+				const items = await session.prepareCallHierarchy(uri, line, character, text);
+				const arr = Array.isArray(items) ? items : items ? [items] : [];
+				if (arr.length === 0) out = 'No call hierarchy item at this position.';
+				else out = formatLspCallHierarchyCalls(await session.outgoingCalls(arr[0]), root, 'outgoingCalls');
+				break;
+			}
+			default:
+				out = `Unsupported operation: ${op}`;
 		}
-		if (items.length === 0) {
-			return { toolCallId: call.id, name: call.name, content: `No diagnostics found in ${relPath}. The file looks clean.`, isError: false };
-		}
-		const lines = items.map((d) => {
-			const sev = SEVERITY_LABEL[d.severity ?? 1] ?? 'error';
-			const line = (d.range.start.line ?? 0) + 1;
-			const col = (d.range.start.character ?? 0) + 1;
-			return `[${sev}] ${relPath}:${line}:${col} — ${d.message}`;
-		});
-		return { toolCallId: call.id, name: call.name, content: lines.join('\n'), isError: false };
+		return { toolCallId: call.id, name: call.name, content: clampLspText(out), isError: false };
 	} catch (e) {
-		return { toolCallId: call.id, name: call.name, content: `Diagnostics error: ${e instanceof Error ? e.message : String(e)}`, isError: true };
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `LSP error (${op}): ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
 	}
 }

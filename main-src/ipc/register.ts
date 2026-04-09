@@ -5,7 +5,7 @@ import { applyPatch, formatPatch, parsePatch, reversePatch } from 'diff';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { windowsCmdUtf8Prefix } from '../winUtf8.js';
@@ -73,6 +73,7 @@ import {
 	savePlan,
 	getExecutedPlanFileKeys,
 	markPlanFileExecuted,
+	incrementThreadAgentToolCallCount,
 	type ChatMessage,
 } from '../threadStore.js';
 import { compressForSend } from '../agent/conversationCompress.js';
@@ -81,7 +82,9 @@ import * as gitService from '../gitService.js';
 import { parseComposerMode, type ComposerMode } from '../llm/composerMode.js';
 import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
 import { preconnectLlmBaseUrlIfEligible } from '../llm/apiPreconnect.js';
+import { scheduleRefreshOpenAiModelCapabilitiesIfStale } from '../llm/modelContext.js';
 import { streamChatUnified } from '../llm/llmRouter.js';
+import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import {
 	buildWorkspaceTreeSummary,
 	cloneMessagesWithExpandedLastUser,
@@ -135,7 +138,7 @@ import { summarizeThreadForSidebar, isTimestampToday, pruneSummaryCache } from '
 import { registerTerminalPtyIpc } from '../terminalPty.js';
 
 import {
-	getTsLspSessionForWebContents,
+	getWorkspaceLspManagerForWebContents,
 	disposeTsLspSessionForWebContents,
 } from '../lspSessionsByWebContents.js';
 import { setDelegateContext, clearDelegateContext } from '../agent/toolExecutor.js';
@@ -212,6 +215,20 @@ function appendSystemBlock(base: string | undefined, block: string): string {
 		return base ?? '';
 	}
 	return base && base.trim() ? `${base}\n\n---\n${trimmed}` : trimmed;
+}
+
+/** 主进程控制台：排查从 IPC 发送到 AgentLoop 首条日志之间的阶段性耗时 */
+function logChatPipelineLatency(
+	channel: string,
+	threadId: string,
+	epochMs: number,
+	phase: string,
+	extra?: Record<string, string | number | boolean | null | undefined>
+): void {
+	const delta = Date.now() - epochMs;
+	const tail =
+		extra && Object.keys(extra).length > 0 ? ` ${JSON.stringify(extra)}` : '';
+	console.log(`[${channel}] thread=${threadId} +${delta}ms ${phase}${tail}`);
 }
 
 async function appendMemoryAndRetrievalContext(params: {
@@ -335,15 +352,37 @@ function recordTurnTokenUsageStats(
 	});
 }
 
+function persistAssistantStreamError(threadId: string, message: string): void {
+	try {
+		const lang = getSettings().language;
+		const prefix = lang === 'en' ? 'Error: ' : '错误：';
+		appendMessage(threadId, { role: 'assistant', content: `${prefix}${message}` });
+	} catch (e) {
+		console.warn('[chat:stream] persist assistant error failed:', e instanceof Error ? e.message : e);
+	}
+}
+
 function runChatStream(
 	win: BrowserWindow,
 	threadId: string,
 	messages: ChatMessage[],
 	mode: ReturnType<typeof parseComposerMode>,
 	modelSelection: string,
-	agentSystemAppend?: string
+	agentSystemAppend?: string,
+	streamNonce?: number
 ): void {
-	const send = (obj: unknown) => win.webContents.send('async-shell:chat', obj);
+	const send = (obj: unknown) => {
+		const o = (typeof obj === 'object' && obj !== null ? obj : {}) as Record<string, unknown>;
+		win.webContents.send(
+			'async-shell:chat',
+			streamNonce !== undefined ? { ...o, streamNonce } : o
+		);
+	};
+	const emitStreamError = (message: string) => {
+		console.error('[chat:stream]', threadId, message);
+		persistAssistantStreamError(threadId, message);
+		send({ threadId, type: 'error', message });
+	};
 	const prev = abortByThread.get(threadId);
 	prev?.abort();
 	agentRevertSnapshotsByThread.set(threadId, new Map());
@@ -351,16 +390,24 @@ function runChatStream(
 	abortByThread.set(threadId, ac);
 
 	void (async () => {
+		const streamLatencyT0 = Date.now();
 		try {
+			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'runChatStream async entered', {
+				mode: String(mode),
+				msgCount: messages.length,
+			});
 			const settings = getSettings();
 			const workspaceRoot = getWorkspaceRootForWebContents(win.webContents);
-			const toolLspSession = getTsLspSessionForWebContents(win.webContents);
+			const workspaceLspManager = getWorkspaceLspManagerForWebContents(win.webContents);
 			const thinkingLevel = resolveThinkingLevelForSelection(settings, modelSelection);
 			const resolved = resolveModelRequest(settings, modelSelection);
 			if (!resolved.ok) {
-				send({ threadId, type: 'error', message: resolved.message });
+				emitStreamError(resolved.message);
 				return;
 			}
+			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'after resolveModelRequest', {
+				paradigm: String(resolved.paradigm),
+			});
 
 			// 与 Claude Code `apiPreconnect.ts` 一致：首条对话前预热到当前模型 API 基址的 TCP/TLS（无代理时）
 			preconnectLlmBaseUrlIfEligible({
@@ -368,9 +415,17 @@ function runChatStream(
 				baseURL: resolved.baseURL,
 				appProxyUrl: resolved.proxyUrl?.trim() || settings.openAI?.proxyUrl?.trim() || undefined,
 			});
+			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'after preconnectLlm (fire-and-forget HEAD)');
 
 			// 发送端压缩：超长线程仅压缩发给 LLM 的副本，磁盘保留完整历史
 			const thread = getThread(threadId);
+			if (resolved.paradigm === 'openai-compatible') {
+				scheduleRefreshOpenAiModelCapabilitiesIfStale({
+					baseURL: resolved.baseURL,
+					apiKey: resolved.apiKey,
+					proxyUrl: resolved.proxyUrl,
+				});
+			}
 			const compressOptions = {
 				mode: mode as import('../llm/composerMode.js').ComposerMode,
 				signal: ac.signal,
@@ -380,8 +435,12 @@ function runChatStream(
 				requestBaseURL: resolved.baseURL,
 				requestProxyUrl: resolved.proxyUrl,
 				maxOutputTokens: resolved.maxOutputTokens,
+				...(resolved.contextWindowTokens != null
+					? { contextWindowTokens: resolved.contextWindowTokens }
+					: {}),
 				thinkingLevel,
 			};
+			const compressStarted = Date.now();
 			const compressResult = await compressForSend(
 				messages,
 				settings,
@@ -389,6 +448,11 @@ function runChatStream(
 				thread?.summary,
 				thread?.summaryCoversMessageCount
 			);
+			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'after compressForSend', {
+				compressMs: Date.now() - compressStarted,
+				triggeredNewSummary: Boolean(compressResult.newSummary),
+				outMsgCount: compressResult.messages.length,
+			});
 			let sendMessages = compressResult.messages;
 			if (compressResult.newSummary && compressResult.newSummaryCoversCount !== undefined) {
 				saveSummary(threadId, compressResult.newSummary, compressResult.newSummaryCoversCount);
@@ -425,7 +489,7 @@ function runChatStream(
 					mistakeLimitEnabled: ag?.mistakeLimitEnabled,
 					onMistakeLimitReached,
 					workspaceRoot,
-					toolLspSession,
+					workspaceLspManager,
 				};
 			try {
 				setDelegateContext(
@@ -450,11 +514,17 @@ function runChatStream(
 						emit: (evt) => send({ threadId, ...evt }),
 					});
 				}
-				const messagesForAgent = modeExpandsWorkspaceFileContext(
-					mode as import('../llm/composerMode.js').ComposerMode
-				)
+				const expandMode = mode as import('../llm/composerMode.js').ComposerMode;
+				const doAtExpand = modeExpandsWorkspaceFileContext(expandMode);
+				const expandStarted = Date.now();
+				const messagesForAgent = doAtExpand
 					? cloneMessagesWithExpandedLastUser(sendMessages, workspaceRoot)
 					: sendMessages;
+				logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'after @-workspace expand', {
+					expandMs: Date.now() - expandStarted,
+					didExpand: doAtExpand,
+				});
+				logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'before runAgentLoop');
 				await runAgentLoop(
 					settings,
 					messagesForAgent,
@@ -474,7 +544,7 @@ function runChatStream(
 						mistakeLimitEnabled: ag?.mistakeLimitEnabled,
 						onMistakeLimitReached,
 						workspaceRoot,
-						toolLspSession,
+						workspaceLspManager,
 						threadId,
 						toolHooks: {
 							beforeWrite: ({ path, previousContent }) => {
@@ -511,8 +581,10 @@ function runChatStream(
 						onThinkingDelta: (text) => send({ threadId, type: 'thinking_delta', text }),
 						onToolCall: (name, args, toolCallId) =>
 							send({ threadId, type: 'tool_call', name, args: JSON.stringify(args), toolCallId }),
-						onToolResult: (name, result, success, toolCallId) =>
-							send({ threadId, type: 'tool_result', name, result, success, toolCallId }),
+						onToolResult: (name, result, success, toolCallId) => {
+							incrementThreadAgentToolCallCount(threadId);
+							send({ threadId, type: 'tool_result', name, result, success, toolCallId });
+						},
 						onDone: (full, usage) => {
 							updateLastAssistant(threadId, full);
 							accumulateTokenUsage(threadId, usage?.inputTokens, usage?.outputTokens);
@@ -525,7 +597,7 @@ function runChatStream(
 							});
 							send({ threadId, type: 'done', text: full, usage });
 						},
-						onError: (message) => send({ threadId, type: 'error', message }),
+						onError: (message) => emitStreamError(message),
 					}
 				);
 			} finally {
@@ -537,6 +609,7 @@ function runChatStream(
 			return;
 		}
 
+		logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'before streamChatUnified (non-agent path)');
 		await streamChatUnified(
 			settings,
 			sendMessages,
@@ -585,12 +658,12 @@ function runChatStream(
 					}
 					send({ threadId, type: 'done', text: full, usage });
 				},
-				onError: (message) => send({ threadId, type: 'error', message }),
+				onError: (message) => emitStreamError(message),
 			}
 		);
 		} catch (e) {
 			try {
-				send({ threadId, type: 'error', message: e instanceof Error ? e.message : String(e) });
+				emitStreamError(formatLlmSdkError(e));
 			} catch { /* window may be destroyed */ }
 		} finally {
 			abortByThread.delete(threadId);
@@ -763,18 +836,13 @@ export function registerIpc(): void {
 		return { ok: true as const, hits };
 	});
 
-	ipcMain.handle('lsp:ts:start', async (event, workspaceRootArg: string) => {
+	ipcMain.handle('lsp:ts:start', async (_event, workspaceRootArg: string) => {
 		const dir = typeof workspaceRootArg === 'string' ? workspaceRootArg.trim() : '';
 		if (!dir) {
 			return { ok: false as const, error: 'empty-root' as const };
 		}
-		try {
-			const session = getTsLspSessionForWebContents(event.sender);
-			await session.start(dir);
-			return { ok: true as const };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
+		/* LSP 子进程按需在首次 definition/diagnostics/Agent 工具调用时启动；此处保留通道以兼容旧前端 */
+		return { ok: true as const };
 	});
 
 	ipcMain.handle('lsp:ts:stop', async (event) => {
@@ -791,8 +859,25 @@ export function registerIpc(): void {
 		if (!uri || !text) {
 			return { ok: false as const, error: 'bad-args' as const };
 		}
+		const root = senderWorkspaceRoot(event);
+		if (!root) {
+			return { ok: false as const, error: 'no-workspace' as const };
+		}
+		let absPath: string;
 		try {
-			const session = getTsLspSessionForWebContents(event.sender);
+			absPath = uri.startsWith('file:') ? fileURLToPath(uri) : '';
+		} catch {
+			absPath = '';
+		}
+		if (!absPath) {
+			return { ok: false as const, error: 'bad-uri' as const };
+		}
+		try {
+			const mgr = getWorkspaceLspManagerForWebContents(event.sender);
+			const session = await mgr.sessionForFile(absPath, root);
+			if (!session) {
+				return { ok: false as const, error: 'no-lsp-server' as const };
+			}
 			const result = await session.definition(uri, line, column, text);
 			return { ok: true as const, result };
 		} catch (e) {
@@ -817,7 +902,11 @@ export function registerIpc(): void {
 		const text = fs.readFileSync(absPath, 'utf-8');
 		const uri = pathToFileURL(absPath).href;
 		try {
-			const session = getTsLspSessionForWebContents(event.sender);
+			const mgr = getWorkspaceLspManagerForWebContents(event.sender);
+			const session = await mgr.sessionForFile(absPath, root);
+			if (!session) {
+				return { ok: false as const, error: 'no-lsp-server' as const };
+			}
 			const items = await session.diagnostics(uri, text);
 			if (items === null) {
 				return { ok: false as const, error: 'not-supported' as const };
@@ -1477,6 +1566,7 @@ export function registerIpc(): void {
 				text: string;
 				mode?: string;
 				modelId?: string;
+				streamNonce?: number;
 				skillCreator?: { userNote: string; scope: SkillCreatorScope };
 				ruleCreator?: { userNote: string; ruleScope: AgentRuleScope; globPattern?: string };
 				subagentCreator?: { userNote: string; scope: SubagentCreatorScope };
@@ -1485,16 +1575,23 @@ export function registerIpc(): void {
 			}
 		) => {
 			const { threadId, text } = payload;
+			const streamNonce = typeof payload.streamNonce === 'number' ? payload.streamNonce : undefined;
 			const mode = parseComposerMode(payload.mode);
 			const rawMid = payload.modelId;
 			const modelSelection = typeof rawMid === 'string' ? rawMid.trim() : '';
 			const win = BrowserWindow.fromWebContents(event.sender);
 			if (!win) {
-				return { ok: false as const };
+				return { ok: false as const, error: 'no-window' as const };
 			}
 			if (!modelSelection || modelSelection.toLowerCase() === 'auto') {
 				return { ok: false as const, error: 'no-model' as const };
 			}
+
+			const chatSendLatencyT0 = Date.now();
+			logChatPipelineLatency('chat:ipc', threadId, chatSendLatencyT0, 'chat:send entered', {
+				mode: String(mode),
+				streamNonce: typeof streamNonce === 'number' ? streamNonce : -1,
+			});
 
 			const settings = getSettings();
 			const root = senderWorkspaceRoot(event);
@@ -1506,6 +1603,10 @@ export function registerIpc(): void {
 					workspaceFiles = [];
 				}
 			}
+			logChatPipelineLatency('chat:ipc', threadId, chatSendLatencyT0, 'after ensureWorkspaceFileIndex', {
+				fileCount: workspaceFiles.length,
+				hasRoot: Boolean(root),
+			});
 			const projectAgent = readWorkspaceAgentProjectSlice(root);
 			const agentForTurn = mergeAgentWithProjectSlice(settings.agent, projectAgent);
 
@@ -1546,7 +1647,7 @@ export function registerIpc(): void {
 				});
 				finalSystemAppend = appendPlanExecuteToSystem(finalSystemAppend, payload.planExecute, root);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
-				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend);
+				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
 				return { ok: true as const };
 			}
 
@@ -1589,7 +1690,7 @@ export function registerIpc(): void {
 					Boolean(root)
 				);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
-				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend);
+				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
 				return { ok: true as const };
 			}
 
@@ -1629,7 +1730,7 @@ export function registerIpc(): void {
 				});
 				finalSystemAppend = appendPlanExecuteToSystem(finalSystemAppend, payload.planExecute, root);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
-				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend);
+				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
 				return { ok: true as const };
 			}
 
@@ -1661,11 +1762,17 @@ export function registerIpc(): void {
 				atPaths,
 				modelSelection,
 			});
+			logChatPipelineLatency('chat:ipc', threadId, chatSendLatencyT0, 'after appendMemoryAndRetrievalContext', {
+				mode: String(mode),
+			});
 
 			finalSystemAppend = appendPlanExecuteToSystem(finalSystemAppend, payload.planExecute, root);
 
 			const t = appendMessage(threadId, { role: 'user', content: userText });
-			runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend);
+			logChatPipelineLatency('chat:ipc', threadId, chatSendLatencyT0, 'before runChatStream (IPC returns soon)', {
+				persistedMsgCount: t.messages.length,
+			});
+			runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend, streamNonce);
 
 			return { ok: true as const };
 		}
@@ -1675,9 +1782,17 @@ export function registerIpc(): void {
 		'chat:editResend',
 		async (
 			event,
-			payload: { threadId: string; visibleIndex: number; text: string; mode?: string; modelId?: string }
+			payload: {
+				threadId: string;
+				visibleIndex: number;
+				text: string;
+				mode?: string;
+				modelId?: string;
+				streamNonce?: number;
+			}
 		) => {
 			const { threadId, visibleIndex, text } = payload;
+			const streamNonce = typeof payload.streamNonce === 'number' ? payload.streamNonce : undefined;
 			const mode = parseComposerMode(payload.mode);
 			const rawMid = payload.modelId;
 			const modelSelection = typeof rawMid === 'string' ? rawMid.trim() : '';
@@ -1733,7 +1848,7 @@ export function registerIpc(): void {
 				});
 
 				const t = replaceFromUserVisibleIndex(threadId, visibleIndex, userText);
-				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend);
+				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend, streamNonce);
 				return { ok: true as const };
 			} catch {
 				return { ok: false as const, error: 'replace-failed' as const };

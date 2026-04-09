@@ -48,7 +48,7 @@ Async IDE is an open-source AI-native desktop application designed as your comma
 ### Why use Async?
 
 - **Agent-first** — The agent can directly access your workspace, tools, and terminal through a clear **Think → Plan → Execute → Observe** loop.
-- **Transparent process** — Streaming tool parameters (JSON rendered as it generates) + **tool trajectory** cards (`read_file`, `write_to_file`, `str_replace`, `search_files`, Shell, etc.), so every step is visible.
+- **Transparent process** — Streaming tool parameters (JSON rendered as it generates) + **tool trajectory** cards (`Read`, `Write`, `Edit`, `Glob`, `Grep`, Shell, etc.), so every step is visible.
 - **Full control** — Use your own API keys, keep conversation history and repo state entirely local, with no dependency on cloud services.
 - **Git-native** — Status, diffs, and agent-driven changes stay in sync with your actual repository.
 - **Four Composer modes** — **Agent** (autonomous execution), **Plan** (review first, then run), **Ask** (read-only Q&A), and **Debug** (systematic troubleshooting), covering various development scenarios.

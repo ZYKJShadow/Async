@@ -18,6 +18,8 @@ export type ResolvedModelRequest =
 			requestModelId: string;
 			paradigm: ModelRequestParadigm;
 			maxOutputTokens: number;
+			/** 与 Claude Code 模型上下文对齐；未配置时在 `modelContext` 中解析 */
+			contextWindowTokens?: number;
 			apiKey: string;
 			baseURL?: string;
 			/** 仅 OpenAI 兼容：来自提供商的 HTTP 代理 */
@@ -128,12 +130,17 @@ export function resolveModelRequest(settings: ShellSettings, selectionId: string
 		return creds;
 	}
 
+	const ctx = entry.contextWindowTokens;
+	const contextWindowTokens =
+		ctx != null && Number.isFinite(ctx) && ctx > 0 ? Math.floor(ctx) : undefined;
+
 	return {
 		ok: true,
 		entryId: entry.id,
 		requestModelId: entry.requestName.trim(),
 		paradigm: prov.paradigm,
 		maxOutputTokens: clampMaxOutputTokens(entry.maxOutputTokens),
+		...(contextWindowTokens != null ? { contextWindowTokens } : {}),
 		apiKey: creds.apiKey,
 		baseURL: creds.baseURL,
 		proxyUrl: creds.proxyUrl,

@@ -3,12 +3,22 @@ import type { ToolCallSegment } from './agentChatSegments';
 import { useI18n } from './i18n';
 
 const TOOL_ICONS: Record<string, string> = {
+	Read: '📖',
 	read_file: '📖',
+	Write: '📝',
 	write_to_file: '📝',
+	Edit: '✏️',
 	str_replace: '✏️',
+	Glob: '📂',
 	list_dir: '📁',
+	Grep: '🔍',
+	LSP: '🔎',
+	get_diagnostics: '🔎',
 	search_files: '🔍',
+	Bash: '⚡',
 	execute_command: '⚡',
+	ListMcpResourcesTool: '📎',
+	ReadMcpResourceTool: '📎',
 	Agent: '🤖',
 	delegate_task: '🤖',
 	Task: '🤖',
@@ -17,18 +27,36 @@ const TOOL_ICONS: Record<string, string> = {
 
 function summarizeArgs(name: string, args: Record<string, unknown>): string {
 	switch (name) {
+		case 'Read':
 		case 'read_file':
-			return String(args.path ?? '');
+			return String(args.file_path ?? args.path ?? '');
+		case 'Write':
 		case 'write_to_file':
-			return String(args.path ?? '');
+			return String(args.file_path ?? args.path ?? '');
+		case 'Edit':
 		case 'str_replace':
-			return String(args.path ?? '');
+			return String(args.file_path ?? args.path ?? '');
+		case 'Glob':
+			return String(args.pattern ?? '');
 		case 'list_dir':
 			return String(args.path ?? '') || '.';
+		case 'Grep':
 		case 'search_files':
 			return String(args.pattern ?? '');
+		case 'LSP': {
+			const op = String(args.operation ?? '');
+			const fp = String(args.filePath ?? args.path ?? '');
+			return op && fp ? `${op} ${fp}` : op || fp || '';
+		}
+		case 'get_diagnostics':
+			return String(args.path ?? args.file_path ?? '');
+		case 'Bash':
 		case 'execute_command':
 			return String(args.command ?? '');
+		case 'ListMcpResourcesTool':
+			return String(args.server ?? '') || '(all servers)';
+		case 'ReadMcpResourceTool':
+			return `${String(args.server ?? '')} ${String(args.uri ?? '')}`.trim();
 		case 'Agent':
 		case 'delegate_task':
 		case 'Task':
@@ -106,17 +134,19 @@ export const AgentToolCard = memo(function AgentToolCard({ segment }: Props) {
 });
 
 function formatArgs(name: string, args: Record<string, unknown>): string {
-	if (name === 'str_replace') {
+	const fp = args.file_path ?? args.path;
+	if (name === 'str_replace' || name === 'Edit') {
 		const lines: string[] = [];
-		lines.push(`path: ${args.path}`);
-		lines.push(`old_str:\n${args.old_str}`);
-		lines.push(`new_str:\n${args.new_str}`);
+		lines.push(`file_path: ${fp}`);
+		lines.push(`old_string:\n${args.old_string ?? args.old_str}`);
+		lines.push(`new_string:\n${args.new_string ?? args.new_str}`);
+		if (args.replace_all != null) lines.push(`replace_all: ${args.replace_all}`);
 		return lines.join('\n');
 	}
-	if (name === 'write_to_file') {
+	if (name === 'write_to_file' || name === 'Write') {
 		const content = String(args.content ?? '');
 		const preview = content.length > 500 ? content.slice(0, 500) + '\n...' : content;
-		return `path: ${args.path}\ncontent:\n${preview}`;
+		return `file_path: ${fp}\ncontent:\n${preview}`;
 	}
 	return JSON.stringify(args, null, 2);
 }

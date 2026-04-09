@@ -47,7 +47,7 @@ export function ToolApprovalInlineCard({ payload, onAllow, onDeny, title, allowL
 	}
 
 	const body =
-		payload.toolName === 'execute_command'
+		payload.toolName === 'Bash'
 			? (payload.command ?? '')
 			: payload.path
 				? `${payload.toolName}: ${payload.path}`

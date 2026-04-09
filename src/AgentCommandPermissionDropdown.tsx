@@ -2,14 +2,20 @@ import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { computeClampedPopoverLayout, type ClampedPopoverLayout } from './anchorPopoverLayout';
+import type { ShellPermissionMode } from './agentSettingsTypes';
 
-export type CommandPermissionMode = 'ask' | 'always';
+export type CommandPermissionMode = ShellPermissionMode;
+
+function modeToCssToken(mode: ShellPermissionMode): string {
+	return mode === 'ask_every_time' ? 'ask-every-time' : mode;
+}
 
 type Props = {
 	value: CommandPermissionMode;
 	onChange: (next: CommandPermissionMode) => void;
-	askLabel: string;
 	alwaysLabel: string;
+	rulesLabel: string;
+	askEveryTimeLabel: string;
 	ariaLabel: string;
 	disabled?: boolean;
 };
@@ -27,7 +33,17 @@ function IconShield({ className }: { className?: string }) {
 function IconSpark({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-			<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z" strokeLinejoin="round" />
+			<path d="M12 5l1.7 5.3L19 12l-5.3 1.7L12 19l-1.7-5.3L5 12l5.3-1.7L12 5z" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+/** 规则 / 列表 — 表示「按规则放行」 */
+function IconRuleList({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" aria-hidden>
+			<path d="M8 6h13M8 12h13M8 18h13" strokeLinecap="round" />
+			<path d="M4 6h.01M4 12h.01M4 18h.01" strokeLinecap="round" strokeWidth="2.2" />
 		</svg>
 	);
 }
@@ -51,8 +67,9 @@ function IconChevron({ className }: { className?: string }) {
 export function AgentCommandPermissionDropdown({
 	value,
 	onChange,
-	askLabel,
 	alwaysLabel,
+	rulesLabel,
+	askEveryTimeLabel,
 	ariaLabel,
 	disabled,
 }: Props) {
@@ -67,21 +84,23 @@ export function AgentCommandPermissionDropdown({
 		left: 0,
 		width: 184,
 		top: 80,
-		maxHeightPx: 160,
+		maxHeightPx: 220,
 		minHeightPx: 80,
 	});
 
 	const options = useMemo(
-		() => [
-			{ value: 'ask' as const, label: askLabel, icon: IconShield },
-			{ value: 'always' as const, label: alwaysLabel, icon: IconSpark },
-		],
-		[askLabel, alwaysLabel]
+		() =>
+			[
+				{ value: 'always' as const, label: alwaysLabel, icon: IconSpark },
+				{ value: 'rules' as const, label: rulesLabel, icon: IconRuleList },
+				{ value: 'ask_every_time' as const, label: askEveryTimeLabel, icon: IconShield },
+			] as const,
+		[alwaysLabel, rulesLabel, askEveryTimeLabel]
 	);
 
-	const selected = options.find((option) => option.value === value) ?? options[0];
+	const selected = options.find((option) => option.value === value) ?? options[1];
 	const SelectedIcon = selected.icon;
-	const triggerModeClass = `ref-command-permission-trigger--${selected.value}`;
+	const triggerModeClass = `ref-command-permission-trigger--${modeToCssToken(selected.value)}`;
 
 	const recompute = useCallback(() => {
 		const trigger = triggerRef.current;
@@ -90,8 +109,8 @@ export function AgentCommandPermissionDropdown({
 			return;
 		}
 		const rect = trigger.getBoundingClientRect();
-		const menuWidth = Math.max(180, Math.ceil(rect.width));
-		const naturalHeight = Math.min(240, Math.max(menu.scrollHeight, options.length * 46 + 12));
+		const menuWidth = Math.max(200, Math.ceil(rect.width));
+		const naturalHeight = Math.min(280, Math.max(menu.scrollHeight, options.length * 46 + 12));
 		setLayout(
 			computeClampedPopoverLayout(rect, {
 				viewportWidth: window.innerWidth,
@@ -181,13 +200,14 @@ export function AgentCommandPermissionDropdown({
 				{options.map((option) => {
 					const isSelected = option.value === value;
 					const OptionIcon = option.icon;
+					const cssTok = modeToCssToken(option.value);
 					return (
 						<button
 							key={option.value}
 							type="button"
 							role="option"
 							aria-selected={isSelected}
-							className={`ref-command-permission-option ref-command-permission-option--${option.value} ${isSelected ? 'is-selected' : ''}`}
+							className={`ref-command-permission-option ref-command-permission-option--${cssTok} ${isSelected ? 'is-selected' : ''}`}
 							onClick={() => {
 								onChange(option.value);
 								setOpen(false);
@@ -230,8 +250,12 @@ export function AgentCommandPermissionDropdown({
 				<span className="ref-command-permission-trigger-ico-wrap">
 					<SelectedIcon className="ref-command-permission-trigger-ico" />
 				</span>
-				<span className="ref-command-permission-trigger-label">{selected.label}</span>
-				<IconChevron className="ref-command-permission-trigger-chev" />
+				<span className="ref-command-permission-trigger-label">
+					<span className="ref-command-permission-trigger-label-text">{selected.label}</span>
+				</span>
+				<span className="ref-command-permission-trigger-chev-wrap" aria-hidden>
+					<IconChevron className="ref-command-permission-trigger-chev" />
+				</span>
 			</button>
 			{typeof document !== 'undefined' && menu ? createPortal(menu, document.body) : null}
 		</div>

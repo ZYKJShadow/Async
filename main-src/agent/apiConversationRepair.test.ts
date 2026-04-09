@@ -41,7 +41,7 @@ describe('repairAnthropicToolPairing', () => {
 				role: 'assistant',
 				content: [
 					{ type: 'text', text: 't' },
-					{ type: 'tool_use', id: 'tu_1', name: 'read_file', input: { path: 'a.ts' } },
+					{ type: 'tool_use', id: 'tu_1', name: 'Read', input: { file_path: 'a.ts' } },
 				],
 			},
 		];
@@ -70,7 +70,32 @@ describe('repairAnthropicToolPairing', () => {
 			{ role: 'user', content: 'real question' },
 		];
 		const out = repairAnthropicToolPairing(msgs);
-		expect(out).toHaveLength(1);
-		expect(out[0]).toMatchObject({ role: 'user', content: 'real question' });
+		expect(out).toHaveLength(2);
+		expect(out[0]!.role).toBe('user');
+		expect(Array.isArray(out[0]!.content)).toBe(true);
+		expect(out[1]).toMatchObject({ role: 'user', content: 'real question' });
+	});
+});
+
+describe('repairOpenAIToolPairing cross-message dedupe', () => {
+	it('strips duplicate tool_call id in a later assistant (CC-1212)', () => {
+		const msgs: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+			{
+				role: 'assistant',
+				content: null,
+				tool_calls: [{ id: 'dup', type: 'function', function: { name: 'Read', arguments: '{}' } }],
+			},
+			{ role: 'tool', tool_call_id: 'dup', content: 'ok' },
+			{
+				role: 'assistant',
+				content: null,
+				tool_calls: [{ id: 'dup', type: 'function', function: { name: 'Read', arguments: '{}' } }],
+			},
+		];
+		const out = repairOpenAIToolPairing(msgs);
+		const secondAssist = out.find(
+			(m, i) => m.role === 'assistant' && i > 1
+		) as OpenAI.Chat.ChatCompletionAssistantMessageParam | undefined;
+		expect(secondAssist?.tool_calls?.length ?? 0).toBe(0);
 	});
 });

@@ -6,6 +6,7 @@ import { composeSystem, temperatureForMode } from './modePrompts.js';
 import type { StreamHandlers, TurnTokenUsage, UnifiedChatOptions } from './types.js';
 import { llmSdkResponseHeadTimeoutMs } from './sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from './llmTransportRetry.js';
+import { formatLlmSdkError } from './formatLlmSdkError.js';
 
 function toGeminiContents(messages: ChatMessage[]): Content[] {
 	const nonSystem = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
@@ -104,7 +105,6 @@ export async function streamGemini(
 			handlers.onError('连接超时：无法在限定时间内建立与 Gemini 的响应。请检查网络后重试。');
 			return;
 		}
-		const msg = e instanceof Error ? e.message : String(e);
-		handlers.onError(msg);
+		handlers.onError(formatLlmSdkError(e));
 	}
 }

@@ -47,6 +47,35 @@ export type AgentCommand = {
 	body: string;
 };
 
+/** 与 Claude Code `PermissionBehavior` 一致 */
+export type ToolPermissionBehavior = 'allow' | 'deny' | 'ask';
+
+/**
+ * 单条工具权限规则；`ruleContent` 为空表示匹配该工具的全部调用。
+ * Bash：可用 minimatch（含 `*`）或「命令前缀 + 空格」；Write/Edit：相对路径 minimatch。
+ */
+export type AgentToolPermissionRule = {
+	id?: string;
+	behavior: ToolPermissionBehavior;
+	toolName: string;
+	ruleContent?: string;
+};
+
+/**
+ * 后台记忆抽取阈值（对齐 Claude Code SessionMemory 的「首次 / 间隔 / 工具调用」思想，度量简化）。
+ */
+export type AgentMemoryExtractionSettings = {
+	enabled?: boolean;
+	/** 首次抽取前，线程内至少需要的非 system 消息条数（默认 4） */
+	minNonSystemMessagesBeforeFirst?: number;
+	/** 距上次抽取光标后，新增非 system 消息条数下限（默认 3） */
+	minNonSystemMessagesBetween?: number;
+	/** 自上次抽取基线以来完成的 Agent 工具调用次数下限（默认 3） */
+	minToolCallsBetween?: number;
+};
+
+export type ShellPermissionMode = 'always' | 'rules' | 'ask_every_time';
+
 export type AgentCustomization = {
 	importThirdPartyConfigs?: boolean;
 	rules?: AgentRule[];
@@ -54,12 +83,16 @@ export type AgentCustomization = {
 	subagents?: AgentSubagent[];
 	commands?: AgentCommand[];
 	/**
-	 * 是否在执行 `execute_command` 前弹出确认（默认 true）。
+	 * Bash 三档策略（与 `confirmShellCommands` / `skipSafeShellCommandsConfirm` 一并持久化）。
+	 */
+	shellPermissionMode?: ShellPermissionMode;
+	/**
+	 * 是否在执行 **Bash** 前弹出确认（默认 true）。
 	 * 设为 false 时命令将直接执行（仍有工作区目录限制）。
 	 */
 	confirmShellCommands?: boolean;
 	/**
-	 * 是否在 `write_to_file` / `str_replace` 写入前暂停等待确认（默认 false，依赖事后撤销）。
+	 * 是否在 `Write` / `Edit`（及旧工具名）写入前暂停等待确认（默认 false，依赖事后撤销）。
 	 */
 	confirmWritesBeforeExecute?: boolean;
 	/**
@@ -100,4 +133,14 @@ export type AgentCustomization = {
 	 * 环境变量 `ASYNC_AGENT_MAX_ROUNDS` 优先；设为 `0` / `unlimited` / `off` 表示不限制。
 	 */
 	maxToolRounds?: number;
+	/**
+	 * 细粒度工具权限（deny > ask > allow）；未匹配规则时走 `confirmShellCommands` 等默认行为。
+	 */
+	toolPermissionRules?: AgentToolPermissionRule[];
+	/**
+	 * 无法展示确认 UI 时（如纯后台子 Agent），将本应为询问的规则视为拒绝。
+	 */
+	shouldAvoidPermissionPrompts?: boolean;
+	/** 控制何时触发 `.async/memory` 后台抽取，减少每轮都调用模型 */
+	memoryExtraction?: AgentMemoryExtractionSettings;
 };

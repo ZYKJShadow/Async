@@ -6,7 +6,16 @@ import type { McpServerConfig } from './mcp/mcpTypes.js';
 import { resolveAsyncDataDir } from './dataDir.js';
 import { normalizeThinkingLevel, type ThinkingLevel } from './llm/thinkingLevel.js';
 export type { ThinkingLevel } from './llm/thinkingLevel.js';
-export type { AgentCustomization, AgentRule, AgentSkill, AgentSubagent, AgentCommand } from './agentSettingsTypes.js';
+export type {
+	AgentCustomization,
+	AgentRule,
+	AgentSkill,
+	AgentSubagent,
+	AgentCommand,
+	AgentToolPermissionRule,
+	AgentMemoryExtractionSettings,
+	ToolPermissionBehavior,
+} from './agentSettingsTypes.js';
 export type { McpServerConfig } from './mcp/mcpTypes.js';
 
 /** 单条用户模型实际请求时使用的协议（与适配器一致） */
@@ -40,6 +49,11 @@ export type UserModelEntry = {
 	 * 未设置时在解析层使用默认（当前为 16384）；若网关上限更低请在模型高级选项中调小。
 	 */
 	maxOutputTokens?: number;
+	/**
+	 * 模型输入上下文上限（tokens），用于发送前压缩阈值等与 Claude Code `getContextWindowForModel` 对齐。
+	 * 不填则使用 OpenAI 兼容 `/v1/models` 缓存、启发式或默认 200k。
+	 */
+	contextWindowTokens?: number;
 };
 
 export type LLMProviderId = ModelRequestParadigm;
@@ -72,7 +86,7 @@ export type ShellUiSettings = {
 
 /** 工作区索引（未设置字段视为开启，与旧 settings.json 兼容） */
 export type ShellIndexingSettings = {
-	/** 导出符号索引：Quick Open @、search_files(symbol) */
+	/** 导出符号索引：Quick Open @、Grep(symbol) */
 	symbolIndexEnabled?: boolean;
 	/** 本地 TF-IDF 语义块：构建索引并注入 Agent/Plan/Debug 对话上下文 */
 	semanticIndexEnabled?: boolean;
@@ -87,6 +101,25 @@ const INDEXING_DEFAULTS: Required<ShellIndexingSettings> = {
 	semanticIndexEnabled: true,
 	tsLspEnabled: true,
 	gitContextEnabled: true,
+};
+
+/**
+ * 旧版在 settings.json 中登记 LSP 的方式；**优先推荐**与 Claude Code 一致：
+ * 在 `<asyncData>/plugins/<name>/` 或 `<workspace>/.async/plugins/<name>/` 下放置 `.lsp.json` 或 `plugin.json#lspServers`。
+ * 保留本结构仅为兼容已有配置（会合并为 `plugin:settings:<id>`）。
+ */
+export type ShellLspUserServer = {
+	/** 唯一 id，用于日志与多服务器区分 */
+	id: string;
+	command: string;
+	args?: string[];
+	extensions: string[];
+	extensionToLanguage?: Record<string, string>;
+	cwd?: string;
+};
+
+export type ShellLspSettings = {
+	servers?: ShellLspUserServer[];
 };
 
 export type ShellSettings = {
@@ -133,6 +166,8 @@ export type ShellSettings = {
 	ui?: ShellUiSettings;
 	/** 索引与 LSP */
 	indexing?: ShellIndexingSettings;
+	/** @deprecated 兼容字段；LSP 主要来自插件目录，此项若存在会一并合并 */
+	lsp?: ShellLspSettings;
 	/** MCP 服务器配置 */
 	mcpServers?: McpServerConfig[];
 	/**
@@ -507,6 +542,10 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 					skills: partial.agent.skills ?? cached.agent?.skills ?? [],
 					subagents: partial.agent.subagents ?? cached.agent?.subagents ?? [],
 					commands: partial.agent.commands ?? cached.agent?.commands ?? [],
+					shellPermissionMode:
+						partial.agent.shellPermissionMode !== undefined
+							? partial.agent.shellPermissionMode
+							: cached.agent?.shellPermissionMode,
 					confirmShellCommands: partial.agent.confirmShellCommands ?? cached.agent?.confirmShellCommands,
 					skipSafeShellCommandsConfirm:
 						partial.agent.skipSafeShellCommandsConfirm ?? cached.agent?.skipSafeShellCommandsConfirm,
@@ -520,6 +559,18 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 						partial.agent.streamIdleWatchdogEnabled ?? cached.agent?.streamIdleWatchdogEnabled,
 					roundHardTimeoutMs: partial.agent.roundHardTimeoutMs ?? cached.agent?.roundHardTimeoutMs,
 					maxToolRounds: partial.agent.maxToolRounds ?? cached.agent?.maxToolRounds,
+					toolPermissionRules:
+						partial.agent.toolPermissionRules !== undefined
+							? partial.agent.toolPermissionRules
+							: (cached.agent?.toolPermissionRules ?? []),
+					shouldAvoidPermissionPrompts:
+						partial.agent.shouldAvoidPermissionPrompts !== undefined
+							? partial.agent.shouldAvoidPermissionPrompts
+							: cached.agent?.shouldAvoidPermissionPrompts,
+					memoryExtraction:
+						partial.agent.memoryExtraction !== undefined
+							? { ...(cached.agent?.memoryExtraction ?? {}), ...partial.agent.memoryExtraction }
+							: cached.agent?.memoryExtraction,
 				}
 			: cached.agent;
 

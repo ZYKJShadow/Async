@@ -28,10 +28,10 @@ export type ToolResult = {
 
 /** 只读工具：可安全并发执行，不修改文件系统或运行副作用命令（含 Claude Code 风格的 MCP 资源工具） */
 export const READ_ONLY_AGENT_TOOL_NAMES = [
-	'read_file',
-	'list_dir',
-	'search_files',
-	'get_diagnostics',
+	'Read',
+	'Glob',
+	'Grep',
+	'LSP',
 	'ListMcpResourcesTool',
 	'ReadMcpResourceTool',
 ] as const;
@@ -49,124 +49,219 @@ export function agentToolsForComposerMode(mode: 'agent' | 'plan', all: AgentTool
 
 export const AGENT_TOOLS: AgentToolDef[] = [
 	{
-		name: 'read_file',
+		name: 'Read',
 		description:
-			'Read the contents of a file at the given path relative to the workspace root. Returns the file content with line numbers. Use this to understand existing code before making changes. Prefer this instead of shell commands like cat, head, type, or Get-Content when you need to inspect source files. You can optionally specify start_line and end_line to read a specific range.',
+			'Read a text file under the workspace. Returns content with line numbers (padded line number, pipe, then line). Prefer this over shell cat/type/Get-Content. **file_path** may be absolute if it stays inside the workspace, or relative to the workspace root. By default reads up to 2000 lines starting at line **offset** (1-based); use **limit** for a smaller window or paginate with **offset** on huge files.',
 		parameters: {
 			type: 'object',
 			properties: {
-				path: { type: 'string', description: 'Relative path to the file from workspace root' },
-				start_line: {
+				file_path: {
+					type: 'string',
+					description: 'Path to the file: workspace-relative, or absolute if under the workspace root.',
+				},
+				offset: {
 					type: 'number',
-					description: 'Optional 1-based start line number',
+					description: '1-based starting line to read. Default 1.',
 				},
-				end_line: {
+				limit: {
 					type: 'number',
-					description: 'Optional 1-based end line number (inclusive)',
-				},
-			},
-			required: ['path'],
-		},
-	},
-	{
-		name: 'write_to_file',
-		description:
-			'Create a new file or completely overwrite an existing file with the provided content. Use this for creating new files or when you need to rewrite an entire file. For targeted edits to existing files, prefer str_replace instead. When the user (or system context) asks for Async/Cursor-style project rules as .mdc files, persist them under `.async/rules/` relative to the workspace root unless the user explicitly requests a different path.',
-		parameters: {
-			type: 'object',
-			properties: {
-				path: { type: 'string', description: 'Relative path to the file from workspace root' },
-				content: { type: 'string', description: 'The complete file content to write' },
-			},
-			required: ['path', 'content'],
-		},
-	},
-	{
-		name: 'str_replace',
-		description:
-			'Replace an exact string occurrence in a file. The old_str must match EXACTLY one location in the file (including all whitespace, indentation, and newlines). This is the preferred way to make targeted edits to existing files. If old_str appears multiple times, or is not found, read a larger surrounding context and retry with a more unique snippet.',
-		parameters: {
-			type: 'object',
-			properties: {
-				path: { type: 'string', description: 'Relative path to the file from workspace root' },
-				old_str: {
-					type: 'string',
 					description:
-						'The exact string to find in the file. Must match exactly one location including whitespace.',
-				},
-				new_str: {
-					type: 'string',
-					description: 'The replacement string. Use empty string to delete the matched text.',
+						'Maximum number of lines to return. If omitted, reads up to 2000 lines from offset. Capped at 2000 per call.',
 				},
 			},
-			required: ['path', 'old_str', 'new_str'],
+			required: ['file_path'],
 		},
 	},
 	{
-		name: 'list_dir',
+		name: 'Write',
 		description:
-			'List all files and directories at the given path. Returns entries sorted with directories first. Useful for understanding project structure. Prefer this over shell commands like ls or dir for exploration.',
+			'Create a new file or completely overwrite an existing file. For small targeted edits on existing files, prefer **Edit**. When asked to persist Async/Cursor-style project rules as `.mdc` files, use `.async/rules/` under the workspace unless the user specifies another path.',
 		parameters: {
 			type: 'object',
 			properties: {
-				path: {
+				file_path: {
 					type: 'string',
-					description:
-						'Relative path to directory from workspace root. Use empty string or omit for workspace root.',
+					description: 'Path to the file: workspace-relative, or absolute if under the workspace root.',
 				},
+				content: { type: 'string', description: 'Full file contents to write' },
 			},
-			required: [],
+			required: ['file_path', 'content'],
 		},
 	},
 	{
-		name: 'search_files',
+		name: 'Edit',
 		description:
-			'Search for a text pattern across files in the workspace. Supports regex. Returns matching lines with file paths and line numbers. Useful for finding usages, definitions, and references. Prefer this over shell grep/findstr/rg calls during exploration.',
+			'Edit a file by replacing **old_string** with **new_string**. When **replace_all** is false (default), **old_string** must match exactly once. When **replace_all** is true, every occurrence is replaced. If the match is not unique, read more context with **Read** and retry with a longer snippet.',
+		parameters: {
+			type: 'object',
+			properties: {
+				file_path: {
+					type: 'string',
+					description: 'Path to the file: workspace-relative, or absolute if under the workspace root.',
+				},
+				old_string: {
+					type: 'string',
+					description: 'Exact text to find (including whitespace and line breaks).',
+				},
+				new_string: {
+					type: 'string',
+					description: 'Replacement text (may be empty to delete).',
+				},
+				replace_all: {
+					type: 'boolean',
+					description: 'If true, replace every occurrence of old_string; if false, require a single match.',
+				},
+			},
+			required: ['file_path', 'old_string', 'new_string'],
+		},
+	},
+	{
+		name: 'Glob',
+		description:
+			'Find files by glob pattern under the workspace (e.g. `**/*.ts`, `src/**/*.tsx`). Returns workspace-relative paths, sorted, up to 100 matches. Does not search file contents — use **Grep** for that.',
 		parameters: {
 			type: 'object',
 			properties: {
 				pattern: {
 					type: 'string',
-					description: 'Search pattern (supports regex)',
+					description: 'Glob pattern (minimatch syntax), relative to the workspace root.',
 				},
 				path: {
 					type: 'string',
-					description: 'Optional subdirectory to limit search scope',
-				},
-				symbol: {
-					type: 'boolean',
 					description:
-						'If true, search exported symbol names (substring match) instead of grepping file contents. Use to find functions/classes/types by name.',
+						'Optional subdirectory under the workspace to search in; omit to search from the workspace root.',
 				},
 			},
 			required: ['pattern'],
 		},
 	},
 	{
-		name: 'execute_command',
+		name: 'Grep',
 		description:
-			'Execute a shell command in the workspace directory. Use this for running tests, installing dependencies, building projects, git operations, etc. Do not use this for reading source files or listing directories when read_file/list_dir/search_files can do the job. The command runs with a 120-second timeout.',
+			'A powerful search tool built on ripgrep.\n\nUsage:\n- ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` via Bash; this tool is wired for workspace-safe search.\n- Supports full regex (e.g. "log.*Error", "function\\s+\\w+").\n- Filter files with **glob** (e.g. "*.js", "*.{ts,tsx}") or **type** (e.g. "js", "py", "rust").\n- **output_mode**: "content" shows matching lines (with optional context via -A/-B/-C/context), "files_with_matches" lists paths only (default), "count" shows per-file match counts.\n- Use the **Agent** tool for open-ended searches that need many rounds.\n- Pattern syntax follows ripgrep (not GNU grep): brace literals may need escaping.\n- For patterns spanning lines, set **multiline** to true.\n- Optional **symbol**: when true, search exported symbol names (substring) via the workspace symbol index instead of grepping file contents.',
 		parameters: {
 			type: 'object',
 			properties: {
-				command: { type: 'string', description: 'The shell command to execute' },
+				pattern: {
+					type: 'string',
+					description: 'Regular expression to search for in file contents (unless symbol is true)',
+				},
+				path: {
+					type: 'string',
+					description:
+						'Optional path relative to workspace root: file or directory to search in. Omit to search from the workspace root.',
+				},
+				glob: {
+					type: 'string',
+					description:
+						'Glob pattern(s) to filter files (e.g. "*.js", "*.{ts,tsx}"). Space-separated; comma-separated allowed when not using brace expansion.',
+				},
+				output_mode: {
+					type: 'string',
+					enum: ['content', 'files_with_matches', 'count'],
+					description:
+						'"content" shows matching lines (supports context and line numbers), "files_with_matches" lists file paths only (default), "count" shows per-file match counts.',
+				},
+				'-B': {
+					type: 'number',
+					description: 'Lines of context before each match (ripgrep -B). Only for output_mode "content".',
+				},
+				'-A': {
+					type: 'number',
+					description: 'Lines of context after each match (ripgrep -A). Only for output_mode "content".',
+				},
+				'-C': {
+					type: 'number',
+					description: 'Lines of context before and after each match (ripgrep -C). Only for output_mode "content".',
+				},
+				context: {
+					type: 'number',
+					description: 'Same as -C when set (takes precedence over -B/-A pairing). Only for output_mode "content".',
+				},
+				'-n': {
+					type: 'boolean',
+					description: 'Include line numbers in content output (ripgrep -n). Default true for output_mode "content".',
+				},
+				'-i': {
+					type: 'boolean',
+					description: 'Case-insensitive search (ripgrep -i).',
+				},
+				type: {
+					type: 'string',
+					description: 'File type filter (ripgrep --type), e.g. js, py, rust, go, java.',
+				},
+				head_limit: {
+					type: 'number',
+					description:
+						'Cap output lines or entries (per mode). Default 250; pass 0 for unlimited (use sparingly).',
+				},
+				offset: {
+					type: 'number',
+					description: 'Skip this many lines/entries before applying head_limit (pagination). Default 0.',
+				},
+				multiline: {
+					type: 'boolean',
+					description: 'Multiline mode: . matches newlines (ripgrep -U --multiline-dotall). Default false.',
+				},
+				symbol: {
+					type: 'boolean',
+					description:
+						'If true, search exported symbol names (substring match) via the symbol index instead of grepping file contents.',
+				},
+			},
+			required: ['pattern'],
+		},
+	},
+	{
+		name: 'Bash',
+		description:
+			'Run a shell command in the workspace directory (on Windows the runtime uses PowerShell for the same purpose). Use for tests, installs, builds, git, etc. Do not use Bash for reading or discovering source files when **Read**, **Glob**, or **Grep** can do the job. Do not use Bash to run `grep` or `rg` for codebase search — use **Grep**. 120-second timeout.',
+		parameters: {
+			type: 'object',
+			properties: {
+				command: { type: 'string', description: 'The command line to execute' },
 			},
 			required: ['command'],
 		},
 	},
 	{
-		name: 'get_diagnostics',
+		name: 'LSP',
 		description:
-			'Get TypeScript/JavaScript compiler diagnostics (errors and warnings) for a file in the workspace using the language server. Use this after editing a TypeScript or JavaScript file to verify there are no type errors or syntax issues. Returns a list of diagnostics with line numbers, severity, and messages. If the language server is not running or the file type is not supported, returns an appropriate message.',
+			'Language-server intelligence for the workspace, routed by **file extension** to LSP servers loaded like **Claude Code**: plugin dirs under `<asyncData>/plugins/<name>/` or `<workspace>/.async/plugins/<name>/` with **`.lsp.json`** or **`plugin.json` → `lspServers`** (each server: **command**, optional **args**, required **extensionToLanguage** map). Legacy **`lsp.servers`** in settings.json is still merged. TS/JS additionally works if **typescript-language-server** is discoverable under the app or workspace `node_modules` (optional).\n\nOperations: goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls, getDiagnostics. Use **filePath** plus 1-based **line**/**character** except **getDiagnostics**/**workspaceSymbol** (optional line/char).\n\nIf nothing matches the file extension, add a plugin or legacy server entry. If an LSP method fails, fall back to **Read** / **Grep** / **Bash**.',
 		parameters: {
 			type: 'object',
 			properties: {
-				path: {
+				operation: {
 					type: 'string',
-					description: 'Relative path to the TypeScript or JavaScript file from workspace root',
+					enum: [
+						'goToDefinition',
+						'findReferences',
+						'hover',
+						'documentSymbol',
+						'workspaceSymbol',
+						'goToImplementation',
+						'prepareCallHierarchy',
+						'incomingCalls',
+						'outgoingCalls',
+						'getDiagnostics',
+					],
+					description: 'Which LSP operation to run.',
+				},
+				filePath: {
+					type: 'string',
+					description:
+						'Path to the file: workspace-relative, or absolute if under the workspace root. Required for all operations (including workspaceSymbol, which still anchors context on this file).',
+				},
+				line: {
+					type: 'number',
+					description: '1-based line number (required for cursor-based operations).',
+				},
+				character: {
+					type: 'number',
+					description: '1-based character offset on the line (required for cursor-based operations).',
 				},
 			},
-			required: ['path'],
+			required: ['operation', 'filePath'],
 		},
 	},
 	{
@@ -178,7 +273,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 			properties: {
 				prompt: {
 					type: 'string',
-					description: 'Clear instructions for the sub-agent (same as Claude Code `prompt`)',
+					description: 'Instructions for the sub-agent (Claude Code `Agent` tool: `prompt`)',
 				},
 				subagent_type: {
 					type: 'string',
@@ -189,30 +284,26 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 					type: 'string',
 					description: 'Optional paths, constraints, or background for the sub-agent',
 				},
-				task: {
-					type: 'string',
-					description: 'Legacy alias for `prompt` (either prompt or task is required)',
-				},
 				run_in_background: {
 					type: 'boolean',
 					description:
 						'If true, sub-agent runs in the background: tool returns immediately with a short notice; streamed nested activity still appears; user gets a completion toast. Same spirit as Claude Code async Agent when fork is enabled.',
 				},
 			},
-			required: [],
+			required: ['prompt'],
 		},
 	},
 	{
 		name: 'ListMcpResourcesTool',
 		description:
-			'List resources exposed by connected MCP (Model Context Protocol) servers. Each entry includes uri, name, optional mimeType/description, and server (the configured MCP server display name). Use optional `server` to filter to one server. Requires MCP servers to be connected (e.g. enabled in settings).',
+			'List available resources from configured MCP (Model Context Protocol) servers. Each returned resource includes standard MCP resource fields plus a **server** field indicating which configured server it belongs to.\n\nParameters:\n- **server** (optional): id or display name of a specific MCP server; omit to return resources from all connected servers.\n\nRequires MCP servers to be connected (enabled in settings).',
 		parameters: {
 			type: 'object',
 			properties: {
 				server: {
 					type: 'string',
 					description:
-						'Optional: MCP server id or display name to filter; omit to list from all connected servers.',
+						'Optional. MCP server id or display name; if omitted, resources from every connected server are listed.',
 				},
 			},
 			required: [],
@@ -221,12 +312,15 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'ReadMcpResourceTool',
 		description:
-			'Read a resource from a connected MCP server by URI (same naming as Claude Code). Use ListMcpResourcesTool first to discover URIs. Parameters must identify the server (id or display name as configured) and the resource uri.',
+			'Read a specific resource from an MCP server by **server** name and resource **uri**.\n\nParameters:\n- **server** (required): MCP server id or display name as configured.\n- **uri** (required): the resource URI to read.\n\nCall **ListMcpResourcesTool** first when you need to discover URIs.',
 		parameters: {
 			type: 'object',
 			properties: {
-				server: { type: 'string', description: 'MCP server id or display name from settings' },
-				uri: { type: 'string', description: 'Resource URI to read' },
+				server: {
+					type: 'string',
+					description: 'MCP server id or display name from which to read the resource.',
+				},
+				uri: { type: 'string', description: 'The resource URI to read.' },
 			},
 			required: ['server', 'uri'],
 		},

@@ -56,7 +56,7 @@ describe('assembleAgentToolPool', () => {
 		const pool = assembleAgentToolPool('agent');
 		const mcpNames = pool.filter((t) => t.name.startsWith('mcp__')).map((t) => t.name);
 		expect(mcpNames).toEqual(['mcp__a__t', 'mcp__z__t']);
-		const readIdx = pool.findIndex((t) => t.name === 'read_file');
+		const readIdx = pool.findIndex((t) => t.name === 'Read');
 		const firstMcp = pool.findIndex((t) => t.name.startsWith('mcp__'));
 		expect(readIdx).toBeLessThan(firstMcp);
 	});
@@ -69,8 +69,8 @@ describe('assembleAgentToolPool', () => {
 	});
 
 	it('agent mode drops mcp tools that collide with builtin names', () => {
-		mockGetAgentTools.mockReturnValue([tool('read_file')]);
+		mockGetAgentTools.mockReturnValue([tool('Write')]);
 		const pool = assembleAgentToolPool('agent');
-		expect(pool.filter((t) => t.name === 'read_file').length).toBe(1);
+		expect(pool.filter((t) => t.name === 'Write').length).toBe(1);
 	});
 });

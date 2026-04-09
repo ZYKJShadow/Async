@@ -15,8 +15,8 @@ describe('structuredAssistantToApi', () => {
 				{
 					type: 'tool',
 					toolUseId: 'call_a',
-					name: 'read_file',
-					args: { path: 'x.ts' },
+					name: 'Read',
+					args: { file_path: 'x.ts' },
 					result: '1|ok',
 					success: true,
 				},
@@ -39,8 +39,8 @@ describe('structuredAssistantToApi', () => {
 				{
 					type: 'tool',
 					toolUseId: 'call_b',
-					name: 'list_dir',
-					args: { path: '.' },
+					name: 'Glob',
+					args: { pattern: '**/*' },
 					result: 'a\nb',
 					success: true,
 				},
@@ -61,7 +61,7 @@ describe('structuredAssistantToApi', () => {
 				{
 					type: 'tool',
 					toolUseId: 'tu_1',
-					name: 'search_files',
+					name: 'Grep',
 					args: { pattern: 'x' },
 					result: 'No matches found.',
 					success: true,

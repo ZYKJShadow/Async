@@ -8,6 +8,7 @@ import { openAIReasoningEffort } from './thinkingLevel.js';
 import { resolveStreamTimeouts, createStreamTimeoutManager } from './streamTimeouts.js';
 import { llmSdkResponseHeadTimeoutMs } from './sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from './llmTransportRetry.js';
+import { formatLlmSdkError } from './formatLlmSdkError.js';
 
 export async function streamOpenAICompatible(
 	settings: ShellSettings,
@@ -191,7 +192,6 @@ export async function streamOpenAICompatible(
 			handlers.onError('连接超时：LLM 响应过慢，已自动中止。请重试或检查网络。');
 			return;
 		}
-		const msg = e instanceof Error ? e.message : String(e);
-		handlers.onError(msg);
+		handlers.onError(formatLlmSdkError(e));
 	}
 }

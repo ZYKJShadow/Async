@@ -14,8 +14,6 @@ import {
 	type RefObject,
 	type SetStateAction,
 } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import type { VirtualItem, Virtualizer } from '@tanstack/virtual-core';
 import { ChatMarkdown } from './ChatMarkdown';
 import { AgentReviewPanel } from './AgentReviewPanel';
 import { AgentFileChangesPanel } from './AgentFileChanges';
@@ -141,147 +139,54 @@ export type AgentChatPanelProps = {
 	agentPlanSummaryCard: ReactNode;
 };
 
-/**
- * 虚拟列表启停阈值做成滞后区间，避免消息数在边界附近时发送一条消息就立刻从平面轨道切到虚拟轨道，
- * 导致 sticky 行为、测量与滚动位置在同一帧内一起变化。
- */
-/**
- * 主聊天转录区优先保证滚动稳定性。
- * 长消息、流式块与工作区切换下，虚拟列表容易带来底部距离误差和锚点抖动，
- * 因此把启用阈值抬高到几乎不会命中，保留实现仅作极端超长会话的兜底。
- */
-const MESSAGE_LIST_VIRTUAL_ENABLE_THRESHOLD = 9999;
-const MESSAGE_LIST_VIRTUAL_DISABLE_THRESHOLD = 9990;
-const MESSAGE_LIST_VIRTUAL_ESTIMATE_SIZE = 160;
+/** 未测量行时用于高度预算的估算高度（与旧虚拟列表 estimate 对齐） */
+const ESTIMATED_MESSAGE_ROW_PX = 160;
+/** 目标：已渲染轨道总高度至少为视口高度的倍数 + 额外缓冲，避免首屏过短 */
+const HEIGHT_BUDGET_VIEWPORT_MULT = 2;
+const HEIGHT_BUDGET_OVERSCAN_PX = 400;
+/** 顶部哨兵触发时再往上加载的近似高度（约一整屏 + 边距） */
+const SCROLL_UP_LOAD_VIEWPORT_MULT = 1;
+const SCROLL_UP_LOAD_EXTRA_PX = 250;
 
-type MessageVirtualHeightCache = Map<number, number>;
-
-/**
- * 按会话缓存已测得的消息高度。
- * 这样重新进入工作区 / 线程，或在平面列表与虚拟列表之间切换时，
- * 虚拟列表可以直接带着更接近真实值的 estimate 启动，减少滚动条跳动。
- */
-const messageVirtualHeightsByConversation = new Map<string, MessageVirtualHeightCache>();
-
-function getMessageVirtualHeightCache(conversationKey: string): MessageVirtualHeightCache {
-	let bucket = messageVirtualHeightsByConversation.get(conversationKey);
-	if (!bucket) {
-		bucket = new Map<number, number>();
-		messageVirtualHeightsByConversation.set(conversationKey, bucket);
+function startIndexForHeightBudget(
+	len: number,
+	targetContentPx: number,
+	getRowHeight: (i: number) => number,
+	gapPx: number
+): number {
+	if (len <= 0) {
+		return 0;
 	}
-	return bucket;
+	let sum = 0;
+	for (let i = len - 1; i >= 0; i--) {
+		sum += getRowHeight(i);
+		if (i < len - 1) {
+			sum += gapPx;
+		}
+		if (sum >= targetContentPx) {
+			return i;
+		}
+	}
+	return 0;
 }
 
-/** 仅长列表挂载：短对话不调用 useVirtualizer，避免与 composer 测高等同步布局挤在同一任务 */
-const AgentMessagesVirtualizedTrack = memo(function AgentMessagesVirtualizedTrack({
-	viewportRef,
-	trackRef,
-	conversationRenderKey,
-	messageTrackGap,
-	count,
-	heightCache,
-	renderRow,
-}: {
-	viewportRef: RefObject<HTMLDivElement | null>;
-	trackRef: RefObject<HTMLDivElement | null>;
-	conversationRenderKey: string;
-	messageTrackGap: number;
-	count: number;
-	heightCache: MessageVirtualHeightCache;
-	renderRow: (index: number) => ReactNode;
-}) {
-	/** 条数不多时 overscan 过大等于整表挂载（如 count=20, overscan=12 → 常渲染全部行） */
-	const overscan = count <= 24 ? 3 : count <= 60 ? 5 : 10;
-	/** virtual-core 运行时支持该选项，当前 @tanstack/react-virtual 的 PartialKeys 类型未收录 */
-	const virtualizer = useVirtualizer({
-		count,
-		getScrollElement: () => viewportRef.current,
-		estimateSize: (index) => heightCache.get(index) ?? MESSAGE_LIST_VIRTUAL_ESTIMATE_SIZE,
-		overscan,
-		gap: messageTrackGap,
-		getItemKey: (index) => `${conversationRenderKey}-${index}`,
-		/**
-		 * 动态测高导致上方项尺寸修正时，保持当前视口锚点不被往回拽到中段。
-		 * 这对“从会话中间继续滚动”“返回旧工作区后继续浏览”两类场景最关键。
-		 */
-		shouldAdjustScrollPositionOnItemSizeChange: (
-			item: VirtualItem,
-			delta: number,
-			instance: Virtualizer<HTMLDivElement, Element>
-		) => {
-			if (Math.abs(delta) < 1) {
-				return false;
-			}
-			const off = instance.scrollOffset;
-			return off != null && item.start < off;
-		},
-	} as Parameters<typeof useVirtualizer<HTMLDivElement, Element>>[0]);
-
-	useEffect(() => {
-		for (const index of [...heightCache.keys()]) {
-			if (index >= count) {
-				heightCache.delete(index);
-			}
-		}
-	}, [count, heightCache]);
-
-	useLayoutEffect(() => {
-		const track = trackRef.current;
-		if (!track) {
-			return;
-		}
-		const rows = track.querySelectorAll<HTMLElement>('.ref-msg-virtual-row[data-index]');
-		for (const row of rows) {
-			const raw = row.dataset.index;
-			if (!raw) {
-				continue;
-			}
-			const index = Number(raw);
-			if (!Number.isFinite(index)) {
-				continue;
-			}
-			const next = Math.ceil(row.getBoundingClientRect().height);
-			if (next > 0) {
-				heightCache.set(index, next);
-			}
-		}
-	});
-
-	useEffect(() => {
-		virtualizer.measure();
-	}, [virtualizer, conversationRenderKey, count]);
-
-	return (
-		<div
-			key={`messages-track-${conversationRenderKey}`}
-			ref={trackRef}
-			className="ref-messages-track ref-messages-track--virtual"
-			style={{
-				height: `${virtualizer.getTotalSize()}px`,
-				position: 'relative',
-				width: '100%',
-			}}
-		>
-			{virtualizer.getVirtualItems().map((vi) => (
-				<div
-					key={vi.key}
-					data-index={vi.index}
-					ref={virtualizer.measureElement}
-					className="ref-msg-virtual-row"
-					style={{
-						position: 'absolute',
-						top: 0,
-						left: 0,
-						width: '100%',
-						transform: `translateY(${vi.start}px)`,
-					}}
-				>
-					{renderRow(vi.index)}
-				</div>
-			))}
-		</div>
-	);
-});
+function expandStartIndexByPixelBudget(
+	currentStart: number,
+	pixelBudget: number,
+	getRowHeight: (i: number) => number,
+	gapPx: number
+): number {
+	if (currentStart <= 0 || pixelBudget <= 0) {
+		return currentStart;
+	}
+	let add = 0;
+	let newStart = currentStart;
+	while (newStart > 0 && add < pixelBudget) {
+		newStart--;
+		add += getRowHeight(newStart) + gapPx;
+	}
+	return newStart;
+}
 
 export const AgentChatPanel = memo(function AgentChatPanel({
 	layout = 'agent-center',
@@ -399,62 +304,172 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		});
 	}, []);
 	const conversationRenderKey = messagesThreadId ?? 'no-thread';
-	const messageTrackGap = isEditorRail ? 20 : 22;
-	const virtualHeightCache = useMemo(
-		() => getMessageVirtualHeightCache(conversationRenderKey),
-		[conversationRenderKey]
-	);
-	const [virtualListEnabled, setVirtualListEnabled] = useState(
-		() => hasConversation && displayMessages.length >= MESSAGE_LIST_VIRTUAL_ENABLE_THRESHOLD
+	const trackGapPx = isEditorRail ? 20 : 22;
+	const messageRowHeightsRef = useRef<Map<number, number>>(new Map());
+	const [messageStartIndex, setMessageStartIndex] = useState(0);
+	const messagesTopSentinelRef = useRef<HTMLDivElement | null>(null);
+	const pendingPrependScrollRef = useRef<{ prevScrollHeight: number } | null>(null);
+	const prevDisplayMessagesLenRef = useRef(displayMessages.length);
+	const prevConversationForLenRef = useRef<string | null>(null);
+
+	const getRowHeightForBudget = useCallback(
+		(i: number) => messageRowHeightsRef.current.get(i) ?? ESTIMATED_MESSAGE_ROW_PX,
+		[]
 	);
 
-	const captureFlatTrackMessageHeights = useCallback(() => {
-		const track = messagesTrackRef.current;
-		if (!track || virtualListEnabled) {
-			return;
-		}
-		const rows = Array.from(track.children) as HTMLElement[];
-		rows.forEach((row, index) => {
-			const next = Math.ceil(row.getBoundingClientRect().height);
-			if (next > 0) {
-				virtualHeightCache.set(index, next);
-			}
-		});
-	}, [messagesTrackRef, virtualHeightCache, virtualListEnabled]);
+	const len = displayMessages.length;
+	const allHistoryRendered = messageStartIndex <= 0;
+	const lastDisplayedMessage = len > 0 ? displayMessages[len - 1] : undefined;
+	const lastMessageLayoutSig = useMemo(
+		() =>
+			len === 0
+				? '0'
+				: `${lastDisplayedMessage?.role ?? ''}:${(lastDisplayedMessage?.content ?? '').length}:${streaming.length}`,
+		[len, lastDisplayedMessage?.role, lastDisplayedMessage?.content, streaming]
+	);
 
-	useLayoutEffect(() => {
-		if (!hasConversation || virtualListEnabled) {
+	/**
+	 * 切换对话：清空测量并按视口高度预算重算起点。
+	 * 同一会话内仅列表变短时重算；变长（新消息）不缩小起点，末尾始终在切片内。
+	 */
+	useEffect(() => {
+		const n = displayMessages.length;
+		const vpGuess =
+			typeof window !== 'undefined'
+				? window.innerHeight * HEIGHT_BUDGET_VIEWPORT_MULT + HEIGHT_BUDGET_OVERSCAN_PX
+				: 1200;
+		const prevConv = prevConversationForLenRef.current;
+		if (prevConv !== conversationRenderKey) {
+			prevConversationForLenRef.current = conversationRenderKey;
+			prevDisplayMessagesLenRef.current = n;
+			pendingPrependScrollRef.current = null;
+			messageRowHeightsRef.current.clear();
+			setMessageStartIndex(
+				startIndexForHeightBudget(n, vpGuess, () => ESTIMATED_MESSAGE_ROW_PX, trackGapPx)
+			);
 			return;
 		}
-		captureFlatTrackMessageHeights();
+		const prevLen = prevDisplayMessagesLenRef.current;
+		if (n < prevLen) {
+			setMessageStartIndex(
+				startIndexForHeightBudget(n, vpGuess, () => ESTIMATED_MESSAGE_ROW_PX, trackGapPx)
+			);
+		}
+		prevDisplayMessagesLenRef.current = n;
+	}, [displayMessages.length, conversationRenderKey, trackGapPx]);
+
+	/** 顶部哨兵：再往上加载约「一整屏」高的内容（按已测/估算行高累计） */
+	useEffect(() => {
+		if (!hasConversation || allHistoryRendered) {
+			return;
+		}
+		const root = messagesViewportRef.current;
+		const target = messagesTopSentinelRef.current;
+		if (!root || !target) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const hit = entries.some((e) => e.isIntersecting);
+				if (!hit) {
+					return;
+				}
+				const viewport = messagesViewportRef.current;
+				if (!viewport) {
+					return;
+				}
+				if (pendingPrependScrollRef.current != null) {
+					return;
+				}
+				const loadBudget =
+					viewport.clientHeight * SCROLL_UP_LOAD_VIEWPORT_MULT + SCROLL_UP_LOAD_EXTRA_PX;
+				pendingPrependScrollRef.current = { prevScrollHeight: viewport.scrollHeight };
+				setMessageStartIndex((s) =>
+					expandStartIndexByPixelBudget(s, loadBudget, getRowHeightForBudget, trackGapPx)
+				);
+			},
+			{ root, rootMargin: '200px 0px 0px 0px', threshold: 0 }
+		);
+		observer.observe(target);
+		return () => observer.disconnect();
 	}, [
 		hasConversation,
-		virtualListEnabled,
-		displayMessages,
-		captureFlatTrackMessageHeights,
+		allHistoryRendered,
+		displayMessages.length,
+		conversationRenderKey,
+		getRowHeightForBudget,
+		trackGapPx,
 	]);
 
-	useEffect(() => {
-		// 线程切换时按新会话长度重新决定起始模式，避免沿用上一线程的虚拟化状态。
-		setVirtualListEnabled(
-			hasConversation && displayMessages.length >= MESSAGE_LIST_VIRTUAL_ENABLE_THRESHOLD
+	/** 测量行高；若轨道仍低于高度预算则继续往上扩大切片（粘底时用 scrollHeight 差补偿） */
+	useLayoutEffect(() => {
+		if (!hasConversation || len === 0) {
+			return;
+		}
+		const viewport = messagesViewportRef.current;
+		const track = messagesTrackRef.current;
+		if (!viewport || !track) {
+			return;
+		}
+		const wraps = track.querySelectorAll<HTMLElement>('.ref-msg-row-measure[data-msg-index]');
+		for (const el of wraps) {
+			const raw = el.dataset.msgIndex;
+			if (!raw) {
+				continue;
+			}
+			const idx = Number(raw);
+			if (!Number.isFinite(idx)) {
+				continue;
+			}
+			const h = Math.ceil(el.getBoundingClientRect().height);
+			if (h > 0) {
+				messageRowHeightsRef.current.set(idx, h);
+			}
+		}
+		const target = viewport.clientHeight * HEIGHT_BUDGET_VIEWPORT_MULT + HEIGHT_BUDGET_OVERSCAN_PX;
+		if (messageStartIndex <= 0 || track.scrollHeight >= target) {
+			return;
+		}
+		const deficit = target - track.scrollHeight;
+		if (deficit <= 0) {
+			return;
+		}
+		const newStart = expandStartIndexByPixelBudget(
+			messageStartIndex,
+			deficit,
+			getRowHeightForBudget,
+			trackGapPx
 		);
-	}, [conversationRenderKey]);
+		if (newStart < messageStartIndex) {
+			pendingPrependScrollRef.current = { prevScrollHeight: viewport.scrollHeight };
+			setMessageStartIndex(newStart);
+		}
+	}, [
+		hasConversation,
+		len,
+		messageStartIndex,
+		lastMessageLayoutSig,
+		conversationRenderKey,
+		getRowHeightForBudget,
+		trackGapPx,
+	]);
 
-	useEffect(() => {
-		setVirtualListEnabled((prev) => {
-			if (!hasConversation) {
-				return false;
-			}
-			if (displayMessages.length >= MESSAGE_LIST_VIRTUAL_ENABLE_THRESHOLD) {
-				return true;
-			}
-			if (displayMessages.length <= MESSAGE_LIST_VIRTUAL_DISABLE_THRESHOLD) {
-				return false;
-			}
-			return prev;
-		});
-	}, [hasConversation, displayMessages.length]);
+	useLayoutEffect(() => {
+		const pending = pendingPrependScrollRef.current;
+		if (!pending) {
+			return;
+		}
+		const viewport = messagesViewportRef.current;
+		if (!viewport) {
+			pendingPrependScrollRef.current = null;
+			return;
+		}
+		const delta = viewport.scrollHeight - pending.prevScrollHeight;
+		pendingPrependScrollRef.current = null;
+		if (delta !== 0) {
+			viewport.scrollTop += delta;
+		}
+	}, [messageStartIndex, displayMessages.length]);
 
 	const messageNodeAtIndex = (i: number): ReactNode => {
 			const m = displayMessages[i];
@@ -558,8 +573,11 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				const isNextAssistantStreaming = nextMsg?.role === 'assistant' && (i + 1) === displayMessages.length - 1 && awaitingReply;
 				const userTodos = nextMsg?.role === 'assistant'
 					? (isNextAssistantStreaming && liveAssistantBlocks
-						? extractTodosFromLiveBlocks(liveAssistantBlocks.blocks)
-						: (typeof nextMsg.content === 'string' ? extractLastTodosFromContent(nextMsg.content) : null))
+						? (extractTodosFromLiveBlocks(liveAssistantBlocks.blocks) ??
+								(typeof nextMsg.content === 'string' ? extractLastTodosFromContent(nextMsg.content) : null))
+						: typeof nextMsg.content === 'string'
+							? extractLastTodosFromContent(nextMsg.content)
+							: null)
 					: null;
 				const hasTodoPanel = userTodos != null && userTodos.length > 0;
 
@@ -688,12 +706,24 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 	const buildFlatMessageList = (): ReactNode[] => {
 		const t0 = import.meta.env.DEV ? performance.now() : 0;
-		const nodes = displayMessages.map((_, i) => messageNodeAtIndex(i)) as ReactNode[];
+		const nodes: ReactNode[] = [];
+		const convoKey = conversationRenderKey;
+		for (let i = messageStartIndex; i < displayMessages.length; i++) {
+			nodes.push(
+				<div
+					key={`row-${convoKey}-${i}`}
+					className="ref-msg-row-measure"
+					data-msg-index={String(i)}
+				>
+					{messageNodeAtIndex(i)}
+				</div>
+			);
+		}
 		if (import.meta.env.DEV) {
 			const elapsed = performance.now() - t0;
 			if (elapsed > 12) {
 				console.log(
-					`[perf] renderChatMessageList: ${elapsed.toFixed(1)}ms, messages=${displayMessages.length}, workspaceFiles=${workspaceFileList.length}, awaiting=${awaitingReply}`
+					`[perf] renderChatMessageList: ${elapsed.toFixed(1)}ms, slice=${nodes.length}/${displayMessages.length}, workspaceFiles=${workspaceFileList.length}, awaiting=${awaitingReply}`
 				);
 			}
 		}
@@ -701,30 +731,21 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	};
 
 	const messagesEl = hasConversation ? (
-		<div
-			className={`ref-messages${virtualListEnabled ? ' ref-messages--virtual' : ''}`}
-			ref={messagesViewportRef}
-			onScroll={onMessagesScroll}
-		>
-			{virtualListEnabled ? (
-				<AgentMessagesVirtualizedTrack
-					viewportRef={messagesViewportRef}
-					trackRef={messagesTrackRef}
-					conversationRenderKey={conversationRenderKey}
-					messageTrackGap={messageTrackGap}
-					count={displayMessages.length}
-					heightCache={virtualHeightCache}
-					renderRow={messageNodeAtIndex}
-				/>
-			) : (
-				<div
-					key={`messages-track-${conversationRenderKey}`}
-					className="ref-messages-track"
-					ref={messagesTrackRef}
-				>
-					{buildFlatMessageList()}
-				</div>
-			)}
+		<div className="ref-messages" ref={messagesViewportRef} onScroll={onMessagesScroll}>
+			<div
+				key={`messages-track-${conversationRenderKey}`}
+				className="ref-messages-track"
+				ref={messagesTrackRef}
+			>
+				{!allHistoryRendered ? (
+					<div
+						ref={messagesTopSentinelRef}
+						className="ref-messages-top-sentinel"
+						aria-hidden
+					/>
+				) : null}
+				{buildFlatMessageList()}
+			</div>
 		</div>
 	) : null;
 
@@ -868,7 +889,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 					onAllow={() => void respondToolApproval(true)}
 					onDeny={() => void respondToolApproval(false)}
 					title={
-						toolApprovalRequest.toolName === 'execute_command'
+						toolApprovalRequest.toolName === 'Bash'
 							? t('agent.toolApproval.titleShell')
 							: t('agent.toolApproval.titleWrite')
 					}

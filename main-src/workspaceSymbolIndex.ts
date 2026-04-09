@@ -1,5 +1,5 @@
 /**
- * 轻量导出符号索引（正则），供 Quick Open @ 与 search_files(symbol) 使用。
+ * 轻量导出符号索引（正则），供 Quick Open @ 与 Grep(symbol) 使用。
  * 按 workspace 根路径分桶，支持多窗口不同文件夹并存。
  */
 

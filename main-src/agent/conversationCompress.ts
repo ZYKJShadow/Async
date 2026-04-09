@@ -1,11 +1,9 @@
 /**
  * 长对话压缩：仅影响发送给 LLM 的消息副本，磁盘仍保留完整历史。
  *
- * 策略：
- * - 估算 non-system 消息总字符数，超过阈值时触发压缩。
- * - 保留最近 KEEP_RECENT_TURNS 轮（user + assistant 对）完整消息。
- * - 将更早的消息通过一次独立 LLM 调用生成摘要，替换为单条 user 前置消息。
- * - 若线程已有缓存摘要且覆盖范围未变，直接复用，不重复调用 LLM。
+ * 压缩触发阈值：`main-src/llm/modelContext.ts` 的 `getAutoCompactThresholdForSend`
+ *（对齐 CC `getAutoCompactThreshold` + `getEffectiveContextWindowSize`），与 `estimateTokens`（chars/4）比较。
+ * 缓存条数 = 已折叠的 old 区消息数；滑动窗口时只对新增 old 增量摘要。
  */
 
 import type { ChatMessage } from '../threadStore.js';
@@ -17,9 +15,30 @@ import {
 import type { ShellSettings } from '../settingsStore.js';
 import type { StreamHandlers, UnifiedChatOptions } from '../llm/types.js';
 import { streamChatUnified } from '../llm/llmRouter.js';
+import { getAutoCompactThresholdForSend, type ModelContextResolveOpts } from '../llm/modelContext.js';
 
-/** 触发压缩的 token 估算阈值（字符数 / 4 粗估） */
-const COMPRESS_TOKEN_THRESHOLD = 20_000;
+/**
+ * 与模型上下文对齐的压缩触发下限（估算 token，chars/4）。
+ * `ASYNC_COMPRESS_MIN_EST_TOKENS` 可强制覆盖（调试用，整数 >1000）。
+ */
+function compressTriggerEstThreshold(options: UnifiedChatOptions): number {
+	const raw = process.env.ASYNC_COMPRESS_MIN_EST_TOKENS?.trim();
+	if (raw) {
+		const n = parseInt(raw, 10);
+		if (!Number.isNaN(n) && n > 1000) {
+			return n;
+		}
+	}
+	const ctxOpts: ModelContextResolveOpts = {
+		userContextWindowTokens: options.contextWindowTokens,
+		paradigm: options.paradigm,
+	};
+	return getAutoCompactThresholdForSend(
+		options.requestModelId,
+		options.maxOutputTokens,
+		ctxOpts
+	);
+}
 
 /** 压缩后保留的最近完整轮数（user+assistant 各算一条） */
 const KEEP_RECENT_TURNS = 8;
@@ -125,7 +144,7 @@ export async function compressForSend(
 	const systemMsg = messages.find((m) => m.role === 'system');
 	const nonSystem = messages.filter((m) => m.role !== 'system');
 
-	if (estimateTokens(nonSystem) < COMPRESS_TOKEN_THRESHOLD) {
+	if (estimateTokens(nonSystem) < compressTriggerEstThreshold(options)) {
 		return { messages: budgetToolResults(messages) };
 	}
 
@@ -135,23 +154,47 @@ export async function compressForSend(
 		return { messages };
 	}
 
-	// 复用缓存摘要（覆盖范围相同时无需重新生成）
-	let summary = cachedSummary;
-	let coversCount = cachedCoversCount;
-	if (!summary || coversCount !== oldMessages.length) {
-		try {
+	let summary: string | undefined;
+	let coversCount: number | undefined;
+
+	try {
+		if (
+			cachedSummary &&
+			cachedCoversCount !== undefined &&
+			cachedCoversCount === oldMessages.length
+		) {
+			summary = cachedSummary;
+			coversCount = cachedCoversCount;
+		} else if (
+			cachedSummary &&
+			cachedCoversCount !== undefined &&
+			oldMessages.length < cachedCoversCount
+		) {
+			// 线程被截断（如编辑重发）：缓存条数多于当前 old，整段重摘要
 			summary = await generateSummary(settings, oldMessages, options);
 			coversCount = oldMessages.length;
-		} catch {
-			// 摘要生成失败：降级为保留更多最近轮次，丢弃最旧消息（而非完全不压缩）
-			const { recent: fallbackRecent } = splitOldAndRecent(nonSystem, KEEP_RECENT_TURNS * 2);
-			return {
-				messages: budgetToolResults([
-					...(systemMsg ? [systemMsg] : []),
-					...fallbackRecent,
-				]),
-			};
+		} else if (
+			cachedSummary &&
+			cachedCoversCount !== undefined &&
+			oldMessages.length > cachedCoversCount
+		) {
+			const delta = oldMessages.slice(cachedCoversCount);
+			const deltaSummary = await generateSummary(settings, delta, options);
+			summary = `${cachedSummary}\n\n---\n(Additional exchanges — ${delta.length} more message(s))\n\n${deltaSummary}`;
+			coversCount = oldMessages.length;
+		} else {
+			summary = await generateSummary(settings, oldMessages, options);
+			coversCount = oldMessages.length;
 		}
+	} catch {
+		// 摘要生成失败：降级为保留更多最近轮次，丢弃最旧消息（而非完全不压缩）
+		const { recent: fallbackRecent } = splitOldAndRecent(nonSystem, KEEP_RECENT_TURNS * 2);
+		return {
+			messages: budgetToolResults([
+				...(systemMsg ? [systemMsg] : []),
+				...fallbackRecent,
+			]),
+		};
 	}
 
 	const summaryMessage: ChatMessage = {
@@ -165,9 +208,16 @@ export async function compressForSend(
 		...recent,
 	]);
 
+	const summaryUnchanged =
+		summary === cachedSummary && coversCount === cachedCoversCount;
+	const persistSummary =
+		summary &&
+		coversCount !== undefined &&
+		!summaryUnchanged;
 	return {
 		messages: compressed,
-		newSummary: summary,
-		newSummaryCoversCount: coversCount,
+		...(persistSummary
+			? { newSummary: summary, newSummaryCoversCount: coversCount }
+			: {}),
 	};
 }

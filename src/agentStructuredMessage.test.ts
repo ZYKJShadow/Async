@@ -20,7 +20,7 @@ describe('agentStructuredMessage', () => {
 				{
 					type: 'tool' as const,
 					toolUseId: 'call_1',
-					name: 'search_files',
+					name: 'Grep',
 					args: { pattern: 'foo' },
 					result: 'No matches found.',
 					success: true,
@@ -41,8 +41,8 @@ describe('agentStructuredMessage', () => {
 					{
 						type: 'tool',
 						toolUseId: 'x',
-						name: 'read_file',
-						args: { path: 'a.ts' },
+						name: 'Read',
+						args: { file_path: 'a.ts' },
 						result: '1|ok',
 						success: true,
 					},
@@ -50,8 +50,8 @@ describe('agentStructuredMessage', () => {
 			})
 		)!;
 		const xml = structuredToLegacyAgentXml(p);
-		expect(xml).toContain('<tool_call tool="read_file"');
-		expect(xml).toContain('<tool_result tool="read_file"');
+		expect(xml).toContain('<tool_call tool="Read"');
+		expect(xml).toContain('<tool_result tool="Read"');
 	});
 
 	it('flattenAssistantTextPartsForSearch ignores tool bodies', () => {

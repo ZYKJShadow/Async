@@ -19,6 +19,8 @@ export type UserModelEntry = {
 	displayName: string;
 	requestName: string;
 	maxOutputTokens?: number;
+	/** 上下文窗口 tokens；与主进程压缩阈值（Claude Code 风格）对齐，可选 */
+	contextWindowTokens?: number;
 };
 
 function newId(): string {

@@ -1,15 +1,15 @@
 /**
  * Agent 工具执行前用户确认（主进程侧逻辑与「安全命令」白名单）。
  *
- * P3.12 预留：当前实现为硬编码的按工具名分支判断。
- * 长期方向：将权限规则抽象为可配置的 ToolPermissionRule[]，支持 pattern 匹配、
- * per-tool 规则、用户自定义，以及 shouldAvoidPermissionPrompts（后台自动拒绝）策略。
- * 参考 Claude Code 的 ToolPermissionContext 设计。
+ * 可配置规则见 `toolPermissionModel.ts`（对齐 Claude Code `PermissionRule` 子集）；
+ * 未命中规则时仍按工具名走 Bash / Write 等默认闸门。
  */
 
 import type { ToolCall } from './agentTools.js';
 import type { BeforeExecuteToolResult } from './agentLoop.js';
 import type { AgentCustomization } from '../agentSettingsTypes.js';
+import { resolveToolPermissionFromRules } from './toolPermissionModel.js';
+import { getShellPermissionMode } from '../../src/shellPermissionMode.js';
 
 /** 低风险 shell：在设置允许时可跳过确认 */
 export function isSafeShellCommandForAutoApprove(cmd: string): boolean {
@@ -27,23 +27,40 @@ export function createToolApprovalBeforeExecute(
 	threadId: string,
 	signal: AbortSignal,
 	getAgent: () => AgentCustomization | undefined,
-	waiters: Map<string, (approved: boolean) => void>
+	waiters: Map<string, (approved: boolean) => void>,
+	options?: { avoidPermissionPrompts?: boolean }
 ): (call: ToolCall) => Promise<BeforeExecuteToolResult> {
 	let seq = 0;
 
 	return async (call) => {
 		const agent = getAgent() ?? {};
+		const perm = resolveToolPermissionFromRules(call, agent, {
+			avoidPermissionPrompts: options?.avoidPermissionPrompts,
+		});
+		if (perm === 'deny') {
+			return { proceed: false, rejectionMessage: '工具调用被权限规则拒绝。' };
+		}
 
-		if (call.name === 'execute_command') {
-			const confirmShell = agent.confirmShellCommands !== false;
-			if (!confirmShell) {
-				return { proceed: true };
-			}
+		if (call.name === 'Bash') {
+			const mode = getShellPermissionMode(agent);
 			const cmd = String(call.arguments.command ?? '');
-			const skipSafe = agent.skipSafeShellCommandsConfirm !== false;
-			if (skipSafe && isSafeShellCommandForAutoApprove(cmd)) {
-				return { proceed: true };
+
+			if (perm === 'allow') {
+				if (mode !== 'ask_every_time') {
+					return { proceed: true };
+				}
+			} else {
+				if (mode === 'always') {
+					return { proceed: true };
+				}
+				if (mode === 'rules') {
+					const skipSafe = agent.skipSafeShellCommandsConfirm !== false;
+					if (skipSafe && isSafeShellCommandForAutoApprove(cmd)) {
+						return { proceed: true };
+					}
+				}
 			}
+
 			const id = `ta-${threadId}-${Date.now()}-${++seq}`;
 			return await new Promise<BeforeExecuteToolResult>((resolve) => {
 				if (signal.aborted) {
@@ -74,11 +91,15 @@ export function createToolApprovalBeforeExecute(
 			});
 		}
 
-		if (call.name === 'write_to_file' || call.name === 'str_replace') {
+		if (perm === 'allow') {
+			return { proceed: true };
+		}
+
+		if (call.name === 'Write' || call.name === 'Edit') {
 			if (agent.confirmWritesBeforeExecute !== true) {
 				return { proceed: true };
 			}
-			const relPath = String(call.arguments.path ?? '');
+			const relPath = String(call.arguments.file_path ?? call.arguments.path ?? '');
 			const id = `ta-${threadId}-${Date.now()}-${++seq}`;
 			return await new Promise<BeforeExecuteToolResult>((resolve) => {
 				if (signal.aborted) {

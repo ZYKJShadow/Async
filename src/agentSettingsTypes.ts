@@ -51,6 +51,27 @@ export type AgentCommand = {
 	body: string;
 };
 
+/** 与 Claude Code `PermissionBehavior` 一致 */
+export type ToolPermissionBehavior = 'allow' | 'deny' | 'ask';
+
+export type AgentToolPermissionRule = {
+	/** 列表编辑用稳定 id；旧配置可省略，加载时会补全 */
+	id?: string;
+	behavior: ToolPermissionBehavior;
+	toolName: string;
+	ruleContent?: string;
+};
+
+export type AgentMemoryExtractionSettings = {
+	enabled?: boolean;
+	minNonSystemMessagesBeforeFirst?: number;
+	minNonSystemMessagesBetween?: number;
+	minToolCallsBetween?: number;
+};
+
+/** Bash 执行权限三档（与 Composer 下拉、设置页一致） */
+export type ShellPermissionMode = 'always' | 'rules' | 'ask_every_time';
+
 export type AgentCustomization = {
 	/** 从工作区 `.async/rules`、`.cursor/rules` 等目录导入规则文本 */
 	importThirdPartyConfigs?: boolean;
@@ -58,7 +79,14 @@ export type AgentCustomization = {
 	skills?: AgentSkill[];
 	subagents?: AgentSubagent[];
 	commands?: AgentCommand[];
-	/** execute_command 执行前确认，默认 true */
+	/**
+	 * Bash 执行策略三档（与 `confirmShellCommands` / `skipSafeShellCommandsConfirm` 同步持久化，便于推断旧配置）。
+	 * - always：直接执行（deny 规则仍拦截）
+	 * - rules：`toolPermissionRules` 命中 allow 则放行；否则低风险白名单可放行；其余弹窗
+	 * - ask_every_time：除 deny 外一律弹窗（allow 规则也不跳过确认）
+	 */
+	shellPermissionMode?: ShellPermissionMode;
+	/** Bash 执行前确认，默认 true */
 	confirmShellCommands?: boolean;
 	/** 写入文件前确认，默认 false */
 	confirmWritesBeforeExecute?: boolean;
@@ -78,6 +106,9 @@ export type AgentCustomization = {
 	roundHardTimeoutMs?: number;
 	/** Agent 最大工具轮次；未设则不限制 */
 	maxToolRounds?: number;
+	toolPermissionRules?: AgentToolPermissionRule[];
+	shouldAvoidPermissionPrompts?: boolean;
+	memoryExtraction?: AgentMemoryExtractionSettings;
 };
 
 export const defaultAgentCustomization = (): AgentCustomization => ({
@@ -89,6 +120,8 @@ export const defaultAgentCustomization = (): AgentCustomization => ({
 	maxConsecutiveMistakes: 5,
 	mistakeLimitEnabled: true,
 	backgroundForkAgent: false,
+	toolPermissionRules: [],
+	shouldAvoidPermissionPrompts: false,
 });
 
 /** 主进程从 `.claude` / `.cursor` / `.async` 的 skills 目录扫描出的项，id 形如 `ws-skill-*`；不应写入 settings 或 `.async/agent.json`。 */

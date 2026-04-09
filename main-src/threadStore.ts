@@ -33,6 +33,10 @@ export type ThreadRecord = {
 	summary?: string;
 	summaryCoversMessageCount?: number;
 	memoryExtractedMessageCount?: number;
+	/** Agent/Plan 对话中已完成的工具调用次数（用于记忆抽取阈值，对齐 CC SessionMemory 的 toolCallsBetweenUpdates） */
+	agentToolCallsCompleted?: number;
+	/** 上次记忆抽取完成时的 `agentToolCallsCompleted`，用于计算间隔内工具调用数 */
+	memoryExtractionToolBaseline?: number;
 	plan?: ThreadPlan;
 	executedPlanFileKeys?: string[];
 };
@@ -431,6 +435,36 @@ export function saveSummary(threadId: string, summary: string, coversCount: numb
 export function getMemoryExtractedMessageCount(threadId: string): number {
 	const thread = getThread(threadId);
 	return Math.max(0, Number(thread?.memoryExtractedMessageCount ?? 0) || 0);
+}
+
+export function saveMemoryExtractionToolBaseline(threadId: string): void {
+	const thread = getThread(threadId);
+	if (!thread) {
+		return;
+	}
+	thread.memoryExtractionToolBaseline = thread.agentToolCallsCompleted ?? 0;
+	thread.updatedAt = Date.now();
+	save();
+}
+
+export function getAgentToolCallsSinceMemoryBaseline(threadId: string): number {
+	const thread = getThread(threadId);
+	if (!thread) {
+		return 0;
+	}
+	const cur = thread.agentToolCallsCompleted ?? 0;
+	const base = thread.memoryExtractionToolBaseline ?? 0;
+	return Math.max(0, cur - base);
+}
+
+export function incrementThreadAgentToolCallCount(threadId: string): void {
+	const thread = getThread(threadId);
+	if (!thread) {
+		return;
+	}
+	thread.agentToolCallsCompleted = (thread.agentToolCallsCompleted ?? 0) + 1;
+	thread.updatedAt = Date.now();
+	save();
 }
 
 export function saveMemoryExtractedMessageCount(threadId: string, count: number): void {

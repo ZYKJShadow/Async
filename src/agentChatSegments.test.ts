@@ -9,8 +9,8 @@ import { defaultT } from './i18n';
 describe('segmentAssistantContent', () => {
 	it('parses streaming_code after tool protocol markers', () => {
 		const content = [
-			'<tool_call tool="read_file">{"path":"src/App.tsx"}</tool_call>',
-			'<tool_result tool="read_file" success="true">  1|import React from \'react\';</tool_result>',
+			'<tool_call tool="Read">{"file_path":"src/App.tsx"}</tool_call>',
+			'<tool_result tool="Read" success="true">  1|import React from \'react\';</tool_result>',
 			'这里是正在输出的代码：',
 			'```ts',
 			'const answer = 42;',
@@ -28,8 +28,8 @@ describe('segmentAssistantContent', () => {
 
 	it('shows streaming_code shell immediately when fence has no newline yet', () => {
 		const content = [
-			'<tool_call tool="list_dir">{"path":"src"}</tool_call>',
-			'<tool_result tool="list_dir" success="true">[file] App.tsx</tool_result>',
+			'<tool_call tool="Glob">{"pattern":"**/*.tsx","path":"src"}</tool_call>',
+			'<tool_result tool="Glob" success="true">Found 1 file\nsrc/App.tsx</tool_result>',
 			'```python',
 		].join('\n');
 
@@ -104,20 +104,20 @@ describe('segmentAssistantContent', () => {
 describe('computeStableAgentToolProtocolPrefixLen', () => {
 	it('returns full length when tool protocol is complete', () => {
 		const content = [
-			'<tool_call tool="read_file">{"path":"a.ts"}</tool_call>',
-			'<tool_result tool="read_file" success="true">  1|x</tool_result>',
+			'<tool_call tool="Read">{"file_path":"a.ts"}</tool_call>',
+			'<tool_result tool="Read" success="true">  1|x</tool_result>',
 		].join('\n');
 		expect(computeStableAgentToolProtocolPrefixLen(content)).toBe(content.length);
 	});
 
 	it('excludes incomplete tool_result body from stable prefix', () => {
-		const open = '<tool_result tool="read_file" success="true">';
+		const open = '<tool_result tool="Read" success="true">';
 		const content = `${open}partial body without close`;
 		expect(computeStableAgentToolProtocolPrefixLen(content)).toBe(content.indexOf(open));
 	});
 
 	it('excludes incomplete tool_call JSON from stable prefix', () => {
-		const content = '<tool_call tool="read_file">{"path":"x.ts"';
+		const content = '<tool_call tool="Read">{"file_path":"x.ts"';
 		const start = content.indexOf('<tool_call');
 		expect(computeStableAgentToolProtocolPrefixLen(content)).toBe(start);
 	});

@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState, type KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AgentActivityGroup } from './AgentActivityGroup';
@@ -108,6 +108,149 @@ type Props = {
 	allowAgentFileActions?: boolean;
 	skipPlanTodo?: boolean;
 };
+
+function InlineChevron({ open }: { open: boolean }) {
+	return (
+		<svg
+			className={`ref-activity-inline-chevron-svg${open ? ' is-open' : ''}`}
+			width="11"
+			height="11"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2.3"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden
+		>
+			<path d="M9 6l6 6-6 6" />
+		</svg>
+	);
+}
+
+function ActivityLine({
+	seg,
+	t,
+	onOpenAgentFile,
+	showAgentWorking,
+}: {
+	seg: Extract<AssistantSegment, { type: 'activity' }>;
+	t: ReturnType<typeof useI18n>['t'];
+	onOpenAgentFile?: Props['onOpenAgentFile'];
+	showAgentWorking?: boolean;
+}) {
+	const readLink = seg.agentReadLink;
+	const openHintRaw = t('agent.activity.readOpenEditor');
+	const openHint =
+		openHintRaw === 'agent.activity.readOpenEditor'
+			? 'Open in editor and highlight this range'
+			: openHintRaw;
+	const hasResultCard = Boolean(seg.resultLines && seg.resultLines.length > 0 && seg.resultKind);
+	const isPlainCommandResult = seg.resultKind === 'plain' && hasResultCard;
+	const [expandedResult, setExpandedResult] = useState(false);
+	const onToggleResult = useCallback(() => setExpandedResult((v) => !v), []);
+	const onToggleKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onToggleResult();
+		}
+	}, [onToggleResult]);
+
+	return (
+		<div
+			className={`ref-agent-activity ref-agent-activity--${seg.status}${seg.nestParent ? ' ref-agent-activity--nested' : ''}`}
+			style={
+				seg.nestParent
+					? { marginLeft: Math.min(12 + ((seg.nestDepth ?? 1) - 1) * 10, 40) }
+					: undefined
+			}
+		>
+			<div
+				className={`ref-agent-activity-main${isPlainCommandResult ? ' ref-agent-activity-main--cmd-toggle' : ''}`}
+				role={isPlainCommandResult ? 'button' : undefined}
+				tabIndex={isPlainCommandResult ? 0 : undefined}
+				aria-expanded={isPlainCommandResult ? expandedResult : undefined}
+				aria-label={isPlainCommandResult ? (expandedResult ? '收起命令结果' : '展开命令结果') : undefined}
+				onClick={isPlainCommandResult ? onToggleResult : undefined}
+				onKeyDown={isPlainCommandResult ? onToggleKeyDown : undefined}
+			>
+				<span className="ref-agent-activity-dot" aria-hidden />
+				{isPlainCommandResult ? (
+					<span className="ref-agent-activity-cmd-inline">
+						{readLink && onOpenAgentFile ? (
+							<button
+								type="button"
+								className="ref-agent-activity-ref-link"
+								title={openHint}
+								onClick={(e) => {
+									e.stopPropagation();
+									onOpenAgentFile(
+										readLink.path,
+										readLink.startLine,
+										readLink.endLine
+									);
+								}}
+							>
+								{seg.text}
+							</button>
+						) : (
+							<span className="ref-agent-activity-text">{seg.text}</span>
+						)}
+						<span
+							className={`ref-activity-inline-chevron${expandedResult ? ' is-open' : ''}`}
+							aria-hidden
+						>
+							<InlineChevron open={expandedResult} />
+						</span>
+						{seg.summary ? (
+							<span className="ref-agent-activity-summary">{seg.summary}</span>
+						) : null}
+					</span>
+				) : (
+					<>
+						<span className="ref-agent-activity-text-cluster">
+							{readLink && onOpenAgentFile ? (
+								<button
+									type="button"
+									className="ref-agent-activity-ref-link"
+									title={openHint}
+									onClick={() =>
+										onOpenAgentFile(
+											readLink.path,
+											readLink.startLine,
+											readLink.endLine
+										)
+									}
+								>
+									{seg.text}
+								</button>
+							) : (
+								<span className="ref-agent-activity-text">{seg.text}</span>
+							)}
+						</span>
+						{seg.summary ? (
+							<span className="ref-agent-activity-summary">{seg.summary}</span>
+						) : null}
+					</>
+				)}
+			</div>
+			{seg.detail ? (
+				<pre className="ref-agent-activity-detail">{seg.detail}</pre>
+			) : null}
+			{hasResultCard && (!isPlainCommandResult || expandedResult) ? (
+				<AgentResultCard
+					lines={seg.resultLines!}
+					kind={seg.resultKind!}
+					readSourcePath={seg.agentReadLink?.path}
+					onOpenFile={onOpenAgentFile}
+					animateLineReveal={showAgentWorking}
+					forceExpanded={isPlainCommandResult ? true : undefined}
+					hideToggleChrome={isPlainCommandResult}
+				/>
+			) : null}
+		</div>
+	);
+}
 
 export const ChatMarkdown = memo(function ChatMarkdown({
 	content,
@@ -338,59 +481,14 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 						);
 					}
 					case 'activity': {
-						const readLink = seg.agentReadLink;
-						const openHintRaw = t('agent.activity.readOpenEditor');
-						const openHint =
-							openHintRaw === 'agent.activity.readOpenEditor'
-								? 'Open in editor and highlight this range'
-								: openHintRaw;
 						return (
-							<div
+							<ActivityLine
 								key={i}
-								className={`ref-agent-activity ref-agent-activity--${seg.status}${seg.nestParent ? ' ref-agent-activity--nested' : ''}`}
-								style={
-									seg.nestParent
-										? { marginLeft: Math.min(12 + ((seg.nestDepth ?? 1) - 1) * 10, 40) }
-										: undefined
-								}
-							>
-								<div className="ref-agent-activity-main">
-									<span className="ref-agent-activity-dot" aria-hidden />
-									{readLink && onOpenAgentFile ? (
-										<button
-											type="button"
-											className="ref-agent-activity-ref-link"
-											title={openHint}
-											onClick={() =>
-												onOpenAgentFile(
-													readLink.path,
-													readLink.startLine,
-													readLink.endLine
-												)
-											}
-										>
-											{seg.text}
-										</button>
-									) : (
-										<span className="ref-agent-activity-text">{seg.text}</span>
-									)}
-									{seg.summary ? (
-										<span className="ref-agent-activity-summary">{seg.summary}</span>
-									) : null}
-								</div>
-								{seg.detail ? (
-									<pre className="ref-agent-activity-detail">{seg.detail}</pre>
-								) : null}
-								{seg.resultLines && seg.resultLines.length > 0 && seg.resultKind ? (
-									<AgentResultCard
-										lines={seg.resultLines}
-										kind={seg.resultKind}
-										readSourcePath={seg.agentReadLink?.path}
-										onOpenFile={onOpenAgentFile}
-										animateLineReveal={showAgentWorking}
-									/>
-								) : null}
-							</div>
+								seg={seg}
+								t={t}
+								onOpenAgentFile={onOpenAgentFile}
+								showAgentWorking={showAgentWorking}
+							/>
 						);
 					}
 					case 'tool_call':

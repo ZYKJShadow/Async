@@ -1,7 +1,7 @@
 /**
- * AI 工具调用成功结果的可折叠内联卡片（search_files / read_file / list_dir / execute_command）。
+ * AI 工具调用成功结果的可折叠内联卡片（Read / Glob / Grep / Bash 等）。
  *
- * 动画：播放时固定高度 + overflow-y:auto（滚动条），逐行追加并自动滚底（read_file / list_dir 不播放，直接展示全文）。
+ * 动画：播放时固定高度 + overflow-y:auto（滚动条），逐行追加并自动滚底（Read / Glob 等不播放，直接展示全文）。
  * 播完后：read/search/命令输出用 Monaco colorize 做语法高亮（与编辑器主题一致）。
  *
  * 性能：视口外不着色（IntersectionObserver + requestIdleCallback）、Monaco 全局并发池、
@@ -89,9 +89,13 @@ function prefersReducedMotion(): boolean {
 type Props = {
 	lines: ActivityResultLine[];
 	kind: 'search' | 'read' | 'dir' | 'plain';
-	/** read_file：用于选择 Monaco 语言 */
+	/** Read：用于选择 Monaco 语言 */
 	readSourcePath?: string;
 	onOpenFile?: (relPath: string, revealLine?: number) => void;
+	/** 外部受控展开：用于把结果折叠/展开交给活动行自己控制 */
+	forceExpanded?: boolean;
+	/** 禁用卡片底部的“展开全部 / 收起”按钮 */
+	hideToggleChrome?: boolean;
 	/**
 	 * 仅在本轮 Agent 实时生成（最后一条助手且 awaiting）时为 true。
 	 * 历史消息 / 重开应用后为 false，避免依赖进程内 Set 导致整段结果再次逐行「流式」播放。
@@ -104,6 +108,8 @@ export function AgentResultCard({
 	kind,
 	readSourcePath,
 	onOpenFile,
+	forceExpanded,
+	hideToggleChrome = false,
 	animateLineReveal: _animateLineReveal = false,
 }: Props) {
 	/** 所有结果类型都不使用逐行动画，直接显示全文 */
@@ -184,14 +190,16 @@ export function AgentResultCard({
 	const needsExpand = !streaming && previewLines.length < lines.length;
 	const hiddenCount = lines.length - previewLines.length;
 
+	const isExpanded = forceExpanded ?? expanded;
+
 	const displayLines = streaming
 		? lines.slice(0, revealedCount)
-		: expanded
+		: isExpanded
 			? lines
 			: previewLines;
 
 	const virtualEnabled =
-		displayLines.length >= VIRTUAL_MIN_LINES && (streaming || expanded);
+		displayLines.length >= VIRTUAL_MIN_LINES && (streaming || isExpanded);
 
 	const streamVirtual = useVirtualizer({
 		count: virtualEnabled && streaming ? displayLines.length : 0,
@@ -439,7 +447,7 @@ export function AgentResultCard({
 						ref={expandedScrollRef}
 						className={[
 							'ref-result-card-body',
-							!expanded ? 'ref-result-card-body--preview' : 'ref-result-card-body--expanded',
+							!isExpanded ? 'ref-result-card-body--preview' : 'ref-result-card-body--expanded',
 						].join(' ')}
 					>
 						{virtualEnabled && !streaming
@@ -448,18 +456,18 @@ export function AgentResultCard({
 									<Fragment key={i}>{renderLine(line, i)}</Fragment>
 								))}
 					</div>
-					{needsExpand ? (
+					{needsExpand && !hideToggleChrome ? (
 						<div
-							className={['ref-result-card-chrome', expanded ? 'is-expanded' : ''].filter(Boolean).join(' ')}
+							className={['ref-result-card-chrome', isExpanded ? 'is-expanded' : ''].filter(Boolean).join(' ')}
 						>
-							{!expanded ? <div className="ref-result-card-fade" aria-hidden /> : null}
+							{!isExpanded ? <div className="ref-result-card-fade" aria-hidden /> : null}
 							<button
 								type="button"
 								className="ref-result-card-toggle"
-								aria-expanded={expanded}
+								aria-expanded={isExpanded}
 								onClick={() => setExpanded((v) => !v)}
 							>
-								{expanded ? (
+								{isExpanded ? (
 									<>
 										<IconChevron up />
 										<span>收起</span>

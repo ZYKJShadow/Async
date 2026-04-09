@@ -871,6 +871,30 @@ export function SettingsPage({
 																					/>
 																					<p className="ref-settings-proxy-hint ref-settings-field-footnote">{t('settings.maxOutputTokensHint')}</p>
 																				</label>
+																				<label className="ref-settings-field ref-settings-field--compact">
+																					<span>{t('settings.contextWindowTokens')}</span>
+																					<input
+																						type="number"
+																						min={1024}
+																						max={2000000}
+																						placeholder="—"
+																						value={m.contextWindowTokens ?? ''}
+																						onChange={(e) => {
+																							const raw = e.target.value.trim();
+																							if (raw === '') {
+																								patchEntry(m.id, { contextWindowTokens: undefined });
+																								return;
+																							}
+																							const v = Number.parseInt(raw, 10);
+																							patchEntry(m.id, {
+																								contextWindowTokens: Number.isNaN(v) ? undefined : v,
+																							});
+																						}}
+																					/>
+																					<p className="ref-settings-proxy-hint ref-settings-field-footnote">
+																						{t('settings.contextWindowTokensHint')}
+																					</p>
+																				</label>
 																			</div>
 																		</details>
 																	</li>
@@ -913,6 +937,8 @@ export function SettingsPage({
 									onPersistPatch={onPersistIndexingPatch}
 									shell={shell}
 									workspaceOpen={workspaceOpen}
+									agentCustomization={agentCustomization}
+									onChangeAgentCustomization={onChangeAgentCustomization}
 								/>
 							</Suspense>
 						) : null}

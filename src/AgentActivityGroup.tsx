@@ -6,7 +6,15 @@
  * liveTurn 由 true→false（回合结束）时：若仍展开则延迟平滑折叠。
  * 用户手动点击 toggle 后：不再自动覆盖，尊重用户选择。
  */
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+	type KeyboardEvent,
+} from 'react';
 import type { ActivityGroupSegment, ActivitySegment } from './agentChatSegments';
 import { AgentResultCard } from './AgentResultCard';
 
@@ -148,41 +156,97 @@ function ActivityRow({
 	animateLineReveal: boolean;
 }) {
 	const readLink = item.agentReadLink;
+	const hasResultCard = Boolean(item.resultLines && item.resultLines.length > 0 && item.resultKind);
+	const isPlainCommandResult = item.resultKind === 'plain' && hasResultCard;
+	const [expandedResult, setExpandedResult] = useState(false);
+	const onToggleResult = useCallback(() => {
+		setExpandedResult((v) => !v);
+	}, []);
+	const onToggleKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onToggleResult();
+		}
+	}, [onToggleResult]);
 	return (
 		<div className={`ref-activity-group-row ref-activity-group-row--${item.status}`}>
-			<div className="ref-activity-group-row-top">
+			<div
+				className={`ref-activity-group-row-top${isPlainCommandResult ? ' ref-activity-group-row-top--cmd-toggle' : ''}`}
+				role={isPlainCommandResult ? 'button' : undefined}
+				tabIndex={isPlainCommandResult ? 0 : undefined}
+				aria-expanded={isPlainCommandResult ? expandedResult : undefined}
+				aria-label={isPlainCommandResult ? (expandedResult ? '收起命令结果' : '展开命令结果') : undefined}
+				onClick={isPlainCommandResult ? onToggleResult : undefined}
+				onKeyDown={isPlainCommandResult ? onToggleKeyDown : undefined}
+			>
 				<span className="ref-activity-group-row-dot-wrap" aria-hidden>
 					<span className="ref-activity-group-row-dot" />
 				</span>
-				<div className="ref-activity-group-row-main">
-					{readLink && onOpenFile ? (
-						<button
-							type="button"
-							className="ref-agent-activity-ref-link"
-							onClick={() => onOpenFile(readLink.path, readLink.startLine, readLink.endLine)}
-						>
-							{item.text}
-						</button>
+				<div
+					className={`ref-activity-group-row-main${isPlainCommandResult ? ' ref-activity-group-row-main--cmd-head' : ''}`}
+				>
+					{isPlainCommandResult ? (
+						<span className="ref-activity-group-row-cmd-inline">
+							{readLink && onOpenFile ? (
+								<button
+									type="button"
+									className="ref-agent-activity-ref-link"
+									onClick={(e) => {
+										e.stopPropagation();
+										onOpenFile(readLink.path, readLink.startLine, readLink.endLine);
+									}}
+								>
+									{item.text}
+								</button>
+							) : (
+								<span>{item.text}</span>
+							)}
+							<span
+								className={`ref-activity-inline-chevron${expandedResult ? ' is-open' : ''}`}
+								aria-hidden
+							>
+								<InlineChevron open={expandedResult} />
+							</span>
+							{item.summary ? (
+								<span className="ref-agent-activity-summary">{item.summary}</span>
+							) : null}
+						</span>
 					) : (
-						<span>{item.text}</span>
+						<>
+							<span className="ref-activity-group-row-text-cluster">
+								{readLink && onOpenFile ? (
+									<button
+										type="button"
+										className="ref-agent-activity-ref-link"
+										onClick={() => onOpenFile(readLink.path, readLink.startLine, readLink.endLine)}
+									>
+										{item.text}
+									</button>
+								) : (
+									<span>{item.text}</span>
+								)}
+							</span>
+							{item.summary ? (
+								<span className="ref-agent-activity-summary">{item.summary}</span>
+							) : null}
+						</>
 					)}
-					{item.summary ? (
-						<span className="ref-agent-activity-summary">{item.summary}</span>
-					) : null}
 				</div>
 			</div>
-			{item.detail || (item.resultLines && item.resultLines.length > 0 && item.resultKind) ? (
+			{item.detail || hasResultCard ? (
 				<div className="ref-activity-group-row-rest">
 					{item.detail ? (
 						<pre className="ref-agent-activity-detail">{item.detail}</pre>
 					) : null}
-					{item.resultLines && item.resultLines.length > 0 && item.resultKind ? (
+					{hasResultCard && (!isPlainCommandResult || expandedResult) ? (
 						<AgentResultCard
 							lines={item.resultLines}
 							kind={item.resultKind}
 							readSourcePath={item.agentReadLink?.path}
 							onOpenFile={onOpenFile}
 							animateLineReveal={animateLineReveal}
+							forceExpanded={isPlainCommandResult ? true : undefined}
+							hideToggleChrome={isPlainCommandResult}
 						/>
 					) : null}
 				</div>
@@ -212,6 +276,25 @@ function ChevronDown() {
 	return (
 		<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
 			<path d="M6 9l6 6 6-6" />
+		</svg>
+	);
+}
+
+function InlineChevron({ open }: { open: boolean }) {
+	return (
+		<svg
+			className={`ref-activity-inline-chevron-svg${open ? ' is-open' : ''}`}
+			width="11"
+			height="11"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2.3"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden
+		>
+			<path d="M9 6l6 6-6 6" />
 		</svg>
 	);
 }
