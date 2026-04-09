@@ -144,6 +144,10 @@ function formatMcpToolResultForAgent(result: McpToolResult): string {
 }
 
 const MAX_MCP_RESOURCE_LIST_CHARS = 100_000;
+/** ReadMcpResource：与 Claude `ReadMcpResourceTool.maxResultSizeChars` 一致 */
+const MAX_MCP_RESOURCE_READ_CHARS = 100_000;
+/** Bash：与 Claude `BashTool.maxResultSizeChars` 一致 */
+const MAX_BASH_OUTPUT_CHARS = 30_000;
 
 async function executeListMcpResources(call: ToolCall): Promise<ToolResult> {
 	const filter = String(call.arguments.server ?? '').trim();
@@ -219,7 +223,9 @@ async function executeReadMcpResource(call: ToolCall): Promise<ToolResult> {
 		const raw = await client.readResource(uri);
 		const text = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
 		const clipped =
-			text.length > MAX_READ_SIZE ? text.slice(0, MAX_READ_SIZE) + '\n... (truncated)' : text;
+			text.length > MAX_MCP_RESOURCE_READ_CHARS
+				? text.slice(0, MAX_MCP_RESOURCE_READ_CHARS) + '\n... (truncated)'
+				: text;
 		return { toolCallId: call.id, name: call.name, content: clipped, isError: false };
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
@@ -1039,8 +1045,8 @@ async function executeCommand(call: ToolCall, execCtx: ToolExecutionContext): Pr
 		if (stdout) output += stdout;
 		if (stderr) output += (output ? '\n--- stderr ---\n' : '') + stderr;
 		if (!output.trim()) output = '(command completed with no output)';
-		if (output.length > MAX_READ_SIZE) {
-			output = output.slice(0, MAX_READ_SIZE) + '\n... (truncated)';
+		if (output.length > MAX_BASH_OUTPUT_CHARS) {
+			output = output.slice(0, MAX_BASH_OUTPUT_CHARS) + '\n... (truncated)';
 		}
 		return { toolCallId: call.id, name: call.name, content: output, isError: false };
 	} catch (e: unknown) {
@@ -1049,8 +1055,8 @@ async function executeCommand(call: ToolCall, execCtx: ToolExecutionContext): Pr
 		if (err.stdout) output += err.stdout;
 		if (err.stderr) output += (output ? '\n--- stderr ---\n' : '') + err.stderr;
 		if (!output.trim()) output = err.message ?? String(e);
-		if (output.length > MAX_READ_SIZE) {
-			output = output.slice(0, MAX_READ_SIZE) + '\n... (truncated)';
+		if (output.length > MAX_BASH_OUTPUT_CHARS) {
+			output = output.slice(0, MAX_BASH_OUTPUT_CHARS) + '\n... (truncated)';
 		}
 		return { toolCallId: call.id, name: call.name, content: `Exit code ${err.code ?? 'unknown'}\n${output}`, isError: true };
 	}
