@@ -291,6 +291,13 @@ export const messagesZhCN: Record<string, string> = {
 	'app.addPlusAria': '添加与模式',
 	'app.currentMode': '当前模式：{{mode}}',
 	'app.resetAgentModeAria': '恢复为 Agent 模式',
+	'app.contextMeter.detailDefault':
+		'已用（估算）：{{used}}\n上限：{{max}}（默认上下文，未在设置中填写；与主进程 200K 默认一致）\n说明：按字符÷4 粗估 token，含会话、流式与输入草稿。',
+	'app.contextMeter.detailCustom':
+		'已用（估算）：{{used}}\n上限：{{max}}（已在「设置 → 模型 → 高级」中指定）\n说明：按字符÷4 粗估 token，含会话、流式与输入草稿。',
+	'app.contextMeter.ariaSummary': '上下文：已用 {{used}}，上限 {{max}}。{{note}}',
+	'app.contextMeter.ariaDefaultNote': '当前为应用默认上限。',
+	'app.contextMeter.ariaCustomNote': '上限来自模型设置。',
 	'app.voiceSoonTitle': '语音输入（暂未支持）',
 	'app.voiceSoonAria': '语音输入（暂未支持）',
 	'app.stopGeneration': '停止生成',

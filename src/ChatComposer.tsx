@@ -5,7 +5,7 @@ import {
 	type SetStateAction,
 	useContext,
 } from 'react';
-import { ComposerGitBranchRow } from './ComposerGitBranchRow';
+import { ComposerGitBranchRow, type ComposerContextMeterState } from './ComposerGitBranchRow';
 import { ComposerActionsContext } from './ComposerActionsContext';
 import { ComposerModeIcon, composerModeLabel, type ComposerMode } from './ComposerPlusMenu';
 import { ComposerRichInput } from './ComposerRichInput';
@@ -32,6 +32,8 @@ interface ChatComposerProps {
 	canSend: boolean;
 	extraClass?: string;
 	showGitBranchRow?: boolean;
+	/** 当前模型在设置中配置了上下文窗口时显示 Git 行左侧圆环 */
+	composerContextMeter?: ComposerContextMeterState | null;
 	composerRichHeroRef: ComposerRef;
 	composerRichBottomRef: ComposerRef;
 	composerRichInlineRef: ComposerRef;
@@ -78,6 +80,7 @@ export function ChatComposer({
 	canSend,
 	extraClass,
 	showGitBranchRow = true,
+	composerContextMeter = null,
 	composerRichHeroRef,
 	composerRichBottomRef,
 	composerRichInlineRef,
@@ -274,6 +277,7 @@ export function ChatComposer({
 			<ComposerGitBranchRow
 				ref={composerGitBranchAnchorRef}
 				onBeforeToggleGitBranchPicker={onBeforeToggleGitBranchPicker}
+				contextMeter={composerContextMeter}
 			/>
 		</div>
 	);

@@ -13,11 +13,21 @@ import {
 	gitBranchTriggerTitle,
 	type GitUnavailableReason,
 } from './gitAvailability';
+import { ComposerContextMeter } from './ComposerContextMeter';
 import { IconChevron, IconGitSCM } from './icons';
+
+export type ComposerContextMeterState = {
+	maxTokens: number;
+	usedEstimate: number;
+	/** 未在设置中填写上下文窗口，UI 使用默认 200K */
+	isDefaultMax: boolean;
+};
 
 export type ComposerGitBranchRowProps = {
 	/** 打开分支菜单前关闭 + / 模型浮层（与原先 App 内联行为一致） */
 	onBeforeToggleGitBranchPicker?: () => void;
+	/** 当前模型在设置中填写了上下文窗口时由 ChatComposer 传入 */
+	contextMeter?: ComposerContextMeterState | null;
 };
 
 /**
@@ -25,7 +35,7 @@ export type ComposerGitBranchRowProps = {
  * 避免 fullStatus 等更新时整份 composer props 引用失效。
  */
 export const ComposerGitBranchRow = forwardRef<HTMLButtonElement, ComposerGitBranchRowProps>(
-	function ComposerGitBranchRow({ onBeforeToggleGitBranchPicker }, ref) {
+	function ComposerGitBranchRow({ onBeforeToggleGitBranchPicker, contextMeter }, ref) {
 		const { shell, t } = useAppShellChrome();
 		const { gitBranch, gitLines, gitStatusOk, gitBranchPickerOpen } = useAppShellGitMeta();
 		const { setGitBranchPickerOpen } = useAppShellGitActions();
@@ -61,29 +71,39 @@ export const ComposerGitBranchRow = forwardRef<HTMLButtonElement, ComposerGitBra
 						disabled={!shell}
 					/>
 				</span>
-				<button
-					ref={ref}
-					type="button"
-					className="ref-composer-git-branch-trigger"
-					title={gitBranchTriggerTitle(t, gitStatusOk, gitUnavailableReason)}
-					aria-label={`${t('app.tabGit')}: ${gitBranch}`}
-					aria-expanded={gitBranchPickerOpen}
-					aria-haspopup="dialog"
-					disabled={!gitStatusOk}
-					onClick={(e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						onBeforeToggleGitBranchPicker?.();
-						if (!gitStatusOk) {
-							return;
-						}
-						setGitBranchPickerOpen((o) => !o);
-					}}
-				>
-					<IconGitSCM className="ref-composer-git-branch-ico" aria-hidden />
-					<span className="ref-composer-git-branch-name">{gitBranch}</span>
-					<IconChevron className="ref-composer-git-branch-chev" aria-hidden />
-				</button>
+				<div className="ref-composer-git-branch-trailing">
+					{contextMeter ? (
+						<ComposerContextMeter
+							maxTokens={contextMeter.maxTokens}
+							usedEstimate={contextMeter.usedEstimate}
+							isDefaultMax={contextMeter.isDefaultMax}
+							t={t}
+						/>
+					) : null}
+					<button
+						ref={ref}
+						type="button"
+						className="ref-composer-git-branch-trigger"
+						title={gitBranchTriggerTitle(t, gitStatusOk, gitUnavailableReason)}
+						aria-label={`${t('app.tabGit')}: ${gitBranch}`}
+						aria-expanded={gitBranchPickerOpen}
+						aria-haspopup="dialog"
+						disabled={!gitStatusOk}
+						onClick={(e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							onBeforeToggleGitBranchPicker?.();
+							if (!gitStatusOk) {
+								return;
+							}
+							setGitBranchPickerOpen((o) => !o);
+						}}
+					>
+						<IconGitSCM className="ref-composer-git-branch-ico" aria-hidden />
+						<span className="ref-composer-git-branch-name">{gitBranch}</span>
+						<IconChevron className="ref-composer-git-branch-chev" aria-hidden />
+					</button>
+				</div>
 			</div>
 		);
 	}

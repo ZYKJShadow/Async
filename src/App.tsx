@@ -65,6 +65,10 @@ import {
 	userMessageToSegments,
 	type ComposerSegment,
 } from './composerSegments';
+import {
+	computeComposerContextUsedEstimate,
+	DEFAULT_CONTEXT_WINDOW_TOKENS_UI,
+} from './contextMeterFormat';
 import { getAtMentionRange } from './composerAtMention';
 import { textBeforeCaretForAt } from './composerRichDom';
 import { useComposerAtMention, type AtComposerSlot } from './useComposerAtMention';
@@ -4919,6 +4923,31 @@ function AppMainWorkspaceInner() {
 		setModelPickerOpen(false);
 	}, []);
 
+	const composerContextMeter = useMemo(() => {
+		if (!hasSelectedModel || !defaultModel.trim()) {
+			return null;
+		}
+		const entry = modelEntries.find((e) => e.id === defaultModel);
+		const raw = entry?.contextWindowTokens;
+		const isDefaultMax = raw == null || !Number.isFinite(raw) || raw <= 0;
+		const maxTokens = isDefaultMax ? DEFAULT_CONTEXT_WINDOW_TOKENS_UI : Math.floor(raw);
+		const usedEstimate = computeComposerContextUsedEstimate({
+			messages,
+			streaming,
+			streamingThinking,
+			composerSegments,
+		});
+		return { maxTokens, usedEstimate, isDefaultMax };
+	}, [
+		hasSelectedModel,
+		defaultModel,
+		modelEntries,
+		messages,
+		streaming,
+		streamingThinking,
+		composerSegments,
+	]);
+
 	// 共享给 ChatComposer（send/abort/newThread/openFile 由 ComposerActionsContext 注入，避免对象整体因箭头函数重建）
 	const sharedComposerProps = useMemo(
 		() => ({
@@ -4942,6 +4971,7 @@ function AppMainWorkspaceInner() {
 			resendFromUserIndex,
 			composerGitBranchAnchorRef,
 			onBeforeToggleGitBranchPicker,
+			composerContextMeter,
 			setPlusMenuAnchorSlot,
 			setModelPickerOpen,
 			setPlusMenuOpen,
@@ -4974,6 +5004,7 @@ function AppMainWorkspaceInner() {
 			resendFromUserIndex,
 			composerGitBranchAnchorRef,
 			onBeforeToggleGitBranchPicker,
+			composerContextMeter,
 			setPlusMenuAnchorSlot,
 			setModelPickerOpen,
 			setPlusMenuOpen,

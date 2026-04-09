@@ -290,6 +290,13 @@ export const messagesEn: Record<string, string> = {
 	'app.addPlusAria': 'Add & mode',
 	'app.currentMode': 'Current mode: {{mode}}',
 	'app.resetAgentModeAria': 'Reset to Agent mode',
+	'app.contextMeter.detailDefault':
+		'Used (estimate): {{used}}\nMax: {{max}} (default context — not set in Settings; matches app 200K default)\nNote: tokens ≈ chars÷4, including thread, stream, and draft.',
+	'app.contextMeter.detailCustom':
+		'Used (estimate): {{used}}\nMax: {{max}} (from Settings → Models → Advanced)\nNote: tokens ≈ chars÷4, including thread, stream, and draft.',
+	'app.contextMeter.ariaSummary': 'Context: {{used}} used, {{max}} max. {{note}}',
+	'app.contextMeter.ariaDefaultNote': 'Using the app default limit.',
+	'app.contextMeter.ariaCustomNote': 'Limit comes from model settings.',
 	'app.voiceSoonTitle': 'Voice input (not available)',
 	'app.voiceSoonAria': 'Voice input (not available)',
 	'app.stopGeneration': 'Stop',
