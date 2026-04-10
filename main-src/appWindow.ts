@@ -18,13 +18,48 @@ export function configureAppWindowIcon(icon: string | undefined): void {
 	appIconPath = icon;
 }
 
-export type AppWindowSurface = 'agent' | 'editor';
+export type AppWindowSurface = 'agent' | 'editor' | 'aiEmployees';
+
+let aiEmployeesSingleton: BrowserWindow | null = null;
+
+/**
+ * 单例 AI 员工窗口：已存在则 focus/show，否则新建（surface=aiEmployees）。
+ */
+export function openOrFocusAiEmployeesWindow(opts?: { initialWorkspace?: string | null }): void {
+	if (aiEmployeesSingleton && !aiEmployeesSingleton.isDestroyed()) {
+		if (aiEmployeesSingleton.isMinimized()) {
+			aiEmployeesSingleton.restore();
+		}
+		aiEmployeesSingleton.show();
+		aiEmployeesSingleton.focus();
+		const root = opts?.initialWorkspace?.trim();
+		if (root) {
+			try {
+				aiEmployeesSingleton.webContents.send('async-shell:aiEmployeesWorkspace', { workspaceRoot: root });
+			} catch {
+				/* ignore */
+			}
+		}
+		return;
+	}
+
+	const win = createAppWindow({
+		surface: 'aiEmployees',
+		initialWorkspace: opts?.initialWorkspace ?? undefined,
+	});
+	aiEmployeesSingleton = win;
+	win.on('closed', () => {
+		if (aiEmployeesSingleton === win) {
+			aiEmployeesSingleton = null;
+		}
+	});
+}
 
 export function createAppWindow(opts?: {
 	blank?: boolean;
 	surface?: AppWindowSurface;
 	initialWorkspace?: string | null;
-}): void {
+}): BrowserWindow {
 	const preloadPath = path.join(__dirname, 'preload.cjs');
 	const primary = screen.getPrimaryDisplay();
 	const wa = primary.workArea;
@@ -66,6 +101,7 @@ export function createAppWindow(opts?: {
 	});
 
 	const surface: AppWindowSurface = opts?.surface ?? 'agent';
+	const isAiEmployeesSurface = surface === 'aiEmployees';
 	const initial = opts?.initialWorkspace?.trim();
 	if (initial) {
 		const resolvedInitial = path.resolve(initial);
@@ -109,4 +145,14 @@ export function createAppWindow(opts?: {
 		const fileUrl = pathToFileURL(htmlPath).href + urlSuffix;
 		void win.loadURL(fileUrl);
 	}
+
+	if (isAiEmployeesSurface) {
+		try {
+			win.setTitle('AI Employees');
+		} catch {
+			/* ignore */
+		}
+	}
+
+	return win;
 }

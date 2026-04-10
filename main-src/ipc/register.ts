@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, type WebContents } from 'electron';
-import { createAppWindow } from '../appWindow.js';
+import { createAppWindow, openOrFocusAiEmployeesWindow } from '../appWindow.js';
 import { applyThemeChromeToWindow, type NativeChromeOverride, type ThemeChromeScheme } from '../themeChrome.js';
 import { applyPatch, formatPatch, parsePatch, reversePatch } from 'diff';
 import * as fs from 'node:fs';
@@ -162,6 +162,7 @@ import { scanMemoryFiles } from '../memdir/memoryScan.js';
 import { getAutoMemEntrypoint } from '../memdir/paths.js';
 import { buildMemoryEntrypoint, queueExtractMemories } from '../services/extractMemories/extractMemories.js';
 import { getWorkspaceIndexDir } from '../workspaceIndexPaths.js';
+import { generateHiringPlan, generateRolePromptDraft } from '../aiEmployees/roleGeneration.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -935,6 +936,11 @@ export function registerIpc(): void {
 
 	ipcMain.handle('app:newEditorWindow', () => {
 		createAppWindow({ blank: true, surface: 'editor' });
+		return { ok: true as const };
+	});
+
+	ipcMain.handle('app:openAiEmployees', (_event, payload?: { workspaceRoot?: string | null }) => {
+		openOrFocusAiEmployeesWindow({ initialWorkspace: payload?.workspaceRoot ?? null });
 		return { ok: true as const };
 	});
 
@@ -2722,6 +2728,26 @@ ipcMain.handle(
 			return { ok: false as const };
 		}
 		return { ok: true as const, plan: t.plan ?? null };
+	});
+
+	ipcMain.handle('aiEmployees:generateRolePrompt', async (_event, payload) => {
+		try {
+			const settings = getSettings();
+			const draft = await generateRolePromptDraft(settings, payload);
+			return { ok: true as const, draft };
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
+	});
+
+	ipcMain.handle('aiEmployees:generateHiringPlan', async (_event, payload) => {
+		try {
+			const settings = getSettings();
+			const candidates = await generateHiringPlan(settings, payload);
+			return { ok: true as const, candidates };
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
 	});
 
 	ipcMain.handle('terminal:execLine', async (event, line: string) => {

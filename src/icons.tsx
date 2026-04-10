@@ -285,3 +285,88 @@ export function IconImageOutline({ className }: { className?: string }) {
 		</svg>
 	);
 }
+
+/** 侧栏等：与 lucide Inbox 同语义 */
+export function IconInbox({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+			<path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+		</svg>
+	);
+}
+
+/** lucide CircleUser */
+export function IconCircleUser({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<circle cx="12" cy="12" r="10" />
+			<circle cx="12" cy="10" r="3" />
+			<path d="M7 20.5c1.5-2 3.5-3 5-3s3.5 1 5 3" />
+		</svg>
+	);
+}
+
+/** lucide ListTodo */
+export function IconListTodo({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<rect x="3" y="5" width="6" height="6" rx="1" />
+			<path d="m3 17 2 2 4-4" />
+			<path d="M13 6h8M13 12h8M13 18h8" />
+		</svg>
+	);
+}
+
+/** lucide FolderKanban */
+export function IconFolderKanban({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+			<path d="M8 10v4M12 10v2M16 10v6" />
+		</svg>
+	);
+}
+
+/** lucide Bot */
+export function IconBot({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M12 8V4H8" />
+			<rect width="16" height="12" x="4" y="8" rx="2" />
+			<path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+		</svg>
+	);
+}
+
+/** 任务流：列表 + 脉冲节点（与侧栏「任务」对应） */
+export function IconTaskPulse({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M8 6h13M8 12h13M8 18h13" />
+			<circle cx="4" cy="6" r="2" />
+			<circle cx="4" cy="12" r="2" />
+			<circle cx="4" cy="18" r="2" />
+		</svg>
+	);
+}
+
+/** lucide Monitor */
+export function IconMonitor({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<rect width="20" height="14" x="2" y="3" rx="2" />
+			<path d="M8 21h8M12 17v4" />
+		</svg>
+	);
+}
+
+/** lucide BookOpenText */
+export function IconBookOpen({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+			<path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+		</svg>
+	);
+}

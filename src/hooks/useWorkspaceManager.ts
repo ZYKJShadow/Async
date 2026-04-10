@@ -92,9 +92,9 @@ export function useWorkspaceManager(shell: Shell | undefined) {
 			typeof window.requestIdleCallback === 'function' ? window.requestIdleCallback.bind(window) : null;
 		const cancelIdle =
 			typeof window.cancelIdleCallback === 'function' ? window.cancelIdleCallback.bind(window) : null;
-		let startDelayId: ReturnType<typeof setTimeout> | undefined;
+		let startDelayId: number | undefined;
 		let idleId: number | undefined;
-		let fallbackId: ReturnType<typeof setTimeout> | undefined;
+		let fallbackId: number | undefined;
 
 		const clearScheduled = () => {
 			if (startDelayId != null) {

@@ -240,8 +240,8 @@ function ActivityRow({
 					) : null}
 					{hasResultCard && (!isPlainCommandResult || expandedResult) ? (
 						<AgentResultCard
-							lines={item.resultLines}
-							kind={item.resultKind}
+							lines={item.resultLines ?? []}
+							kind={item.resultKind ?? 'plain'}
 							readSourcePath={item.agentReadLink?.path}
 							onOpenFile={onOpenFile}
 							animateLineReveal={animateLineReveal}

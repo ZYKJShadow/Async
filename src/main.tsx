@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { AiEmployeesApp } from './aiEmployees/AiEmployeesApp';
 import { APP_UI_STYLE, readPrefersDark, readStoredColorMode, resolveEffectiveScheme } from './colorMode';
 import { I18nProvider } from './i18n';
 import '@fontsource/inter/400.css';
@@ -22,10 +23,10 @@ const platformRaw = userAgentData?.platform ?? navigator.platform ?? navigator.u
 const platform = /win/i.test(platformRaw) ? 'win32' : /mac/i.test(platformRaw) ? 'darwin' : 'linux';
 document.documentElement.setAttribute('data-platform', platform);
 
-function readAppSurfaceFromUrl(): 'agent' | 'editor' | undefined {
+function readAppSurfaceFromUrl(): 'agent' | 'editor' | 'aiEmployees' | undefined {
 	try {
 		const s = new URLSearchParams(window.location.search).get('surface');
-		if (s === 'agent' || s === 'editor') {
+		if (s === 'agent' || s === 'editor' || s === 'aiEmployees') {
 			return s;
 		}
 	} catch {
@@ -39,7 +40,7 @@ const appSurface = readAppSurfaceFromUrl();
 createRoot(document.getElementById('root')!).render(
 	<StrictMode>
 		<I18nProvider>
-			<App appSurface={appSurface} />
+			{appSurface === 'aiEmployees' ? <AiEmployeesApp /> : <App appSurface={appSurface} />}
 		</I18nProvider>
 	</StrictMode>
 );

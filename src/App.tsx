@@ -3962,6 +3962,20 @@ function AppMainWorkspaceInner() {
 		await shell.invoke('app:windowClose');
 	}, [shell]);
 
+	const onOpenAiEmployees = useCallback(async () => {
+		if (shell) {
+			await shell.invoke('app:openAiEmployees', { workspaceRoot: workspace ?? null });
+			return;
+		}
+		try {
+			const u = new URL(window.location.href);
+			u.searchParams.set('surface', 'aiEmployees');
+			window.open(u.toString(), 'async-ai-employees');
+		} catch {
+			/* ignore */
+		}
+	}, [shell, workspace]);
+
 	const onEditorTerminalSessionExit = useCallback((id: string) => {
 		setEditorTerminalSessions((prev) => {
 			const next = prev.filter((s) => s.id !== id);
@@ -5228,6 +5242,7 @@ function AppMainWorkspaceInner() {
 		setWorkspacePickerOpen,
 		openQuickOpen,
 		openSettingsPage,
+		onOpenAiEmployees,
 	});
 
 	/** 未打开工作区时：Agent / Editor 均显示同一套欢迎页（打开项目、最近项目等） */

@@ -1,6 +1,5 @@
 import { forwardRef, useCallback } from 'react';
 import { AgentCommandPermissionDropdown, type CommandPermissionMode } from './AgentCommandPermissionDropdown';
-import type { AgentCustomization } from './agentSettingsTypes';
 import { getShellPermissionMode, shellPermissionModeToAgentPatch } from './shellPermissionMode';
 import {
 	useAppShellChrome,

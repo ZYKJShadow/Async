@@ -8,6 +8,7 @@ import {
 	IconPlus,
 	IconPlugin,
 	IconSearch,
+	IconServerOutline,
 	IconSettings,
 } from './icons';
 
@@ -42,6 +43,7 @@ export type AgentLeftSidebarProps = {
 	openQuickOpen: () => void;
 	openPluginSettings: () => void;
 	openGeneralSettings: () => void;
+	onOpenAiEmployees: () => void;
 };
 
 export const AgentLeftSidebar = memo(function AgentLeftSidebar({
@@ -64,6 +66,7 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 	openQuickOpen,
 	openPluginSettings,
 	openGeneralSettings,
+	onOpenAiEmployees,
 }: AgentLeftSidebarProps) {
 	return (
 		<div className="ref-left-agent-nest">
@@ -73,6 +76,10 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 						<button type="button" className="ref-agent-nav-item" onClick={onNewThread}>
 							<IconPlus className="ref-agent-nav-item-icon" />
 							<span>{t('app.newAgent')}</span>
+						</button>
+						<button type="button" className="ref-agent-nav-item" onClick={onOpenAiEmployees}>
+							<IconServerOutline className="ref-agent-nav-item-icon" />
+							<span>{t('app.aiEmployees')}</span>
 						</button>
 						<button type="button" className="ref-agent-nav-item" onClick={openPluginSettings}>
 							<IconPlugin className="ref-agent-nav-item-icon" />

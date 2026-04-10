@@ -6,6 +6,15 @@ import type { McpServerConfig } from './mcp/mcpTypes.js';
 import { resolveAsyncDataDir } from './dataDir.js';
 import { normalizeThinkingLevel, type ThinkingLevel } from './llm/thinkingLevel.js';
 export type { ThinkingLevel } from './llm/thinkingLevel.js';
+import type { AiEmployeesSettings } from '../shared/aiEmployeesSettings.js';
+export type {
+	AiEmployeesSettings,
+	AiEmployeeCatalogEntry,
+	AiEmployeesOrchestrationState,
+	AiOrchestrationRun,
+	AiOrchestrationHandoff,
+	AiEmployeeChatAccountRef,
+} from '../shared/aiEmployeesSettings.js';
 export type {
 	AgentCustomization,
 	AgentRule,
@@ -192,6 +201,8 @@ export type ShellSettings = {
 		/** 是否允许下载差异化更新包（否则全量更新） */
 		allowDifferential?: boolean;
 	};
+	/** AI 员工窗口：远端代理连接、本地目录映射、员工目录与编排状态 */
+	aiEmployees?: AiEmployeesSettings;
 };
 
 const defaultSettings: ShellSettings = {
@@ -505,7 +516,14 @@ export function resolveUsageStatsDataDir(settings: ShellSettings): string | null
 }
 
 export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
-	const { ui: partialUi, indexing: partialIndexing, usageStats: partialUsageStats, autoUpdate: partialAutoUpdate, ...partialRest } = partial;
+	const {
+		ui: partialUi,
+		indexing: partialIndexing,
+		usageStats: partialUsageStats,
+		autoUpdate: partialAutoUpdate,
+		aiEmployees: partialAiEmployees,
+		...partialRest
+	} = partial;
 
 	const mergedIndexing =
 		partialIndexing !== undefined
@@ -592,6 +610,26 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 			? { ...(cached.autoUpdate ?? {}), ...partialAutoUpdate }
 			: cached.autoUpdate;
 
+	const mergedAiEmployees =
+		partialAiEmployees !== undefined
+			? {
+					...(cached.aiEmployees ?? {}),
+					...partialAiEmployees,
+					workspaceMap: {
+						...(cached.aiEmployees?.workspaceMap ?? {}),
+						...(partialAiEmployees.workspaceMap ?? {}),
+					},
+					agentLocalModelIdByRemoteAgentId: {
+						...(cached.aiEmployees?.agentLocalModelIdByRemoteAgentId ?? {}),
+						...(partialAiEmployees.agentLocalModelIdByRemoteAgentId ?? {}),
+					},
+					employeeLocalModelIdByEmployeeId: {
+						...(cached.aiEmployees?.employeeLocalModelIdByEmployeeId ?? {}),
+						...(partialAiEmployees.employeeLocalModelIdByEmployeeId ?? {}),
+					},
+				}
+			: cached.aiEmployees;
+
 	cached = {
 		...cached,
 		...partialRest,
@@ -606,6 +644,7 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 		mcpServers: mergedMcp,
 		usageStats: mergedUsageStats,
 		autoUpdate: mergedAutoUpdate,
+		aiEmployees: mergedAiEmployees,
 	};
 	cached = migrateDefaultModelRemoveAuto(cached).next;
 	cached = migrateProviderModelLayout(cached).next;

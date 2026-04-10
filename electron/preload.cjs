@@ -80,12 +80,15 @@ const INVOKE_CHANNELS = new Set([
 	'plan:saveStructured',
 	'plan:toolQuestionRespond',
 	'threads:getPlan',
+	'aiEmployees:generateRolePrompt',
+	'aiEmployees:generateHiringPlan',
 	'workspaceAgent:get',
 	'workspaceAgent:set',
 	'workspace:closeFolder',
 	'workspace:removeRecent',
 	'app:newWindow',
 	'app:newEditorWindow',
+	'app:openAiEmployees',
 	'app:windowGetState',
 	'app:windowMinimize',
 	'app:windowToggleMaximize',
@@ -113,6 +116,9 @@ let workspaceFsTouchedSeq = 0;
 
 const workspaceFileIndexReadyHandlers = new Map();
 let workspaceFileIndexReadySeq = 0;
+
+const aiEmployeesWorkspaceHandlers = new Map();
+let aiEmployeesWorkspaceSeq = 0;
 
 ipcRenderer.on('async-shell:chat', (_event, payload) => {
 	for (const fn of chatHandlers.values()) {
@@ -158,6 +164,20 @@ ipcRenderer.on('async-shell:workspaceFileIndexReady', (_event, rootNorm) => {
 	for (const fn of workspaceFileIndexReadyHandlers.values()) {
 		try {
 			fn(String(rootNorm ?? ''));
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:aiEmployeesWorkspace', (_event, payload) => {
+	const root =
+		payload && typeof payload === 'object' && 'workspaceRoot' in payload
+			? String((/** @type {{ workspaceRoot?: string }} */ (payload)).workspaceRoot ?? '')
+			: '';
+	for (const fn of aiEmployeesWorkspaceHandlers.values()) {
+		try {
+			fn(root);
 		} catch (e) {
 			console.error(e);
 		}
@@ -222,6 +242,11 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++workspaceFileIndexReadySeq;
 		workspaceFileIndexReadyHandlers.set(id, callback);
 		return () => workspaceFileIndexReadyHandlers.delete(id);
+	},
+	subscribeAiEmployeesWorkspace(callback) {
+		const id = ++aiEmployeesWorkspaceSeq;
+		aiEmployeesWorkspaceHandlers.set(id, callback);
+		return () => aiEmployeesWorkspaceHandlers.delete(id);
 	},
 	subscribeAutoUpdateStatus(callback) {
 		const id = ++autoUpdateStatusSeq;
