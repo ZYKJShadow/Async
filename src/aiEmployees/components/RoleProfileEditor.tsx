@@ -36,7 +36,7 @@ export function RoleProfileEditor({
 				<label className="ref-ai-employees-catalog-field">
 					<span>{t('aiEmployees.role.nationality')}</span>
 					<select
-						className="ref-ai-employees-workspace-select"
+						className="ref-settings-native-select ref-ai-employees-workspace-select"
 						value={draft.nationalityCode ?? ''}
 						onChange={bindText('nationalityCode')}
 					>
@@ -52,7 +52,7 @@ export function RoleProfileEditor({
 					<span>{t('aiEmployees.role.localModel')}</span>
 					<p className="ref-ai-employees-field-hint ref-ai-employees-muted">{t('aiEmployees.modelSource.localOnlyBlurb')}</p>
 					<select
-						className="ref-ai-employees-workspace-select"
+						className="ref-settings-native-select ref-ai-employees-workspace-select"
 						value={draft.localModelId}
 						onChange={bindText('localModelId')}
 						disabled={modelDisabled}

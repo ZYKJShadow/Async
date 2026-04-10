@@ -5,14 +5,14 @@ import {
 	IconBot,
 	IconChevron,
 	IconGitSCM,
+	IconMessageCircle,
 	IconRefresh,
 	IconSettings,
-	IconTaskPulse,
 } from '../icons';
 import { useAiEmployeesController, type AiEmployeesTabId } from './hooks/useAiEmployeesController';
 import { ConnectionPage } from './pages/ConnectionPage';
 import { EmployeesPage } from './pages/EmployeesPage';
-import { HomePage } from './pages/HomePage';
+import { CommunicationPage } from './pages/CommunicationPage';
 import { OrchestratorPage } from './pages/OrchestratorPage';
 import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
 import './aiEmployees.css';
@@ -49,8 +49,8 @@ export function AiEmployeesApp() {
 
 	const tabPageTitle = (id: AiEmployeesTabId): string => {
 		switch (id) {
-			case 'board':
-				return t('aiEmployees.tab.home');
+			case 'communication':
+				return t('aiEmployees.tab.communication');
 			case 'agents':
 				return t('aiEmployees.tab.team');
 			case 'orchestrator':
@@ -62,8 +62,8 @@ export function AiEmployeesApp() {
 		}
 	};
 
-	const visibleTabs: AiEmployeesTabId[] = ['board', 'agents', 'orchestrator', 'connection'];
-	const activeTab = visibleTabs.includes(c.tab) ? c.tab : 'board';
+	const visibleTabs: AiEmployeesTabId[] = ['communication', 'agents', 'orchestrator', 'connection'];
+	const activeTab = visibleTabs.includes(c.tab) ? c.tab : 'communication';
 
 	const navBusy = c.sessionPhase === 'bootstrapping';
 	const navBtn = (id: AiEmployeesTabId, label: string, icon: ReactNode, disabled?: boolean) => (
@@ -132,7 +132,7 @@ export function AiEmployeesApp() {
 					<div className="ref-ai-employees-sidebar-inner">
 						<header className="ref-ai-employees-sidebar-header">
 							<select
-								className="ref-ai-employees-workspace-select"
+								className="ref-settings-native-select ref-ai-employees-workspace-select"
 								value={c.workspaceId}
 								disabled={c.sessionPhase === 'bootstrapping'}
 								onChange={(e) => c.onWorkspaceSelectChange(e.target.value)}
@@ -150,7 +150,7 @@ export function AiEmployeesApp() {
 								<div className="ref-ai-employees-nav-group">
 									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.workspace')}</div>
 									<div className="ref-ai-employees-nav-group-content">
-										{navBtn('board', t('aiEmployees.tab.home'), <IconTaskPulse className="ref-ai-employees-nav-icon" />)}
+										{navBtn('communication', t('aiEmployees.tab.communication'), <IconMessageCircle className="ref-ai-employees-nav-icon" />)}
 										{navBtn('agents', t('aiEmployees.tab.team'), <IconBot className="ref-ai-employees-nav-icon" />)}
 										{navBtn('orchestrator', t('aiEmployees.tab.runs'), <IconGitSCM className="ref-ai-employees-nav-icon" />)}
 									</div>
@@ -211,11 +211,6 @@ export function AiEmployeesApp() {
 								<span className="ref-ai-employees-muted">{t('aiEmployees.noLocalFolder')}</span>
 							)}
 						</div>
-						{c.localRoot && c.workspaceId ? (
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => void c.bindLocalWorkspace()}>
-								{t('aiEmployees.bindWorkspace')}
-							</button>
-						) : null}
 					</div>
 					<div className="ref-ai-employees-inset-body">
 						{c.sessionPhase === 'bootstrapping' ? (
@@ -244,22 +239,8 @@ export function AiEmployeesApp() {
 									</div>
 								) : null}
 
-								{activeTab === 'inbox' || activeTab === 'myIssues' || activeTab === 'projects' ? (
-									<div className="ref-ai-employees-stub">
-										<div className="ref-ai-employees-stub-title">{tabPageTitle(activeTab)}</div>
-										<p>{t('aiEmployees.stubNotImplemented')}</p>
-									</div>
-								) : null}
-
-								{activeTab === 'board' ? (
-									<HomePage
-										t={t}
-										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
-										issues={c.issues}
-										orgEmployees={c.orgEmployees}
-										orchestration={c.orchestration}
-										onCreateRun={c.createOrchestrationRun}
-									/>
+								{activeTab === 'communication' ? (
+									<CommunicationPage t={t} orgEmployees={c.orgEmployees} onCreateRun={c.createOrchestrationRun} />
 								) : null}
 
 								{activeTab === 'agents' ? (

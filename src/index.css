@@ -11709,6 +11709,7 @@ select.ref-settings-native-select {
 	appearance: none !important;
 	box-sizing: border-box;
 	max-width: 100%;
+	min-height: 42px;
 	padding: 10px 36px 10px 12px;
 	border-radius: 10px;
 	border: 1px solid var(--void-border);
@@ -11722,7 +11723,7 @@ select.ref-settings-native-select {
 	font-family: inherit;
 	line-height: 1.35;
 	cursor: pointer;
-	transition: border-color 0.12s ease, background-color 0.12s ease;
+	transition: border-color 0.12s ease, background 0.12s ease;
 }
 
 select.ref-settings-native-select::-ms-expand {

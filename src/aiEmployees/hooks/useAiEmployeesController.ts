@@ -42,17 +42,7 @@ import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
-export type AiEmployeesTabId =
-	| 'inbox'
-	| 'myIssues'
-	| 'board'
-	| 'projects'
-	| 'agents'
-	| 'orchestrator'
-	| 'tasks'
-	| 'skills'
-	| 'runtimes'
-	| 'connection';
+export type AiEmployeesTabId = 'communication' | 'agents' | 'orchestrator' | 'connection';
 
 export function useAiEmployeesController() {
 	const shell = window.asyncShell as Shell | undefined;
@@ -60,7 +50,7 @@ export function useAiEmployeesController() {
 	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(() => defaultAppearanceSettings());
 	const [localRoot, setLocalRoot] = useState<string | null>(null);
 	const [aiSettings, setAiSettings] = useState<AiEmployeesSettings>({});
-	const [tab, setTab] = useState<AiEmployeesTabId>('board');
+	const [tab, setTab] = useState<AiEmployeesTabId>('communication');
 	const [workspaceId, setWorkspaceId] = useState<string>('');
 	const [workspaces, setWorkspaces] = useState<{ id: string; name?: string }[]>([]);
 	const [issues, setIssues] = useState<IssueJson[]>([]);
@@ -510,29 +500,6 @@ export function useAiEmployeesController() {
 		};
 	}, [conn, sessionPhase, workspaceId, routeWsEventToRefresh, softRefreshPayload, refreshAgentsOnly]);
 
-	const bindLocalWorkspace = useCallback(() => {
-		if (!localRoot || !workspaceId) {
-			return;
-		}
-		const nextMap = { ...(aiSettings.workspaceMap ?? {}), [localRoot]: workspaceId };
-		persistAiSettings({ ...aiSettings, workspaceMap: nextMap });
-	}, [localRoot, workspaceId, aiSettings, persistAiSettings]);
-
-	const bindLocalWorkspaceToId = useCallback(
-		(remoteWorkspaceId: string) => {
-			if (!localRoot || !remoteWorkspaceId) {
-				return;
-			}
-			const nextMap = { ...(aiSettings.workspaceMap ?? {}), [localRoot]: remoteWorkspaceId };
-			persistAiSettings({
-				...aiSettings,
-				workspaceMap: nextMap,
-				lastRemoteWorkspaceId: remoteWorkspaceId,
-			});
-		},
-		[localRoot, aiSettings, persistAiSettings]
-	);
-
 	const modelOptions = useMemo(() => buildModelOptions(localModels), [localModels]);
 	const modelOptionIdSet = useMemo(() => new Set(modelOptions.map((m) => m.id)), [modelOptions]);
 
@@ -760,8 +727,6 @@ export function useAiEmployeesController() {
 		persistAiSettings,
 		refreshDataRef,
 		softRefreshPayload,
-		bindLocalWorkspace,
-		bindLocalWorkspaceToId,
 		modelOptions,
 		modelOptionIdSet,
 		bindAgentLocalModel,

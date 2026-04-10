@@ -16,12 +16,11 @@ import { resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
 import {
 	applyGeneratedPromptDraft,
 	createEmptyRoleProfileDraft,
-	createRoleDraftFromHiringCandidate,
 	createRoleDraftFromOrgEmployee,
 	toPersonaSeed,
 	type RoleProfileDraft,
 } from '../domain/roleDraft';
-import type { HiringPlanGeneratorInput, RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
+import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
 
 function buildPromptDraftFromTemplate(template: OrgPromptTemplate): RolePromptDraft {
 	return {
@@ -354,61 +353,6 @@ export function AiEmployeesOnboarding({
 		setTeamErr(null);
 	};
 
-	const askCeoToHire = async () => {
-		if (!window.asyncShell) {
-			setTeamErr('async shell unavailable');
-			return;
-		}
-		if (!ceoEmployee) {
-			setTeamErr(t('aiEmployees.role.ceoRequired'));
-			return;
-		}
-		const ceoModelId =
-			resolveEmployeeLocalModelId({
-				employeeId: ceoEmployee.id,
-				remoteAgentId: ceoEmployee.linkedRemoteAgentId ?? undefined,
-				agentLocalModelMap,
-				employeeLocalModelMap,
-				defaultModelId,
-				modelOptionIds: modelOptionIdSet,
-			}) ?? ceoDraft.localModelId;
-		if (!ceoModelId) {
-			setTeamErr(t('aiEmployees.role.modelRequired'));
-			return;
-		}
-		setTeamBusy(true);
-		setTeamErr(null);
-		try {
-			const payload: HiringPlanGeneratorInput = {
-				modelId: ceoModelId,
-				companyName: companyDraftName.trim() || companyName.trim() || 'Async Company',
-				ceoDisplayName: ceoEmployee.displayName,
-				ceoPersonaSeed: ceoEmployee.personaSeed ?? toPersonaSeed(ceoDraft, 'user'),
-				ceoSystemPrompt: ceoEmployee.customSystemPrompt ?? ceoDraft.promptDraft.systemPrompt,
-				currentEmployees: sortedEmployees.map((employee) => ({
-					id: employee.id,
-					displayName: employee.displayName,
-					roleKey: employee.roleKey,
-					customRoleTitle: employee.customRoleTitle,
-					isCeo: employee.isCeo,
-					nationalityCode: employee.nationalityCode,
-				})),
-			};
-			const result = (await window.asyncShell.invoke('aiEmployees:generateHiringPlan', payload)) as
-				| { ok: true; candidates: import('../../../shared/aiEmployeesPersona').HiringPlanCandidate[] }
-				| { ok: false; error?: string };
-			if (!result.ok) {
-				throw new Error(result.error || 'generate hiring plan failed');
-			}
-			setCandidateDrafts(result.candidates.map((candidate) => createRoleDraftFromHiringCandidate(candidate)));
-			setTeamReviewActive(true);
-		} catch (error) {
-			setTeamErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setTeamBusy(false);
-		}
-	};
-
 	const updateCandidate = (id: string, patch: Partial<RoleProfileDraft>) => {
 		setCandidateDrafts((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
 	};
@@ -510,7 +454,7 @@ export function AiEmployeesOnboarding({
 					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.onboarding.pickWorkspaceDesc')}</p>
 					<label className="ref-ai-employees-onboarding-field">
 						<span>{t('aiEmployees.remoteWorkspace')}</span>
-						<select className="ref-ai-employees-workspace-select" value={localWs} onChange={(e) => setLocalWs(e.target.value)}>
+						<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={localWs} onChange={(e) => setLocalWs(e.target.value)}>
 							<option value="">{t('aiEmployees.pickWorkspace')}</option>
 							{workspaces.map((workspace) => (
 								<option key={workspace.id} value={workspace.id}>
@@ -670,10 +614,7 @@ export function AiEmployeesOnboarding({
 						</div>
 					) : null}
 					<div className="ref-ai-employees-onboarding-mode-row">
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={teamBusy} onClick={() => void askCeoToHire()}>
-							{t('aiEmployees.role.ceoHireAction')}
-						</button>
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={teamBusy} onClick={() => void openManualHiring()}>
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={teamBusy} onClick={() => void openManualHiring()}>
 							{t('aiEmployees.role.manualHireAction')}
 						</button>
 					</div>
@@ -729,7 +670,7 @@ export function AiEmployeesOnboarding({
 								</div>
 								<label className="ref-ai-employees-catalog-field">
 									<span>{t('aiEmployees.managerEmployee')}</span>
-									<select className="ref-ai-employees-workspace-select" value={candidate.managerEmployeeId ?? ''} onChange={(e) => updateCandidate(candidate.id ?? '', { managerEmployeeId: e.target.value || undefined })}>
+									<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={candidate.managerEmployeeId ?? ''} onChange={(e) => updateCandidate(candidate.id ?? '', { managerEmployeeId: e.target.value || undefined })}>
 										<option value="">{t('aiEmployees.managerNone')}</option>
 										{sortedEmployees.map((employee) => (
 											<option key={employee.id} value={employee.id}>

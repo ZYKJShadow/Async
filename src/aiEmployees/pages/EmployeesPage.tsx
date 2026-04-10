@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiEmployeeCatalogEntry } from '../../../shared/aiEmployeesSettings';
 import type { AiEmployeesConnection } from '../api/client';
@@ -18,12 +18,11 @@ import { emptyPromptDraft } from '../domain/persona';
 import {
 	applyGeneratedPromptDraft,
 	createEmptyRoleProfileDraft,
-	createRoleDraftFromHiringCandidate,
 	createRoleDraftFromOrgEmployee,
 	toPersonaSeed,
 	type RoleProfileDraft,
 } from '../domain/roleDraft';
-import type { HiringPlanGeneratorInput, RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
+import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
 
 function useAuthedAvatarPreview(
 	conn: AiEmployeesConnection,
@@ -72,6 +71,26 @@ function useAuthedAvatarPreview(
 		};
 	}, [conn, employeeId, enabled, workspaceId]);
 	return url;
+}
+
+function EmployeeBadgeFace({
+	conn,
+	workspaceId,
+	employee,
+}: {
+	conn: AiEmployeesConnection;
+	workspaceId: string;
+	employee: OrgEmployee;
+}) {
+	const preview = useAuthedAvatarPreview(conn, workspaceId, employee.id, Boolean(employee.avatarAssetId));
+	if (preview) {
+		return <img src={preview} alt="" className="ref-ai-employees-org-badge-face-img" />;
+	}
+	return (
+		<div className="ref-ai-employees-org-badge-face-ph" aria-hidden>
+			{employee.displayName.trim().slice(0, 1).toUpperCase() || '?'}
+		</div>
+	);
 }
 
 function promptDraftFromTemplate(template: OrgPromptTemplate | undefined): RolePromptDraft {
@@ -126,13 +145,15 @@ export function EmployeesPage({
 	onClearEmployeeLocalModel: (employeeId: string) => void;
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [detailModalOpen, setDetailModalOpen] = useState(false);
+	const modalBodyRef = useRef<HTMLDivElement>(null);
 	const [tplList, setTplList] = useState<OrgPromptTemplate[]>([]);
 	const [saveErr, setSaveErr] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [selectedDraft, setSelectedDraft] = useState<RoleProfileDraft | null>(null);
 	const [detailPromptBusy, setDetailPromptBusy] = useState(false);
 	const [hireDrafts, setHireDrafts] = useState<RoleProfileDraft[]>([]);
-	const [hireMode, setHireMode] = useState<'manual' | 'ceo' | null>(null);
+	const [hirePanelOpen, setHirePanelOpen] = useState(false);
 	const [hireBusy, setHireBusy] = useState(false);
 	const [hireErr, setHireErr] = useState<string | null>(null);
 	const effectiveCompanyName = companyName.trim() || 'Async Company';
@@ -148,16 +169,37 @@ export function EmployeesPage({
 		return list;
 	}, [orgEmployees]);
 
-	const selected = sortedOrg.find((employee) => employee.id === selectedId) ?? sortedOrg[0] ?? null;
+	const selected = useMemo(
+		() => (selectedId ? sortedOrg.find((employee) => employee.id === selectedId) ?? null : null),
+		[selectedId, sortedOrg]
+	);
 	const ceoEmployee = sortedOrg.find((employee) => employee.isCeo) ?? null;
 
 	useEffect(() => {
-		if (selected && !sortedOrg.some((employee) => employee.id === selected.id)) {
-			setSelectedId(sortedOrg[0]?.id ?? null);
-		} else if (!selectedId && sortedOrg[0]) {
-			setSelectedId(sortedOrg[0].id);
+		if (selectedId && !sortedOrg.some((employee) => employee.id === selectedId)) {
+			setSelectedId(null);
+			setDetailModalOpen(false);
 		}
-	}, [selected, selectedId, sortedOrg]);
+	}, [selectedId, sortedOrg]);
+
+	useEffect(() => {
+		if (!detailModalOpen) {
+			return;
+		}
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				setDetailModalOpen(false);
+			}
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, [detailModalOpen]);
+
+	useEffect(() => {
+		if (detailModalOpen) {
+			modalBodyRef.current?.focus();
+		}
+	}, [detailModalOpen, selectedId]);
 
 	useEffect(() => {
 		if (!workspaceId) {
@@ -179,7 +221,7 @@ export function EmployeesPage({
 		})();
 	}, [conn, workspaceId]);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (!selected) {
 			setSelectedDraft(null);
 			return;
@@ -317,8 +359,8 @@ export function EmployeesPage({
 		}
 	};
 
-	const startManualHire = () => {
-		setHireMode('manual');
+	const startAddMember = () => {
+		setHirePanelOpen(true);
 		setHireErr(null);
 		setHireDrafts([
 			createEmptyRoleProfileDraft({
@@ -330,60 +372,6 @@ export function EmployeesPage({
 				promptDraft: emptyPromptDraft(),
 			}),
 		]);
-	};
-
-	const startCeoHire = async () => {
-		if (!window.asyncShell) {
-			setHireErr('async shell unavailable');
-			return;
-		}
-		if (!ceoEmployee) {
-			setHireErr(t('aiEmployees.role.ceoRequired'));
-			return;
-		}
-		const ceoLocalModelId = resolveEmployeeLocalModelId({
-			employeeId: ceoEmployee.id,
-			remoteAgentId: ceoEmployee.linkedRemoteAgentId ?? undefined,
-			agentLocalModelMap,
-			employeeLocalModelMap,
-			defaultModelId,
-			modelOptionIds: modelOptionIdSet,
-		});
-		if (!ceoLocalModelId) {
-			setHireErr(t('aiEmployees.role.modelRequired'));
-			return;
-		}
-		setHireMode('ceo');
-		setHireBusy(true);
-		setHireErr(null);
-		try {
-			const payload: HiringPlanGeneratorInput = {
-				modelId: ceoLocalModelId,
-				companyName: effectiveCompanyName,
-				ceoDisplayName: ceoEmployee.displayName,
-				ceoPersonaSeed: ceoEmployee.personaSeed ?? undefined,
-				ceoSystemPrompt: ceoEmployee.customSystemPrompt ?? '',
-				currentEmployees: sortedOrg.map((employee) => ({
-					id: employee.id,
-					displayName: employee.displayName,
-					roleKey: employee.roleKey,
-					customRoleTitle: employee.customRoleTitle,
-					isCeo: employee.isCeo,
-					nationalityCode: employee.nationalityCode,
-				})),
-			};
-			const result = (await window.asyncShell.invoke('aiEmployees:generateHiringPlan', payload)) as
-				| { ok: true; candidates: import('../../../shared/aiEmployeesPersona').HiringPlanCandidate[] }
-				| { ok: false; error?: string };
-			if (!result.ok) {
-				throw new Error(result.error || 'generate hiring plan failed');
-			}
-			setHireDrafts(result.candidates.map((candidate) => createRoleDraftFromHiringCandidate(candidate)));
-		} catch (error) {
-			setHireErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setHireBusy(false);
-		}
 	};
 
 	const createHires = async () => {
@@ -404,11 +392,11 @@ export function EmployeesPage({
 					roleKey: draft.roleKey,
 					customRoleTitle: draft.customRoleTitle.trim() || undefined,
 					managerEmployeeId: draft.managerEmployeeId,
-					createdByEmployeeId: hireMode === 'ceo' ? ceoEmployee?.id : undefined,
+					createdByEmployeeId: undefined,
 					templatePromptKey: draft.templatePromptKey,
 					customSystemPrompt: draft.promptDraft.systemPrompt.trim() || undefined,
 					nationalityCode: draft.nationalityCode ?? null,
-					personaSeed: toPersonaSeed(draft, hireMode === 'ceo' ? 'ceo' : 'user'),
+					personaSeed: toPersonaSeed(draft, 'user'),
 					modelSource: draft.modelSource,
 				});
 				if (draft.localModelId) {
@@ -416,7 +404,7 @@ export function EmployeesPage({
 				}
 			}
 			setHireDrafts([]);
-			setHireMode(null);
+			setHirePanelOpen(false);
 			await onRefreshOrg();
 		} catch (error) {
 			setHireErr(error instanceof Error ? error.message : String(error));
@@ -428,20 +416,17 @@ export function EmployeesPage({
 	return (
 		<div className="ref-ai-employees-panel ref-ai-employees-org-layout">
 			<div className="ref-ai-employees-form-actions ref-ai-employees-org-top-actions">
-				<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={startManualHire}>
+				<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={startAddMember}>
 					{t('aiEmployees.role.manualHireAction')}
-				</button>
-				<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => void startCeoHire()} disabled={hireBusy || !ceoEmployee}>
-					{t('aiEmployees.role.ceoHireAction')}
 				</button>
 			</div>
 
-			{hireMode ? (
+			{hirePanelOpen ? (
 				<div className="ref-ai-employees-panel ref-ai-employees-role-hire-panel">
 					<div className="ref-ai-employees-role-review-head">
-						<strong>{hireMode === 'ceo' ? t('aiEmployees.role.teamReviewTitle') : t('aiEmployees.role.manualHireAction')}</strong>
+						<strong>{t('aiEmployees.role.manualHireAction')}</strong>
 						<div className="ref-ai-employees-form-actions">
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => { setHireMode(null); setHireDrafts([]); }}>
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => { setHirePanelOpen(false); setHireDrafts([]); }}>
 								{t('common.cancel')}
 							</button>
 							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={() => void createHires()} disabled={hireBusy}>
@@ -466,7 +451,7 @@ export function EmployeesPage({
 								</div>
 								<label className="ref-ai-employees-catalog-field">
 									<span>{t('aiEmployees.managerEmployee')}</span>
-									<select className="ref-ai-employees-workspace-select" value={draft.managerEmployeeId ?? ''} onChange={(e) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, managerEmployeeId: e.target.value || undefined } : item)))}>
+									<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={draft.managerEmployeeId ?? ''} onChange={(e) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, managerEmployeeId: e.target.value || undefined } : item)))}>
 										<option value="">{t('aiEmployees.managerNone')}</option>
 										{sortedOrg.map((employee) => (
 											<option key={employee.id} value={employee.id}>{employee.displayName}</option>
@@ -499,25 +484,75 @@ export function EmployeesPage({
 				</div>
 			) : null}
 
-			<div className="ref-ai-employees-org-split">
-				<div className="ref-ai-employees-org-list-pane">
-					<p className="ref-ai-employees-muted">{t('aiEmployees.orgDirectoryHint')}</p>
-					<ul className="ref-ai-employees-org-member-list">
-						{sortedOrg.map((employee) => (
-							<li key={employee.id}>
-								<button type="button" className={`ref-ai-employees-org-member-btn ${selected?.id === employee.id ? 'is-active' : ''}`} onClick={() => setSelectedId(employee.id)}>
-									<span className="ref-ai-employees-org-member-name">{employee.displayName}</span>
-									{employee.isCeo ? <span className="ref-ai-employees-pill">{t('aiEmployees.setup.roleLeadLabel')}</span> : null}
-									<span className="ref-ai-employees-muted">{employee.customRoleTitle || employee.roleKey}</span>
+			<div className="ref-ai-employees-org-team-block">
+				<p className="ref-ai-employees-muted ref-ai-employees-org-team-hint">{t('aiEmployees.orgBadgeGridHint')}</p>
+				{sortedOrg.length === 0 ? (
+					<p className="ref-ai-employees-muted">{t('aiEmployees.orgEmptyHint')}</p>
+				) : (
+					<div className="ref-ai-employees-org-badge-grid" role="list">
+						{sortedOrg.map((employee) => {
+							const title = (employee.customRoleTitle || employee.roleKey).trim() || '—';
+							const isActive = detailModalOpen && selectedId === employee.id;
+							return (
+								<button
+									key={employee.id}
+									type="button"
+									role="listitem"
+									className={`ref-ai-employees-org-badge-card ${isActive ? 'is-active' : ''}`}
+									onClick={() => {
+										setSelectedId(employee.id);
+										setDetailModalOpen(true);
+									}}
+								>
+									<div className="ref-ai-employees-org-badge-lanyard" aria-hidden />
+									<div className="ref-ai-employees-org-badge-card-inner">
+										<div className="ref-ai-employees-org-badge-face">
+											<EmployeeBadgeFace conn={conn} workspaceId={workspaceId} employee={employee} />
+										</div>
+										<div className="ref-ai-employees-org-badge-text">
+											<span className="ref-ai-employees-org-badge-name">{employee.displayName}</span>
+											<span className="ref-ai-employees-org-badge-title">{title}</span>
+											{employee.isCeo ? <span className="ref-ai-employees-org-badge-chip">{t('aiEmployees.setup.roleLeadLabel')}</span> : null}
+										</div>
+									</div>
 								</button>
-							</li>
-						))}
-					</ul>
-				</div>
+							);
+						})}
+					</div>
+				)}
+			</div>
 
-				<div className="ref-ai-employees-org-detail-pane">
-					{selected && selectedDraft ? (
-						<>
+			{detailModalOpen && selected && selectedDraft ? (
+				<div
+					className="ref-ai-employees-org-modal-overlay"
+					role="presentation"
+					onClick={() => setDetailModalOpen(false)}
+				>
+					<div
+						className="ref-ai-employees-org-modal"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="ref-ai-employees-org-modal-title"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<div className="ref-ai-employees-org-modal-head">
+							<h3 id="ref-ai-employees-org-modal-title" className="ref-ai-employees-org-modal-title">
+								{t('aiEmployees.orgDetailModalTitle')}
+							</h3>
+							<button
+								type="button"
+								className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-modal-close"
+								onClick={() => setDetailModalOpen(false)}
+								aria-label={t('common.close')}
+							>
+								×
+							</button>
+						</div>
+						<div
+							ref={modalBodyRef}
+							tabIndex={-1}
+							className="ref-ai-employees-org-modal-body"
+						>
 							<div className="ref-ai-employees-org-detail-head">
 								<div className="ref-ai-employees-org-avatar-wrap">
 									{avatarPreview ? (
@@ -542,14 +577,14 @@ export function EmployeesPage({
 
 							<label className="ref-ai-employees-catalog-field">
 								<span>{t('aiEmployees.orgTemplatePrompt')}</span>
-								<select className="ref-ai-employees-workspace-select" value={selectedDraft.templatePromptKey ?? ''} onChange={(e) => setSelectedDraft((prev) => (prev ? { ...prev, templatePromptKey: e.target.value || undefined, promptDraft: prev.promptDraft.systemPrompt ? prev.promptDraft : promptDraftFromTemplate(tplList.find((tpl) => tpl.key === e.target.value)) } : prev))}>
+								<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={selectedDraft.templatePromptKey ?? ''} onChange={(e) => setSelectedDraft((prev) => (prev ? { ...prev, templatePromptKey: e.target.value || undefined, promptDraft: prev.promptDraft.systemPrompt ? prev.promptDraft : promptDraftFromTemplate(tplList.find((tpl) => tpl.key === e.target.value)) } : prev))}>
 									<option value="">{t('aiEmployees.orgTemplateNone')}</option>
 									{tplList.map((tpl) => <option key={tpl.key} value={tpl.key}>{tpl.title}</option>)}
 								</select>
 							</label>
 							<label className="ref-ai-employees-catalog-field">
 								<span>{t('aiEmployees.managerEmployee')}</span>
-								<select className="ref-ai-employees-workspace-select" value={selectedDraft.managerEmployeeId ?? ''} onChange={(e) => setSelectedDraft((prev) => (prev ? { ...prev, managerEmployeeId: e.target.value || undefined } : prev))}>
+								<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={selectedDraft.managerEmployeeId ?? ''} onChange={(e) => setSelectedDraft((prev) => (prev ? { ...prev, managerEmployeeId: e.target.value || undefined } : prev))}>
 									<option value="">{t('aiEmployees.managerNone')}</option>
 									{sortedOrg.filter((employee) => employee.id !== selected.id).map((employee) => (
 										<option key={employee.id} value={employee.id}>{employee.displayName}</option>
@@ -568,7 +603,7 @@ export function EmployeesPage({
 							/>
 							<label className="ref-ai-employees-catalog-field">
 								<span>{t('aiEmployees.orgLinkAgent')}</span>
-								<select className="ref-ai-employees-workspace-select" value={selected.linkedRemoteAgentId ?? ''} onChange={(e) => {
+								<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={selected.linkedRemoteAgentId ?? ''} onChange={(e) => {
 									const value = e.target.value;
 									void (async () => {
 										setSaving(true);
@@ -587,15 +622,18 @@ export function EmployeesPage({
 									{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
 								</select>
 							</label>
-							<div className="ref-ai-employees-form-actions">
-								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={saving} onClick={() => void saveDetail()}>{t('aiEmployees.orgSaveProfile')}</button>
+							<div className="ref-ai-employees-form-actions ref-ai-employees-org-modal-actions">
+								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setDetailModalOpen(false)}>
+									{t('common.close')}
+								</button>
+								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={saving} onClick={() => void saveDetail()}>
+									{t('aiEmployees.orgSaveProfile')}
+								</button>
 							</div>
-						</>
-					) : (
-						<p className="ref-ai-employees-muted">{t('aiEmployees.orgEmptyHint')}</p>
-					)}
+						</div>
+					</div>
 				</div>
-			</div>
+			) : null}
 
 			<hr className="ref-ai-employees-org-divider" />
 
@@ -634,7 +672,7 @@ export function EmployeesPage({
 									</label>
 									<label className="ref-ai-employees-catalog-field">
 										<span>{t('aiEmployees.modelSource')}</span>
-										<select className="ref-ai-employees-workspace-select" value={row.modelSource} onChange={(e) => onUpsertCatalogEntry({ ...row, modelSource: e.target.value as AiEmployeeCatalogEntry['modelSource'] })}>
+										<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={row.modelSource} onChange={(e) => onUpsertCatalogEntry({ ...row, modelSource: e.target.value as AiEmployeeCatalogEntry['modelSource'] })}>
 											<option value="local_model">{t('aiEmployees.modelSource.local')}</option>
 											<option value="remote_runtime">{t('aiEmployees.modelSource.remote')}</option>
 											<option value="hybrid">{t('aiEmployees.modelSource.hybrid')}</option>
@@ -649,7 +687,7 @@ export function EmployeesPage({
 									</label>
 									<label className="ref-ai-employees-catalog-field">
 										<span>{t('aiEmployees.managerEmployee')}</span>
-										<select className="ref-ai-employees-workspace-select" value={row.managerEmployeeId ?? ''} onChange={(e) => onUpsertCatalogEntry({ ...row, managerEmployeeId: e.target.value || undefined })}>
+										<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={row.managerEmployeeId ?? ''} onChange={(e) => onUpsertCatalogEntry({ ...row, managerEmployeeId: e.target.value || undefined })}>
 											<option value="">{t('aiEmployees.managerNone')}</option>
 											{employeeCatalog.filter((entry) => entry.id !== row.id).map((entry) => <option key={entry.id} value={entry.id}>{entry.displayName || entry.id.slice(0, 8)}</option>)}
 										</select>
@@ -668,7 +706,7 @@ export function EmployeesPage({
 										{modelOptions.length === 0 ? (
 											<span className="ref-ai-employees-muted">{t('aiEmployees.localModelMissingHint')}</span>
 										) : (
-											<select className="ref-ai-employees-workspace-select ref-ai-employees-model-select" value={selectValue} aria-label={t('aiEmployees.localModelPick')} onChange={(e) => {
+											<select className="ref-settings-native-select ref-ai-employees-workspace-select ref-ai-employees-model-select" value={selectValue} aria-label={t('aiEmployees.localModelPick')} onChange={(e) => {
 												const value = e.target.value;
 												if (!value) {
 													onClearModelBinding(agent.id);
