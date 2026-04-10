@@ -228,6 +228,10 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.handoffAdd': 'Add handoff',
 	'aiEmployees.handoffPickMember': 'Choose a member…',
 	'aiEmployees.handoffNotePh': 'Optional note (scope, acceptance criteria…)',
+	'aiEmployees.handoff.guidanceTitle': 'Execution guidance',
+	'aiEmployees.handoff.reportTemplateLabel': 'Required handoff report',
+	'aiEmployees.handoff.rulesAppliedHint':
+		'These rules will be appended to the assignment or handoff message so the assignee receives a consistent contract.',
 	'aiEmployees.handoffStatusAria': 'Handoff status',
 	'aiEmployees.handoffCatalogEmpty': 'Add roles to the employee directory on the Team tab before you can build a handoff chain.',
 	'aiEmployees.handoffStatus.pending': 'Pending',

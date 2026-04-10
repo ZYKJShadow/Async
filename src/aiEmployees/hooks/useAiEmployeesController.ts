@@ -1144,7 +1144,7 @@ export function useAiEmployeesController() {
 	);
 
 	const addOrchestrationHandoff = useCallback(
-		(runId: string, toEmployeeId: string, note?: string) => {
+		(runId: string, toEmployeeId: string, note?: string, messageBody?: string) => {
 			const nowIso = new Date().toISOString();
 			persistOrchestration((orch) => {
 				const run = orch.runs.find((candidate) => candidate.id === runId);
@@ -1171,10 +1171,35 @@ export function useAiEmployeesController() {
 					employeeId: toEmployeeId,
 					source: 'local',
 				});
+				const collabBody = messageBody?.trim() || note?.trim();
+				if (collabBody) {
+					const summary = note?.trim() || `Handoff to ${employeeDisplayName(toEmployeeId)}`;
+					const messageId = crypto.randomUUID();
+					next = appendCollabMessage(next, {
+						id: messageId,
+						runId,
+						type: 'handoff_request',
+						fromEmployeeId: handoff.fromEmployeeId,
+						toEmployeeId,
+						summary,
+						body: collabBody,
+						createdAtIso: nowIso,
+					});
+					next = appendTimelineEvent(next, {
+						id: `message:${messageId}`,
+						runId,
+						type: 'message',
+						label: summary,
+						description: collabBody,
+						createdAtIso: nowIso,
+						employeeId: toEmployeeId,
+						source: 'local',
+					});
+				}
 				return next;
 			});
 		},
-		[appendTimelineEvent, employeeDisplayName, persistOrchestration]
+		[appendCollabMessage, appendTimelineEvent, employeeDisplayName, persistOrchestration]
 	);
 
 	const setOrchestrationHandoffStatus = useCallback(
@@ -1276,15 +1301,22 @@ export function useAiEmployeesController() {
 	);
 
 	const createEmployeeRun = useCallback(
-		(employeeId: string, title: string, details: string, targetBranch: string) => {
+		(
+			employeeId: string,
+			title: string,
+			details: string,
+			targetBranch: string,
+			options?: { assignmentBody?: string }
+		) => {
 			const employeeName = employeeDisplayName(employeeId);
 			const cleanTitle = title.trim();
 			const cleanDetails = details.trim();
+			const assignmentBody = options?.assignmentBody?.trim();
 			const goal = cleanDetails ? `[${employeeName}] ${cleanTitle} — ${cleanDetails}` : `[${employeeName}] ${cleanTitle}`;
 			return createOrchestrationRun(goal, targetBranch, {
 				initialAssigneeEmployeeId: employeeId,
 				note: cleanTitle,
-				initialMessage: cleanDetails || cleanTitle,
+				initialMessage: assignmentBody || cleanDetails || cleanTitle,
 				messageType: 'task_assignment',
 			});
 		},

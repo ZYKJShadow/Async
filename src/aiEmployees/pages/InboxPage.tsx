@@ -3,9 +3,27 @@ import type { TFunction } from '../../i18n';
 import { IconDotsHorizontal, IconInbox, IconSend } from '../../icons';
 import type { AiCollabMessage, AiEmployeesOrchestrationState, AiOrchestrationRun } from '../../../shared/aiEmployeesSettings';
 import type { OrgEmployee } from '../api/orgTypes';
+import {
+	describeCollaborationContract,
+	formatRuleDrivenMessageBody,
+	getEmployeeCollaborationContract,
+	hasEmployeeCollaborationContract,
+	HANDOFF_REPORT_TEMPLATE,
+} from '../domain/collaborationRules';
 
 function latestBlockedReason(run: AiOrchestrationRun | undefined): string | undefined {
 	return [...(run?.handoffs ?? [])].reverse().find((handoff) => handoff.status === 'blocked')?.blockedReason;
+}
+
+function collaborationLabels(t: TFunction) {
+	return {
+		jobMission: t('aiEmployees.role.jobMission'),
+		domainContext: t('aiEmployees.role.domainContext'),
+		communicationNotes: t('aiEmployees.role.communicationNotes'),
+		collaborationRules: t('aiEmployees.role.collaborationRules'),
+		handoffRules: t('aiEmployees.role.handoffRules'),
+		reportTemplate: t('aiEmployees.handoff.reportTemplateLabel'),
+	};
 }
 
 export function InboxPage({
@@ -21,7 +39,13 @@ export function InboxPage({
 	t: TFunction;
 	orgEmployees: OrgEmployee[];
 	orchestration: AiEmployeesOrchestrationState;
-	onCreateRun: (employeeId: string, title: string, details: string, targetBranch: string) => string;
+	onCreateRun: (
+		employeeId: string,
+		title: string,
+		details: string,
+		targetBranch: string,
+		options?: { assignmentBody?: string }
+	) => string;
 	onSendMessage: (input: {
 		runId: string;
 		type?: 'text' | 'task_assignment';
@@ -73,6 +97,15 @@ export function InboxPage({
 	const thread = useMemo(() => (selectedId ? listMessagesByEmployee(selectedId) : []), [listMessagesByEmployee, selectedId]);
 	const activeRun = selectedId ? findActiveRunByEmployee(selectedId) : undefined;
 	const blocker = latestBlockedReason(activeRun);
+	const contract = useMemo(() => getEmployeeCollaborationContract(selected), [selected]);
+	const contractSections = useMemo(
+		() => describeCollaborationContract(contract, collaborationLabels(t)),
+		[contract, t]
+	);
+	const assignmentBodyPreview = useMemo(
+		() => formatRuleDrivenMessageBody(taskBody, contract, collaborationLabels(t)),
+		[contract, t, taskBody]
+	);
 
 	useEffect(() => {
 		for (const message of thread) {
@@ -121,7 +154,9 @@ export function InboxPage({
 		if (!title) {
 			return;
 		}
-		onCreateRun(selected.id, title, body, taskBranch.trim());
+		onCreateRun(selected.id, title, body, taskBranch.trim(), {
+			assignmentBody: assignmentBodyPreview,
+		});
 		setTaskOpen(false);
 		setTaskTitle('');
 		setTaskBody('');
@@ -285,10 +320,10 @@ export function InboxPage({
 					>
 						<div className="ref-ai-employees-org-modal-head">
 							<h3 id="ref-ai-employees-inbox-task-title" className="ref-ai-employees-org-modal-title">
-								{activeRun ? t('aiEmployees.inbox.appendTask') : t('aiEmployees.inbox.assignTask')} ? {selected.displayName}
+								{activeRun ? t('aiEmployees.inbox.appendTask') : t('aiEmployees.inbox.assignTask')} · {selected.displayName}
 							</h3>
 							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-modal-close" onClick={() => setTaskOpen(false)} aria-label={t('common.close')}>
-								?
+								×
 							</button>
 						</div>
 						<div className="ref-ai-employees-org-modal-body">
@@ -304,6 +339,24 @@ export function InboxPage({
 								<span>{t('aiEmployees.inbox.taskBranchLabel')}</span>
 								<input className="ref-ai-employees-input" value={taskBranch} onChange={(event) => setTaskBranch(event.target.value)} placeholder={t('aiEmployees.inbox.taskBranchPh')} />
 							</label>
+							{hasEmployeeCollaborationContract(contract) ? (
+								<div className="ref-ai-employees-panel">
+									<strong>{t('aiEmployees.handoff.guidanceTitle')}</strong>
+									<p className="ref-ai-employees-muted">{t('aiEmployees.handoff.rulesAppliedHint')}</p>
+									<ul className="ref-ai-employees-runs-message-list">
+										{contractSections.map((section) => (
+											<li key={section.label}>
+												<div className="ref-ai-employees-runs-message-summary">{section.label}</div>
+												<div className="ref-ai-employees-runs-message-body">{section.value}</div>
+											</li>
+										))}
+										<li>
+											<div className="ref-ai-employees-runs-message-summary">{t('aiEmployees.handoff.reportTemplateLabel')}</div>
+											<div className="ref-ai-employees-runs-message-body">{HANDOFF_REPORT_TEMPLATE.join(' / ')}</div>
+										</li>
+									</ul>
+								</div>
+							) : null}
 							<div className="ref-ai-employees-form-actions ref-ai-employees-org-modal-actions">
 								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setTaskOpen(false)}>
 									{t('common.cancel')}
