@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import chokidar from 'chokidar';
 import {
 	indexWorkspaceSourceFile,
@@ -10,6 +12,8 @@ import {
 } from './workspaceSymbolIndex.js';
 import { clearWorkspaceSemanticIndexForRoot } from './workspaceSemanticIndex.js';
 import { getWorkspaceFilesIndexPath } from './workspaceIndexPaths.js';
+
+const execFileAsync = promisify(execFile);
 
 /** 遍历时跳过的目录名（小写比较） */
 const SKIP_DIR_NAMES = new Set([
@@ -283,19 +287,44 @@ export function listWorkspaceRelativeFiles(rootAbs: string): string[] {
 	return out;
 }
 
+/** 限制 scanFullAsync 中并发 readdir 的数量，避免大型项目淹没 Node.js 事件循环 */
+const SCAN_READDIR_CONCURRENCY = 8;
+
 async function scanFullAsync(rootNorm: string): Promise<string[]> {
 	const out: string[] = [];
+
+	// 简单信号量：限制同时发出的 fsp.readdir 数量
+	let permits = SCAN_READDIR_CONCURRENCY;
+	const waitQueue: Array<() => void> = [];
+	const acquirePermit = (): Promise<void> => {
+		if (permits > 0) {
+			permits--;
+			return Promise.resolve();
+		}
+		return new Promise<void>((res) => waitQueue.push(res));
+	};
+	const releasePermit = (): void => {
+		const next = waitQueue.shift();
+		if (next) {
+			next();
+		} else {
+			permits++;
+		}
+	};
 
 	async function processDir(absDir: string): Promise<void> {
 		if (out.length >= MAX_WORKSPACE_FILES) {
 			return;
 		}
+		await acquirePermit();
 		let entries: fs.Dirent[];
 		try {
 			entries = await fsp.readdir(absDir, { withFileTypes: true });
 		} catch {
+			releasePermit();
 			return;
 		}
+		releasePermit();
 		const subdirs: string[] = [];
 		for (const ent of entries) {
 			if (out.length >= MAX_WORKSPACE_FILES) {
@@ -332,6 +361,62 @@ async function scanFullAsync(rootNorm: string): Promise<string[]> {
 	await processDir(rootNorm);
 	out.sort((a, c) => a.localeCompare(c, undefined, { sensitivity: 'base' }));
 	return out;
+}
+
+/** 尝试从上次持久化的缓存（.async/index/files.json）加载文件列表，避免冷启动全量扫描 */
+async function tryLoadPersistedFileIndex(rootNorm: string): Promise<string[] | null> {
+	const target = getWorkspaceFilesIndexPath(rootNorm);
+	try {
+		const raw = await fsp.readFile(target, 'utf8');
+		const parsed = JSON.parse(raw) as {
+			version?: number;
+			root?: string;
+			files?: unknown;
+		};
+		if (
+			parsed.version === 1 &&
+			typeof parsed.root === 'string' &&
+			path.normalize(parsed.root) === rootNorm &&
+			Array.isArray(parsed.files) &&
+			parsed.files.length > 0 &&
+			typeof parsed.files[0] === 'string'
+		) {
+			return parsed.files as string[];
+		}
+	} catch {
+		/* 缓存不存在或损坏，正常降级 */
+	}
+	return null;
+}
+
+/**
+ * 通过 `git ls-files` 获取工作区文件列表（~50ms），作为 filesystem 全量扫描的替代。
+ * 同时拉取追踪文件和未追踪文件（遵守 .gitignore）。
+ * 非 git 仓库或 git 不可用时返回 null，由调用方降级到 scanFullAsync。
+ */
+async function getFilesViaGit(rootNorm: string): Promise<string[] | null> {
+	try {
+		const [tracked, untracked] = await Promise.all([
+			execFileAsync('git', ['-c', 'core.quotepath=false', 'ls-files', '--recurse-submodules', '-z'], {
+				cwd: rootNorm,
+				maxBuffer: 100 * 1024 * 1024,
+			}).then(({ stdout }) => stdout.split('\0').filter(Boolean)),
+			execFileAsync('git', ['-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard', '-z'], {
+				cwd: rootNorm,
+				maxBuffer: 50 * 1024 * 1024,
+			})
+				.then(({ stdout }) => stdout.split('\0').filter(Boolean))
+				.catch(() => [] as string[]),
+		]);
+		const all = [...tracked, ...untracked];
+		if (all.length === 0) {
+			return null;
+		}
+		return all.slice(0, MAX_WORKSPACE_FILES);
+	} catch {
+		// 非 git 仓库或 git 未安装，降级到 scanFullAsync
+		return null;
+	}
 }
 
 function sortedFromSet(b: FileIndexBucket): string[] {
@@ -672,10 +757,6 @@ export async function searchWorkspaceFiles(
 	return top.map((s) => relPathToSearchItem(s.path));
 }
 
-/** 后台构建文件索引，避免用户首次输入 @ 时才触发整库扫描 */
-export function prewarmWorkspaceFileIndex(rootAbs: string): void {
-	void ensureWorkspaceFileIndex(rootAbs).catch(() => {});
-}
 
 export async function ensureWorkspaceFileIndex(rootAbs: string): Promise<string[]> {
 	const rootNorm = path.normalize(path.resolve(rootAbs));
@@ -690,20 +771,41 @@ export async function ensureWorkspaceFileIndex(rootAbs: string): Promise<string[
 	}
 
 	b.inFlightRefresh = (async () => {
+		const finalize = (sorted: string[], persist: boolean) => {
+			b.relPathSet = new Set(sorted);
+			b.sortedPathsSnapshot = sorted;
+			attachWatcher(b);
+			if (persist) {
+				schedulePersistWorkspaceFileIndex(b);
+			}
+			try {
+				notifyFileIndexReady?.(rootNorm);
+			} catch {
+				/* ignore */
+			}
+			return sorted;
+		};
+
+		// 1. 磁盘缓存（上次会话结果，读 JSON 文件，近乎瞬时）
+		const cached = await tryLoadPersistedFileIndex(rootNorm);
+		if (cached) {
+			console.log(`[fileIndex] loaded ${cached.length} files from cache`);
+			return finalize(cached, false);
+		}
+
+		// 2. git ls-files（~50ms，覆盖绝大多数 git 仓库场景）
+		const gitFiles = await getFilesViaGit(rootNorm);
+		if (gitFiles) {
+			const sorted = gitFiles.sort((a, c) => a.localeCompare(c, undefined, { sensitivity: 'base' }));
+			console.log(`[fileIndex] git ls-files: ${sorted.length} files`);
+			return finalize(sorted, true);
+		}
+
+		// 3. 兜底：全量 filesystem 扫描（非 git 仓库）
 		const t0 = Date.now();
 		const list = await scanFullAsync(rootNorm);
 		console.log(`[fileIndex] scan done: ${list.length} files in ${Date.now() - t0}ms`);
-		b.relPathSet = new Set(list);
-		b.sortedPathsSnapshot = list;
-		attachWatcher(b);
-		console.log(`[fileIndex] watcher attached: +${Date.now() - t0}ms`);
-		schedulePersistWorkspaceFileIndex(b);
-		try {
-			notifyFileIndexReady?.(rootNorm);
-		} catch {
-			/* ignore */
-		}
-		return sortedFromSet(b);
+		return finalize(list, true);
 	})();
 
 	try {

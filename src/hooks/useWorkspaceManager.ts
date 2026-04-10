@@ -5,9 +5,6 @@ type Shell = NonNullable<Window['asyncShell']>;
 const AGENT_WORKSPACE_ALIASES_KEY = 'async:agent-workspace-aliases-v1';
 const AGENT_WORKSPACE_HIDDEN_KEY = 'async:agent-workspace-hidden-v1';
 const AGENT_WORKSPACE_COLLAPSED_KEY = 'async:agent-workspace-collapsed-v1';
-const WORKSPACE_FILE_INDEX_PREWARM_DELAY_MS = 3000;
-const WORKSPACE_FILE_INDEX_PREWARM_IDLE_TIMEOUT_MS = 12000;
-const WORKSPACE_FILE_INDEX_PREWARM_FALLBACK_DELAY_MS = 6000;
 
 function readJsonStorage<T>(key: string, fallback: T): T {
 	try {
@@ -38,10 +35,11 @@ export type WorkspaceFileSearchItem = {
 /**
  * 管理工作区核心状态：路径、最近列表、别名。
  *
- * ### 文件列表架构（v2 - 按需）
- * - `@` 提及：`workspace:searchFiles`（主进程 top-K 搜索；打开工作区后空闲时 `workspace:prewarmFileIndex` 后台建索引）。
+ * ### 文件列表架构（v3 - 完全按需）
+ * - `@` 提及：`workspace:searchFiles`（主进程 top-K 搜索，首次触发时用 git ls-files 建索引，~50ms）。
  * - 历史消息里的 `@路径` 解析、快速打开、内联重发等：在需要时调用 `ensureWorkspaceFileListLoaded()`，
  *   通过 `workspace:listFiles` 拉取一次全量到 `workspaceFileListRef`，并递增 `workspaceFileListVersion` 触发依赖方重渲染。
+ * - 不再在工作区打开时预热文件索引，完全按需触发，消除启动时的主进程阻塞。
  */
 export function useWorkspaceManager(shell: Shell | undefined) {
 	const [workspace, setWorkspace] = useState<string | null>(null);
@@ -82,87 +80,6 @@ export function useWorkspaceManager(shell: Shell | undefined) {
 		listLoadPromiseRef.current = null;
 		setWorkspaceFileListVersion(0);
 	}, [workspace]);
-
-	/** 打开文件夹后延迟到真正空闲时再预热文件索引，避免首屏交互被抢占 */
-	useEffect(() => {
-		if (!shell || !workspace) {
-			return;
-		}
-		const idle =
-			typeof window.requestIdleCallback === 'function' ? window.requestIdleCallback.bind(window) : null;
-		const cancelIdle =
-			typeof window.cancelIdleCallback === 'function' ? window.cancelIdleCallback.bind(window) : null;
-		let startDelayId: number | undefined;
-		let idleId: number | undefined;
-		let fallbackId: number | undefined;
-
-		const clearScheduled = () => {
-			if (startDelayId != null) {
-				window.clearTimeout(startDelayId);
-				startDelayId = undefined;
-			}
-			if (idleId != null && cancelIdle) {
-				cancelIdle(idleId);
-				idleId = undefined;
-			}
-			if (fallbackId != null) {
-				window.clearTimeout(fallbackId);
-				fallbackId = undefined;
-			}
-		};
-
-		const run = () => {
-			if (document.visibilityState !== 'visible') {
-				return;
-			}
-			// 若用户已走别的路径触发过全量文件加载，就不再额外预热一遍。
-			if (workspaceFileListRef.current.length > 0 || listLoadPromiseRef.current) {
-				return;
-			}
-			void shell.invoke('workspace:prewarmFileIndex').catch(() => {});
-		};
-
-		const schedulePrewarm = () => {
-			if (document.visibilityState !== 'visible' || startDelayId != null || idleId != null || fallbackId != null) {
-				return;
-			}
-			startDelayId = window.setTimeout(() => {
-				startDelayId = undefined;
-				if (document.visibilityState !== 'visible') {
-					return;
-				}
-				if (idle) {
-					idleId = idle(
-						() => {
-							idleId = undefined;
-							run();
-						},
-						{ timeout: WORKSPACE_FILE_INDEX_PREWARM_IDLE_TIMEOUT_MS }
-					);
-					return;
-				}
-				fallbackId = window.setTimeout(() => {
-					fallbackId = undefined;
-					run();
-				}, WORKSPACE_FILE_INDEX_PREWARM_FALLBACK_DELAY_MS);
-			}, WORKSPACE_FILE_INDEX_PREWARM_DELAY_MS);
-		};
-
-		const onVisibilityChange = () => {
-			if (document.visibilityState === 'visible') {
-				schedulePrewarm();
-				return;
-			}
-			clearScheduled();
-		};
-
-		schedulePrewarm();
-		document.addEventListener('visibilitychange', onVisibilityChange);
-		return () => {
-			document.removeEventListener('visibilitychange', onVisibilityChange);
-			clearScheduled();
-		};
-	}, [shell, workspace]);
 
 	const ensureWorkspaceFileListLoaded = useCallback(async (): Promise<string[]> => {
 		if (!shell || !workspace) {
