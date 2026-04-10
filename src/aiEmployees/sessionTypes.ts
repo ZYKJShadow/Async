@@ -9,4 +9,9 @@ export type AiEmployeesSessionPhase =
 	| 'onboarding'
 	| 'ready';
 
-export type LocalModelEntry = { id: string; displayName: string };
+export type LocalModelEntry = {
+	id: string;
+	displayName: string;
+	/** 设置里对应提供商的展示名，用于选择器后缀「(提供商)」 */
+	providerDisplayName?: string;
+};

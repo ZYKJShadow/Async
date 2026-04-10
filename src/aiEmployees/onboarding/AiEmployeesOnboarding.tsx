@@ -10,17 +10,11 @@ import {
 	apiPostBootstrapOrg,
 } from '../api/orgClient';
 import type { OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
-import { RoleProfileEditor, RolePromptReview } from '../components/RoleProfileEditor';
+import { RoleCustomSystemPromptField, RoleProfileEditor } from '../components/RoleProfileEditor';
 import { emptyPromptDraft } from '../domain/persona';
-import { resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
-import {
-	applyGeneratedPromptDraft,
-	createEmptyRoleProfileDraft,
-	createRoleDraftFromOrgEmployee,
-	toPersonaSeed,
-	type RoleProfileDraft,
-} from '../domain/roleDraft';
-import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
+import { createEmptyRoleProfileDraft, createRoleDraftFromOrgEmployee, toPersonaSeed, type RoleProfileDraft } from '../domain/roleDraft';
+import type { LocalModelEntry } from '../sessionTypes';
+import type { RolePromptDraft } from '../../../shared/aiEmployeesPersona';
 
 function buildPromptDraftFromTemplate(template: OrgPromptTemplate): RolePromptDraft {
 	return {
@@ -43,16 +37,13 @@ export function AiEmployeesOnboarding({
 	promptTemplates,
 	orgEmployees,
 	modelOptions,
-	agentLocalModelMap,
 	employeeLocalModelMap,
 	modelOptionIdSet,
-	defaultModelId,
 	loadPromptTemplates,
 	pickWorkspaceAndRefresh,
 	backToWorkspacePicker,
 	onSync,
 	onBindEmployeeLocalModel,
-	onClearEmployeeLocalModel,
 }: {
 	t: TFunction;
 	conn: AiEmployeesConnection;
@@ -63,17 +54,14 @@ export function AiEmployeesOnboarding({
 	onboardingErr: string | null;
 	promptTemplates: OrgPromptTemplate[];
 	orgEmployees: OrgEmployee[];
-	modelOptions: { id: string; displayName: string }[];
-	agentLocalModelMap: Record<string, string> | undefined;
+	modelOptions: LocalModelEntry[];
 	employeeLocalModelMap: Record<string, string> | undefined;
 	modelOptionIdSet: Set<string>;
-	defaultModelId: string | undefined;
 	loadPromptTemplates: () => void | Promise<void>;
 	pickWorkspaceAndRefresh: (id: string) => Promise<void>;
 	backToWorkspacePicker: () => void;
 	onSync: () => void | Promise<void>;
 	onBindEmployeeLocalModel: (employeeId: string, modelEntryId: string) => void;
-	onClearEmployeeLocalModel: (employeeId: string) => void;
 }) {
 	const [localWs, setLocalWs] = useState(workspaceId);
 	const [companyDraftName, setCompanyDraftName] = useState(companyName);
@@ -85,13 +73,8 @@ export function AiEmployeesOnboarding({
 			customRoleTitle: 'CEO',
 			templatePromptKey: 'ceo',
 			localModelId: modelOptions[0]?.id ?? '',
-			jobMission: 'Define company priorities, decision principles, and execution rhythm for the team.',
-			domainContext: 'Describe the business domain, stage, and operating style this CEO should lead.',
 		})
 	);
-	const [ceoStage, setCeoStage] = useState<'profile' | 'review'>('profile');
-	const [ceoPromptBusy, setCeoPromptBusy] = useState(false);
-	const [ceoPromptErr, setCeoPromptErr] = useState<string | null>(null);
 	const [teamReviewActive, setTeamReviewActive] = useState(false);
 	const [teamBusy, setTeamBusy] = useState(false);
 	const [teamErr, setTeamErr] = useState<string | null>(null);
@@ -116,7 +99,6 @@ export function AiEmployeesOnboarding({
 
 	useEffect(() => {
 		if (step !== 'ceo_profile') {
-			setCeoStage('profile');
 			setRevisitCompany(false);
 		}
 		if (step !== 'team_setup' && step !== 'team_review') {
@@ -131,24 +113,13 @@ export function AiEmployeesOnboarding({
 	}, [step]);
 
 	const effectiveStep = useMemo<AiEmployeesOnboardingStep>(() => {
-		if (step === 'ceo_profile' && ceoStage === 'review') {
-			return 'ceo_prompt_review';
-		}
 		if (step === 'team_setup' && teamReviewActive) {
 			return 'team_review';
 		}
 		return step;
-	}, [ceoStage, step, teamReviewActive]);
+	}, [step, teamReviewActive]);
 
-	const stepOrder: AiEmployeesOnboardingStep[] = [
-		'pick_workspace',
-		'company',
-		'ceo_profile',
-		'ceo_prompt_review',
-		'team_setup',
-		'team_review',
-		'finish',
-	];
+	const stepOrder: AiEmployeesOnboardingStep[] = ['pick_workspace', 'company', 'ceo_profile', 'team_setup', 'team_review', 'finish'];
 	const stepIndex = Math.max(0, stepOrder.indexOf(effectiveStep));
 
 	const sortedEmployees = useMemo(() => {
@@ -168,17 +139,10 @@ export function AiEmployeesOnboarding({
 			setCeoEditDraft(null);
 			return;
 		}
-		const mid =
-			resolveEmployeeLocalModelId({
-				employeeId: ceoEmployee.id,
-				remoteAgentId: ceoEmployee.linkedRemoteAgentId ?? undefined,
-				agentLocalModelMap,
-				employeeLocalModelMap,
-				defaultModelId,
-				modelOptionIds: modelOptionIdSet,
-			}) ?? '';
+		const bound = employeeLocalModelMap?.[ceoEmployee.id];
+		const mid = bound && modelOptionIdSet.has(bound) ? bound : '';
 		setCeoEditDraft(createRoleDraftFromOrgEmployee(ceoEmployee, mid));
-	}, [revisitCeo, ceoEmployee, agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet]);
+	}, [revisitCeo, ceoEmployee, employeeLocalModelMap, modelOptionIdSet]);
 
 	const submitPickWorkspace = async () => {
 		if (!localWs.trim()) {
@@ -207,68 +171,12 @@ export function AiEmployeesOnboarding({
 		}
 	};
 
-	const invokeRolePromptGenerator = async (draft: RoleProfileDraft): Promise<RolePromptDraft> => {
-		if (!window.asyncShell) {
-			throw new Error('async shell unavailable');
-		}
-		if (!draft.localModelId) {
-			throw new Error(t('aiEmployees.role.modelRequired'));
-		}
-		const payload: RolePromptGeneratorInput = {
-			modelId: draft.localModelId,
-			roleKey: draft.roleKey,
-			templatePromptKey: draft.templatePromptKey,
-			displayName: draft.displayName,
-			customRoleTitle: draft.customRoleTitle,
-			nationalityCode: draft.nationalityCode ?? null,
-			jobMission: draft.jobMission,
-			domainContext: draft.domainContext,
-			communicationNotes: draft.communicationNotes,
-			companyName: companyDraftName.trim() || companyName.trim() || 'Async Company',
-			managerSummary: ceoEmployee
-				? `${ceoEmployee.displayName} / ${ceoEmployee.customRoleTitle || ceoEmployee.roleKey}`
-				: 'CEO',
-		};
-		const result = (await window.asyncShell.invoke('aiEmployees:generateRolePrompt', payload)) as
-			| { ok: true; draft: RolePromptDraft }
-			| { ok: false; error?: string };
-		if (!result.ok) {
-			throw new Error(result.error || 'generate prompt failed');
-		}
-		return result.draft;
-	};
-
-	const generateCeoPrompt = async () => {
-		setCeoPromptBusy(true);
-		setCeoPromptErr(null);
-		try {
-			const promptDraft = await invokeRolePromptGenerator(ceoDraft);
-			setCeoDraft((prev) => applyGeneratedPromptDraft(prev, promptDraft));
-		} catch (error) {
-			setCeoPromptErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setCeoPromptBusy(false);
-		}
-	};
-
-	const generateCeoEditPrompt = async () => {
-		if (!ceoEditDraft) {
-			return;
-		}
-		setTeamBusy(true);
-		setTeamErr(null);
-		try {
-			const promptDraft = await invokeRolePromptGenerator(ceoEditDraft);
-			setCeoEditDraft((prev) => (prev ? applyGeneratedPromptDraft(prev, promptDraft) : prev));
-		} catch (error) {
-			setTeamErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setTeamBusy(false);
-		}
-	};
-
 	const saveCeoRevisit = async () => {
 		if (!workspaceId || !ceoEmployee || !ceoEditDraft) {
+			return;
+		}
+		if (!ceoEditDraft.localModelId || !modelOptionIdSet.has(ceoEditDraft.localModelId)) {
+			setTeamErr(t('aiEmployees.role.modelRequired'));
 			return;
 		}
 		setTeamBusy(true);
@@ -286,13 +194,9 @@ export function AiEmployeesOnboarding({
 				clearNationalityCode: !ceoEditDraft.nationalityCode,
 				personaSeed: toPersonaSeed(ceoEditDraft, 'user'),
 				clearPersonaSeed: false,
-				modelSource: ceoEditDraft.modelSource,
+				modelSource: 'local_model',
 			});
-			if (ceoEditDraft.localModelId) {
-				onBindEmployeeLocalModel(ceoEmployee.id, ceoEditDraft.localModelId);
-			} else {
-				onClearEmployeeLocalModel(ceoEmployee.id);
-			}
+			onBindEmployeeLocalModel(ceoEmployee.id, ceoEditDraft.localModelId);
 			setRevisitCeo(false);
 			setCeoEditDraft(null);
 			await onSync();
@@ -307,6 +211,9 @@ export function AiEmployeesOnboarding({
 		if (!workspaceId || !ceoDraft.displayName.trim() || !ceoDraft.promptDraft.systemPrompt.trim()) {
 			return;
 		}
+		if (!ceoDraft.localModelId || !modelOptionIdSet.has(ceoDraft.localModelId)) {
+			return;
+		}
 		setBusy(true);
 		try {
 			const employee = await apiCreateOrgEmployee(conn, workspaceId, {
@@ -318,12 +225,9 @@ export function AiEmployeesOnboarding({
 				customSystemPrompt: ceoDraft.promptDraft.systemPrompt.trim(),
 				nationalityCode: ceoDraft.nationalityCode ?? null,
 				personaSeed: toPersonaSeed(ceoDraft, 'user'),
-				modelSource: ceoDraft.modelSource,
+				modelSource: 'local_model',
 			});
-			if (ceoDraft.localModelId) {
-				onBindEmployeeLocalModel(employee.id, ceoDraft.localModelId);
-			}
-			setCeoStage('profile');
+			onBindEmployeeLocalModel(employee.id, ceoDraft.localModelId);
 			await onSync();
 		} finally {
 			setBusy(false);
@@ -357,19 +261,6 @@ export function AiEmployeesOnboarding({
 		setCandidateDrafts((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
 	};
 
-	const generateCandidatePrompt = async (candidate: RoleProfileDraft) => {
-		setTeamBusy(true);
-		setTeamErr(null);
-		try {
-			const promptDraft = await invokeRolePromptGenerator(candidate);
-			setCandidateDrafts((prev) => prev.map((item) => (item.id === candidate.id ? applyGeneratedPromptDraft(item, promptDraft) : item)));
-		} catch (error) {
-			setTeamErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setTeamBusy(false);
-		}
-	};
-
 	const submitRoles = async () => {
 		if (!workspaceId) {
 			return;
@@ -377,6 +268,10 @@ export function AiEmployeesOnboarding({
 		const accepted = candidateDrafts.filter((candidate) => !candidate.rejected);
 		if (accepted.length === 0) {
 			setTeamErr(t('aiEmployees.role.nonCeoRequired'));
+			return;
+		}
+		if (accepted.some((c) => !c.localModelId || !modelOptionIdSet.has(c.localModelId))) {
+			setTeamErr(t('aiEmployees.role.modelRequired'));
 			return;
 		}
 		setTeamBusy(true);
@@ -393,11 +288,9 @@ export function AiEmployeesOnboarding({
 					customSystemPrompt: candidate.promptDraft.systemPrompt.trim(),
 					nationalityCode: candidate.nationalityCode ?? null,
 					personaSeed: toPersonaSeed(candidate, ceoEmployee ? 'ceo' : 'user'),
-					modelSource: candidate.modelSource,
+					modelSource: 'local_model',
 				});
-				if (candidate.localModelId) {
-					onBindEmployeeLocalModel(created.id, candidate.localModelId);
-				}
+				onBindEmployeeLocalModel(created.id, candidate.localModelId);
 			}
 			await apiPostBootstrapConfirmTemplates(conn, workspaceId);
 			setTeamReviewActive(false);
@@ -520,45 +413,28 @@ export function AiEmployeesOnboarding({
 						modelOptions={modelOptions}
 						onChange={(patch) => setCeoDraft((prev) => ({ ...prev, ...patch }))}
 					/>
-					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={busy || ceoPromptBusy} onClick={() => setRevisitCompany(true)}>
-							{t('aiEmployees.onboarding.prevStep')}
-						</button>
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => void generateCeoPrompt()} disabled={ceoPromptBusy}>
-							{ceoPromptBusy ? t('aiEmployees.role.generatingPrompt') : t('aiEmployees.role.generatePrompt')}
-						</button>
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={!ceoDraft.displayName.trim()} onClick={() => setCeoStage('review')}>
-							{t('aiEmployees.onboarding.continue')}
-						</button>
-					</div>
-				</div>
-			) : null}
-
-			{effectiveStep === 'ceo_prompt_review' ? (
-				<div className="ref-ai-employees-onboarding-card">
-					<h2 className="ref-ai-employees-onboarding-title">{t('aiEmployees.role.promptReviewTitle')}</h2>
-					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.role.promptReviewDesc')}</p>
-					<RolePromptReview
+					<RoleCustomSystemPromptField
 						t={t}
-						draft={ceoDraft}
-						generating={ceoPromptBusy}
-						error={ceoPromptErr}
-						onPromptChange={(value) =>
-							setCeoDraft((prev) => ({ ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } }))
-						}
-						onGenerate={() => void generateCeoPrompt()}
-						onRestore={() =>
-							setCeoDraft((prev) => ({
-								...prev,
-								promptDraft: prev.lastGeneratedPromptDraft ?? prev.promptDraft,
-							}))
-						}
+						value={ceoDraft.promptDraft.systemPrompt}
+						disabled={busy}
+						onChange={(value) => setCeoDraft((prev) => ({ ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } }))}
 					/>
 					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setCeoStage('profile')}>
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={busy} onClick={() => setRevisitCompany(true)}>
 							{t('aiEmployees.onboarding.prevStep')}
 						</button>
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy || !ceoDraft.promptDraft.systemPrompt.trim()} onClick={() => void submitCeo()}>
+						<button
+							type="button"
+							className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+							disabled={
+								busy ||
+								!ceoDraft.displayName.trim() ||
+								!ceoDraft.promptDraft.systemPrompt.trim() ||
+								!ceoDraft.localModelId ||
+								!modelOptionIdSet.has(ceoDraft.localModelId)
+							}
+							onClick={() => void submitCeo()}
+						>
 							{t('aiEmployees.role.saveRole')}
 						</button>
 					</div>
@@ -580,24 +456,28 @@ export function AiEmployeesOnboarding({
 						modelOptions={modelOptions}
 						onChange={(patch) => setCeoEditDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
 					/>
-					<RolePromptReview
+					<RoleCustomSystemPromptField
 						t={t}
-						draft={ceoEditDraft}
-						generating={teamBusy}
-						error={null}
-						onPromptChange={(value) =>
+						value={ceoEditDraft.promptDraft.systemPrompt}
+						disabled={teamBusy}
+						onChange={(value) =>
 							setCeoEditDraft((prev) => (prev ? { ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } } : prev))
-						}
-						onGenerate={() => void generateCeoEditPrompt()}
-						onRestore={() =>
-							setCeoEditDraft((prev) => (prev ? { ...prev, promptDraft: prev.lastGeneratedPromptDraft ?? prev.promptDraft } : prev))
 						}
 					/>
 					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
 						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={teamBusy} onClick={() => setRevisitCeo(false)}>
 							{t('aiEmployees.onboarding.prevStep')}
 						</button>
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={teamBusy} onClick={() => void saveCeoRevisit()}>
+						<button
+							type="button"
+							className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+							disabled={
+								teamBusy ||
+								!ceoEditDraft.localModelId ||
+								!modelOptionIdSet.has(ceoEditDraft.localModelId)
+							}
+							onClick={() => void saveCeoRevisit()}
+						>
 							{t('aiEmployees.orgSaveProfile')}
 						</button>
 					</div>
@@ -685,14 +565,11 @@ export function AiEmployeesOnboarding({
 									modelOptions={modelOptions}
 									onChange={(patch) => updateCandidate(candidate.id ?? '', patch)}
 								/>
-								<RolePromptReview
+								<RoleCustomSystemPromptField
 									t={t}
-									draft={candidate}
-									generating={teamBusy}
-									error={null}
-									onPromptChange={(value) => updateCandidate(candidate.id ?? '', { promptDraft: { ...candidate.promptDraft, systemPrompt: value } })}
-									onGenerate={() => void generateCandidatePrompt(candidate)}
-									onRestore={() => updateCandidate(candidate.id ?? '', { promptDraft: candidate.lastGeneratedPromptDraft ?? candidate.promptDraft })}
+									value={candidate.promptDraft.systemPrompt}
+									disabled={teamBusy}
+									onChange={(value) => updateCandidate(candidate.id ?? '', { promptDraft: { ...candidate.promptDraft, systemPrompt: value } })}
 								/>
 							</div>
 						))}

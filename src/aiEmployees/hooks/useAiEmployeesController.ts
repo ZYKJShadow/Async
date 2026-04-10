@@ -38,6 +38,7 @@ import {
 	apiListSkills,
 	apiListWorkspaces,
 	apiPatchIssue,
+	type ListIssuesQueryOptions,
 } from '../api/client';
 import {
 	apiGetBootstrapStatus,
@@ -53,6 +54,22 @@ import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
+/** 供「我的事务」服务端筛选：成员本人 + 组织成员上已关联的远端 Agent 指派 */
+function myIssuesListQuery(meUserId: string | undefined, orgEmps: OrgEmployee[] | undefined): ListIssuesQueryOptions | undefined {
+	const agentIds = (orgEmps ?? []).map((e) => e.linkedRemoteAgentId).filter((x): x is string => Boolean(x));
+	if (!meUserId && agentIds.length === 0) {
+		return undefined;
+	}
+	const q: ListIssuesQueryOptions = {};
+	if (meUserId) {
+		q.assigneeMemberId = meUserId;
+	}
+	if (agentIds.length > 0) {
+		q.assigneeAgentIds = agentIds;
+	}
+	return q;
+}
+
 export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'orchestrator' | 'connection';
 
 export function useAiEmployeesController() {
@@ -65,6 +82,7 @@ export function useAiEmployeesController() {
 	const [workspaceId, setWorkspaceId] = useState<string>('');
 	const [workspaces, setWorkspaces] = useState<{ id: string; name?: string }[]>([]);
 	const [issues, setIssues] = useState<IssueJson[]>([]);
+	const [myIssues, setMyIssues] = useState<IssueJson[]>([]);
 	const [agents, setAgents] = useState<AgentJson[]>([]);
 	const [skills, setSkills] = useState<SkillJson[]>([]);
 	const [runtimes, setRuntimes] = useState<RuntimeJson[]>([]);
@@ -141,7 +159,11 @@ export function useAiEmployeesController() {
 			const r = raw as {
 				ui?: Partial<AppAppearanceSettings>;
 				aiEmployees?: AiEmployeesSettings;
-				models?: { entries?: Array<{ id?: string; displayName?: string }>; enabledIds?: string[] };
+				models?: {
+					providers?: Array<{ id?: string; displayName?: string }>;
+					entries?: Array<{ id?: string; displayName?: string; providerId?: string }>;
+					enabledIds?: string[];
+				};
 				defaultModel?: string;
 			};
 			if (r?.ui) {
@@ -154,9 +176,22 @@ export function useAiEmployeesController() {
 					setWorkspaceId(id);
 				}
 			}
+			const providers = Array.isArray(r?.models?.providers) ? r.models.providers : [];
+			const providerLabel = new Map<string, string>();
+			for (const p of providers) {
+				if (typeof p?.id !== 'string') {
+					continue;
+				}
+				const name = typeof p.displayName === 'string' && p.displayName.trim() ? p.displayName.trim() : p.id;
+				providerLabel.set(p.id, name);
+			}
 			const entries = (r?.models?.entries ?? [])
-				.filter((e): e is { id: string; displayName: string } => typeof e?.id === 'string' && typeof e?.displayName === 'string')
-				.map((e) => ({ id: e.id, displayName: e.displayName }));
+				.filter((e): e is { id: string; displayName: string; providerId?: string } => typeof e?.id === 'string' && typeof e?.displayName === 'string')
+				.map((e) => {
+					const pid = typeof e.providerId === 'string' ? e.providerId : '';
+					const providerDisplayName = pid ? (providerLabel.get(pid) ?? pid) : undefined;
+					return { id: e.id, displayName: e.displayName, providerDisplayName };
+				});
 			setLocalModels({
 				entries,
 				enabledIds: Array.isArray(r?.models?.enabledIds) ? r.models.enabledIds.filter((x): x is string => typeof x === 'string') : [],
@@ -181,20 +216,28 @@ export function useAiEmployeesController() {
 		});
 	}, [shell]);
 
-	const fetchWorkspacePayload = useCallback(async (c: AiEmployeesConnection, wid: string) => {
-		const [iss, ag, sk, rt, mem] = await Promise.all([
-			apiListIssues(c, wid),
-			apiListAgents(c, wid),
-			apiListSkills(c, wid),
-			apiListRuntimes(c, wid),
-			apiListMembers(c, wid).catch(() => []),
-		]);
-		setIssues(iss);
-		setAgents(ag);
-		setSkills(sk);
-		setRuntimes(rt);
-		setWorkspaceMembers(mem);
-	}, []);
+	const fetchWorkspacePayload = useCallback(
+		async (c: AiEmployeesConnection, wid: string, opts?: { meUserIdOverride?: string }) => {
+			const meUid = opts?.meUserIdOverride ?? meProfile.id;
+			const [iss, ag, sk, rt, mem, orgEmps] = await Promise.all([
+				apiListIssues(c, wid),
+				apiListAgents(c, wid),
+				apiListSkills(c, wid),
+				apiListRuntimes(c, wid),
+				apiListMembers(c, wid).catch(() => []),
+				apiListOrgEmployees(c, wid).catch(() => [] as OrgEmployee[]),
+			]);
+			const myQ = myIssuesListQuery(meUid, orgEmps);
+			const myIss = myQ ? await apiListIssues(c, wid, myQ).catch(() => [] as IssueJson[]) : [];
+			setIssues(iss);
+			setMyIssues(myIss);
+			setAgents(ag);
+			setSkills(sk);
+			setRuntimes(rt);
+			setWorkspaceMembers(mem);
+		},
+		[meProfile.id]
+	);
 
 	const applyWorkspaceBootstrap = useCallback(async (c: AiEmployeesConnection, wid: string, workspaceListLen: number) => {
 		if (!wid) {
@@ -292,12 +335,19 @@ export function useAiEmployeesController() {
 			return;
 		}
 		try {
-			const list = await apiListIssues(normConn(aiSettings), wid);
+			const c = normConn(aiSettings);
+			const orgEmps = await apiListOrgEmployees(c, wid).catch(() => [] as OrgEmployee[]);
+			const myQ = myIssuesListQuery(meProfile.id, orgEmps);
+			const [list, myList] = await Promise.all([
+				apiListIssues(c, wid),
+				myQ ? apiListIssues(c, wid, myQ) : Promise.resolve([] as IssueJson[]),
+			]);
 			setIssues(list);
+			setMyIssues(myList);
 		} catch (e) {
 			setLoadErr(e instanceof Error ? e.message : String(e));
 		}
-	}, [aiSettings, sessionPhase, workspaceId]);
+	}, [aiSettings, meProfile.id, sessionPhase, workspaceId]);
 
 	const refreshAgentsOnly = useCallback(async () => {
 		const wid = workspaceId;
@@ -362,6 +412,7 @@ export function useAiEmployeesController() {
 				if (mapped.length === 0) {
 					setWorkspaceId('');
 					setIssues([]);
+					setMyIssues([]);
 					setAgents([]);
 					setSkills([]);
 					setRuntimes([]);
@@ -374,7 +425,7 @@ export function useAiEmployeesController() {
 				const mapId = resolveMappedWorkspace(localRoot, s.workspaceMap);
 				const wid = pickWorkspaceId(mapped, workspaceId, s.lastRemoteWorkspaceId, mapId);
 				setWorkspaceId(wid);
-				await fetchWorkspacePayload(c, wid);
+				await fetchWorkspacePayload(c, wid, { meUserIdOverride: me.id });
 				await applyWorkspaceBootstrap(c, wid, mapped.length);
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
@@ -382,6 +433,7 @@ export function useAiEmployeesController() {
 				setWorkspaces([]);
 				setWorkspaceId('');
 				setIssues([]);
+				setMyIssues([]);
 				setAgents([]);
 				setSkills([]);
 				setRuntimes([]);
@@ -587,6 +639,7 @@ export function useAiEmployeesController() {
 	const backToWorkspacePicker = useCallback(() => {
 		setWorkspaceId('');
 		setIssues([]);
+		setMyIssues([]);
 		setAgents([]);
 		setSkills([]);
 		setRuntimes([]);
@@ -603,6 +656,7 @@ export function useAiEmployeesController() {
 			setWorkspaceId(id);
 			if (!id) {
 				setIssues([]);
+				setMyIssues([]);
 				setAgents([]);
 				setSkills([]);
 				setRuntimes([]);
@@ -630,6 +684,7 @@ export function useAiEmployeesController() {
 			if (!id) {
 				setWorkspaceId('');
 				setIssues([]);
+				setMyIssues([]);
 				setAgents([]);
 				setSkills([]);
 				setRuntimes([]);
@@ -788,6 +843,7 @@ export function useAiEmployeesController() {
 		workspaceId,
 		workspaces,
 		issues,
+		myIssues,
 		agents,
 		skills,
 		runtimes,

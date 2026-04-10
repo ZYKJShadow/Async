@@ -123,4 +123,23 @@ describe('api* with mocked fetch', () => {
 		const issues = await apiListIssues(conn, 'w');
 		expect(issues).toHaveLength(1);
 	});
+
+	it('apiListIssues appends assignee query params for server-side My Issues', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({ issues: [], total: 0 }),
+			})
+		);
+		await apiListIssues(conn, 'ws-1', {
+			assigneeMemberId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+			assigneeAgentIds: ['11111111-2222-3333-4444-555555555555'],
+		});
+		const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+		expect(url).toContain('/api/issues/?');
+		expect(url).toContain('assignee_member_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+		expect(url).toContain('assignee_agent_ids=');
+		expect(decodeURIComponent(url)).toContain('11111111-2222-3333-4444-555555555555');
+	});
 });

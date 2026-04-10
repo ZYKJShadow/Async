@@ -99,9 +99,9 @@ export function createRoleDraftFromOrgEmployee(employee: OrgEmployee, localModel
 		managerEmployeeId: employee.managerEmployeeId ?? undefined,
 		createdByEmployeeId: employee.createdByEmployeeId ?? undefined,
 		templatePromptKey: employee.templatePromptKey ?? undefined,
-		jobMission: employee.personaSeed?.jobMission ?? '',
-		domainContext: employee.personaSeed?.domainContext ?? '',
-		communicationNotes: employee.personaSeed?.communicationNotes ?? '',
+		jobMission: '',
+		domainContext: '',
+		communicationNotes: '',
 		promptDraft: {
 			systemPrompt: employee.customSystemPrompt ?? '',
 			roleSummary: '',

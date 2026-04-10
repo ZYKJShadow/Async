@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildModelOptions, resolveEmployeeLocalModelId } from './modelAdapter';
+import { buildModelOptions, formatLocalModelPickLabel, resolveEmployeeLocalModelId } from './modelAdapter';
 
 describe('modelAdapter', () => {
 	it('resolveEmployeeLocalModelId prefers bound then default', () => {
@@ -43,5 +43,10 @@ describe('modelAdapter', () => {
 			enabledIds: ['b', 'a'],
 		});
 		expect(opts.map((x) => x.id)).toEqual(['b', 'a']);
+	});
+
+	it('formatLocalModelPickLabel appends provider when set', () => {
+		expect(formatLocalModelPickLabel({ id: 'x', displayName: 'GPT-4' })).toBe('GPT-4');
+		expect(formatLocalModelPickLabel({ id: 'x', displayName: 'GPT-4', providerDisplayName: 'OpenAI' })).toBe('GPT-4 (OpenAI)');
 	});
 });

@@ -74,8 +74,31 @@ export async function apiListWorkspaces(conn: AiEmployeesConnection): Promise<{ 
 	return (await r.json()) as { workspaces?: unknown[] } | unknown[];
 }
 
-export async function apiListIssues(conn: AiEmployeesConnection, workspaceId: string): Promise<IssueJson[]> {
-	const r = await apiFetch(conn, '/api/issues/', { workspaceId });
+/** 与 async-agent-proxy `GET /api/issues/` 查询参数一致 */
+export type ListIssuesQueryOptions = {
+	assigneeMemberId?: string;
+	assigneeAgentIds?: string[];
+	creatorId?: string;
+};
+
+export async function apiListIssues(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	query?: ListIssuesQueryOptions
+): Promise<IssueJson[]> {
+	const params = new URLSearchParams();
+	if (query?.assigneeMemberId) {
+		params.set('assignee_member_id', query.assigneeMemberId);
+	}
+	if (query?.assigneeAgentIds?.length) {
+		params.set('assignee_agent_ids', query.assigneeAgentIds.join(','));
+	}
+	if (query?.creatorId) {
+		params.set('creator_id', query.creatorId);
+	}
+	const qs = params.toString();
+	const path = qs ? `/api/issues/?${qs}` : '/api/issues/';
+	const r = await apiFetch(conn, path, { workspaceId });
 	if (!r.ok) {
 		throw new AiEmployeesApiError(r.status, await r.text());
 	}

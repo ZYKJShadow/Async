@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
-import type { AiEmployeeCatalogEntry } from '../../../shared/aiEmployeesSettings';
 import type { AgentJson, CreateIssuePayload, IssueJson, WorkspaceMemberJson } from '../api/types';
 import { IconChevron, IconListTodo } from '../../icons';
 import { BoardPage } from './BoardPage';
@@ -13,39 +12,26 @@ function isDoneLike(status: string): boolean {
 	return s === 'done' || s === 'cancelled' || s === 'closed';
 }
 
-function issueInMyScope(issue: IssueJson, meUserId: string | undefined, catalog: AiEmployeeCatalogEntry[]): boolean {
-	const linkedAgentIds = new Set(
-		catalog.map((e) => e.linkedRemoteAgentId).filter((x): x is string => Boolean(x))
-	);
-	if (issue.assignee_type === 'member' && issue.assignee_id && meUserId && issue.assignee_id === meUserId) {
-		return true;
-	}
-	if (issue.assignee_type === 'agent' && issue.assignee_id && linkedAgentIds.has(issue.assignee_id)) {
-		return true;
-	}
-	return false;
-}
-
 export function IssuesHubPage({
 	t,
 	workspaceName,
 	issues,
+	issuesLookup,
 	variant,
 	agents,
 	members,
-	meUserId,
-	employeeCatalog,
 	onPatchIssue,
 	onCreateIssue,
 }: {
 	t: TFunction;
 	workspaceName: string;
+	/** 当前 Tab 展示的事务列表（「我的」为服务端筛选后的子集） */
 	issues: IssueJson[];
+	/** 解析父事务等用；「我的」Tab 应传工作区全量列表 */
+	issuesLookup?: IssueJson[];
 	variant: IssuesHubVariant;
 	agents: AgentJson[];
 	members: WorkspaceMemberJson[];
-	meUserId?: string;
-	employeeCatalog: AiEmployeeCatalogEntry[];
 	onPatchIssue: (issueId: string, patch: Record<string, unknown>) => Promise<void>;
 	onCreateIssue: (payload: CreateIssuePayload) => Promise<void>;
 }) {
@@ -53,20 +39,19 @@ export function IssuesHubPage({
 	const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 
+	const lookupList = issuesLookup ?? issues;
+
 	const scoped = useMemo(() => {
 		let list = issues;
-		if (variant === 'my') {
-			list = list.filter((i) => issueInMyScope(i, meUserId, employeeCatalog));
-		}
 		if (variant === 'my' && scope === 'active') {
 			list = list.filter((i) => !isDoneLike(i.status));
 		}
 		return list;
-	}, [issues, variant, scope, meUserId, employeeCatalog]);
+	}, [issues, variant, scope]);
 
 	const selected = selectedId ? issues.find((i) => i.id === selectedId) ?? null : null;
 	const parentIssue =
-		selected?.parent_issue_id ? issues.find((i) => i.id === selected.parent_issue_id) ?? null : null;
+		selected?.parent_issue_id ? lookupList.find((i) => i.id === selected.parent_issue_id) ?? null : null;
 
 	const openIssue = useCallback((issue: IssueJson) => setSelectedId(issue.id), []);
 

@@ -256,12 +256,11 @@ export function AiEmployeesApp() {
 									<IssuesHubPage
 										t={t}
 										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
-										issues={c.issues}
+										issues={c.myIssues}
+										issuesLookup={c.issues}
 										variant="my"
 										agents={c.agents}
 										members={c.workspaceMembers}
-										meUserId={c.meProfile.id}
-										employeeCatalog={c.employeeCatalog}
 										onPatchIssue={c.patchWorkspaceIssue}
 										onCreateIssue={c.createWorkspaceIssue}
 									/>
@@ -275,8 +274,6 @@ export function AiEmployeesApp() {
 										variant="workspace"
 										agents={c.agents}
 										members={c.workspaceMembers}
-										meUserId={c.meProfile.id}
-										employeeCatalog={c.employeeCatalog}
 										onPatchIssue={c.patchWorkspaceIssue}
 										onCreateIssue={c.createWorkspaceIssue}
 									/>
@@ -288,21 +285,12 @@ export function AiEmployeesApp() {
 									conn={c.conn}
 									workspaceId={c.workspaceId}
 									companyName={c.bootstrapStatus?.companyName ?? ''}
-									agents={c.agents}
 									orgEmployees={c.orgEmployees}
 									onRefreshOrg={c.refreshOrgEmployeesList}
-									employeeCatalog={c.employeeCatalog}
-									agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
 									employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
 									modelOptions={c.modelOptions}
 									modelOptionIdSet={c.modelOptionIdSet}
-									defaultModelId={c.localModels.defaultModelId}
-									onUpsertCatalogEntry={c.upsertCatalogEntry}
-									onRemoveCatalogEntry={c.removeCatalogEntry}
-									onBindModel={c.bindAgentLocalModel}
-									onClearModelBinding={c.clearAgentLocalModel}
 									onBindEmployeeLocalModel={c.bindEmployeeLocalModel}
-									onClearEmployeeLocalModel={c.clearEmployeeLocalModel}
 								/>
 								) : null}
 

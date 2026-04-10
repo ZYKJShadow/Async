@@ -731,6 +731,31 @@
 	font-size: 12px;
 }
 
+.ref-ai-employees-role-model-field .ref-ai-employees-model-void-select.ref-void-select {
+	width: 100%;
+	max-width: 100%;
+}
+
+.ref-ai-employees-role-model-field .ref-ai-employees-model-void-select .ref-void-select-trigger {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.ref-ai-employees-role-prompt-block {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.ref-ai-employees-role-prompt-toolbar .ref-ai-employees-form-actions {
+	justify-content: flex-start;
+}
+
+.ref-ai-employees-role-generate-hint {
+	margin: 0;
+	flex: 1 1 100%;
+}
+
 .ref-ai-employees-catalog-fields {
 	display: flex;
 	flex-direction: column;

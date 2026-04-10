@@ -275,11 +275,12 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.orgNoAgent': 'None',
 	'aiEmployees.orgRoleKey': 'Role key',
 	'aiEmployees.role.nationality': 'Conversation language',
-	'aiEmployees.role.localModel': 'Prompt generation model',
+	'aiEmployees.role.localModel': 'Local model',
 	'aiEmployees.role.jobMission': 'Job mission',
 	'aiEmployees.role.domainContext': 'Domain context',
 	'aiEmployees.role.communicationNotes': 'Communication notes',
 	'aiEmployees.role.generatePrompt': 'Generate prompt',
+	'aiEmployees.role.generateUsesBoundModel': 'Prompt generation always uses the locally bound model selected above.',
 	'aiEmployees.role.generatingPrompt': 'Generating…',
 	'aiEmployees.role.restorePrompt': 'Restore generated draft',
 	'aiEmployees.role.promptSummary': 'Role summary',
@@ -457,7 +458,7 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.issuesHub.scopeAll': 'All',
 	'aiEmployees.issuesHub.emptyMyActive': 'No active issues',
 	'aiEmployees.issuesHub.emptyMyActiveHint':
-		'Shows items assigned to you (member) or to agents linked from your team directory. Switch to All to include completed work.',
+		'The list is filtered on the server (assignee = you or linked agents). Switch to All to include completed work.',
 	'aiEmployees.issuesHub.emptyMyAll': 'Nothing to show yet',
 	'aiEmployees.issuesHub.emptyMyAllHint':
 		'Create or assign issues on the workspace Issues tab; link agents under Team so their assignments appear here.',

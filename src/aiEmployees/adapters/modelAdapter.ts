@@ -44,6 +44,15 @@ export function buildModelOptions(local: LocalModelsState): LocalModelEntry[] {
 	return entries;
 }
 
+/** 选择器展示：模型名（提供商） */
+export function formatLocalModelPickLabel(entry: LocalModelEntry): string {
+	const prov = entry.providerDisplayName?.trim();
+	if (prov) {
+		return `${entry.displayName} (${prov})`;
+	}
+	return entry.displayName;
+}
+
 export function describeModelRoute(conn: AiEmployeesConnection, modelId: string): string {
 	if (!modelId) {
 		return 'default';
