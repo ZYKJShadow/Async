@@ -1,4 +1,13 @@
-import type { AgentJson, CreateIssuePayload, IssueJson, RuntimeJson, SkillJson, WorkspaceMemberJson } from './types';
+import type {
+	AgentJson,
+	CreateIssuePayload,
+	IssueJson,
+	RuntimeJson,
+	SkillJson,
+	TaskJson,
+	TaskMessageJson,
+	WorkspaceMemberJson,
+} from './types';
 
 export type AiEmployeesConnection = {
 	apiBaseUrl: string;
@@ -74,7 +83,6 @@ export async function apiListWorkspaces(conn: AiEmployeesConnection): Promise<{ 
 	return (await r.json()) as { workspaces?: unknown[] } | unknown[];
 }
 
-/** 与 async-agent-proxy `GET /api/issues/` 查询参数一致 */
 export type ListIssuesQueryOptions = {
 	assigneeMemberId?: string;
 	assigneeAgentIds?: string[];
@@ -103,10 +111,7 @@ export async function apiListIssues(
 		throw new AiEmployeesApiError(r.status, await r.text());
 	}
 	const j = (await r.json()) as { issues?: IssueJson[] } | IssueJson[];
-	if (Array.isArray(j)) {
-		return j;
-	}
-	return j.issues ?? [];
+	return Array.isArray(j) ? j : (j.issues ?? []);
 }
 
 export async function apiListMembers(conn: AiEmployeesConnection, workspaceId: string): Promise<WorkspaceMemberJson[]> {
@@ -167,10 +172,7 @@ export async function apiListAgents(conn: AiEmployeesConnection, workspaceId: st
 		throw new AiEmployeesApiError(r.status, await r.text());
 	}
 	const j = (await r.json()) as { agents?: AgentJson[] } | AgentJson[];
-	if (Array.isArray(j)) {
-		return j;
-	}
-	return j.agents ?? [];
+	return Array.isArray(j) ? j : (j.agents ?? []);
 }
 
 export async function apiListSkills(conn: AiEmployeesConnection, workspaceId: string): Promise<SkillJson[]> {
@@ -179,10 +181,7 @@ export async function apiListSkills(conn: AiEmployeesConnection, workspaceId: st
 		throw new AiEmployeesApiError(r.status, await r.text());
 	}
 	const j = (await r.json()) as { skills?: SkillJson[] } | SkillJson[];
-	if (Array.isArray(j)) {
-		return j;
-	}
-	return j.skills ?? [];
+	return Array.isArray(j) ? j : (j.skills ?? []);
 }
 
 export async function apiListRuntimes(conn: AiEmployeesConnection, workspaceId: string): Promise<RuntimeJson[]> {
@@ -191,8 +190,42 @@ export async function apiListRuntimes(conn: AiEmployeesConnection, workspaceId: 
 		throw new AiEmployeesApiError(r.status, await r.text());
 	}
 	const j = (await r.json()) as { runtimes?: RuntimeJson[] } | RuntimeJson[];
-	if (Array.isArray(j)) {
-		return j;
+	return Array.isArray(j) ? j : (j.runtimes ?? []);
+}
+
+export async function apiListTasks(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	query: { issueId?: string; agentId?: string; taskId?: string }
+): Promise<TaskJson[]> {
+	const params = new URLSearchParams();
+	if (query.issueId) {
+		params.set('issue_id', query.issueId);
 	}
-	return j.runtimes ?? [];
+	if (query.agentId) {
+		params.set('agent_id', query.agentId);
+	}
+	if (query.taskId) {
+		params.set('task_id', query.taskId);
+	}
+	const path = params.size ? `/api/tasks?${params.toString()}` : '/api/tasks';
+	const r = await apiFetch(conn, path, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { tasks?: TaskJson[] } | TaskJson[];
+	return Array.isArray(j) ? j : (j.tasks ?? []);
+}
+
+export async function apiListTaskMessages(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	taskId: string
+): Promise<TaskMessageJson[]> {
+	const r = await apiFetch(conn, `/api/tasks/${taskId}/messages`, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { messages?: TaskMessageJson[] } | TaskMessageJson[];
+	return Array.isArray(j) ? j : (j.messages ?? []);
 }

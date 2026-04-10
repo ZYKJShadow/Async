@@ -175,6 +175,8 @@ export async function generateRolePromptDraft(
 		'No markdown fences. No explanations.',
 		'The JSON shape must be: {"systemPrompt": string, "roleSummary": string, "speakingStyle": string, "collaborationRules": string, "handoffRules": string}.',
 		'The systemPrompt must include: role identity, core goals, decision boundaries, inputs/outputs, collaboration-escalation path, speaking style, and hard prohibitions.',
+		'collaborationRules must specify when the role should coordinate with others, when to escalate, how to report blockers, and how to stay within scope.',
+		'handoffRules must specify the exact handoff contract and must include done, risks, next_owner, and next_action.',
 		'Use the chosen nationality only to shape communication style and collaboration habits, never competence or permissions.',
 		'Follow the spirit of specialized agency agents: crisp responsibility, clean handoffs, explicit deliverables, low overlap.',
 	].join('\n');
@@ -188,6 +190,8 @@ export async function generateRolePromptDraft(
 		jobMission: trimText(input.jobMission),
 		domainContext: trimText(input.domainContext),
 		communicationNotes: trimText(input.communicationNotes),
+		collaborationRules: trimText(input.collaborationRules),
+		handoffRules: trimText(input.handoffRules),
 		managerSummary: trimText(input.managerSummary),
 		goal: `Create the best-fitting production-ready system prompt for ${trimText(input.displayName) || roleTitle}.`,
 	};

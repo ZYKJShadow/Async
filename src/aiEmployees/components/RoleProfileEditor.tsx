@@ -24,6 +24,16 @@ export function RoleProfileEditor({
 		(ev: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
 			onChange({ [key]: ev.target.value } as Partial<RoleProfileDraft>);
 		};
+	const bindPromptText =
+		(key: 'collaborationRules' | 'handoffRules') =>
+		(ev: ChangeEvent<HTMLTextAreaElement>) => {
+			onChange({
+				promptDraft: {
+					...draft.promptDraft,
+					[key]: ev.target.value,
+				},
+			});
+		};
 
 	const modelSelectDisabled = Boolean(modelDisabled) || modelOptions.length === 0;
 
@@ -64,6 +74,36 @@ export function RoleProfileEditor({
 						disabled={modelSelectDisabled}
 						onChange={(next) => onChange({ localModelId: next })}
 						options={modelSelectOptions}
+					/>
+				</label>
+				<label className="ref-ai-employees-catalog-field">
+					<span>{t('aiEmployees.role.jobMission')}</span>
+					<textarea className="ref-ai-employees-input ref-ai-employees-textarea" rows={3} value={draft.jobMission} onChange={bindText('jobMission')} />
+				</label>
+				<label className="ref-ai-employees-catalog-field">
+					<span>{t('aiEmployees.role.domainContext')}</span>
+					<textarea className="ref-ai-employees-input ref-ai-employees-textarea" rows={3} value={draft.domainContext} onChange={bindText('domainContext')} />
+				</label>
+				<label className="ref-ai-employees-catalog-field">
+					<span>{t('aiEmployees.role.communicationNotes')}</span>
+					<textarea className="ref-ai-employees-input ref-ai-employees-textarea" rows={3} value={draft.communicationNotes} onChange={bindText('communicationNotes')} />
+				</label>
+				<label className="ref-ai-employees-catalog-field">
+					<span>{t('aiEmployees.role.collaborationRules')}</span>
+					<textarea
+						className="ref-ai-employees-input ref-ai-employees-textarea"
+						rows={3}
+						value={draft.promptDraft.collaborationRules}
+						onChange={bindPromptText('collaborationRules')}
+					/>
+				</label>
+				<label className="ref-ai-employees-catalog-field">
+					<span>{t('aiEmployees.role.handoffRules')}</span>
+					<textarea
+						className="ref-ai-employees-input ref-ai-employees-textarea"
+						rows={3}
+						value={draft.promptDraft.handoffRules}
+						onChange={bindPromptText('handoffRules')}
 					/>
 				</label>
 			</div>

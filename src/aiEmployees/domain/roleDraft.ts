@@ -56,6 +56,8 @@ export function toPersonaSeed(draft: RoleProfileDraft, generatedBy: RolePersonaS
 		jobMission: draft.jobMission.trim(),
 		domainContext: draft.domainContext.trim(),
 		communicationNotes: draft.communicationNotes.trim(),
+		collaborationRules: draft.promptDraft.collaborationRules.trim(),
+		handoffRules: draft.promptDraft.handoffRules.trim(),
 		hiringReason: draft.reason?.trim() || undefined,
 		generatedBy,
 	};
@@ -88,6 +90,9 @@ export function createRoleDraftFromHiringCandidate(candidate: HiringPlanCandidat
 }
 
 export function createRoleDraftFromOrgEmployee(employee: OrgEmployee, localModelId = ''): RoleProfileDraft {
+	const personaSeed = employee.personaSeed ?? undefined;
+	const collaborationRules = personaSeed?.collaborationRules?.trim() ?? '';
+	const handoffRules = personaSeed?.handoffRules?.trim() ?? '';
 	return createEmptyRoleProfileDraft({
 		id: employee.id,
 		displayName: employee.displayName,
@@ -99,23 +104,23 @@ export function createRoleDraftFromOrgEmployee(employee: OrgEmployee, localModel
 		managerEmployeeId: employee.managerEmployeeId ?? undefined,
 		createdByEmployeeId: employee.createdByEmployeeId ?? undefined,
 		templatePromptKey: employee.templatePromptKey ?? undefined,
-		jobMission: '',
-		domainContext: '',
-		communicationNotes: '',
+		jobMission: personaSeed?.jobMission?.trim() ?? '',
+		domainContext: personaSeed?.domainContext?.trim() ?? '',
+		communicationNotes: personaSeed?.communicationNotes?.trim() ?? '',
 		promptDraft: {
 			systemPrompt: employee.customSystemPrompt ?? '',
-			roleSummary: '',
-			speakingStyle: '',
-			collaborationRules: '',
-			handoffRules: '',
+			roleSummary: personaSeed?.jobMission?.trim() ?? '',
+			speakingStyle: personaSeed?.communicationNotes?.trim() ?? '',
+			collaborationRules,
+			handoffRules,
 		},
 		lastGeneratedPromptDraft: employee.customSystemPrompt
 			? {
 					systemPrompt: employee.customSystemPrompt,
-					roleSummary: '',
-					speakingStyle: '',
-					collaborationRules: '',
-					handoffRules: '',
+					roleSummary: personaSeed?.jobMission?.trim() ?? '',
+					speakingStyle: personaSeed?.communicationNotes?.trim() ?? '',
+					collaborationRules,
+					handoffRules,
 			  }
 			: null,
 	});

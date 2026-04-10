@@ -7,6 +7,8 @@ export type RolePersonaSeed = {
 	jobMission?: string;
 	domainContext?: string;
 	communicationNotes?: string;
+	collaborationRules?: string;
+	handoffRules?: string;
 	hiringReason?: string;
 	generatedBy?: 'user' | 'ceo' | 'system';
 };
@@ -44,6 +46,8 @@ export type RolePromptGeneratorInput = {
 	jobMission?: string;
 	domainContext?: string;
 	communicationNotes?: string;
+	collaborationRules?: string;
+	handoffRules?: string;
 	companyName?: string;
 	managerSummary?: string;
 };

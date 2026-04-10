@@ -10,12 +10,14 @@ import {
 	IconMonitor,
 	IconRefresh,
 	IconSettings,
+	IconTaskPulse,
 } from '../icons';
 import { useAiEmployeesController, type AiEmployeesTabId } from './hooks/useAiEmployeesController';
 import { ConnectionPage } from './pages/ConnectionPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { InboxPage } from './pages/InboxPage';
 import { IssuesHubPage } from './pages/IssuesHubPage';
+import { OrchestratorPage } from './pages/OrchestratorPage';
 import { RuntimePage } from './pages/RuntimePage';
 import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
 import './aiEmployees.css';
@@ -60,7 +62,9 @@ export function AiEmployeesApp() {
 				return t('aiEmployees.tab.issues');
 			case 'agents':
 				return t('aiEmployees.tab.team');
-			case 'orchestrator':
+			case 'runs':
+				return t('aiEmployees.tab.runs');
+			case 'runtimes':
 				return t('aiEmployees.tab.runtimes');
 			case 'connection':
 				return t('aiEmployees.tab.settings');
@@ -69,7 +73,7 @@ export function AiEmployeesApp() {
 		}
 	};
 
-	const visibleTabs: AiEmployeesTabId[] = ['inbox', 'myIssues', 'issues', 'agents', 'orchestrator', 'connection'];
+	const visibleTabs: AiEmployeesTabId[] = ['inbox', 'myIssues', 'issues', 'agents', 'runs', 'runtimes', 'connection'];
 	const activeTab = visibleTabs.includes(c.tab) ? c.tab : 'inbox';
 
 	const navBusy = c.sessionPhase === 'bootstrapping';
@@ -161,7 +165,8 @@ export function AiEmployeesApp() {
 										{navBtn('myIssues', t('aiEmployees.tab.myIssues'), <IconCircleUser className="ref-ai-employees-nav-icon" />)}
 										{navBtn('issues', t('aiEmployees.tab.issues'), <IconListTodo className="ref-ai-employees-nav-icon" />)}
 										{navBtn('agents', t('aiEmployees.tab.team'), <IconBot className="ref-ai-employees-nav-icon" />)}
-										{navBtn('orchestrator', t('aiEmployees.tab.runtimes'), <IconMonitor className="ref-ai-employees-nav-icon" />)}
+										{navBtn('runs', t('aiEmployees.tab.runs'), <IconTaskPulse className="ref-ai-employees-nav-icon" />)}
+										{navBtn('runtimes', t('aiEmployees.tab.runtimes'), <IconMonitor className="ref-ai-employees-nav-icon" />)}
 									</div>
 								</div>
 								<div className="ref-ai-employees-nav-group">
@@ -249,7 +254,16 @@ export function AiEmployeesApp() {
 								) : null}
 
 								{activeTab === 'inbox' ? (
-									<InboxPage t={t} orgEmployees={c.orgEmployees} onCreateRun={c.createOrchestrationRun} />
+									<InboxPage
+										t={t}
+										orgEmployees={c.orgEmployees}
+										orchestration={c.orchestration}
+										onCreateRun={c.createEmployeeRun}
+										onSendMessage={c.sendCollabMessage}
+										onMarkMessageRead={c.markCollabMessageRead}
+										listMessagesByEmployee={c.listMessagesByEmployee}
+										findActiveRunByEmployee={c.findActiveRunByEmployee}
+									/>
 								) : null}
 
 								{activeTab === 'myIssues' ? (
@@ -294,7 +308,22 @@ export function AiEmployeesApp() {
 								/>
 								) : null}
 
-								{activeTab === 'orchestrator' ? (
+								{activeTab === 'runs' ? (
+									<OrchestratorPage
+										t={t}
+										orchestration={c.orchestration}
+										employeeCatalog={c.employeeCatalog}
+										orgEmployees={c.orgEmployees}
+										onCreateRun={c.createOrchestrationRun}
+										onApproveGit={c.approveOrchestrationGit}
+										onAddHandoff={c.addOrchestrationHandoff}
+										onSetHandoffStatus={c.setOrchestrationHandoffStatus}
+										listMessagesByRun={c.listMessagesByRun}
+										listTimelineEventsByRun={c.listTimelineEventsByRun}
+									/>
+								) : null}
+
+								{activeTab === 'runtimes' ? (
 									<RuntimePage t={t} runtimes={c.runtimes} meUserId={c.meProfile.id} />
 								) : null}
 

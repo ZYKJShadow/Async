@@ -223,7 +223,8 @@ function matchTemplate(promptTemplates: OrgPromptTemplate[], hints: string[]): O
 function createDraftFromModeRole(
 	modeRole: TeamModeConfig['roles'][number],
 	promptTemplates: OrgPromptTemplate[],
-	defaultModelId: string | undefined
+	defaultModelId: string | undefined,
+	t: TFunction
 ): RoleProfileDraft {
 	const template = matchTemplate(promptTemplates, modeRole.templateHints);
 	const promptDraft = template
@@ -231,8 +232,8 @@ function createDraftFromModeRole(
 				systemPrompt: template.systemPrompt,
 				roleSummary: modeRole.jobMission,
 				speakingStyle: modeRole.communicationNotes,
-				collaborationRules: 'Work through clear deliverables, escalate blockers early, and stay within role scope.',
-				handoffRules: 'Conclude with status, risks, and next owner.',
+				collaborationRules: t('aiEmployees.role.defaultCollaborationRules'),
+				handoffRules: t('aiEmployees.role.defaultHandoffRules'),
 		  }
 		: emptyPromptDraft();
 	return createEmptyRoleProfileDraft({
@@ -406,8 +407,8 @@ export function AiEmployeesSetupFlow({
 
 	const previewDrafts = useMemo(() => {
 		const mode = teamModes.find((item) => item.id === teamMode) ?? teamModes[0];
-		return mode.roles.map((role) => createDraftFromModeRole(role, promptTemplates, defaultModelId));
-	}, [teamMode, promptTemplates, defaultModelId, teamModes]);
+		return mode.roles.map((role) => createDraftFromModeRole(role, promptTemplates, defaultModelId, t));
+	}, [teamMode, promptTemplates, defaultModelId, teamModes, t]);
 
 	const commitDrafts = useMemo((): RoleProfileDraft[] => {
 		if (orgEmployees.length > 0) {

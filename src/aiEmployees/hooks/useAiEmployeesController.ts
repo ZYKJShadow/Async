@@ -8,21 +8,31 @@ import {
 import { readPrefersDark, readStoredColorMode, resolveEffectiveScheme } from '../../colorMode';
 import { hideBootSplash } from '../../bootSplash';
 import type {
+	AiCollabMessage,
+	AiCollabMessageType,
 	AiEmployeesSettings,
 	AiEmployeeCatalogEntry,
 	AiOrchestrationHandoff,
 	AiOrchestrationHandoffStatus,
 	AiOrchestrationRun,
+	AiOrchestrationTimelineEvent,
 } from '../../../shared/aiEmployeesSettings';
 import { DEFAULT_API, DEFAULT_WS, normConn } from '../domain/connection';
 import { pickWorkspaceId, resolveMappedWorkspace } from '../domain/workspacePaths';
 import {
 	addHandoffToRunInState,
+	appendTimelineEventToState,
 	approveGitForRun,
 	createDraftRun,
 	emptyOrchestrationState,
+	findRunByTaskId,
+	linkTaskToHandoffInState,
+	markCollabMessageReadInState,
+	setRunIssueInState,
 	setHandoffStatusInState,
+	updateRunInState,
 	upsertRun,
+	upsertCollabMessageInState,
 } from '../domain/orchestration';
 import { buildModelOptions } from '../adapters/modelAdapter';
 import { formatOrchestrationCommitMessage, requestCommitToBranch } from '../adapters/gitAdapter';
@@ -36,6 +46,8 @@ import {
 	apiListMembers,
 	apiListRuntimes,
 	apiListSkills,
+	apiListTaskMessages,
+	apiListTasks,
 	apiListWorkspaces,
 	apiPatchIssue,
 	type ListIssuesQueryOptions,
@@ -50,6 +62,12 @@ import type { OrgBootstrapStatus, OrgEmployee, OrgPromptTemplate } from '../api/
 import { AiEmployeesWsClient } from '../api/ws';
 import type { AgentJson, CreateIssuePayload, IssueJson, RuntimeJson, SkillJson, WorkspaceMemberJson } from '../api/types';
 import { onboardingBlocksDashboard, resolveOnboardingStep, type AiEmployeesOnboardingStep } from '../domain/bootstrap';
+import {
+	normalizeTaskEvent,
+	taskEventToCollabMessage,
+	taskEventToTimelineEvent,
+	type NormalizedTaskEvent,
+} from '../domain/taskEvents';
 import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
 
 type Shell = NonNullable<Window['asyncShell']>;
@@ -70,7 +88,7 @@ function myIssuesListQuery(meUserId: string | undefined, orgEmps: OrgEmployee[] 
 	return q;
 }
 
-export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'orchestrator' | 'connection';
+export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'runs' | 'runtimes' | 'connection';
 
 export function useAiEmployeesController() {
 	const shell = window.asyncShell as Shell | undefined;
@@ -97,7 +115,6 @@ export function useAiEmployeesController() {
 	}>({ entries: [], enabledIds: [] });
 	const [loadErr, setLoadErr] = useState<string | null>(null);
 	const [wsLog, setWsLog] = useState<string[]>([]);
-	const [taskEvents, setTaskEvents] = useState<string[]>([]);
 	const [bootstrapStatus, setBootstrapStatus] = useState<OrgBootstrapStatus | null>(null);
 	const [onboardingStep, setOnboardingStep] = useState<AiEmployeesOnboardingStep>('company');
 	const [orgEmployees, setOrgEmployees] = useState<OrgEmployee[]>([]);
@@ -511,6 +528,288 @@ export function useAiEmployeesController() {
 		[refreshAgentsOnly, refreshIssuesOnly, refreshRuntimesOnly, refreshSkillsOnly, softRefreshPayload]
 	);
 
+	const orchestration = useMemo(
+		() => aiSettings.orchestration ?? emptyOrchestrationState(),
+		[aiSettings.orchestration]
+	);
+
+	const employeeById = useMemo(() => new Map(orgEmployees.map((employee) => [employee.id, employee])), [orgEmployees]);
+	const employeeIdByAgentId = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const employee of orgEmployees) {
+			if (employee.linkedRemoteAgentId) {
+				map.set(employee.linkedRemoteAgentId, employee.id);
+			}
+		}
+		return map;
+	}, [orgEmployees]);
+	const fallbackOwnerEmployeeId = useMemo(
+		() => orgEmployees.find((employee) => employee.isCeo)?.id ?? orgEmployees[0]?.id,
+		[orgEmployees]
+	);
+	const taskEvents = useMemo(
+		() =>
+			orchestration.timelineEvents.map((event) => {
+				const stamp = new Date(event.createdAtIso).toLocaleString();
+				return `${stamp} · ${event.label}${event.description ? ` — ${event.description}` : ''}`;
+			}),
+		[orchestration.timelineEvents]
+	);
+
+	const employeeDisplayName = useCallback(
+		(employeeId?: string) => {
+			if (!employeeId) {
+				return '';
+			}
+			return employeeById.get(employeeId)?.displayName ?? employeeId.slice(0, 8);
+		},
+		[employeeById]
+	);
+
+	const persistOrchestration = useCallback(
+		(updater: (state: ReturnType<typeof emptyOrchestrationState>) => ReturnType<typeof emptyOrchestrationState>) => {
+			setAiSettings((prev) => {
+				const nextOrchestration = updater(prev.orchestration ?? emptyOrchestrationState());
+				const next = { ...prev, orchestration: nextOrchestration };
+				void shell?.invoke('settings:set', { aiEmployees: next });
+				return next;
+			});
+		},
+		[shell]
+	);
+
+	const appendTimelineEvent = useCallback(
+		(state: ReturnType<typeof emptyOrchestrationState>, event: AiOrchestrationTimelineEvent) =>
+			appendTimelineEventToState(state, event),
+		[]
+	);
+
+	const appendCollabMessage = useCallback(
+		(state: ReturnType<typeof emptyOrchestrationState>, message: AiCollabMessage) =>
+			upsertCollabMessageInState(state, message),
+		[]
+	);
+
+	const matchRunForTaskEvent = useCallback(
+		(state: ReturnType<typeof emptyOrchestrationState>, event: NormalizedTaskEvent) => {
+			if (event.runId) {
+				const run = state.runs.find((candidate) => candidate.id === event.runId);
+				if (run) {
+					return { run, handoff: event.handoffId ? run.handoffs.find((handoff) => handoff.id === event.handoffId) : undefined };
+				}
+			}
+			if (event.handoffId) {
+				for (const run of state.runs) {
+					const handoff = run.handoffs.find((candidate) => candidate.id === event.handoffId);
+					if (handoff) {
+						return { run, handoff };
+					}
+				}
+			}
+			if (event.taskId) {
+				const run = findRunByTaskId(state, event.taskId);
+				if (run) {
+					return { run, handoff: run.handoffs.find((candidate) => candidate.taskId === event.taskId) };
+				}
+			}
+			if (event.issueId) {
+				const run = state.runs.find((candidate) => candidate.issueId === event.issueId);
+				if (run) {
+					return { run, handoff: event.taskId ? run.handoffs.find((candidate) => candidate.taskId === event.taskId) : undefined };
+				}
+			}
+			const employeeId = event.employeeId ?? (event.agentId ? employeeIdByAgentId.get(event.agentId) : undefined);
+			if (!employeeId) {
+				return {};
+			}
+			const candidates = state.runs
+				.filter(
+					(candidate) =>
+						candidate.currentAssigneeEmployeeId === employeeId ||
+						candidate.handoffs.some((handoff) => handoff.toEmployeeId === employeeId && handoff.status !== 'done')
+				)
+				.sort((a, b) => Date.parse(b.lastEventAtIso ?? b.createdAtIso) - Date.parse(a.lastEventAtIso ?? a.createdAtIso));
+			const run = candidates[0];
+			if (!run) {
+				return {};
+			}
+			return {
+				run,
+				handoff:
+					run.handoffs.find((candidate) => candidate.taskId && candidate.taskId === event.taskId) ??
+					run.handoffs.find((candidate) => candidate.toEmployeeId === employeeId && candidate.status !== 'done'),
+			};
+		},
+		[employeeIdByAgentId]
+	);
+
+	const applyTaskEventToState = useCallback(
+		(state: ReturnType<typeof emptyOrchestrationState>, event: NormalizedTaskEvent) => {
+			let next = state;
+			let { run, handoff } = matchRunForTaskEvent(next, event);
+			const eventEmployeeId = event.employeeId ?? (event.agentId ? employeeIdByAgentId.get(event.agentId) : undefined);
+
+			if (!run) {
+				const syntheticRunId = event.runId ?? crypto.randomUUID();
+				const syntheticRun: AiOrchestrationRun = {
+					...createDraftRun(event.summary || 'Remote task', undefined, event.timestamp, syntheticRunId, {
+						status: 'running',
+						ownerEmployeeId: fallbackOwnerEmployeeId,
+						currentAssigneeEmployeeId: eventEmployeeId,
+						statusSummary: event.summary,
+						lastEventAtIso: event.timestamp,
+						issueId: event.issueId,
+					}),
+					handoffs:
+						eventEmployeeId
+							? [
+									{
+										id: event.handoffId ?? crypto.randomUUID(),
+										fromEmployeeId: fallbackOwnerEmployeeId,
+										toEmployeeId: eventEmployeeId,
+										status:
+											event.eventType === 'task:completed'
+												? 'done'
+												: event.eventType === 'task:failed'
+													? 'blocked'
+													: 'in_progress',
+										note: event.summary,
+										atIso: event.timestamp,
+										taskId: event.taskId,
+										resultSummary: event.eventType === 'task:completed' ? event.summary : undefined,
+										blockedReason: event.eventType === 'task:failed' ? event.message ?? event.summary : undefined,
+									},
+								]
+							: [],
+				};
+				next = upsertRun(next, syntheticRun);
+				run = syntheticRun;
+				handoff = syntheticRun.handoffs[0];
+			}
+
+			if (event.issueId && run.issueId !== event.issueId) {
+				next = setRunIssueInState(next, run.id, event.issueId);
+			}
+
+			if (event.eventType === 'task:dispatch' && eventEmployeeId && !handoff) {
+				const newHandoff: AiOrchestrationHandoff = {
+					id: event.handoffId ?? crypto.randomUUID(),
+					fromEmployeeId: run.ownerEmployeeId,
+					toEmployeeId: eventEmployeeId,
+					status: 'in_progress',
+					note: event.summary,
+					atIso: event.timestamp,
+					taskId: event.taskId,
+				};
+				next = addHandoffToRunInState(next, run.id, newHandoff);
+				handoff = newHandoff;
+			}
+
+			if (event.taskId && handoff && handoff.taskId !== event.taskId) {
+				next = linkTaskToHandoffInState(next, run.id, handoff.id, event.taskId);
+			}
+
+			next = updateRunInState(next, run.id, (currentRun) => ({
+				...currentRun,
+				statusSummary: event.summary,
+				lastEventAtIso: event.timestamp,
+				currentAssigneeEmployeeId: eventEmployeeId ?? currentRun.currentAssigneeEmployeeId,
+				status:
+					event.eventType === 'task:completed'
+						? currentRun.status
+						: event.eventType === 'task:failed'
+							? 'running'
+							: 'running',
+			}));
+
+			if (handoff && (event.eventType === 'task:progress' || event.eventType === 'task:dispatch')) {
+				next = setHandoffStatusInState(next, run.id, handoff.id, 'in_progress', {
+					taskId: event.taskId,
+					atIso: event.timestamp,
+				});
+			}
+			if (handoff && event.eventType === 'task:completed') {
+				next = setHandoffStatusInState(next, run.id, handoff.id, 'done', {
+					taskId: event.taskId,
+					resultSummary: event.message ?? event.summary,
+					atIso: event.timestamp,
+				});
+				next = updateRunInState(next, run.id, (currentRun) => ({
+					...currentRun,
+					approvalState: currentRun.targetBranch ? 'pending_git' : 'approved',
+				}));
+			}
+			if (handoff && event.eventType === 'task:failed') {
+				next = setHandoffStatusInState(next, run.id, handoff.id, 'blocked', {
+					taskId: event.taskId,
+					blockedReason: event.message ?? event.summary,
+					atIso: event.timestamp,
+				});
+			}
+
+			next = appendTimelineEvent(next, taskEventToTimelineEvent(run.id, event));
+			const collabMessage = taskEventToCollabMessage(run.id, event, eventEmployeeId, run.ownerEmployeeId);
+			if (collabMessage) {
+				next = appendCollabMessage(next, collabMessage);
+			}
+			return next;
+		},
+		[appendCollabMessage, appendTimelineEvent, employeeIdByAgentId, fallbackOwnerEmployeeId, matchRunForTaskEvent]
+	);
+
+	const recordTaskEvent = useCallback(
+		(eventType: string, payload: unknown) => {
+			const normalized = normalizeTaskEvent(eventType, payload);
+			persistOrchestration((state) => applyTaskEventToState(state, normalized));
+		},
+		[applyTaskEventToState, persistOrchestration]
+	);
+
+	const syncOrchestrationHistory = useCallback(async () => {
+		if (!workspaceId || sessionPhase !== 'ready') {
+			return;
+		}
+		const connNow = normConn(aiSettings);
+		const runs = orchestration.runs.filter(
+			(run) => Boolean(run.issueId) || run.handoffs.some((handoff) => Boolean(handoff.taskId))
+		);
+		for (const run of runs) {
+			try {
+				const tasks =
+					run.issueId != null
+						? await apiListTasks(connNow, workspaceId, { issueId: run.issueId })
+						: [];
+				for (const task of tasks) {
+					recordTaskEvent('task:dispatch', {
+						taskId: task.id,
+						issueId: task.issue_id,
+						agentId: task.agent_id,
+						status: task.status,
+						summary: task.summary,
+						timestamp: task.created_at ?? task.dispatched_at ?? task.started_at ?? task.completed_at,
+					});
+				}
+				const taskIds = new Set<string>([
+					...tasks.map((task) => task.id),
+					...run.handoffs.map((handoff) => handoff.taskId).filter((taskId): taskId is string => Boolean(taskId)),
+				]);
+				for (const taskId of taskIds) {
+					const messages = await apiListTaskMessages(connNow, workspaceId, taskId);
+					for (const message of messages) {
+						recordTaskEvent('task:message', {
+							taskId: message.task_id,
+							message: message.content ?? message.output ?? message.summary,
+							summary: message.summary ?? message.type,
+							timestamp: message.created_at,
+						});
+					}
+				}
+			} catch {
+				/* history endpoints are optional during rollout */
+			}
+		}
+	}, [aiSettings, orchestration.runs, recordTaskEvent, sessionPhase, workspaceId]);
+
 	useEffect(() => {
 		if (!workspaceId) {
 			wsRef.current?.disconnect();
@@ -525,6 +824,7 @@ export function useAiEmployeesController() {
 		const unsubs: Array<() => void> = [
 			client.onReconnect(() => {
 				void softRefreshPayload();
+				void syncOrchestrationHistory();
 			}),
 			client.on('issue:created', (_p, _a) => routeWsEventToRefresh('issue:created')),
 			client.on('issue:updated', () => routeWsEventToRefresh('issue:updated')),
@@ -548,16 +848,26 @@ export function useAiEmployeesController() {
 			client.on('daemon:heartbeat', () => routeWsEventToRefresh('daemon:heartbeat')),
 			client.on('daemon:register', () => routeWsEventToRefresh('daemon:register')),
 			client.on('task:progress', (p) => {
-				setTaskEvents((l) => [`task:progress ${JSON.stringify(p).slice(0, 100)}`, ...l].slice(0, 30));
+				recordTaskEvent('task:progress', p);
 				void refreshAgentsOnly();
 			}),
-			client.on('task:dispatch', () => void refreshAgentsOnly()),
-			client.on('task:completed', () => void refreshAgentsOnly()),
-			client.on('task:failed', () => void refreshAgentsOnly()),
+			client.on('task:dispatch', (p) => {
+				recordTaskEvent('task:dispatch', p);
+				void refreshAgentsOnly();
+			}),
+			client.on('task:completed', (p) => {
+				recordTaskEvent('task:completed', p);
+				void refreshAgentsOnly();
+			}),
+			client.on('task:failed', (p) => {
+				recordTaskEvent('task:failed', p);
+				void refreshAgentsOnly();
+			}),
 			client.on('task:message', (p) => {
-				setTaskEvents((l) => [`task:message ${JSON.stringify(p).slice(0, 100)}`, ...l].slice(0, 30));
+				recordTaskEvent('task:message', p);
 			}),
 		];
+		void syncOrchestrationHistory();
 		client.connect();
 		return () => {
 			for (const u of unsubs) {
@@ -566,7 +876,7 @@ export function useAiEmployeesController() {
 			client.disconnect();
 			wsRef.current = null;
 		};
-	}, [conn, sessionPhase, workspaceId, routeWsEventToRefresh, softRefreshPayload, refreshAgentsOnly]);
+	}, [conn, sessionPhase, workspaceId, routeWsEventToRefresh, softRefreshPayload, refreshAgentsOnly, recordTaskEvent, syncOrchestrationHistory]);
 
 	const modelOptions = useMemo(() => buildModelOptions(localModels), [localModels]);
 	const modelOptionIdSet = useMemo(() => new Set(modelOptions.map((m) => m.id)), [modelOptions]);
@@ -732,21 +1042,84 @@ export function useAiEmployeesController() {
 		[shell]
 	);
 
-	const orchestration = useMemo(
-		() => aiSettings.orchestration ?? emptyOrchestrationState(),
-		[aiSettings.orchestration]
+	const createOrchestrationRun = useCallback(
+		(
+			goal: string,
+			targetBranch: string,
+			options?: {
+				ownerEmployeeId?: string;
+				initialAssigneeEmployeeId?: string;
+				note?: string;
+				initialMessage?: string;
+				messageType?: AiCollabMessageType;
+			}
+		) => {
+			const nowIso = new Date().toISOString();
+			const runId = crypto.randomUUID();
+			const ownerEmployeeId = options?.ownerEmployeeId ?? fallbackOwnerEmployeeId;
+			persistOrchestration((state) => {
+				let next = upsertRun(
+					state,
+					{
+						...createDraftRun(goal, targetBranch || undefined, nowIso, runId, {
+							status: 'running',
+							ownerEmployeeId,
+							currentAssigneeEmployeeId: options?.initialAssigneeEmployeeId,
+							statusSummary: goal.trim(),
+							lastEventAtIso: nowIso,
+						}),
+					}
+				);
+				next = appendTimelineEvent(next, {
+					id: `run:${runId}:created`,
+					runId,
+					type: 'run_created',
+					label: 'Run created',
+					description: goal.trim(),
+					createdAtIso: nowIso,
+					employeeId: ownerEmployeeId,
+					source: 'local',
+				});
+				if (options?.initialAssigneeEmployeeId) {
+					const handoffId = crypto.randomUUID();
+					next = addHandoffToRunInState(next, runId, {
+						id: handoffId,
+						fromEmployeeId: ownerEmployeeId,
+						toEmployeeId: options.initialAssigneeEmployeeId,
+						status: 'in_progress',
+						note: options.note?.trim() || undefined,
+						atIso: nowIso,
+					});
+					next = appendTimelineEvent(next, {
+						id: `handoff:${handoffId}:created`,
+						runId,
+						type: 'handoff_added',
+						label: `Assigned to ${employeeDisplayName(options.initialAssigneeEmployeeId)}`,
+						description: options.note?.trim() || undefined,
+						createdAtIso: nowIso,
+						handoffId,
+						employeeId: options.initialAssigneeEmployeeId,
+						source: 'local',
+					});
+					if (options.initialMessage?.trim()) {
+						next = appendCollabMessage(next, {
+							id: crypto.randomUUID(),
+							runId,
+							type: options.messageType ?? 'task_assignment',
+							fromEmployeeId: ownerEmployeeId,
+							toEmployeeId: options.initialAssigneeEmployeeId,
+							summary: goal.trim(),
+							body: options.initialMessage.trim(),
+							createdAtIso: nowIso,
+						});
+					}
+				}
+				return next;
+			});
+			return runId;
+		},
+		[appendCollabMessage, appendTimelineEvent, employeeDisplayName, fallbackOwnerEmployeeId, persistOrchestration]
 	);
-
-	const createOrchestrationRun = useCallback((goal: string, targetBranch: string) => {
-		setAiSettings((prev) => {
-			const orch = prev.orchestration ?? emptyOrchestrationState();
-			const base = createDraftRun(goal, targetBranch || undefined, new Date().toISOString(), crypto.randomUUID());
-			const run: AiOrchestrationRun = { ...base, status: 'running' };
-			const next = { ...prev, orchestration: upsertRun(orch, run) };
-			void shell?.invoke('settings:set', { aiEmployees: next });
-			return next;
-		});
-	}, [shell]);
 
 	const approveOrchestrationGit = useCallback(
 		async (runId: string) => {
@@ -772,37 +1145,150 @@ export function useAiEmployeesController() {
 
 	const addOrchestrationHandoff = useCallback(
 		(runId: string, toEmployeeId: string, note?: string) => {
-			setAiSettings((prev) => {
-				const orch = prev.orchestration ?? emptyOrchestrationState();
-				const run = orch.runs.find((r) => r.id === runId);
-				if (!run) return prev;
+			const nowIso = new Date().toISOString();
+			persistOrchestration((orch) => {
+				const run = orch.runs.find((candidate) => candidate.id === runId);
+				if (!run) {
+					return orch;
+				}
 				const handoff: AiOrchestrationHandoff = {
 					id: crypto.randomUUID(),
+					fromEmployeeId: run.currentAssigneeEmployeeId ?? run.ownerEmployeeId,
 					toEmployeeId,
-					status: 'pending',
+					status: 'in_progress',
 					note: note?.trim() || undefined,
-					atIso: new Date().toISOString(),
+					atIso: nowIso,
 				};
-				const nextOrch = addHandoffToRunInState(orch, runId, handoff);
-				const next = { ...prev, orchestration: nextOrch };
-				void shell?.invoke('settings:set', { aiEmployees: next });
+				let next = addHandoffToRunInState(orch, runId, handoff);
+				next = appendTimelineEvent(next, {
+					id: `handoff:${handoff.id}:created`,
+					runId,
+					type: 'handoff_added',
+					label: `Assigned to ${employeeDisplayName(toEmployeeId)}`,
+					description: handoff.note,
+					createdAtIso: nowIso,
+					handoffId: handoff.id,
+					employeeId: toEmployeeId,
+					source: 'local',
+				});
 				return next;
 			});
 		},
-		[shell]
+		[appendTimelineEvent, employeeDisplayName, persistOrchestration]
 	);
 
 	const setOrchestrationHandoffStatus = useCallback(
 		(runId: string, handoffId: string, status: AiOrchestrationHandoffStatus) => {
-			setAiSettings((prev) => {
-				const orch = prev.orchestration ?? emptyOrchestrationState();
-				const nextOrch = setHandoffStatusInState(orch, runId, handoffId, status);
-				const next = { ...prev, orchestration: nextOrch };
-				void shell?.invoke('settings:set', { aiEmployees: next });
+			const nowIso = new Date().toISOString();
+			persistOrchestration((orch) => {
+				const next = setHandoffStatusInState(orch, runId, handoffId, status, { atIso: nowIso });
+				return appendTimelineEvent(next, {
+					id: `handoff:${handoffId}:${status}:${nowIso}`,
+					runId,
+					type: 'handoff_status',
+					label: `Handoff ${status.replace('_', ' ')}`,
+					createdAtIso: nowIso,
+					handoffId,
+					status,
+					source: 'local',
+				});
+			});
+		},
+		[persistOrchestration, appendTimelineEvent]
+	);
+
+	const sendCollabMessage = useCallback(
+		(input: {
+			runId: string;
+			type?: AiCollabMessageType;
+			body: string;
+			summary?: string;
+			fromEmployeeId?: string;
+			toEmployeeId?: string;
+			taskId?: string;
+		}) => {
+			const body = input.body.trim();
+			if (!body) {
+				return;
+			}
+			const nowIso = new Date().toISOString();
+			const message: AiCollabMessage = {
+				id: crypto.randomUUID(),
+				runId: input.runId,
+				type: input.type ?? 'text',
+				fromEmployeeId: input.fromEmployeeId,
+				toEmployeeId: input.toEmployeeId,
+				summary: input.summary?.trim() || body.slice(0, 80),
+				body,
+				taskId: input.taskId,
+				createdAtIso: nowIso,
+			};
+			persistOrchestration((state) => {
+				let next = appendCollabMessage(state, message);
+				next = appendTimelineEvent(next, {
+					id: `message:${message.id}`,
+					runId: message.runId,
+					type: 'message',
+					label: message.summary,
+					description: message.body,
+					createdAtIso: nowIso,
+					taskId: message.taskId,
+					employeeId: message.toEmployeeId,
+					source: 'local',
+				});
 				return next;
 			});
 		},
-		[shell]
+		[appendCollabMessage, appendTimelineEvent, persistOrchestration]
+	);
+
+	const markCollabMessageRead = useCallback(
+		(messageId: string) => {
+			persistOrchestration((state) => markCollabMessageReadInState(state, messageId, new Date().toISOString()));
+		},
+		[persistOrchestration]
+	);
+
+	const listMessagesByEmployee = useCallback(
+		(employeeId: string) =>
+			orchestration.collabMessages.filter(
+				(message) => message.toEmployeeId === employeeId || message.fromEmployeeId === employeeId
+			),
+		[orchestration.collabMessages]
+	);
+
+	const listMessagesByRun = useCallback(
+		(runId: string) => orchestration.collabMessages.filter((message) => message.runId === runId),
+		[orchestration.collabMessages]
+	);
+
+	const listTimelineEventsByRun = useCallback(
+		(runId: string) => orchestration.timelineEvents.filter((event) => event.runId === runId),
+		[orchestration.timelineEvents]
+	);
+
+	const findActiveRunByEmployee = useCallback(
+		(employeeId: string) =>
+			orchestration.runs
+				.filter((run) => run.currentAssigneeEmployeeId === employeeId || run.handoffs.some((handoff) => handoff.toEmployeeId === employeeId))
+				.sort((a, b) => Date.parse(b.lastEventAtIso ?? b.createdAtIso) - Date.parse(a.lastEventAtIso ?? a.createdAtIso))[0],
+		[orchestration.runs]
+	);
+
+	const createEmployeeRun = useCallback(
+		(employeeId: string, title: string, details: string, targetBranch: string) => {
+			const employeeName = employeeDisplayName(employeeId);
+			const cleanTitle = title.trim();
+			const cleanDetails = details.trim();
+			const goal = cleanDetails ? `[${employeeName}] ${cleanTitle} — ${cleanDetails}` : `[${employeeName}] ${cleanTitle}`;
+			return createOrchestrationRun(goal, targetBranch, {
+				initialAssigneeEmployeeId: employeeId,
+				note: cleanTitle,
+				initialMessage: cleanDetails || cleanTitle,
+				messageType: 'task_assignment',
+			});
+		},
+		[createOrchestrationRun, employeeDisplayName]
 	);
 
 	const patchWorkspaceIssue = useCallback(
@@ -857,6 +1343,8 @@ export function useAiEmployeesController() {
 		clearLoadErr,
 		wsLog,
 		taskEvents,
+		timelineEvents: orchestration.timelineEvents,
+		collabMessages: orchestration.collabMessages,
 		conn,
 		effectiveScheme,
 		persistAiSettings,
@@ -874,9 +1362,16 @@ export function useAiEmployeesController() {
 		removeCatalogEntry,
 		orchestration,
 		createOrchestrationRun,
+		createEmployeeRun,
 		approveOrchestrationGit,
 		addOrchestrationHandoff,
 		setOrchestrationHandoffStatus,
+		sendCollabMessage,
+		markCollabMessageRead,
+		listMessagesByEmployee,
+		listMessagesByRun,
+		listTimelineEventsByRun,
+		findActiveRunByEmployee,
 		patchWorkspaceIssue,
 		createWorkspaceIssue,
 		employeeCatalog: aiSettings.employeeCatalog ?? [],

@@ -4,7 +4,10 @@ import { extractJsonObject, normalizeHiringPlan, normalizeRolePromptDraft } from
 describe('roleGeneration', () => {
 	it('extracts json from fenced model output', () => {
 		const parsed = extractJsonObject('```json\n{"systemPrompt":"x","roleSummary":"","speakingStyle":"","collaborationRules":"","handoffRules":""}\n```');
-		expect(normalizeRolePromptDraft(parsed).systemPrompt).toBe('x');
+		const draft = normalizeRolePromptDraft(parsed);
+		expect(draft.systemPrompt).toBe('x');
+		expect(draft.collaborationRules).toBe('');
+		expect(draft.handoffRules).toBe('');
 	});
 
 	it('normalizes hiring candidates and caps the list length', () => {

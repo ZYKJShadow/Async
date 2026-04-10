@@ -206,6 +206,8 @@ export function EmployeesPage({
 			jobMission: draft.jobMission,
 			domainContext: draft.domainContext,
 			communicationNotes: draft.communicationNotes,
+			collaborationRules: draft.promptDraft.collaborationRules,
+			handoffRules: draft.promptDraft.handoffRules,
 			companyName: effectiveCompanyName,
 			managerSummary: managerSummaryLine,
 		};

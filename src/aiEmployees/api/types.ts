@@ -1,4 +1,4 @@
-/** 与 async-agent-proxy 广播事件名一致；以 `wsEventNames` 为单一事实来源。 */
+/** Shared frontend JSON contracts for async-agent-proxy. */
 import type { AiEmployeesWsEventName } from './wsEventNames';
 
 export type WSEventType = AiEmployeesWsEventName;
@@ -9,7 +9,6 @@ export type WSMessage<T = unknown> = {
 	actor_id?: string;
 };
 
-/** 与 async-agent-proxy `issue` 列表/详情 JSON 对齐 */
 export type IssueAssigneeType = 'member' | 'agent';
 
 export type IssueJson = {
@@ -75,4 +74,33 @@ export type RuntimeJson = {
 	created_at?: string;
 	updated_at?: string;
 	metadata?: Record<string, unknown>;
+};
+
+export type TaskJson = {
+	id: string;
+	workspace_id?: string;
+	issue_id?: string | null;
+	agent_id: string;
+	status: string;
+	priority?: number;
+	dispatched_at?: string | null;
+	started_at?: string | null;
+	completed_at?: string | null;
+	created_at?: string;
+	summary?: string;
+	result?: Record<string, unknown> | null;
+	error?: string | null;
+};
+
+export type TaskMessageJson = {
+	id: string;
+	task_id: string;
+	seq: number;
+	type: string;
+	tool?: string | null;
+	content?: string | null;
+	input?: Record<string, unknown> | null;
+	output?: string | null;
+	created_at: string;
+	summary?: string;
 };
