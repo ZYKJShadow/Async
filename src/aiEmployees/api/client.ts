@@ -1,4 +1,4 @@
-import type { AgentJson, IssueJson, RuntimeJson, SkillJson } from './types';
+import type { AgentJson, CreateIssuePayload, IssueJson, RuntimeJson, SkillJson, WorkspaceMemberJson } from './types';
 
 export type AiEmployeesConnection = {
 	apiBaseUrl: string;
@@ -84,6 +84,58 @@ export async function apiListIssues(conn: AiEmployeesConnection, workspaceId: st
 		return j;
 	}
 	return j.issues ?? [];
+}
+
+export async function apiListMembers(conn: AiEmployeesConnection, workspaceId: string): Promise<WorkspaceMemberJson[]> {
+	const r = await apiFetch(conn, '/api/members/', { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { members?: WorkspaceMemberJson[] };
+	return j.members ?? [];
+}
+
+export async function apiPatchIssue(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	issueId: string,
+	patch: Record<string, unknown>
+): Promise<IssueJson> {
+	const r = await apiFetch(conn, `/api/issues/${issueId}`, {
+		method: 'PATCH',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(patch),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { issue?: IssueJson };
+	if (!j.issue) {
+		throw new AiEmployeesApiError(r.status, 'missing issue in response');
+	}
+	return j.issue;
+}
+
+export async function apiCreateIssue(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	body: CreateIssuePayload
+): Promise<IssueJson> {
+	const r = await apiFetch(conn, '/api/issues/', {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { issue?: IssueJson };
+	if (!j.issue) {
+		throw new AiEmployeesApiError(r.status, 'missing issue in response');
+	}
+	return j.issue;
 }
 
 export async function apiListAgents(conn: AiEmployeesConnection, workspaceId: string): Promise<AgentJson[]> {

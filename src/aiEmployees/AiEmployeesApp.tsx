@@ -258,6 +258,12 @@ export function AiEmployeesApp() {
 										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
 										issues={c.issues}
 										variant="my"
+										agents={c.agents}
+										members={c.workspaceMembers}
+										meUserId={c.meProfile.id}
+										employeeCatalog={c.employeeCatalog}
+										onPatchIssue={c.patchWorkspaceIssue}
+										onCreateIssue={c.createWorkspaceIssue}
 									/>
 								) : null}
 
@@ -267,6 +273,12 @@ export function AiEmployeesApp() {
 										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
 										issues={c.issues}
 										variant="workspace"
+										agents={c.agents}
+										members={c.workspaceMembers}
+										meUserId={c.meProfile.id}
+										employeeCatalog={c.employeeCatalog}
+										onPatchIssue={c.patchWorkspaceIssue}
+										onCreateIssue={c.createWorkspaceIssue}
 									/>
 								) : null}
 
@@ -295,17 +307,7 @@ export function AiEmployeesApp() {
 								) : null}
 
 								{activeTab === 'orchestrator' ? (
-									<RuntimePage
-										t={t}
-										runtimes={c.runtimes}
-										meUserId={c.meProfile.id}
-										orchestration={c.orchestration}
-										employeeCatalog={c.employeeCatalog}
-										onCreateRun={c.createOrchestrationRun}
-										onApproveGit={c.approveOrchestrationGit}
-										onAddHandoff={c.addOrchestrationHandoff}
-										onSetHandoffStatus={c.setOrchestrationHandoffStatus}
-									/>
+									<RuntimePage t={t} runtimes={c.runtimes} meUserId={c.meProfile.id} />
 								) : null}
 
 								{activeTab === 'connection' ? (

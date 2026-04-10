@@ -1,13 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
-import type {
-	AiEmployeeCatalogEntry,
-	AiEmployeesOrchestrationState,
-	AiOrchestrationHandoffStatus,
-} from '../../../shared/aiEmployeesSettings';
 import type { RuntimeJson } from '../api/types';
 import { IconServerOutline } from '../../icons';
-import { OrchestratorPage } from './OrchestratorPage';
 
 type RuntimeFilter = 'mine' | 'all';
 
@@ -24,27 +18,7 @@ function formatSeen(iso: string | undefined): string {
 	return new Date(d).toLocaleString();
 }
 
-export function RuntimePage({
-	t,
-	runtimes,
-	meUserId,
-	orchestration,
-	employeeCatalog,
-	onCreateRun,
-	onApproveGit,
-	onAddHandoff,
-	onSetHandoffStatus,
-}: {
-	t: TFunction;
-	runtimes: RuntimeJson[];
-	meUserId?: string;
-	orchestration: AiEmployeesOrchestrationState;
-	employeeCatalog: AiEmployeeCatalogEntry[];
-	onCreateRun: (goal: string, targetBranch: string) => void;
-	onApproveGit: (runId: string) => Promise<{ ok: boolean; error?: string }>;
-	onAddHandoff: (runId: string, toEmployeeId: string, note?: string) => void;
-	onSetHandoffStatus: (runId: string, handoffId: string, status: AiOrchestrationHandoffStatus) => void;
-}) {
+export function RuntimePage({ t, runtimes, meUserId }: { t: TFunction; runtimes: RuntimeJson[]; meUserId?: string }) {
 	const [filter, setFilter] = useState<RuntimeFilter>('mine');
 	const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
 	const [selectedId, setSelectedId] = useState('');
@@ -210,20 +184,6 @@ export function RuntimePage({
 					)}
 				</div>
 			</div>
-
-			<section className="ref-ai-employees-runtime-orch" aria-label={t('aiEmployees.runtimeSectionOrchestration')}>
-				<h3 className="ref-ai-employees-runtime-orch-title">{t('aiEmployees.runtimeSectionOrchestration')}</h3>
-				<OrchestratorPage
-					t={t}
-					orchestration={orchestration}
-					employeeCatalog={employeeCatalog}
-					onCreateRun={onCreateRun}
-					onApproveGit={onApproveGit}
-					onAddHandoff={onAddHandoff}
-					onSetHandoffStatus={onSetHandoffStatus}
-					embedded
-				/>
-			</section>
 		</div>
 	);
 }

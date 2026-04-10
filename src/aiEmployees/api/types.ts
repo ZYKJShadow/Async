@@ -9,15 +9,44 @@ export type WSMessage<T = unknown> = {
 	actor_id?: string;
 };
 
+/** 与 async-agent-proxy `issue` 列表/详情 JSON 对齐 */
+export type IssueAssigneeType = 'member' | 'agent';
+
 export type IssueJson = {
 	id: string;
 	workspace_id?: string;
+	number?: number;
+	identifier?: string;
 	title: string;
 	description?: string | null;
 	status: string;
 	priority?: string;
+	assignee_type?: IssueAssigneeType | string | null;
+	assignee_id?: string | null;
+	creator_type?: string;
+	creator_id?: string;
+	parent_issue_id?: string | null;
+	project_id?: string | null;
+	position?: number;
+	due_date?: string | null;
 	created_at?: string;
 	updated_at?: string;
+};
+
+export type WorkspaceMemberJson = {
+	user_id: string;
+	name: string;
+	email: string;
+};
+
+export type CreateIssuePayload = {
+	title: string;
+	description?: string;
+	parent_issue_id?: string;
+	assignee_type?: IssueAssigneeType;
+	assignee_id?: string;
+	status?: string;
+	priority?: string;
 };
 
 export type AgentJson = {

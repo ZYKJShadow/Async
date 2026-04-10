@@ -4,7 +4,15 @@ import type { IssueJson } from '../api/types';
 
 const STATUS_COLUMNS = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked'];
 
-export function BoardPage({ issues, t }: { issues: IssueJson[]; t: TFunction }) {
+export function BoardPage({
+	issues,
+	t,
+	onSelectIssue,
+}: {
+	issues: IssueJson[];
+	t: TFunction;
+	onSelectIssue?: (issue: IssueJson) => void;
+}) {
 	const issuesByStatus = useMemo(() => {
 		const buckets: Record<string, IssueJson[]> = {};
 		for (const i of issues) {
@@ -33,10 +41,15 @@ export function BoardPage({ issues, t }: { issues: IssueJson[]; t: TFunction }) 
 					<div className="ref-ai-employees-column-head">{st.replace(/_/g, ' ')}</div>
 					<div className="ref-ai-employees-column-body">
 						{(issuesByStatus[st] ?? []).map((issue) => (
-							<div key={issue.id} className="ref-ai-employees-card">
+							<button
+								key={issue.id}
+								type="button"
+								className="ref-ai-employees-card ref-ai-employees-card--clickable"
+								onClick={() => onSelectIssue?.(issue)}
+							>
 								<strong>{issue.title}</strong>
 								{issue.description ? <p>{issue.description}</p> : null}
-							</div>
+							</button>
 						))}
 					</div>
 				</section>

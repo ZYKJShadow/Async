@@ -31,10 +31,13 @@ import {
 	AiEmployeesApiError,
 	apiGetMe,
 	apiListAgents,
+	apiCreateIssue,
 	apiListIssues,
+	apiListMembers,
 	apiListRuntimes,
 	apiListSkills,
 	apiListWorkspaces,
+	apiPatchIssue,
 } from '../api/client';
 import {
 	apiGetBootstrapStatus,
@@ -44,7 +47,7 @@ import {
 } from '../api/orgClient';
 import type { OrgBootstrapStatus, OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
 import { AiEmployeesWsClient } from '../api/ws';
-import type { AgentJson, IssueJson, RuntimeJson, SkillJson } from '../api/types';
+import type { AgentJson, CreateIssuePayload, IssueJson, RuntimeJson, SkillJson, WorkspaceMemberJson } from '../api/types';
 import { onboardingBlocksDashboard, resolveOnboardingStep, type AiEmployeesOnboardingStep } from '../domain/bootstrap';
 import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
 
@@ -65,6 +68,7 @@ export function useAiEmployeesController() {
 	const [agents, setAgents] = useState<AgentJson[]>([]);
 	const [skills, setSkills] = useState<SkillJson[]>([]);
 	const [runtimes, setRuntimes] = useState<RuntimeJson[]>([]);
+	const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMemberJson[]>([]);
 	const [meLabel, setMeLabel] = useState('');
 	const [meProfile, setMeProfile] = useState<{ name?: string; email?: string; id?: string }>({});
 	const [sessionPhase, setSessionPhase] = useState<AiEmployeesSessionPhase>('bootstrapping');
@@ -178,16 +182,18 @@ export function useAiEmployeesController() {
 	}, [shell]);
 
 	const fetchWorkspacePayload = useCallback(async (c: AiEmployeesConnection, wid: string) => {
-		const [iss, ag, sk, rt] = await Promise.all([
+		const [iss, ag, sk, rt, mem] = await Promise.all([
 			apiListIssues(c, wid),
 			apiListAgents(c, wid),
 			apiListSkills(c, wid),
 			apiListRuntimes(c, wid),
+			apiListMembers(c, wid).catch(() => []),
 		]);
 		setIssues(iss);
 		setAgents(ag);
 		setSkills(sk);
 		setRuntimes(rt);
+		setWorkspaceMembers(mem);
 	}, []);
 
 	const applyWorkspaceBootstrap = useCallback(async (c: AiEmployeesConnection, wid: string, workspaceListLen: number) => {
@@ -359,6 +365,7 @@ export function useAiEmployeesController() {
 					setAgents([]);
 					setSkills([]);
 					setRuntimes([]);
+					setWorkspaceMembers([]);
 					setBootstrapStatus(null);
 					setOrgEmployees([]);
 					setSessionPhase('no_workspace');
@@ -378,6 +385,7 @@ export function useAiEmployeesController() {
 				setAgents([]);
 				setSkills([]);
 				setRuntimes([]);
+				setWorkspaceMembers([]);
 				setSessionPhase('need_connection');
 			}
 		},
@@ -582,6 +590,7 @@ export function useAiEmployeesController() {
 		setAgents([]);
 		setSkills([]);
 		setRuntimes([]);
+		setWorkspaceMembers([]);
 		setBootstrapStatus(null);
 		setOrgEmployees([]);
 		setOnboardingStep('pick_workspace');
@@ -597,6 +606,7 @@ export function useAiEmployeesController() {
 				setAgents([]);
 				setSkills([]);
 				setRuntimes([]);
+				setWorkspaceMembers([]);
 				return;
 			}
 			const c = normConn(aiSettings);
@@ -623,6 +633,7 @@ export function useAiEmployeesController() {
 				setAgents([]);
 				setSkills([]);
 				setRuntimes([]);
+				setWorkspaceMembers([]);
 				return;
 			}
 			if (sessionPhase === 'ready' || sessionPhase === 'onboarding') {
@@ -739,6 +750,30 @@ export function useAiEmployeesController() {
 		[shell]
 	);
 
+	const patchWorkspaceIssue = useCallback(
+		async (issueId: string, patch: Record<string, unknown>) => {
+			const wid = workspaceId;
+			if (!wid) {
+				throw new Error('No workspace selected');
+			}
+			await apiPatchIssue(normConn(aiSettings), wid, issueId, patch);
+			await refreshIssuesOnly();
+		},
+		[aiSettings, refreshIssuesOnly, workspaceId]
+	);
+
+	const createWorkspaceIssue = useCallback(
+		async (payload: CreateIssuePayload) => {
+			const wid = workspaceId;
+			if (!wid) {
+				throw new Error('No workspace selected');
+			}
+			await apiCreateIssue(normConn(aiSettings), wid, payload);
+			await refreshIssuesOnly();
+		},
+		[aiSettings, refreshIssuesOnly, workspaceId]
+	);
+
 	return {
 		shell,
 		DEFAULT_API,
@@ -756,6 +791,7 @@ export function useAiEmployeesController() {
 		agents,
 		skills,
 		runtimes,
+		workspaceMembers,
 		meLabel,
 		meProfile,
 		sessionPhase,
@@ -785,6 +821,8 @@ export function useAiEmployeesController() {
 		approveOrchestrationGit,
 		addOrchestrationHandoff,
 		setOrchestrationHandoffStatus,
+		patchWorkspaceIssue,
+		createWorkspaceIssue,
 		employeeCatalog: aiSettings.employeeCatalog ?? [],
 		bootstrapStatus,
 		onboardingStep,
