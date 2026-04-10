@@ -7,13 +7,21 @@ import {
 } from '../../appearanceSettings';
 import { readPrefersDark, readStoredColorMode, resolveEffectiveScheme } from '../../colorMode';
 import { hideBootSplash } from '../../bootSplash';
-import type { AiEmployeesSettings, AiEmployeeCatalogEntry, AiOrchestrationRun } from '../../../shared/aiEmployeesSettings';
+import type {
+	AiEmployeesSettings,
+	AiEmployeeCatalogEntry,
+	AiOrchestrationHandoff,
+	AiOrchestrationHandoffStatus,
+	AiOrchestrationRun,
+} from '../../../shared/aiEmployeesSettings';
 import { DEFAULT_API, DEFAULT_WS, normConn } from '../domain/connection';
 import { pickWorkspaceId, resolveMappedWorkspace } from '../domain/workspacePaths';
 import {
+	addHandoffToRunInState,
 	approveGitForRun,
 	createDraftRun,
 	emptyOrchestrationState,
+	setHandoffStatusInState,
 	upsertRun,
 } from '../domain/orchestration';
 import { buildModelOptions } from '../adapters/modelAdapter';
@@ -42,7 +50,7 @@ import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
-export type AiEmployeesTabId = 'communication' | 'agents' | 'orchestrator' | 'connection';
+export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'orchestrator' | 'connection';
 
 export function useAiEmployeesController() {
 	const shell = window.asyncShell as Shell | undefined;
@@ -50,7 +58,7 @@ export function useAiEmployeesController() {
 	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(() => defaultAppearanceSettings());
 	const [localRoot, setLocalRoot] = useState<string | null>(null);
 	const [aiSettings, setAiSettings] = useState<AiEmployeesSettings>({});
-	const [tab, setTab] = useState<AiEmployeesTabId>('communication');
+	const [tab, setTab] = useState<AiEmployeesTabId>('inbox');
 	const [workspaceId, setWorkspaceId] = useState<string>('');
 	const [workspaces, setWorkspaces] = useState<{ id: string; name?: string }[]>([]);
 	const [issues, setIssues] = useState<IssueJson[]>([]);
@@ -696,6 +704,41 @@ export function useAiEmployeesController() {
 		[aiSettings, localRoot, persistAiSettings, shell]
 	);
 
+	const addOrchestrationHandoff = useCallback(
+		(runId: string, toEmployeeId: string, note?: string) => {
+			setAiSettings((prev) => {
+				const orch = prev.orchestration ?? emptyOrchestrationState();
+				const run = orch.runs.find((r) => r.id === runId);
+				if (!run) return prev;
+				const handoff: AiOrchestrationHandoff = {
+					id: crypto.randomUUID(),
+					toEmployeeId,
+					status: 'pending',
+					note: note?.trim() || undefined,
+					atIso: new Date().toISOString(),
+				};
+				const nextOrch = addHandoffToRunInState(orch, runId, handoff);
+				const next = { ...prev, orchestration: nextOrch };
+				void shell?.invoke('settings:set', { aiEmployees: next });
+				return next;
+			});
+		},
+		[shell]
+	);
+
+	const setOrchestrationHandoffStatus = useCallback(
+		(runId: string, handoffId: string, status: AiOrchestrationHandoffStatus) => {
+			setAiSettings((prev) => {
+				const orch = prev.orchestration ?? emptyOrchestrationState();
+				const nextOrch = setHandoffStatusInState(orch, runId, handoffId, status);
+				const next = { ...prev, orchestration: nextOrch };
+				void shell?.invoke('settings:set', { aiEmployees: next });
+				return next;
+			});
+		},
+		[shell]
+	);
+
 	return {
 		shell,
 		DEFAULT_API,
@@ -740,6 +783,8 @@ export function useAiEmployeesController() {
 		orchestration,
 		createOrchestrationRun,
 		approveOrchestrationGit,
+		addOrchestrationHandoff,
+		setOrchestrationHandoffStatus,
 		employeeCatalog: aiSettings.employeeCatalog ?? [],
 		bootstrapStatus,
 		onboardingStep,

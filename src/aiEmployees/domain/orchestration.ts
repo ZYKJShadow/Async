@@ -1,4 +1,9 @@
-import type { AiEmployeesOrchestrationState, AiOrchestrationRun, AiOrchestrationHandoff } from '../../../shared/aiEmployeesSettings';
+import type {
+	AiEmployeesOrchestrationState,
+	AiOrchestrationRun,
+	AiOrchestrationHandoff,
+	AiOrchestrationHandoffStatus,
+} from '../../../shared/aiEmployeesSettings';
 
 export function emptyOrchestrationState(): AiEmployeesOrchestrationState {
 	return { runs: [] };
@@ -40,5 +45,34 @@ export function addHandoff(
 		...run,
 		status: 'running',
 		handoffs: [...run.handoffs, h],
+	};
+}
+
+export function addHandoffToRunInState(
+	state: AiEmployeesOrchestrationState,
+	runId: string,
+	handoff: AiOrchestrationHandoff
+): AiEmployeesOrchestrationState {
+	return {
+		...state,
+		runs: state.runs.map((r) => (r.id === runId ? addHandoff(r, handoff) : r)),
+	};
+}
+
+export function setHandoffStatusInState(
+	state: AiEmployeesOrchestrationState,
+	runId: string,
+	handoffId: string,
+	status: AiOrchestrationHandoffStatus
+): AiEmployeesOrchestrationState {
+	return {
+		...state,
+		runs: state.runs.map((r) => {
+			if (r.id !== runId) return r;
+			return {
+				...r,
+				handoffs: r.handoffs.map((h) => (h.id === handoffId ? { ...h, status } : h)),
+			};
+		}),
 	};
 }

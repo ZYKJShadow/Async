@@ -4,16 +4,19 @@ import { AiEmployeesTitlebar } from './AiEmployeesTitlebar';
 import {
 	IconBot,
 	IconChevron,
-	IconGitSCM,
-	IconMessageCircle,
+	IconCircleUser,
+	IconInbox,
+	IconListTodo,
+	IconMonitor,
 	IconRefresh,
 	IconSettings,
 } from '../icons';
 import { useAiEmployeesController, type AiEmployeesTabId } from './hooks/useAiEmployeesController';
 import { ConnectionPage } from './pages/ConnectionPage';
 import { EmployeesPage } from './pages/EmployeesPage';
-import { CommunicationPage } from './pages/CommunicationPage';
-import { OrchestratorPage } from './pages/OrchestratorPage';
+import { InboxPage } from './pages/InboxPage';
+import { IssuesHubPage } from './pages/IssuesHubPage';
+import { RuntimePage } from './pages/RuntimePage';
 import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
 import './aiEmployees.css';
 
@@ -49,12 +52,16 @@ export function AiEmployeesApp() {
 
 	const tabPageTitle = (id: AiEmployeesTabId): string => {
 		switch (id) {
-			case 'communication':
-				return t('aiEmployees.tab.communication');
+			case 'inbox':
+				return t('aiEmployees.tab.inbox');
+			case 'myIssues':
+				return t('aiEmployees.tab.myIssues');
+			case 'issues':
+				return t('aiEmployees.tab.issues');
 			case 'agents':
 				return t('aiEmployees.tab.team');
 			case 'orchestrator':
-				return t('aiEmployees.tab.runs');
+				return t('aiEmployees.tab.runtimes');
 			case 'connection':
 				return t('aiEmployees.tab.settings');
 			default:
@@ -62,8 +69,8 @@ export function AiEmployeesApp() {
 		}
 	};
 
-	const visibleTabs: AiEmployeesTabId[] = ['communication', 'agents', 'orchestrator', 'connection'];
-	const activeTab = visibleTabs.includes(c.tab) ? c.tab : 'communication';
+	const visibleTabs: AiEmployeesTabId[] = ['inbox', 'myIssues', 'issues', 'agents', 'orchestrator', 'connection'];
+	const activeTab = visibleTabs.includes(c.tab) ? c.tab : 'inbox';
 
 	const navBusy = c.sessionPhase === 'bootstrapping';
 	const navBtn = (id: AiEmployeesTabId, label: string, icon: ReactNode, disabled?: boolean) => (
@@ -150,9 +157,11 @@ export function AiEmployeesApp() {
 								<div className="ref-ai-employees-nav-group">
 									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.workspace')}</div>
 									<div className="ref-ai-employees-nav-group-content">
-										{navBtn('communication', t('aiEmployees.tab.communication'), <IconMessageCircle className="ref-ai-employees-nav-icon" />)}
+										{navBtn('inbox', t('aiEmployees.tab.inbox'), <IconInbox className="ref-ai-employees-nav-icon" />)}
+										{navBtn('myIssues', t('aiEmployees.tab.myIssues'), <IconCircleUser className="ref-ai-employees-nav-icon" />)}
+										{navBtn('issues', t('aiEmployees.tab.issues'), <IconListTodo className="ref-ai-employees-nav-icon" />)}
 										{navBtn('agents', t('aiEmployees.tab.team'), <IconBot className="ref-ai-employees-nav-icon" />)}
-										{navBtn('orchestrator', t('aiEmployees.tab.runs'), <IconGitSCM className="ref-ai-employees-nav-icon" />)}
+										{navBtn('orchestrator', t('aiEmployees.tab.runtimes'), <IconMonitor className="ref-ai-employees-nav-icon" />)}
 									</div>
 								</div>
 								<div className="ref-ai-employees-nav-group">
@@ -239,8 +248,26 @@ export function AiEmployeesApp() {
 									</div>
 								) : null}
 
-								{activeTab === 'communication' ? (
-									<CommunicationPage t={t} orgEmployees={c.orgEmployees} onCreateRun={c.createOrchestrationRun} />
+								{activeTab === 'inbox' ? (
+									<InboxPage t={t} orgEmployees={c.orgEmployees} onCreateRun={c.createOrchestrationRun} />
+								) : null}
+
+								{activeTab === 'myIssues' ? (
+									<IssuesHubPage
+										t={t}
+										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
+										issues={c.issues}
+										variant="my"
+									/>
+								) : null}
+
+								{activeTab === 'issues' ? (
+									<IssuesHubPage
+										t={t}
+										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
+										issues={c.issues}
+										variant="workspace"
+									/>
 								) : null}
 
 								{activeTab === 'agents' ? (
@@ -268,11 +295,16 @@ export function AiEmployeesApp() {
 								) : null}
 
 								{activeTab === 'orchestrator' ? (
-									<OrchestratorPage
+									<RuntimePage
 										t={t}
+										runtimes={c.runtimes}
+										meUserId={c.meProfile.id}
 										orchestration={c.orchestration}
+										employeeCatalog={c.employeeCatalog}
 										onCreateRun={c.createOrchestrationRun}
 										onApproveGit={c.approveOrchestrationGit}
+										onAddHandoff={c.addOrchestrationHandoff}
+										onSetHandoffStatus={c.setOrchestrationHandoffStatus}
 									/>
 								) : null}
 

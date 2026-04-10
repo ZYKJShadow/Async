@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from '../../i18n';
-import { IconMessageCircle, IconSend } from '../../icons';
+import { IconDotsHorizontal, IconInbox, IconSend } from '../../icons';
 import type { OrgEmployee } from '../api/orgTypes';
 
 type CommMessage = {
@@ -10,7 +10,7 @@ type CommMessage = {
 	at: number;
 };
 
-export function CommunicationPage({
+export function InboxPage({
 	t,
 	orgEmployees,
 	onCreateRun,
@@ -31,12 +31,27 @@ export function CommunicationPage({
 	const [taskTitle, setTaskTitle] = useState('');
 	const [taskBody, setTaskBody] = useState('');
 	const [taskBranch, setTaskBranch] = useState('');
+	const [moreOpen, setMoreOpen] = useState(false);
+	const moreRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (selectedId && !sorted.some((e) => e.id === selectedId)) {
 			setSelectedId(null);
 		}
 	}, [sorted, selectedId]);
+
+	useEffect(() => {
+		if (!moreOpen) {
+			return;
+		}
+		const onDoc = (e: MouseEvent) => {
+			if (!moreRef.current?.contains(e.target as Node)) {
+				setMoreOpen(false);
+			}
+		};
+		document.addEventListener('mousedown', onDoc);
+		return () => document.removeEventListener('mousedown', onDoc);
+	}, [moreOpen]);
 
 	const selected = selectedId ? sorted.find((e) => e.id === selectedId) : undefined;
 
@@ -49,7 +64,7 @@ export function CommunicationPage({
 				const welcome: CommMessage = {
 					id: crypto.randomUUID(),
 					role: 'system',
-					body: t('aiEmployees.communication.welcomeLine'),
+					body: t('aiEmployees.inbox.welcomeLine'),
 					at: Date.now(),
 				};
 				return { ...prev, [employeeId]: [welcome] };
@@ -86,7 +101,7 @@ export function CommunicationPage({
 		if (!title) {
 			return;
 		}
-		const goal = body ? t('aiEmployees.communication.taskGoalFormat', { name: selected.displayName, title, body }) : `[${selected.displayName}] ${title}`;
+		const goal = body ? t('aiEmployees.inbox.taskGoalFormat', { name: selected.displayName, title, body }) : `[${selected.displayName}] ${title}`;
 		onCreateRun(goal, taskBranch.trim());
 		setTaskOpen(false);
 		setTaskTitle('');
@@ -97,52 +112,82 @@ export function CommunicationPage({
 	const thread = selectedId ? messagesByEmployee[selectedId] ?? [] : [];
 
 	return (
-		<div className="ref-ai-employees-comm">
-			<header className="ref-ai-employees-comm-head">
-				<h2 className="ref-ai-employees-comm-head-title">{t('aiEmployees.tab.communication')}</h2>
-			</header>
-
-			<div className="ref-ai-employees-comm-split">
-				<aside className="ref-ai-employees-comm-rail" aria-label={t('aiEmployees.communication.railAria')}>
-					{sorted.length === 0 ? (
-						<p className="ref-ai-employees-comm-rail-empty ref-ai-employees-muted">{t('aiEmployees.communication.noMembers')}</p>
-					) : (
-						<ul className="ref-ai-employees-comm-rail-list">
-							{sorted.map((employee) => {
-								const active = employee.id === selectedId;
-								const initial = employee.displayName.trim().slice(0, 1).toUpperCase() || '?';
-								return (
-									<li key={employee.id}>
-										<button
-											type="button"
-											className={`ref-ai-employees-comm-peer ${active ? 'is-active' : ''}`}
-											onClick={() => pickEmployee(employee.id)}
-										>
-											<span className="ref-ai-employees-comm-peer-avatar" aria-hidden>
-												{initial}
-											</span>
-											<span className="ref-ai-employees-comm-peer-text">
-												<span className="ref-ai-employees-comm-peer-name">{employee.displayName}</span>
-												<span className="ref-ai-employees-comm-peer-role ref-ai-employees-muted">
-													{employee.customRoleTitle || employee.roleKey}
-												</span>
-											</span>
-										</button>
-									</li>
-								);
-							})}
-						</ul>
-					)}
-				</aside>
-
-				<section className="ref-ai-employees-comm-main">
-					{!selected ? (
-						<div className="ref-ai-employees-comm-empty">
-							<div className="ref-ai-employees-comm-empty-icon" aria-hidden>
-								<IconMessageCircle className="ref-ai-employees-comm-empty-svg" />
+		<div className="ref-ai-employees-inbox">
+			<div className="ref-ai-employees-inbox-split">
+				<div className="ref-ai-employees-inbox-list-col">
+					<div className="ref-ai-employees-inbox-list-head">
+						<div className="ref-ai-employees-inbox-list-head-left">
+							<h2 className="ref-ai-employees-inbox-list-title">{t('aiEmployees.tab.inbox')}</h2>
+						</div>
+						<div className="ref-ai-employees-inbox-list-head-actions" ref={moreRef}>
+							<button
+								type="button"
+								className="ref-agent-sidebar-icon-btn"
+								aria-expanded={moreOpen}
+								aria-haspopup="menu"
+								aria-label={t('aiEmployees.inbox.moreActions')}
+								onClick={() => setMoreOpen((o) => !o)}
+							>
+								<IconDotsHorizontal />
+							</button>
+							{moreOpen ? (
+								<div className="ref-ai-employees-inbox-dropdown" role="menu">
+									<button type="button" className="ref-ai-employees-inbox-dropdown-item" role="menuitem" onClick={() => setMoreOpen(false)}>
+										{t('aiEmployees.inbox.menuMarkAllRead')}
+									</button>
+									<button type="button" className="ref-ai-employees-inbox-dropdown-item" role="menuitem" onClick={() => setMoreOpen(false)}>
+										{t('aiEmployees.inbox.menuArchiveAll')}
+									</button>
+								</div>
+							) : null}
+						</div>
+					</div>
+					<div className="ref-ai-employees-inbox-list-scroll">
+						{sorted.length === 0 ? (
+							<div className="ref-ai-employees-inbox-list-zero">
+								<IconInbox className="ref-ai-employees-inbox-list-zero-icon" aria-hidden />
+								<p className="ref-ai-employees-inbox-list-zero-text">{t('aiEmployees.inbox.noThreads')}</p>
 							</div>
-							<p className="ref-ai-employees-comm-empty-title">{t('aiEmployees.communication.emptyTitle')}</p>
-							<p className="ref-ai-employees-comm-empty-hint ref-ai-employees-muted">{t('aiEmployees.communication.emptyHint')}</p>
+						) : (
+							<ul className="ref-ai-employees-inbox-peer-list" aria-label={t('aiEmployees.inbox.railAria')}>
+								{sorted.map((employee) => {
+									const active = employee.id === selectedId;
+									const initial = employee.displayName.trim().slice(0, 1).toUpperCase() || '?';
+									return (
+										<li key={employee.id}>
+											<button
+												type="button"
+												className={`ref-ai-employees-inbox-peer-row ${active ? 'is-active' : ''}`}
+												onClick={() => pickEmployee(employee.id)}
+											>
+												<span className="ref-ai-employees-inbox-peer-avatar" aria-hidden>
+													{initial}
+												</span>
+												<span className="ref-ai-employees-inbox-peer-meta">
+													<span className="ref-ai-employees-inbox-peer-name">{employee.displayName}</span>
+													<span className="ref-ai-employees-inbox-peer-role">{employee.customRoleTitle || employee.roleKey}</span>
+												</span>
+											</button>
+										</li>
+									);
+								})}
+							</ul>
+						)}
+					</div>
+				</div>
+
+				<div className="ref-ai-employees-inbox-detail">
+					{sorted.length === 0 ? (
+						<div className="ref-ai-employees-inbox-detail-empty">
+							<IconInbox className="ref-ai-employees-inbox-detail-empty-ico" aria-hidden />
+							<p className="ref-ai-employees-inbox-detail-empty-title">{t('aiEmployees.inbox.inboxEmpty')}</p>
+							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">{t('aiEmployees.inbox.inboxEmptyHint')}</p>
+						</div>
+					) : !selected ? (
+						<div className="ref-ai-employees-inbox-detail-empty">
+							<IconInbox className="ref-ai-employees-inbox-detail-empty-ico ref-ai-employees-inbox-detail-empty-ico--muted" aria-hidden />
+							<p className="ref-ai-employees-inbox-detail-empty-title">{t('aiEmployees.inbox.detailPickTitle')}</p>
+							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">{t('aiEmployees.inbox.detailPickHint')}</p>
 						</div>
 					) : (
 						<>
@@ -162,7 +207,7 @@ export function CommunicationPage({
 										className="ref-ai-employees-comm-input ref-ai-employees-input"
 										rows={2}
 										value={draft}
-										placeholder={t('aiEmployees.communication.messagePlaceholder')}
+										placeholder={t('aiEmployees.inbox.messagePlaceholder')}
 										onChange={(e) => setDraft(e.target.value)}
 										onKeyDown={(e) => {
 											if (e.key === 'Enter' && !e.shiftKey) {
@@ -173,7 +218,7 @@ export function CommunicationPage({
 									/>
 									<div className="ref-ai-employees-comm-composer-actions">
 										<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setTaskOpen(true)}>
-											{t('aiEmployees.communication.assignTask')}
+											{t('aiEmployees.inbox.assignTask')}
 										</button>
 										<button
 											type="button"
@@ -182,32 +227,28 @@ export function CommunicationPage({
 											onClick={() => sendMessage()}
 										>
 											<IconSend className="ref-ai-employees-comm-send-ico" />
-											{t('aiEmployees.communication.send')}
+											{t('aiEmployees.inbox.send')}
 										</button>
 									</div>
 								</div>
 							</div>
 						</>
 					)}
-				</section>
+				</div>
 			</div>
 
 			{taskOpen && selected ? (
-				<div
-					className="ref-ai-employees-org-modal-overlay"
-					role="presentation"
-					onClick={() => setTaskOpen(false)}
-				>
+				<div className="ref-ai-employees-org-modal-overlay" role="presentation" onClick={() => setTaskOpen(false)}>
 					<div
 						className="ref-ai-employees-org-modal ref-ai-employees-comm-task-modal"
 						role="dialog"
 						aria-modal="true"
-						aria-labelledby="ref-ai-employees-comm-task-title"
+						aria-labelledby="ref-ai-employees-inbox-task-title"
 						onClick={(e) => e.stopPropagation()}
 					>
 						<div className="ref-ai-employees-org-modal-head">
-							<h3 id="ref-ai-employees-comm-task-title" className="ref-ai-employees-org-modal-title">
-								{t('aiEmployees.communication.assignTask')} — {selected.displayName}
+							<h3 id="ref-ai-employees-inbox-task-title" className="ref-ai-employees-org-modal-title">
+								{t('aiEmployees.inbox.assignTask')} — {selected.displayName}
 							</h3>
 							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-modal-close" onClick={() => setTaskOpen(false)} aria-label={t('common.close')}>
 								×
@@ -215,23 +256,23 @@ export function CommunicationPage({
 						</div>
 						<div className="ref-ai-employees-org-modal-body">
 							<label className="ref-ai-employees-catalog-field">
-								<span>{t('aiEmployees.communication.taskTitleLabel')}</span>
+								<span>{t('aiEmployees.inbox.taskTitleLabel')}</span>
 								<input className="ref-ai-employees-input" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
 							</label>
 							<label className="ref-ai-employees-catalog-field">
-								<span>{t('aiEmployees.communication.taskDescLabel')}</span>
+								<span>{t('aiEmployees.inbox.taskDescLabel')}</span>
 								<textarea className="ref-ai-employees-input ref-ai-employees-textarea" rows={4} value={taskBody} onChange={(e) => setTaskBody(e.target.value)} />
 							</label>
 							<label className="ref-ai-employees-catalog-field">
-								<span>{t('aiEmployees.communication.taskBranchLabel')}</span>
-								<input className="ref-ai-employees-input" value={taskBranch} onChange={(e) => setTaskBranch(e.target.value)} placeholder={t('aiEmployees.communication.taskBranchPh')} />
+								<span>{t('aiEmployees.inbox.taskBranchLabel')}</span>
+								<input className="ref-ai-employees-input" value={taskBranch} onChange={(e) => setTaskBranch(e.target.value)} placeholder={t('aiEmployees.inbox.taskBranchPh')} />
 							</label>
 							<div className="ref-ai-employees-form-actions ref-ai-employees-org-modal-actions">
 								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setTaskOpen(false)}>
 									{t('common.cancel')}
 								</button>
 								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={!taskTitle.trim()} onClick={() => submitTask()}>
-									{t('aiEmployees.communication.taskSubmit')}
+									{t('aiEmployees.inbox.taskSubmit')}
 								</button>
 							</div>
 						</div>

@@ -37,4 +37,13 @@ export type RuntimeJson = {
 	id: string;
 	name?: string;
 	status?: string;
+	owner_id?: string;
+	provider?: string;
+	runtime_mode?: string;
+	last_seen_at?: string;
+	device_info?: string;
+	daemon_id?: string;
+	created_at?: string;
+	updated_at?: string;
+	metadata?: Record<string, unknown>;
 };
