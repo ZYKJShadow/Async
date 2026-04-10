@@ -5,7 +5,6 @@ describe('roleDraft', () => {
 	it('creates persona seed from role draft', () => {
 		const draft = createEmptyRoleProfileDraft({
 			nationalityCode: 'JP',
-			mbtiType: 'INFJ',
 			jobMission: 'Own roadmap',
 			domainContext: 'B2B saas',
 			communicationNotes: 'Stay concise',
@@ -13,7 +12,6 @@ describe('roleDraft', () => {
 		});
 		expect(toPersonaSeed(draft, 'ceo')).toEqual({
 			nationalityCode: 'JP',
-			mbtiType: 'INFJ',
 			jobMission: 'Own roadmap',
 			domainContext: 'B2B saas',
 			communicationNotes: 'Stay concise',

@@ -1,6 +1,7 @@
-import type { Dispatch, SetStateAction } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiEmployeesSettings } from '../../../shared/aiEmployeesSettings';
+import type { AiEmployeesSessionPhase } from '../sessionTypes';
 
 export function ConnectionPage({
 	t,
@@ -10,6 +11,9 @@ export function ConnectionPage({
 	setAiSettings,
 	wsLog,
 	onSave,
+	workspaceId,
+	sessionPhase,
+	onRebuildTeam,
 }: {
 	t: TFunction;
 	DEFAULT_API: string;
@@ -18,9 +22,14 @@ export function ConnectionPage({
 	setAiSettings: Dispatch<SetStateAction<AiEmployeesSettings>>;
 	wsLog: string[];
 	onSave: () => void;
+	workspaceId: string;
+	sessionPhase: AiEmployeesSessionPhase;
+	onRebuildTeam: () => Promise<void>;
 }) {
+	const [rebuildBusy, setRebuildBusy] = useState(false);
+
 	return (
-		<div className="ref-ai-employees-form">
+		<div className="ref-ai-employees-form ref-ai-employees-settings-page">
 			<label>
 				<span>{t('aiEmployees.apiBaseUrl')}</span>
 				<input
@@ -52,12 +61,45 @@ export function ConnectionPage({
 					{t('aiEmployees.saveConnection')}
 				</button>
 			</div>
-			<p className="ref-ai-employees-muted">{t('aiEmployees.wsLogHint')}</p>
-			<ul className="ref-ai-employees-log">
-				{wsLog.map((line, i) => (
-					<li key={i}>{line}</li>
-				))}
-			</ul>
+			{wsLog.length > 0 ? (
+				<details className="ref-ai-employees-settings-diagnostics">
+					<summary>{t('aiEmployees.wsLogHint')}</summary>
+					<ul className="ref-ai-employees-log">
+						{wsLog.map((line, i) => (
+							<li key={i}>{line}</li>
+						))}
+					</ul>
+				</details>
+			) : null}
+
+			{workspaceId && sessionPhase === 'ready' ? (
+				<section className="ref-ai-employees-settings-team-reset" aria-labelledby="ref-ai-employees-team-reset-title">
+					<h3 id="ref-ai-employees-team-reset-title" className="ref-ai-employees-settings-subtitle">
+						{t('aiEmployees.settings.rebuildTeamTitle')}
+					</h3>
+					<p className="ref-ai-employees-muted ref-ai-employees-settings-team-reset-desc">{t('aiEmployees.settings.rebuildTeamDesc')}</p>
+					<button
+						type="button"
+						className="ref-ai-employees-btn ref-ai-employees-btn--danger"
+						disabled={rebuildBusy}
+						onClick={() => {
+							if (!window.confirm(t('aiEmployees.settings.rebuildTeamConfirm'))) {
+								return;
+							}
+							setRebuildBusy(true);
+							void (async () => {
+								try {
+									await onRebuildTeam();
+								} finally {
+									setRebuildBusy(false);
+								}
+							})();
+						}}
+					>
+						{rebuildBusy ? t('common.loading') : t('aiEmployees.settings.rebuildTeamAction')}
+					</button>
+				</section>
+			) : null}
 		</div>
 	);
 }

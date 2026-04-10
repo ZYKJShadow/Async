@@ -14,7 +14,6 @@ import type { OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
 import { chatBridgeLabel } from '../adapters/chatBridge';
 import { resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
 import { RoleProfileEditor, RolePromptReview } from '../components/RoleProfileEditor';
-import { MbtiAvatar } from '../domain/mbtiVisuals';
 import { emptyPromptDraft } from '../domain/persona';
 import {
 	applyGeneratedPromptDraft,
@@ -214,7 +213,7 @@ export function EmployeesPage({
 			id,
 			displayName: agent.name,
 			role: '',
-			modelSource: 'hybrid',
+			modelSource: 'local_model',
 			linkedRemoteAgentId: agent.id,
 		};
 		onUpsertCatalogEntry(next);
@@ -235,7 +234,6 @@ export function EmployeesPage({
 			displayName: draft.displayName,
 			customRoleTitle: draft.customRoleTitle,
 			nationalityCode: draft.nationalityCode ?? null,
-			mbtiType: draft.mbtiType ?? null,
 			jobMission: draft.jobMission,
 			domainContext: draft.domainContext,
 			communicationNotes: draft.communicationNotes,
@@ -271,8 +269,6 @@ export function EmployeesPage({
 				clearManager: !selectedDraft.managerEmployeeId?.trim(),
 				nationalityCode: selectedDraft.nationalityCode ?? null,
 				clearNationalityCode: !selectedDraft.nationalityCode,
-				mbtiType: selectedDraft.mbtiType ?? null,
-				clearMbtiType: !selectedDraft.mbtiType,
 				personaSeed: toPersonaSeed(selectedDraft, selected.createdByEmployeeId ? 'ceo' : 'user'),
 				clearPersonaSeed: false,
 			});
@@ -373,7 +369,6 @@ export function EmployeesPage({
 					roleKey: employee.roleKey,
 					customRoleTitle: employee.customRoleTitle,
 					isCeo: employee.isCeo,
-					mbtiType: employee.mbtiType,
 					nationalityCode: employee.nationalityCode,
 				})),
 			};
@@ -413,7 +408,6 @@ export function EmployeesPage({
 					templatePromptKey: draft.templatePromptKey,
 					customSystemPrompt: draft.promptDraft.systemPrompt.trim() || undefined,
 					nationalityCode: draft.nationalityCode ?? null,
-					mbtiType: draft.mbtiType ?? null,
 					personaSeed: toPersonaSeed(draft, hireMode === 'ceo' ? 'ceo' : 'user'),
 					modelSource: draft.modelSource,
 				});
@@ -513,7 +507,7 @@ export function EmployeesPage({
 							<li key={employee.id}>
 								<button type="button" className={`ref-ai-employees-org-member-btn ${selected?.id === employee.id ? 'is-active' : ''}`} onClick={() => setSelectedId(employee.id)}>
 									<span className="ref-ai-employees-org-member-name">{employee.displayName}</span>
-									{employee.isCeo ? <span className="ref-ai-employees-pill">{t('aiEmployees.orgCeoBadge')}</span> : null}
+									{employee.isCeo ? <span className="ref-ai-employees-pill">{t('aiEmployees.setup.roleLeadLabel')}</span> : null}
 									<span className="ref-ai-employees-muted">{employee.customRoleTitle || employee.roleKey}</span>
 								</button>
 							</li>
@@ -529,7 +523,9 @@ export function EmployeesPage({
 									{avatarPreview ? (
 										<img src={avatarPreview} alt="" className="ref-ai-employees-org-avatar-img" />
 									) : (
-										<MbtiAvatar mbtiType={selected.mbtiType} size={88} />
+										<div className="ref-ai-employees-org-avatar-ph" aria-hidden>
+											{selected.displayName.trim().slice(0, 1).toUpperCase() || '?'}
+										</div>
 									)}
 									<label className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-avatar-upload">
 										<input type="file" accept="image/*" className="ref-ai-employees-sr-only" onChange={(ev) => void onAvatarPick(ev.target.files?.[0] ?? null)} />
@@ -643,6 +639,13 @@ export function EmployeesPage({
 											<option value="remote_runtime">{t('aiEmployees.modelSource.remote')}</option>
 											<option value="hybrid">{t('aiEmployees.modelSource.hybrid')}</option>
 										</select>
+										<p className="ref-ai-employees-field-hint ref-ai-employees-muted">
+											{row.modelSource === 'local_model'
+												? t('aiEmployees.modelSource.hint.local_model')
+												: row.modelSource === 'remote_runtime'
+													? t('aiEmployees.modelSource.hint.remote_runtime')
+													: t('aiEmployees.modelSource.hint.hybrid')}
+										</p>
 									</label>
 									<label className="ref-ai-employees-catalog-field">
 										<span>{t('aiEmployees.managerEmployee')}</span>

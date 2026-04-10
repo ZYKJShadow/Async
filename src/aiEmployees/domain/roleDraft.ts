@@ -1,10 +1,4 @@
-import type {
-	HiringPlanCandidate,
-	MbtiType,
-	NationalityCode,
-	RolePersonaSeed,
-	RolePromptDraft,
-} from './persona';
+import type { HiringPlanCandidate, NationalityCode, RolePersonaSeed, RolePromptDraft } from './persona';
 import { emptyPromptDraft } from './persona';
 import type { OrgEmployee } from '../api/orgTypes';
 
@@ -16,7 +10,6 @@ export type RoleProfileDraft = {
 	roleKey: string;
 	customRoleTitle: string;
 	nationalityCode?: NationalityCode | null;
-	mbtiType?: MbtiType | null;
 	modelSource: ModelSource;
 	localModelId: string;
 	jobMission: string;
@@ -40,8 +33,7 @@ export function createEmptyRoleProfileDraft(
 		roleKey: 'custom',
 		customRoleTitle: '',
 		nationalityCode: 'CN',
-		mbtiType: 'INTJ',
-		modelSource: 'hybrid',
+		modelSource: 'local_model',
 		localModelId: '',
 		jobMission: '',
 		domainContext: '',
@@ -61,7 +53,6 @@ export function createEmptyRoleProfileDraft(
 export function toPersonaSeed(draft: RoleProfileDraft, generatedBy: RolePersonaSeed['generatedBy']): RolePersonaSeed {
 	return {
 		nationalityCode: draft.nationalityCode ?? undefined,
-		mbtiType: draft.mbtiType ?? undefined,
 		jobMission: draft.jobMission.trim(),
 		domainContext: draft.domainContext.trim(),
 		communicationNotes: draft.communicationNotes.trim(),
@@ -85,8 +76,7 @@ export function createRoleDraftFromHiringCandidate(candidate: HiringPlanCandidat
 		roleKey: candidate.roleKey,
 		customRoleTitle: candidate.customRoleTitle ?? '',
 		nationalityCode: candidate.nationalityCode ?? 'CN',
-		mbtiType: candidate.mbtiType ?? 'INTJ',
-		modelSource: candidate.modelSource,
+		modelSource: 'local_model',
 		managerEmployeeId: candidate.managerEmployeeId,
 		jobMission: candidate.jobMission ?? '',
 		domainContext: candidate.domainContext ?? '',
@@ -104,8 +94,7 @@ export function createRoleDraftFromOrgEmployee(employee: OrgEmployee, localModel
 		roleKey: employee.roleKey,
 		customRoleTitle: employee.customRoleTitle ?? '',
 		nationalityCode: employee.nationalityCode ?? 'CN',
-		mbtiType: employee.mbtiType ?? 'INTJ',
-		modelSource: employee.modelSource,
+		modelSource: 'local_model',
 		localModelId,
 		managerEmployeeId: employee.managerEmployeeId ?? undefined,
 		createdByEmployeeId: employee.createdByEmployeeId ?? undefined,

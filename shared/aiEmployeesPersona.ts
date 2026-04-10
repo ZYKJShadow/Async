@@ -1,31 +1,9 @@
-export const MBTI_TYPES = [
-	'INTJ',
-	'INTP',
-	'ENTJ',
-	'ENTP',
-	'INFJ',
-	'INFP',
-	'ENFJ',
-	'ENFP',
-	'ISTJ',
-	'ISFJ',
-	'ESTJ',
-	'ESFJ',
-	'ISTP',
-	'ISFP',
-	'ESTP',
-	'ESFP',
-] as const;
-
-export type MbtiType = (typeof MBTI_TYPES)[number];
-
 export const NATIONALITY_CODES = ['CN', 'US', 'UK', 'JP', 'KR', 'DE', 'FR', 'SG'] as const;
 
 export type NationalityCode = (typeof NATIONALITY_CODES)[number];
 
 export type RolePersonaSeed = {
 	nationalityCode?: NationalityCode | null;
-	mbtiType?: MbtiType | null;
 	jobMission?: string;
 	domainContext?: string;
 	communicationNotes?: string;
@@ -47,7 +25,6 @@ export type HiringPlanCandidate = {
 	customRoleTitle?: string;
 	displayName: string;
 	nationalityCode?: NationalityCode | null;
-	mbtiType?: MbtiType | null;
 	modelSource: 'local_model' | 'remote_runtime' | 'hybrid';
 	managerEmployeeId?: string;
 	reason: string;
@@ -64,7 +41,6 @@ export type RolePromptGeneratorInput = {
 	displayName: string;
 	customRoleTitle?: string;
 	nationalityCode?: NationalityCode | null;
-	mbtiType?: MbtiType | null;
 	jobMission?: string;
 	domainContext?: string;
 	communicationNotes?: string;
@@ -84,7 +60,6 @@ export type HiringPlanGeneratorInput = {
 		roleKey: string;
 		customRoleTitle?: string | null;
 		isCeo: boolean;
-		mbtiType?: MbtiType | null;
 		nationalityCode?: NationalityCode | null;
 	}>;
 };

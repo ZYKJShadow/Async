@@ -32,6 +32,7 @@ import {
 	apiGetBootstrapStatus,
 	apiListOrgEmployees,
 	apiListPromptTemplates,
+	apiPostBootstrapReset,
 } from '../api/orgClient';
 import type { OrgBootstrapStatus, OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
 import { AiEmployeesWsClient } from '../api/ws';
@@ -82,6 +83,7 @@ export function useAiEmployeesController() {
 	const [orgEmployees, setOrgEmployees] = useState<OrgEmployee[]>([]);
 	const [promptTemplates, setPromptTemplates] = useState<OrgPromptTemplate[]>([]);
 	const [onboardingErr, setOnboardingErr] = useState<string | null>(null);
+	const [holdSetupDuringBootstrap, setHoldSetupDuringBootstrap] = useState(false);
 	const wsRef = useRef<AiEmployeesWsClient | null>(null);
 
 	useEffect(() => {
@@ -516,6 +518,21 @@ export function useAiEmployeesController() {
 		persistAiSettings({ ...aiSettings, workspaceMap: nextMap });
 	}, [localRoot, workspaceId, aiSettings, persistAiSettings]);
 
+	const bindLocalWorkspaceToId = useCallback(
+		(remoteWorkspaceId: string) => {
+			if (!localRoot || !remoteWorkspaceId) {
+				return;
+			}
+			const nextMap = { ...(aiSettings.workspaceMap ?? {}), [localRoot]: remoteWorkspaceId };
+			persistAiSettings({
+				...aiSettings,
+				workspaceMap: nextMap,
+				lastRemoteWorkspaceId: remoteWorkspaceId,
+			});
+		},
+		[localRoot, aiSettings, persistAiSettings]
+	);
+
 	const modelOptions = useMemo(() => buildModelOptions(localModels), [localModels]);
 	const modelOptionIdSet = useMemo(() => new Set(modelOptions.map((m) => m.id)), [modelOptions]);
 
@@ -553,6 +570,23 @@ export function useAiEmployeesController() {
 		[aiSettings, persistAiSettings]
 	);
 
+	const resetWorkspaceTeamBootstrap = useCallback(async () => {
+		const wid = workspaceId;
+		if (!wid) {
+			return;
+		}
+		const c = normConn(aiSettings);
+		for (const employee of orgEmployees) {
+			clearEmployeeLocalModel(employee.id);
+		}
+		await apiPostBootstrapReset(c, wid);
+		await syncOnboardingAfterMutation();
+	}, [aiSettings, workspaceId, orgEmployees, clearEmployeeLocalModel, syncOnboardingAfterMutation]);
+
+	const clearLoadErr = useCallback(() => {
+		setLoadErr(null);
+	}, []);
+
 	const saveConnectionAndReconnect = useCallback(() => {
 		const next: AiEmployeesSettings = {
 			...aiSettings,
@@ -561,8 +595,24 @@ export function useAiEmployeesController() {
 			token: aiSettings.token ?? 'dev',
 		};
 		persistAiSettings(next);
-		void refreshDataRef.current(normConn(next), next);
-	}, [aiSettings, persistAiSettings]);
+		setHoldSetupDuringBootstrap(true);
+		void refreshData(normConn(next), next).finally(() => {
+			setHoldSetupDuringBootstrap(false);
+		});
+	}, [aiSettings, persistAiSettings, refreshData]);
+
+	const backToWorkspacePicker = useCallback(() => {
+		setWorkspaceId('');
+		setIssues([]);
+		setAgents([]);
+		setSkills([]);
+		setRuntimes([]);
+		setBootstrapStatus(null);
+		setOrgEmployees([]);
+		setOnboardingStep('pick_workspace');
+		setOnboardingErr(null);
+		setLoadErr(null);
+	}, []);
 
 	const pickWorkspaceAndRefresh = useCallback(
 		async (id: string) => {
@@ -581,6 +631,14 @@ export function useAiEmployeesController() {
 		},
 		[aiSettings, applyWorkspaceBootstrap, fetchWorkspacePayload, workspaces.length]
 	);
+
+	const pickLocalWorkspaceFolder = useCallback(async (): Promise<{ ok: boolean }> => {
+		if (!shell) {
+			return { ok: false };
+		}
+		const r = (await shell.invoke('workspace:pickFolder')) as { ok?: boolean; path?: string };
+		return { ok: Boolean(r.ok && r.path) };
+	}, [shell]);
 
 	const onWorkspaceSelectChange = useCallback(
 		(id: string) => {
@@ -691,8 +749,10 @@ export function useAiEmployeesController() {
 		meLabel,
 		meProfile,
 		sessionPhase,
+		holdSetupDuringBootstrap,
 		localModels,
 		loadErr,
+		clearLoadErr,
 		wsLog,
 		taskEvents,
 		conn,
@@ -701,6 +761,7 @@ export function useAiEmployeesController() {
 		refreshDataRef,
 		softRefreshPayload,
 		bindLocalWorkspace,
+		bindLocalWorkspaceToId,
 		modelOptions,
 		modelOptionIdSet,
 		bindAgentLocalModel,
@@ -726,5 +787,8 @@ export function useAiEmployeesController() {
 		loadPromptTemplatesForOnboarding,
 		refreshOrgEmployeesList,
 		pickWorkspaceAndRefresh,
+		pickLocalWorkspaceFolder,
+		backToWorkspacePicker,
+		resetWorkspaceTeamBootstrap,
 	};
 }

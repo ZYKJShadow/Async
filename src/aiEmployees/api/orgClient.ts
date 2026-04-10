@@ -1,6 +1,6 @@
 import { apiFetch, AiEmployeesApiError, buildHttpUrl, type AiEmployeesConnection } from './client';
 import type { OrgBootstrapStatus, OrgEmployee, OrgPromptTemplate } from './orgTypes';
-import type { MbtiType, NationalityCode, RolePersonaSeed } from '../../../shared/aiEmployeesPersona';
+import type { NationalityCode, RolePersonaSeed } from '../../../shared/aiEmployeesPersona';
 
 export async function apiGetBootstrapStatus(conn: AiEmployeesConnection, workspaceId: string): Promise<OrgBootstrapStatus> {
 	const r = await apiFetch(conn, '/api/bootstrap/status', { workspaceId });
@@ -80,7 +80,6 @@ export type CreateOrgEmployeeInput = {
 	templatePromptKey?: string;
 	customSystemPrompt?: string;
 	nationalityCode?: NationalityCode | null;
-	mbtiType?: MbtiType | null;
 	personaSeed?: RolePersonaSeed | null;
 	capabilities?: string[];
 	linkedRemoteAgentId?: string;
@@ -119,8 +118,6 @@ export type PatchOrgEmployeeInput = Partial<{
 	clearCustomSystemPrompt: boolean;
 	nationalityCode: NationalityCode | null;
 	clearNationalityCode: boolean;
-	mbtiType: MbtiType | null;
-	clearMbtiType: boolean;
 	personaSeed: RolePersonaSeed | null;
 	clearPersonaSeed: boolean;
 	capabilities: string[];

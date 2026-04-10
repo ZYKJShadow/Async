@@ -4,10 +4,10 @@ import type { AiEmployeesOnboardingStep } from '../domain/bootstrap';
 import type { AiEmployeesConnection } from '../api/client';
 import {
 	apiCreateOrgEmployee,
+	apiPatchOrgEmployee,
 	apiPostBootstrapComplete,
 	apiPostBootstrapConfirmTemplates,
 	apiPostBootstrapOrg,
-	apiPostBootstrapReset,
 } from '../api/orgClient';
 import type { OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
 import { RoleProfileEditor, RolePromptReview } from '../components/RoleProfileEditor';
@@ -17,6 +17,7 @@ import {
 	applyGeneratedPromptDraft,
 	createEmptyRoleProfileDraft,
 	createRoleDraftFromHiringCandidate,
+	createRoleDraftFromOrgEmployee,
 	toPersonaSeed,
 	type RoleProfileDraft,
 } from '../domain/roleDraft';
@@ -49,6 +50,7 @@ export function AiEmployeesOnboarding({
 	defaultModelId,
 	loadPromptTemplates,
 	pickWorkspaceAndRefresh,
+	backToWorkspacePicker,
 	onSync,
 	onBindEmployeeLocalModel,
 	onClearEmployeeLocalModel,
@@ -69,6 +71,7 @@ export function AiEmployeesOnboarding({
 	defaultModelId: string | undefined;
 	loadPromptTemplates: () => void | Promise<void>;
 	pickWorkspaceAndRefresh: (id: string) => Promise<void>;
+	backToWorkspacePicker: () => void;
 	onSync: () => void | Promise<void>;
 	onBindEmployeeLocalModel: (employeeId: string, modelEntryId: string) => void;
 	onClearEmployeeLocalModel: (employeeId: string) => void;
@@ -94,6 +97,9 @@ export function AiEmployeesOnboarding({
 	const [teamBusy, setTeamBusy] = useState(false);
 	const [teamErr, setTeamErr] = useState<string | null>(null);
 	const [candidateDrafts, setCandidateDrafts] = useState<RoleProfileDraft[]>([]);
+	const [revisitCompany, setRevisitCompany] = useState(false);
+	const [revisitCeo, setRevisitCeo] = useState(false);
+	const [ceoEditDraft, setCeoEditDraft] = useState<RoleProfileDraft | null>(null);
 
 	useEffect(() => {
 		setLocalWs(workspaceId);
@@ -112,11 +118,16 @@ export function AiEmployeesOnboarding({
 	useEffect(() => {
 		if (step !== 'ceo_profile') {
 			setCeoStage('profile');
+			setRevisitCompany(false);
 		}
 		if (step !== 'team_setup' && step !== 'team_review') {
 			setTeamReviewActive(false);
 			setCandidateDrafts([]);
 			setRolePick({});
+		}
+		if (step !== 'team_setup') {
+			setRevisitCeo(false);
+			setCeoEditDraft(null);
 		}
 	}, [step]);
 
@@ -153,6 +164,23 @@ export function AiEmployeesOnboarding({
 	}, [orgEmployees]);
 	const ceoEmployee = sortedEmployees.find((employee) => employee.isCeo) ?? null;
 
+	useEffect(() => {
+		if (!revisitCeo || !ceoEmployee) {
+			setCeoEditDraft(null);
+			return;
+		}
+		const mid =
+			resolveEmployeeLocalModelId({
+				employeeId: ceoEmployee.id,
+				remoteAgentId: ceoEmployee.linkedRemoteAgentId ?? undefined,
+				agentLocalModelMap,
+				employeeLocalModelMap,
+				defaultModelId,
+				modelOptionIds: modelOptionIdSet,
+			}) ?? '';
+		setCeoEditDraft(createRoleDraftFromOrgEmployee(ceoEmployee, mid));
+	}, [revisitCeo, ceoEmployee, agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet]);
+
 	const submitPickWorkspace = async () => {
 		if (!localWs.trim()) {
 			return;
@@ -174,6 +202,7 @@ export function AiEmployeesOnboarding({
 		try {
 			await apiPostBootstrapOrg(conn, workspaceId, name);
 			await onSync();
+			setRevisitCompany(false);
 		} finally {
 			setBusy(false);
 		}
@@ -193,7 +222,6 @@ export function AiEmployeesOnboarding({
 			displayName: draft.displayName,
 			customRoleTitle: draft.customRoleTitle,
 			nationalityCode: draft.nationalityCode ?? null,
-			mbtiType: draft.mbtiType ?? null,
 			jobMission: draft.jobMission,
 			domainContext: draft.domainContext,
 			communicationNotes: draft.communicationNotes,
@@ -224,6 +252,58 @@ export function AiEmployeesOnboarding({
 		}
 	};
 
+	const generateCeoEditPrompt = async () => {
+		if (!ceoEditDraft) {
+			return;
+		}
+		setTeamBusy(true);
+		setTeamErr(null);
+		try {
+			const promptDraft = await invokeRolePromptGenerator(ceoEditDraft);
+			setCeoEditDraft((prev) => (prev ? applyGeneratedPromptDraft(prev, promptDraft) : prev));
+		} catch (error) {
+			setTeamErr(error instanceof Error ? error.message : String(error));
+		} finally {
+			setTeamBusy(false);
+		}
+	};
+
+	const saveCeoRevisit = async () => {
+		if (!workspaceId || !ceoEmployee || !ceoEditDraft) {
+			return;
+		}
+		setTeamBusy(true);
+		setTeamErr(null);
+		try {
+			await apiPatchOrgEmployee(conn, workspaceId, ceoEmployee.id, {
+				displayName: ceoEditDraft.displayName.trim(),
+				customRoleTitle: ceoEditDraft.customRoleTitle.trim() || undefined,
+				clearCustomRoleTitle: !ceoEditDraft.customRoleTitle.trim(),
+				templatePromptKey: ceoEditDraft.templatePromptKey?.trim() || undefined,
+				clearTemplatePromptKey: !ceoEditDraft.templatePromptKey?.trim(),
+				customSystemPrompt: ceoEditDraft.promptDraft.systemPrompt.trim() || undefined,
+				clearCustomSystemPrompt: !ceoEditDraft.promptDraft.systemPrompt.trim(),
+				nationalityCode: ceoEditDraft.nationalityCode ?? null,
+				clearNationalityCode: !ceoEditDraft.nationalityCode,
+				personaSeed: toPersonaSeed(ceoEditDraft, 'user'),
+				clearPersonaSeed: false,
+				modelSource: ceoEditDraft.modelSource,
+			});
+			if (ceoEditDraft.localModelId) {
+				onBindEmployeeLocalModel(ceoEmployee.id, ceoEditDraft.localModelId);
+			} else {
+				onClearEmployeeLocalModel(ceoEmployee.id);
+			}
+			setRevisitCeo(false);
+			setCeoEditDraft(null);
+			await onSync();
+		} catch (error) {
+			setTeamErr(error instanceof Error ? error.message : String(error));
+		} finally {
+			setTeamBusy(false);
+		}
+	};
+
 	const submitCeo = async () => {
 		if (!workspaceId || !ceoDraft.displayName.trim() || !ceoDraft.promptDraft.systemPrompt.trim()) {
 			return;
@@ -238,7 +318,6 @@ export function AiEmployeesOnboarding({
 				templatePromptKey: 'ceo',
 				customSystemPrompt: ceoDraft.promptDraft.systemPrompt.trim(),
 				nationalityCode: ceoDraft.nationalityCode ?? null,
-				mbtiType: ceoDraft.mbtiType ?? null,
 				personaSeed: toPersonaSeed(ceoDraft, 'user'),
 				modelSource: ceoDraft.modelSource,
 			});
@@ -312,7 +391,6 @@ export function AiEmployeesOnboarding({
 					roleKey: employee.roleKey,
 					customRoleTitle: employee.customRoleTitle,
 					isCeo: employee.isCeo,
-					mbtiType: employee.mbtiType,
 					nationalityCode: employee.nationalityCode,
 				})),
 			};
@@ -370,7 +448,6 @@ export function AiEmployeesOnboarding({
 					templatePromptKey: candidate.templatePromptKey,
 					customSystemPrompt: candidate.promptDraft.systemPrompt.trim(),
 					nationalityCode: candidate.nationalityCode ?? null,
-					mbtiType: candidate.mbtiType ?? null,
 					personaSeed: toPersonaSeed(candidate, ceoEmployee ? 'ceo' : 'user'),
 					modelSource: candidate.modelSource,
 				});
@@ -402,50 +479,22 @@ export function AiEmployeesOnboarding({
 		}
 	};
 
-	const resetOnboarding = async () => {
-		if (!workspaceId || !window.confirm(t('aiEmployees.onboarding.resetConfirm'))) {
-			return;
-		}
-		setBusy(true);
-		setCeoPromptErr(null);
-		setTeamErr(null);
-		try {
-			for (const employee of orgEmployees) {
-				onClearEmployeeLocalModel(employee.id);
-			}
-			await apiPostBootstrapReset(conn, workspaceId);
-			setCompanyDraftName('');
-			setRolePick({});
-			setCandidateDrafts([]);
-			setTeamReviewActive(false);
-			setCeoStage('profile');
-			setCeoDraft(
-				createEmptyRoleProfileDraft({
-					roleKey: 'ceo',
-					customRoleTitle: 'CEO',
-					templatePromptKey: 'ceo',
-					localModelId: modelOptions[0]?.id ?? '',
-					jobMission: 'Define company priorities, decision principles, and execution rhythm for the team.',
-					domainContext: 'Describe the business domain, stage, and operating style this CEO should lead.',
-				})
-			);
-			await onSync();
-		} catch (error) {
-			setTeamErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setBusy(false);
-		}
-	};
-
 	return (
 		<div className="ref-ai-employees-onboarding" role="region" aria-label={t('aiEmployees.onboarding.aria')}>
-			<div className="ref-ai-employees-onboarding-progress">
-				{stepOrder.map((currentStep, index) => (
-					<div
-						key={currentStep}
-						className={`ref-ai-employees-onboarding-dot ${index <= stepIndex ? 'is-done' : ''} ${currentStep === effectiveStep ? 'is-current' : ''}`}
-					/>
-				))}
+			<div className="ref-ai-employees-onboarding-progress" aria-label={t('aiEmployees.onboarding.progressAria')}>
+				{stepOrder.map((currentStep, index) => {
+					const done = index <= stepIndex;
+					const current = currentStep === effectiveStep;
+					return (
+						<div
+							key={currentStep}
+							className={`ref-ai-employees-onboarding-step ${done ? 'is-done' : ''} ${current ? 'is-current' : ''}`}
+						>
+							<div className="ref-ai-employees-onboarding-dot" />
+							<span className="ref-ai-employees-onboarding-step-label">{t(`aiEmployees.onboarding.stepShort.${currentStep}`)}</span>
+						</div>
+					);
+				})}
 			</div>
 
 			{onboardingErr ? (
@@ -454,21 +503,9 @@ export function AiEmployeesOnboarding({
 				</div>
 			) : null}
 
-			{workspaceId && effectiveStep !== 'pick_workspace' ? (
-				<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-top-actions">
-					<button
-						type="button"
-						className="ref-ai-employees-btn ref-ai-employees-btn--danger"
-						disabled={busy || teamBusy || ceoPromptBusy}
-						onClick={() => void resetOnboarding()}
-					>
-						{t('aiEmployees.onboarding.resetAction')}
-					</button>
-				</div>
-			) : null}
-
 			{effectiveStep === 'pick_workspace' ? (
-				<div className="ref-ai-employees-onboarding-card">
+				<div className="ref-ai-employees-onboarding-card ref-ai-employees-onboarding-card--hero">
+					<p className="ref-ai-employees-onboarding-kicker">{t('aiEmployees.onboarding.kicker')}</p>
 					<h2 className="ref-ai-employees-onboarding-title">{t('aiEmployees.onboarding.pickWorkspaceTitle')}</h2>
 					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.onboarding.pickWorkspaceDesc')}</p>
 					<label className="ref-ai-employees-onboarding-field">
@@ -483,9 +520,11 @@ export function AiEmployeesOnboarding({
 						</select>
 					</label>
 					<p className="ref-ai-employees-muted ref-ai-employees-onboarding-hint">{t('aiEmployees.onboarding.pickWorkspaceHint')}</p>
-					<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy || !localWs} onClick={() => void submitPickWorkspace()}>
-						{t('aiEmployees.onboarding.continue')}
-					</button>
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy || !localWs} onClick={() => void submitPickWorkspace()}>
+							{t('aiEmployees.onboarding.continue')}
+						</button>
+					</div>
 				</div>
 			) : null}
 
@@ -497,13 +536,37 @@ export function AiEmployeesOnboarding({
 						<span>{t('aiEmployees.onboarding.companyName')}</span>
 						<input className="ref-ai-employees-input" value={companyDraftName} onChange={(e) => setCompanyDraftName(e.target.value)} placeholder={t('aiEmployees.onboarding.companyPh')} />
 					</label>
-					<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy || !companyDraftName.trim()} onClick={() => void submitCompany()}>
-						{t('aiEmployees.onboarding.continue')}
-					</button>
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={busy} onClick={() => backToWorkspacePicker()}>
+							{t('aiEmployees.onboarding.prevStep')}
+						</button>
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy || !companyDraftName.trim()} onClick={() => void submitCompany()}>
+							{t('aiEmployees.onboarding.continue')}
+						</button>
+					</div>
 				</div>
 			) : null}
 
-			{effectiveStep === 'ceo_profile' ? (
+			{step === 'ceo_profile' && revisitCompany && effectiveStep === 'ceo_profile' ? (
+				<div className="ref-ai-employees-onboarding-card">
+					<h2 className="ref-ai-employees-onboarding-title">{t('aiEmployees.onboarding.companyTitle')}</h2>
+					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.onboarding.companyDesc')}</p>
+					<label className="ref-ai-employees-onboarding-field">
+						<span>{t('aiEmployees.onboarding.companyName')}</span>
+						<input className="ref-ai-employees-input" value={companyDraftName} onChange={(e) => setCompanyDraftName(e.target.value)} placeholder={t('aiEmployees.onboarding.companyPh')} />
+					</label>
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={busy} onClick={() => setRevisitCompany(false)}>
+							{t('aiEmployees.onboarding.prevStep')}
+						</button>
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy || !companyDraftName.trim()} onClick={() => void submitCompany()}>
+							{t('aiEmployees.onboarding.continue')}
+						</button>
+					</div>
+				</div>
+			) : null}
+
+			{step === 'ceo_profile' && !revisitCompany && effectiveStep === 'ceo_profile' ? (
 				<div className="ref-ai-employees-onboarding-card">
 					<h2 className="ref-ai-employees-onboarding-title">{t('aiEmployees.onboarding.ceoTitle')}</h2>
 					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.role.ceoDesc')}</p>
@@ -513,7 +576,10 @@ export function AiEmployeesOnboarding({
 						modelOptions={modelOptions}
 						onChange={(patch) => setCeoDraft((prev) => ({ ...prev, ...patch }))}
 					/>
-					<div className="ref-ai-employees-form-actions">
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={busy || ceoPromptBusy} onClick={() => setRevisitCompany(true)}>
+							{t('aiEmployees.onboarding.prevStep')}
+						</button>
 						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => void generateCeoPrompt()} disabled={ceoPromptBusy}>
 							{ceoPromptBusy ? t('aiEmployees.role.generatingPrompt') : t('aiEmployees.role.generatePrompt')}
 						</button>
@@ -544,9 +610,9 @@ export function AiEmployeesOnboarding({
 							}))
 						}
 					/>
-					<div className="ref-ai-employees-form-actions">
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setCeoStage('profile')}>
-							{t('common.back')}
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setCeoStage('profile')}>
+							{t('aiEmployees.onboarding.prevStep')}
 						</button>
 						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy || !ceoDraft.promptDraft.systemPrompt.trim()} onClick={() => void submitCeo()}>
 							{t('aiEmployees.role.saveRole')}
@@ -555,7 +621,46 @@ export function AiEmployeesOnboarding({
 				</div>
 			) : null}
 
-			{effectiveStep === 'team_setup' ? (
+			{step === 'team_setup' && revisitCeo && ceoEditDraft ? (
+				<div className="ref-ai-employees-onboarding-card">
+					<h2 className="ref-ai-employees-onboarding-title">{t('aiEmployees.onboarding.revisitCeoTitle')}</h2>
+					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.onboarding.revisitCeoDesc')}</p>
+					{teamErr ? (
+						<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
+							{teamErr}
+						</div>
+					) : null}
+					<RoleProfileEditor
+						t={t}
+						draft={ceoEditDraft}
+						modelOptions={modelOptions}
+						onChange={(patch) => setCeoEditDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
+					/>
+					<RolePromptReview
+						t={t}
+						draft={ceoEditDraft}
+						generating={teamBusy}
+						error={null}
+						onPromptChange={(value) =>
+							setCeoEditDraft((prev) => (prev ? { ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } } : prev))
+						}
+						onGenerate={() => void generateCeoEditPrompt()}
+						onRestore={() =>
+							setCeoEditDraft((prev) => (prev ? { ...prev, promptDraft: prev.lastGeneratedPromptDraft ?? prev.promptDraft } : prev))
+						}
+					/>
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={teamBusy} onClick={() => setRevisitCeo(false)}>
+							{t('aiEmployees.onboarding.prevStep')}
+						</button>
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={teamBusy} onClick={() => void saveCeoRevisit()}>
+							{t('aiEmployees.orgSaveProfile')}
+						</button>
+					</div>
+				</div>
+			) : null}
+
+			{step === 'team_setup' && !revisitCeo && effectiveStep === 'team_setup' ? (
 				<div className="ref-ai-employees-onboarding-card">
 					<h2 className="ref-ai-employees-onboarding-title">{t('aiEmployees.onboarding.rolesTitle')}</h2>
 					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.role.teamSetupDesc')}</p>
@@ -583,6 +688,19 @@ export function AiEmployeesOnboarding({
 							</li>
 						))}
 					</ul>
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button
+							type="button"
+							className="ref-ai-employees-btn ref-ai-employees-btn--secondary"
+							disabled={teamBusy || !ceoEmployee}
+							onClick={() => {
+								setTeamReviewActive(false);
+								setRevisitCeo(true);
+							}}
+						>
+							{t('aiEmployees.onboarding.prevStep')}
+						</button>
+					</div>
 				</div>
 			) : null}
 
@@ -638,9 +756,9 @@ export function AiEmployeesOnboarding({
 							</div>
 						))}
 					</div>
-					<div className="ref-ai-employees-form-actions">
-						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setTeamReviewActive(false)}>
-							{t('common.back')}
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={teamBusy} onClick={() => setTeamReviewActive(false)}>
+							{t('aiEmployees.onboarding.prevStep')}
 						</button>
 						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={teamBusy || candidateDrafts.filter((candidate) => !candidate.rejected).length === 0} onClick={() => void submitRoles()}>
 							{t('aiEmployees.onboarding.rolesContinue')}
@@ -653,9 +771,11 @@ export function AiEmployeesOnboarding({
 				<div className="ref-ai-employees-onboarding-card">
 					<h2 className="ref-ai-employees-onboarding-title">{t('aiEmployees.onboarding.finishTitle')}</h2>
 					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.onboarding.finishDesc')}</p>
-					<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy} onClick={() => void submitFinish()}>
-						{t('aiEmployees.onboarding.enterDashboard')}
-					</button>
+					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
+						<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy} onClick={() => void submitFinish()}>
+							{t('aiEmployees.onboarding.enterDashboard')}
+						</button>
+					</div>
 				</div>
 			) : null}
 		</div>

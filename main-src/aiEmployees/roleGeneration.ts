@@ -5,7 +5,7 @@ import type {
 	RolePromptDraft,
 	RolePromptGeneratorInput,
 } from '../../shared/aiEmployeesPersona.js';
-import { MBTI_TYPES, NATIONALITY_CODES } from '../../shared/aiEmployeesPersona.js';
+import { NATIONALITY_CODES } from '../../shared/aiEmployeesPersona.js';
 import type { ChatMessage } from '../threadStore.js';
 import type { ShellSettings } from '../settingsStore.js';
 import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
@@ -59,10 +59,6 @@ function isNationalityCode(value: string): value is (typeof NATIONALITY_CODES)[n
 	return (NATIONALITY_CODES as readonly string[]).includes(value);
 }
 
-function isMbtiType(value: string): value is (typeof MBTI_TYPES)[number] {
-	return (MBTI_TYPES as readonly string[]).includes(value);
-}
-
 function normalizeRolePromptDraft(value: unknown): RolePromptDraft {
 	const obj = isPlainObject(value) ? value : {};
 	const systemPrompt = trimText(obj.systemPrompt);
@@ -93,7 +89,6 @@ function normalizeHiringPlan(value: unknown): HiringPlanCandidate[] {
 			continue;
 		}
 		const nationalityCode = trimText(item.nationalityCode);
-		const mbtiType = trimText(item.mbtiType).toUpperCase();
 		const modelSourceRaw = trimText(item.modelSource);
 		const modelSource =
 			modelSourceRaw === 'local_model' || modelSourceRaw === 'remote_runtime' || modelSourceRaw === 'hybrid'
@@ -105,7 +100,6 @@ function normalizeHiringPlan(value: unknown): HiringPlanCandidate[] {
 			customRoleTitle: trimText(item.customRoleTitle) || undefined,
 			displayName,
 			nationalityCode: isNationalityCode(nationalityCode) ? nationalityCode : undefined,
-			mbtiType: isMbtiType(mbtiType) ? mbtiType : undefined,
 			modelSource,
 			managerEmployeeId: trimText(item.managerEmployeeId) || undefined,
 			reason: trimText(item.reason),
@@ -181,7 +175,7 @@ export async function generateRolePromptDraft(
 		'No markdown fences. No explanations.',
 		'The JSON shape must be: {"systemPrompt": string, "roleSummary": string, "speakingStyle": string, "collaborationRules": string, "handoffRules": string}.',
 		'The systemPrompt must include: role identity, core goals, decision boundaries, inputs/outputs, collaboration-escalation path, speaking style, and hard prohibitions.',
-		'Use the chosen nationality and MBTI only to shape communication style and collaboration habits, never competence or permissions.',
+		'Use the chosen nationality only to shape communication style and collaboration habits, never competence or permissions.',
 		'Follow the spirit of specialized agency agents: crisp responsibility, clean handoffs, explicit deliverables, low overlap.',
 	].join('\n');
 	const user = {
@@ -191,7 +185,6 @@ export async function generateRolePromptDraft(
 		displayName: trimText(input.displayName),
 		customRoleTitle: trimText(input.customRoleTitle),
 		nationalityCode: input.nationalityCode ?? null,
-		mbtiType: input.mbtiType ?? null,
 		jobMission: trimText(input.jobMission),
 		domainContext: trimText(input.domainContext),
 		communicationNotes: trimText(input.communicationNotes),
@@ -214,7 +207,7 @@ export async function generateHiringPlan(
 		'Return strict JSON only.',
 		'No markdown fences. No explanations.',
 		'Output shape: {"candidates": HiringPlanCandidate[]}.',
-		'Each candidate must include roleKey, customRoleTitle, displayName, nationalityCode, mbtiType, modelSource, managerEmployeeId, reason, jobMission, domainContext, communicationNotes, promptDraft.',
+		'Each candidate must include roleKey, customRoleTitle, displayName, nationalityCode, modelSource, managerEmployeeId, reason, jobMission, domainContext, communicationNotes, promptDraft.',
 		'Use 1 to 6 candidates.',
 		'Prefer essential complementary roles only. Avoid redundancy.',
 		'displayName should default to the role title, not a fictional person name.',

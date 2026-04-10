@@ -1,6 +1,6 @@
 /** 与 async-agent-proxy `/api/bootstrap/*`、`/api/employees/*` 对齐 */
 
-import type { MbtiType, NationalityCode, RolePersonaSeed } from '../../../shared/aiEmployeesPersona';
+import type { NationalityCode, RolePersonaSeed } from '../../../shared/aiEmployeesPersona';
 
 export type OrgBootstrapStatus = {
 	companyName: string | null;
@@ -30,7 +30,6 @@ export type OrgEmployee = {
 	templatePromptKey?: string | null;
 	customSystemPrompt?: string | null;
 	nationalityCode?: NationalityCode | null;
-	mbtiType?: MbtiType | null;
 	personaSeed?: RolePersonaSeed | null;
 	capabilities: unknown;
 	status: string;

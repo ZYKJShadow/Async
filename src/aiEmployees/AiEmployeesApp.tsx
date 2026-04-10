@@ -2,28 +2,19 @@ import { useMemo, type ReactNode } from 'react';
 import { useI18n } from '../i18n';
 import { AiEmployeesTitlebar } from './AiEmployeesTitlebar';
 import {
-	IconBookOpen,
 	IconBot,
 	IconChevron,
-	IconCircleUser,
-	IconFolderKanban,
 	IconGitSCM,
-	IconInbox,
-	IconListTodo,
-	IconMonitor,
 	IconRefresh,
 	IconSettings,
 	IconTaskPulse,
 } from '../icons';
 import { useAiEmployeesController, type AiEmployeesTabId } from './hooks/useAiEmployeesController';
-import { BoardPage } from './pages/BoardPage';
 import { ConnectionPage } from './pages/ConnectionPage';
 import { EmployeesPage } from './pages/EmployeesPage';
+import { HomePage } from './pages/HomePage';
 import { OrchestratorPage } from './pages/OrchestratorPage';
-import { RuntimesPage } from './pages/RuntimesPage';
-import { SkillsPage } from './pages/SkillsPage';
-import { TasksPage } from './pages/TasksPage';
-import { AiEmployeesOnboarding } from './onboarding/AiEmployeesOnboarding';
+import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
 import './aiEmployees.css';
 
 function workspaceInitial(name: string): string {
@@ -58,24 +49,12 @@ export function AiEmployeesApp() {
 
 	const tabPageTitle = (id: AiEmployeesTabId): string => {
 		switch (id) {
-			case 'inbox':
-				return t('aiEmployees.tab.inbox');
-			case 'myIssues':
-				return t('aiEmployees.tab.myIssues');
 			case 'board':
-				return t('aiEmployees.tab.issues');
-			case 'projects':
-				return t('aiEmployees.tab.projects');
+				return t('aiEmployees.tab.home');
 			case 'agents':
-				return t('aiEmployees.tab.agents');
+				return t('aiEmployees.tab.team');
 			case 'orchestrator':
-				return t('aiEmployees.tab.orchestrator');
-			case 'tasks':
-				return t('aiEmployees.tab.tasks');
-			case 'skills':
-				return t('aiEmployees.tab.skills');
-			case 'runtimes':
-				return t('aiEmployees.tab.runtimes');
+				return t('aiEmployees.tab.runs');
 			case 'connection':
 				return t('aiEmployees.tab.settings');
 			default:
@@ -83,13 +62,16 @@ export function AiEmployeesApp() {
 		}
 	};
 
-	const navBusy = c.sessionPhase === 'bootstrapping' || c.sessionPhase === 'onboarding';
+	const visibleTabs: AiEmployeesTabId[] = ['board', 'agents', 'orchestrator', 'connection'];
+	const activeTab = visibleTabs.includes(c.tab) ? c.tab : 'board';
+
+	const navBusy = c.sessionPhase === 'bootstrapping';
 	const navBtn = (id: AiEmployeesTabId, label: string, icon: ReactNode, disabled?: boolean) => (
 		<button
 			key={id}
 			type="button"
 			disabled={!!disabled || navBusy}
-			className={`ref-ai-employees-nav-item ${c.tab === id ? 'is-active' : ''}`}
+			className={`ref-ai-employees-nav-item ${activeTab === id ? 'is-active' : ''}`}
 			onClick={() => {
 				if (!disabled && !navBusy) {
 					c.setTab(id);
@@ -103,82 +85,41 @@ export function AiEmployeesApp() {
 		</button>
 	);
 
-	if (c.sessionPhase === 'need_connection') {
-		return (
-			<div className="ref-shell ref-shell--agent-layout ref-ai-employees-root">
-				<AiEmployeesTitlebar t={t} />
-				<div className="ref-ai-employees-gate" role="dialog" aria-labelledby="ref-ai-employees-gate-title">
-					<div className="ref-ai-employees-gate-card">
-						<h2 id="ref-ai-employees-gate-title" className="ref-ai-employees-gate-title">
-							{t('aiEmployees.gateTitle')}
-						</h2>
-						<p className="ref-ai-employees-gate-subtitle">{t('aiEmployees.gateSubtitle')}</p>
-						<div className="ref-ai-employees-form ref-ai-employees-form--gate">
-							<label>
-								<span>{t('aiEmployees.apiBaseUrl')}</span>
-								<input
-									className="ref-ai-employees-input"
-									value={c.aiSettings.apiBaseUrl ?? c.DEFAULT_API}
-									onChange={(e) => c.setAiSettings((s) => ({ ...s, apiBaseUrl: e.target.value }))}
-								/>
-							</label>
-							<label>
-								<span>{t('aiEmployees.wsBaseUrl')}</span>
-								<input
-									className="ref-ai-employees-input"
-									value={c.aiSettings.wsBaseUrl ?? c.DEFAULT_WS}
-									onChange={(e) => c.setAiSettings((s) => ({ ...s, wsBaseUrl: e.target.value }))}
-								/>
-							</label>
-							<label>
-								<span>{t('aiEmployees.token')}</span>
-								<input
-									className="ref-ai-employees-input"
-									type="password"
-									autoComplete="off"
-									value={c.aiSettings.token ?? 'dev'}
-									onChange={(e) => c.setAiSettings((s) => ({ ...s, token: e.target.value }))}
-								/>
-							</label>
-							<div className="ref-ai-employees-form-actions">
-								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={() => void c.saveConnectionAndReconnect()}>
-									{t('aiEmployees.connectAndContinue')}
-								</button>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div>
-		);
-	}
+	const showAiEmployeesSetupFlow =
+		c.sessionPhase === 'need_connection' ||
+		c.sessionPhase === 'onboarding' ||
+		c.sessionPhase === 'no_workspace' ||
+		(c.sessionPhase === 'bootstrapping' && c.holdSetupDuringBootstrap);
 
-	if (c.sessionPhase === 'onboarding') {
+	if (showAiEmployeesSetupFlow) {
 		return (
 			<div className="ref-shell ref-shell--agent-layout ref-ai-employees-root">
 				<AiEmployeesTitlebar t={t} />
-				<div className="ref-ai-employees-onboarding-layout">
-					<AiEmployeesOnboarding
-						t={t}
-						conn={c.conn}
-						workspaceId={c.workspaceId}
-						companyName={c.bootstrapStatus?.companyName ?? ''}
-						workspaces={c.workspaces}
-						step={c.onboardingStep}
-						onboardingErr={c.onboardingErr}
-						promptTemplates={c.promptTemplates}
-						orgEmployees={c.orgEmployees}
-						modelOptions={c.modelOptions}
-						agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
-						employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
-						modelOptionIdSet={c.modelOptionIdSet}
-						defaultModelId={c.localModels.defaultModelId}
-						loadPromptTemplates={c.loadPromptTemplatesForOnboarding}
-						pickWorkspaceAndRefresh={c.pickWorkspaceAndRefresh}
-						onSync={c.syncOnboardingAfterMutation}
-						onBindEmployeeLocalModel={c.bindEmployeeLocalModel}
-						onClearEmployeeLocalModel={c.clearEmployeeLocalModel}
-					/>
-				</div>
+				<AiEmployeesSetupFlow
+					t={t}
+					sessionPhase={c.sessionPhase}
+					conn={c.conn}
+					aiSettings={c.aiSettings}
+					setAiSettings={c.setAiSettings}
+					onSaveConnection={() => void c.saveConnectionAndReconnect()}
+					connectionError={c.loadErr}
+					onClearConnectionError={c.clearLoadErr}
+					localRoot={c.localRoot}
+					workspaceId={c.workspaceId}
+					workspaces={c.workspaces}
+					companyName={c.bootstrapStatus?.companyName ?? ''}
+					bootstrapStatus={c.bootstrapStatus}
+					orgEmployees={c.orgEmployees}
+					promptTemplates={c.promptTemplates}
+					modelOptionIdSet={c.modelOptionIdSet}
+					defaultModelId={c.localModels.defaultModelId}
+					agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
+					employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
+					onLoadPromptTemplates={c.loadPromptTemplatesForOnboarding}
+					onSync={c.syncOnboardingAfterMutation}
+					onBindEmployeeLocalModel={c.bindEmployeeLocalModel}
+					onClearEmployeeLocalModel={c.clearEmployeeLocalModel}
+				/>
 			</div>
 		);
 	}
@@ -205,31 +146,21 @@ export function AiEmployeesApp() {
 								))}
 							</select>
 						</header>
-						<nav className="ref-ai-employees-sidebar-scroll">
-							<div className="ref-ai-employees-nav-group">
-								<div className="ref-ai-employees-nav-group-content">
-									{navBtn('inbox', t('aiEmployees.tab.inbox'), <IconInbox className="ref-ai-employees-nav-icon" />, true)}
-									{navBtn('myIssues', t('aiEmployees.tab.myIssues'), <IconCircleUser className="ref-ai-employees-nav-icon" />, true)}
+							<nav className="ref-ai-employees-sidebar-scroll">
+								<div className="ref-ai-employees-nav-group">
+									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.workspace')}</div>
+									<div className="ref-ai-employees-nav-group-content">
+										{navBtn('board', t('aiEmployees.tab.home'), <IconTaskPulse className="ref-ai-employees-nav-icon" />)}
+										{navBtn('agents', t('aiEmployees.tab.team'), <IconBot className="ref-ai-employees-nav-icon" />)}
+										{navBtn('orchestrator', t('aiEmployees.tab.runs'), <IconGitSCM className="ref-ai-employees-nav-icon" />)}
+									</div>
 								</div>
-							</div>
-							<div className="ref-ai-employees-nav-group">
-								<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.workspace')}</div>
-								<div className="ref-ai-employees-nav-group-content">
-									{navBtn('board', t('aiEmployees.tab.issues'), <IconListTodo className="ref-ai-employees-nav-icon" />)}
-									{navBtn('projects', t('aiEmployees.tab.projects'), <IconFolderKanban className="ref-ai-employees-nav-icon" />, true)}
-									{navBtn('agents', t('aiEmployees.tab.agents'), <IconBot className="ref-ai-employees-nav-icon" />)}
-									{navBtn('orchestrator', t('aiEmployees.tab.orchestrator'), <IconGitSCM className="ref-ai-employees-nav-icon" />)}
-									{navBtn('tasks', t('aiEmployees.tab.tasks'), <IconTaskPulse className="ref-ai-employees-nav-icon" />)}
+								<div className="ref-ai-employees-nav-group">
+									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.configure')}</div>
+									<div className="ref-ai-employees-nav-group-content">
+										{navBtn('connection', t('aiEmployees.tab.settings'), <IconSettings className="ref-ai-employees-nav-icon" />)}
+									</div>
 								</div>
-							</div>
-							<div className="ref-ai-employees-nav-group">
-								<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.configure')}</div>
-								<div className="ref-ai-employees-nav-group-content">
-									{navBtn('runtimes', t('aiEmployees.tab.runtimes'), <IconMonitor className="ref-ai-employees-nav-icon" />)}
-									{navBtn('skills', t('aiEmployees.tab.skills'), <IconBookOpen className="ref-ai-employees-nav-icon" />)}
-									{navBtn('connection', t('aiEmployees.tab.settings'), <IconSettings className="ref-ai-employees-nav-icon" />)}
-								</div>
-							</div>
 						</nav>
 						<footer className="ref-ai-employees-sidebar-footer">
 							<div className="ref-ai-employees-user-row">
@@ -256,7 +187,7 @@ export function AiEmployeesApp() {
 								{activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
 							</span>
 							<IconChevron className="ref-ai-employees-breadcrumb-chevron" />
-							<span className="ref-ai-employees-breadcrumb-page">{tabPageTitle(c.tab)}</span>
+							<span className="ref-ai-employees-breadcrumb-page">{tabPageTitle(activeTab)}</span>
 						</div>
 						<div className="ref-ai-employees-breadcrumb-actions">
 							<button
@@ -300,7 +231,7 @@ export function AiEmployeesApp() {
 									))}
 								</div>
 							</div>
-						) : c.sessionPhase === 'no_workspace' && c.tab !== 'connection' ? (
+						) : c.sessionPhase === 'no_workspace' && activeTab !== 'connection' ? (
 							<div className="ref-ai-employees-stub ref-ai-employees-stub--phase">
 								<div className="ref-ai-employees-stub-title">{t('aiEmployees.noWorkspaceTitle')}</div>
 								<p>{t('aiEmployees.noWorkspaceHint')}</p>
@@ -313,16 +244,25 @@ export function AiEmployeesApp() {
 									</div>
 								) : null}
 
-								{c.tab === 'inbox' || c.tab === 'myIssues' || c.tab === 'projects' ? (
+								{activeTab === 'inbox' || activeTab === 'myIssues' || activeTab === 'projects' ? (
 									<div className="ref-ai-employees-stub">
-										<div className="ref-ai-employees-stub-title">{tabPageTitle(c.tab)}</div>
+										<div className="ref-ai-employees-stub-title">{tabPageTitle(activeTab)}</div>
 										<p>{t('aiEmployees.stubNotImplemented')}</p>
 									</div>
 								) : null}
 
-								{c.tab === 'board' ? <BoardPage issues={c.issues} t={t} /> : null}
+								{activeTab === 'board' ? (
+									<HomePage
+										t={t}
+										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
+										issues={c.issues}
+										orgEmployees={c.orgEmployees}
+										orchestration={c.orchestration}
+										onCreateRun={c.createOrchestrationRun}
+									/>
+								) : null}
 
-								{c.tab === 'agents' ? (
+								{activeTab === 'agents' ? (
 								<EmployeesPage
 									t={t}
 									conn={c.conn}
@@ -346,7 +286,7 @@ export function AiEmployeesApp() {
 								/>
 								) : null}
 
-								{c.tab === 'orchestrator' ? (
+								{activeTab === 'orchestrator' ? (
 									<OrchestratorPage
 										t={t}
 										orchestration={c.orchestration}
@@ -355,13 +295,7 @@ export function AiEmployeesApp() {
 									/>
 								) : null}
 
-								{c.tab === 'tasks' ? <TasksPage taskEvents={c.taskEvents} t={t} /> : null}
-
-								{c.tab === 'skills' ? <SkillsPage skills={c.skills} /> : null}
-
-								{c.tab === 'runtimes' ? <RuntimesPage runtimes={c.runtimes} /> : null}
-
-								{c.tab === 'connection' ? (
+								{activeTab === 'connection' ? (
 									<ConnectionPage
 										t={t}
 										DEFAULT_API={c.DEFAULT_API}
@@ -370,6 +304,9 @@ export function AiEmployeesApp() {
 										setAiSettings={c.setAiSettings}
 										wsLog={c.wsLog}
 										onSave={() => void c.saveConnectionAndReconnect()}
+										workspaceId={c.workspaceId}
+										sessionPhase={c.sessionPhase}
+										onRebuildTeam={() => c.resetWorkspaceTeamBootstrap()}
 									/>
 								) : null}
 							</>

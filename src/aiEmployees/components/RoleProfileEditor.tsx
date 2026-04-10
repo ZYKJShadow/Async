@@ -1,6 +1,5 @@
 import type { ChangeEvent } from 'react';
-import { MbtiAvatar, mbtiVisualRegistry } from '../domain/mbtiVisuals';
-import { MBTI_TYPES, NATIONALITY_OPTIONS } from '../domain/persona';
+import { NATIONALITY_OPTIONS } from '../domain/persona';
 import type { RoleProfileDraft } from '../domain/roleDraft';
 import type { TFunction } from '../../i18n';
 
@@ -17,8 +16,6 @@ export function RoleProfileEditor({
 	modelDisabled?: boolean;
 	onChange: (patch: Partial<RoleProfileDraft>) => void;
 }) {
-	const meta = draft.mbtiType ? mbtiVisualRegistry[draft.mbtiType] : null;
-
 	const bindText =
 		(key: keyof RoleProfileDraft) =>
 		(ev: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -27,16 +24,6 @@ export function RoleProfileEditor({
 
 	return (
 		<div className="ref-ai-employees-role-editor">
-			<div className="ref-ai-employees-role-editor-hero">
-				<MbtiAvatar mbtiType={draft.mbtiType} size={88} />
-				<div className="ref-ai-employees-role-editor-hero-copy">
-					<strong>{draft.mbtiType ? `${draft.mbtiType} · ${meta?.label ?? ''}` : t('aiEmployees.role.mbti')}</strong>
-					<div className="ref-ai-employees-muted">
-						{meta?.shortTraits.join(' · ') || t('aiEmployees.role.mbtiHint')}
-					</div>
-				</div>
-			</div>
-
 			<div className="ref-ai-employees-catalog-fields">
 				<label className="ref-ai-employees-catalog-field">
 					<span>{t('aiEmployees.employeeDisplayName')}</span>
@@ -56,32 +43,14 @@ export function RoleProfileEditor({
 						<option value="">{t('aiEmployees.managerNone')}</option>
 						{NATIONALITY_OPTIONS.map((option) => (
 							<option key={option.code} value={option.code}>
-								{option.label} · {option.styleLabel}
+								{option.label}
 							</option>
 						))}
 					</select>
 				</label>
-				<label className="ref-ai-employees-catalog-field">
-					<span>{t('aiEmployees.role.mbti')}</span>
-					<select className="ref-ai-employees-workspace-select" value={draft.mbtiType ?? ''} onChange={bindText('mbtiType')}>
-						<option value="">{t('aiEmployees.managerNone')}</option>
-						{MBTI_TYPES.map((type) => (
-							<option key={type} value={type}>
-								{type} · {mbtiVisualRegistry[type].label}
-							</option>
-						))}
-					</select>
-				</label>
-				<label className="ref-ai-employees-catalog-field">
-					<span>{t('aiEmployees.modelSource')}</span>
-					<select className="ref-ai-employees-workspace-select" value={draft.modelSource} onChange={bindText('modelSource')}>
-						<option value="local_model">{t('aiEmployees.modelSource.local')}</option>
-						<option value="remote_runtime">{t('aiEmployees.modelSource.remote')}</option>
-						<option value="hybrid">{t('aiEmployees.modelSource.hybrid')}</option>
-					</select>
-				</label>
-				<label className="ref-ai-employees-catalog-field">
+				<div className="ref-ai-employees-catalog-field">
 					<span>{t('aiEmployees.role.localModel')}</span>
+					<p className="ref-ai-employees-field-hint ref-ai-employees-muted">{t('aiEmployees.modelSource.localOnlyBlurb')}</p>
 					<select
 						className="ref-ai-employees-workspace-select"
 						value={draft.localModelId}
@@ -95,7 +64,7 @@ export function RoleProfileEditor({
 							</option>
 						))}
 					</select>
-				</label>
+				</div>
 				<label className="ref-ai-employees-catalog-field">
 					<span>{t('aiEmployees.role.jobMission')}</span>
 					<textarea
