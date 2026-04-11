@@ -845,7 +845,7 @@
 	border-color: color-mix(in srgb, var(--void-fg-2) 30%, transparent);
 }
 
-/* 优先级：下拉内彩色 pill（对齐 multica PriorityPicker 选项） */
+/* 优先级：下拉内彩色 pill（字母标 + 文案） */
 .ref-ai-employees-priority-pill {
 	display: inline-flex;
 	align-items: center;
@@ -1009,7 +1009,7 @@
 	color: var(--void-fg-2, #8b949e);
 }
 
-/* VoidSelect 行：色点/优先级字母标 + 文案（对齐 multica，避免「大 pill 里再套彩色 pill」） */
+/* VoidSelect 行：色点/优先级字母标 + 文案（避免触发器内再套整块彩色 pill） */
 .ref-ai-employees-void-line {
 	display: inline-flex;
 	align-items: center;
@@ -2348,7 +2348,7 @@
 	gap: 16px;
 }
 
-/* 团队页：参考 multica Agents — 左侧成员列表 + 右侧详情与 Instructions / Skills / Tasks / Settings */
+/* 团队页：左侧成员列表 + 右侧详情（Instructions / Skills / Tasks / Settings） */
 .ref-ai-employees-agents-shell {
 	display: flex;
 	flex: 1;
@@ -5122,7 +5122,7 @@
 	background: transparent;
 }
 
-/* 看板模式：与 multica 一致，主区为「可选提示条 + 始终可见的列」 */
+/* 看板模式：主区为可选提示条 + 始终可见的列 */
 .ref-ai-employees-issues-hub-board-shell {
 	flex: 1;
 	min-height: 0;
@@ -6909,7 +6909,7 @@
 	max-width: 280px;
 }
 
-/* 新建任务弹窗：布局参考 multica CreateIssueModal（顶栏面包屑、大标题、描述区、底部 pill 属性条、底栏） */
+/* 新建任务弹窗：顶栏面包屑、大标题、描述区、底部属性条与底栏 */
 .ref-ai-employees-create-dialog-overlay {
 	position: fixed;
 	inset: 0;
@@ -7264,6 +7264,17 @@
 	color: var(--void-fg-1, #9aa4b2);
 }
 
+.ref-ai-employees-field-label-muted {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-input--mono {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 13px;
+}
+
 .ref-ai-employees-create-dialog-grid {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
@@ -7323,16 +7334,17 @@
 }
 
 .ref-ai-employees-skills-split {
-	display: grid;
-	grid-template-columns: 260px minmax(0, 1fr);
+	display: flex;
+	flex-direction: row;
 	gap: 12px;
 	flex: 1;
 	min-height: 0;
+	align-items: stretch;
 }
 
 @media (max-width: 900px) {
 	.ref-ai-employees-skills-split {
-		grid-template-columns: 1fr;
+		flex-direction: column;
 	}
 }
 
@@ -7340,11 +7352,20 @@
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	width: 260px;
+	flex-shrink: 0;
 	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
 	border-radius: 10px;
 	padding: 0;
 	overflow: hidden;
-	max-height: 520px;
+	max-height: min(560px, 100%);
+}
+
+@media (max-width: 900px) {
+	.ref-ai-employees-skills-list {
+		width: 100%;
+		max-height: 360px;
+	}
 }
 
 .ref-ai-employees-skills-list-head {
@@ -7518,10 +7539,12 @@
 	display: flex;
 	flex-direction: column;
 	flex: 1;
+	min-width: 0;
 	min-height: 0;
 	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
 	border-radius: 10px;
-	padding: 12px;
+	padding: 0;
+	overflow: hidden;
 }
 
 .ref-ai-employees-skills-detail-empty {
@@ -7549,6 +7572,22 @@
 
 .ref-ai-employees-skills-detail-empty .ref-ai-employees-btn {
 	margin-top: 14px;
+}
+
+.ref-ai-employees-create-dialog.ref-ai-employees-skill-create-dialog,
+.ref-ai-employees-create-dialog.ref-ai-employees-skill-add-file-dialog {
+	width: min(28rem, calc(100vw - 48px));
+	max-width: 100%;
+	box-sizing: border-box;
+	padding: 20px 22px 18px;
+	border-radius: 12px;
+	background: var(--void-bg-2, #161b22);
+	border: 1px solid var(--void-border, rgba(255, 255, 255, 0.12));
+	box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.45);
+}
+
+.ref-ai-employees-create-dialog.ref-ai-employees-skill-add-file-dialog {
+	width: min(24rem, calc(100vw - 48px));
 }
 
 .ref-ai-employees-skill-create-dialog .ref-ai-employees-create-dialog-title {
@@ -7608,8 +7647,29 @@
 }
 
 .ref-ai-employees-skill-dialog-panel {
-	min-height: 168px;
+	min-height: 180px;
 	padding-top: 4px;
+}
+
+.ref-ai-employees-skill-dialog-tab-err {
+	margin-bottom: 10px;
+}
+
+.ref-ai-employees-skill-import-inline-err {
+	margin-top: 12px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	font-size: 12px;
+	line-height: 1.4;
+	border: 1px solid rgba(248, 81, 73, 0.35);
+	background: rgba(248, 81, 73, 0.1);
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-skill-add-file-dup {
+	margin: 0 0 8px;
+	font-size: 12px;
+	color: rgba(248, 81, 73, 0.95);
 }
 
 .ref-ai-employees-skill-import-sources-label {
@@ -7653,75 +7713,465 @@
 	white-space: nowrap;
 }
 
-.ref-ai-employees-skills-meta {
+.ref-ai-employees-skills-detail {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
+
+.ref-ai-employees-skills-detail-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-shrink: 0;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
+}
+
+.ref-ai-employees-skills-detail-head-main {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+	flex: 1;
+}
+
+.ref-ai-employees-skills-detail-ico {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	flex-shrink: 0;
+	border-radius: 8px;
+	background: var(--surface-control-bg, rgba(255, 255, 255, 0.05));
+	color: var(--void-fg-1, #9aa4b2);
+}
+
+.ref-ai-employees-skills-detail-ico svg {
+	width: 16px;
+	height: 16px;
+}
+
+.ref-ai-employees-skills-detail-meta-grid {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
 	gap: 10px;
-	margin-bottom: 10px;
+	flex: 1;
+	min-width: 0;
 }
 
-.ref-ai-employees-skills-meta-field {
+.ref-ai-employees-skills-head-input {
+	height: 32px;
+	padding: 0 10px;
+	font-size: 13px;
+	font-weight: 500;
+	box-sizing: border-box;
+}
+
+.ref-ai-employees-skills-detail-meta-grid .ref-ai-employees-skills-head-input:last-child {
+	font-weight: 400;
+}
+
+.ref-ai-employees-skills-detail-head-actions {
 	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	font-size: 12px;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-skills-detail-del {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--void-fg-2, #8b949e);
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+
+.ref-ai-employees-skills-detail-del:hover:not(:disabled) {
+	background: color-mix(in srgb, rgba(248, 81, 73, 0.15) 100%, transparent);
+	color: rgba(248, 81, 73, 0.95);
+}
+
+.ref-ai-employees-skills-detail-del:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.ref-ai-employees-skills-detail-del-ico {
+	width: 16px;
+	height: 16px;
 }
 
 .ref-ai-employees-skills-files-editor {
-	display: grid;
-	grid-template-columns: 180px minmax(0, 1fr);
-	gap: 10px;
+	display: flex;
 	flex: 1;
-	min-height: 280px;
+	min-height: 0;
+	min-width: 0;
 }
 
-.ref-ai-employees-skills-file-tree {
+.ref-ai-employees-skills-file-tree-col {
+	display: flex;
+	flex-direction: column;
+	width: 208px;
+	flex-shrink: 0;
+	min-height: 0;
 	border-right: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
-	padding-right: 8px;
-	font-size: 12px;
 }
 
-.ref-ai-employees-skills-file-tree ul {
-	list-style: none;
-	margin: 0;
+.ref-ai-employees-skills-file-tree-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: 40px;
+	padding: 0 10px;
+	border-bottom: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-skills-file-tree-toolbar-label {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-skills-file-tree-toolbar-btns {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.ref-ai-employees-skills-file-tree-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
 	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--void-fg-2, #8b949e);
+	cursor: pointer;
 }
 
-.ref-ai-employees-skills-file-tab {
-	width: calc(100% - 24px);
-	text-align: left;
+.ref-ai-employees-skills-file-tree-icon-btn:hover:not(:disabled) {
+	background: var(--surface-control-bg, rgba(255, 255, 255, 0.06));
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-skills-file-tree-icon-btn--danger:hover:not(:disabled) {
+	color: rgba(248, 81, 73, 0.95);
+}
+
+.ref-ai-employees-skills-file-tree-icon-btn svg {
+	width: 14px;
+	height: 14px;
+}
+
+.ref-ai-employees-skills-file-tree-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 4px 0 8px;
+}
+
+.ref-ai-employees-skills-file-viewer-col {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.ref-ai-employees-skills-skeleton {
+	padding: 12px 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-ai-employees-skills-skeleton--viewer {
+	flex: 1;
+}
+
+.ref-ai-employees-skills-skeleton-line {
+	height: 10px;
+	border-radius: 4px;
+	background: var(--surface-control-bg, rgba(255, 255, 255, 0.06));
+	animation: ref-ai-employees-skills-skel-pulse 1.1s ease-in-out infinite;
+}
+
+.ref-ai-employees-skills-skeleton-line--short {
+	width: 55%;
+}
+
+.ref-ai-employees-skills-skeleton-line--medium {
+	width: 72%;
+}
+
+@keyframes ref-ai-employees-skills-skel-pulse {
+	0%,
+	100% {
+		opacity: 0.55;
+	}
+	50% {
+		opacity: 0.9;
+	}
+}
+
+.ref-ai-employees-skill-tree-root {
+	padding: 2px 4px 8px;
+}
+
+.ref-ai-employees-skill-tree-folder-btn,
+.ref-ai-employees-skill-tree-file-btn {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 6px;
 	padding: 4px 6px;
-	border-radius: 6px;
+	margin: 0;
 	border: none;
+	border-radius: 4px;
 	background: transparent;
 	color: inherit;
-	cursor: pointer;
 	font-size: 12px;
-}
-
-.ref-ai-employees-skills-file-tab.is-active {
-	background: rgba(88, 166, 255, 0.12);
-}
-
-.ref-ai-employees-skills-file-del {
-	border: none;
-	background: transparent;
-	color: var(--void-fg-2, #b1bac4);
+	text-align: left;
 	cursor: pointer;
-	width: 20px;
+	box-sizing: border-box;
 }
 
-.ref-ai-employees-skills-monaco-wrap {
-	min-height: 260px;
-	border-radius: 8px;
+.ref-ai-employees-skill-tree-folder-btn:hover,
+.ref-ai-employees-skill-tree-file-btn:hover {
+	background: var(--surface-control-bg, rgba(255, 255, 255, 0.06));
+}
+
+.ref-ai-employees-skill-tree-file-btn.is-active {
+	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 14%, transparent);
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-skill-tree-chev {
+	flex-shrink: 0;
+	width: 12px;
+	height: 12px;
+	transform: rotate(-90deg);
+	transition: transform 0.15s ease;
+	opacity: 0.75;
+}
+
+.ref-ai-employees-skill-tree-chev.is-open {
+	transform: rotate(0deg);
+}
+
+.ref-ai-employees-skill-tree-ico {
+	flex-shrink: 0;
+	width: 14px;
+	height: 14px;
+	opacity: 0.8;
+}
+
+.ref-ai-employees-skill-tree-label {
+	min-width: 0;
 	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-ai-employees-skill-tree-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 28px 12px;
+	color: var(--void-fg-2, #8b949e);
+	font-size: 12px;
+	text-align: center;
+}
+
+.ref-ai-employees-skill-tree-empty-ico {
+	width: 20px;
+	height: 20px;
+	opacity: 0.35;
+	margin-bottom: 6px;
+}
+
+.ref-ai-employees-skill-file-viewer {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
+
+.ref-ai-employees-skill-file-viewer-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: 40px;
+	padding: 0 14px;
+	border-bottom: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-skill-file-viewer-path {
+	font-size: 11px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	color: var(--void-fg-2, #8b949e);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+
+.ref-ai-employees-skill-file-viewer-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--void-fg-2, #8b949e);
+	cursor: pointer;
+}
+
+.ref-ai-employees-skill-file-viewer-toggle:hover {
+	background: var(--surface-control-bg, rgba(255, 255, 255, 0.06));
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-skill-file-viewer-toggle-ico {
+	width: 14px;
+	height: 14px;
+}
+
+.ref-ai-employees-skill-file-viewer-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+}
+
+.ref-ai-employees-skill-md-preview-wrap {
+	padding: 20px 22px 24px;
+}
+
+.ref-ai-employees-skill-fm-card {
+	margin-bottom: 16px;
+	padding: 12px 14px;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.1));
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
+}
+
+.ref-ai-employees-skill-fm-row {
+	display: flex;
+	gap: 8px;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.ref-ai-employees-skill-fm-key {
+	flex-shrink: 0;
+	min-width: 80px;
+	font-weight: 600;
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-skill-fm-val {
+	color: var(--void-fg-0, #e6edf3);
+	word-break: break-word;
+}
+
+.ref-ai-employees-skill-md-preview {
+	font-size: 14px;
+	line-height: 1.55;
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-skill-md-preview h1,
+.ref-ai-employees-skill-md-preview h2,
+.ref-ai-employees-skill-md-preview h3 {
+	margin: 1.1em 0 0.5em;
+	font-weight: 650;
+	line-height: 1.3;
+}
+
+.ref-ai-employees-skill-md-preview h1:first-child,
+.ref-ai-employees-skill-md-preview h2:first-child,
+.ref-ai-employees-skill-md-preview h3:first-child {
+	margin-top: 0;
+}
+
+.ref-ai-employees-skill-md-preview p {
+	margin: 0.65em 0;
+}
+
+.ref-ai-employees-skill-md-preview a {
+	color: var(--void-accent-cool, #58a6ff);
+}
+
+.ref-ai-employees-skill-md-preview code {
+	padding: 0.1em 0.35em;
+	border-radius: 4px;
+	font-size: 0.9em;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
+}
+
+.ref-ai-employees-skill-md-preview pre {
+	padding: 12px 14px;
+	border-radius: 8px;
+	overflow: auto;
+	font-size: 12px;
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
 }
 
-.ref-ai-employees-skills-actions {
-	display: flex;
-	gap: 10px;
-	margin-top: 12px;
+.ref-ai-employees-skill-md-preview pre code {
+	padding: 0;
+	background: none;
+}
+
+.ref-ai-employees-skill-md-preview ul,
+.ref-ai-employees-skill-md-preview ol {
+	margin: 0.5em 0;
+	padding-left: 1.35em;
+}
+
+.ref-ai-employees-skill-file-textarea {
+	display: block;
+	flex: 1;
+	width: 100%;
+	min-height: 200px;
+	box-sizing: border-box;
+	padding: 16px 18px;
+	border: none;
+	margin: 0;
+	resize: none;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 13px;
+	line-height: 1.55;
+	color: var(--void-fg-0, #e6edf3);
+	background: transparent;
+	outline: none;
 }
 
 .ref-ai-employees-employee-skills-intro {

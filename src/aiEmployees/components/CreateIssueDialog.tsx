@@ -84,7 +84,7 @@ export function CreateIssueDialog({
 	agents: AgentJson[];
 	members: WorkspaceMemberJson[];
 	issues: IssueJson[];
-	/** 工作区名称；用于顶栏面包屑（对齐 multica） */
+	/** 工作区名称；用于顶栏面包屑 */
 	workspaceDisplayName?: string;
 	issuesHubVariant?: 'workspace' | 'my';
 	onClose: () => void;

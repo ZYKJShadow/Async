@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
-import Editor from '@monaco-editor/react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
-import { IconPlus, IconSparkles } from '../../icons';
+import { IconPlus, IconSparkles, IconTrash } from '../../icons';
 import type { AiEmployeesConnection } from '../api/client';
 import { apiCreateSkill, apiDeleteSkill, apiGetSkill, apiImportSkillFromUrl, apiUpdateSkill } from '../api/client';
 import type { SkillFileJson, SkillJson } from '../api/types';
 import { CreateSkillDialog } from '../components/CreateSkillDialog';
+import { SkillFileTree } from '../components/SkillFileTree';
+import { SkillFileViewer } from '../components/SkillFileViewer';
 
 type LocalFile = { path: string; content: string; id?: string };
 
@@ -17,19 +19,87 @@ function filesToLocal(files: SkillFileJson[] | undefined, mainContent: string): 
 	return [main, ...extras.map((f) => ({ path: f.path, content: f.content, id: f.id }))];
 }
 
+function filesKey(files: LocalFile[]) {
+	return JSON.stringify(files.map((f) => ({ path: f.path, content: f.content })));
+}
+
+function SkillAddFileDialog({
+	t,
+	busy,
+	existingPaths,
+	onClose,
+	onAdd,
+}: {
+	t: TFunction;
+	busy: boolean;
+	existingPaths: string[];
+	onClose: () => void;
+	onAdd: (path: string) => void;
+}) {
+	const [path, setPath] = useState('');
+	const duplicate = path.trim().length > 0 && existingPaths.includes(path.trim());
+
+	const node = (
+		<div className="ref-ai-employees-create-dialog-overlay is-visible" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
+			<div className="ref-ai-employees-create-dialog ref-ai-employees-skill-add-file-dialog" role="dialog" aria-modal aria-labelledby="ref-ai-employees-skill-add-file-title">
+				<h2 id="ref-ai-employees-skill-add-file-title" className="ref-ai-employees-create-dialog-title">
+					{t('aiEmployees.skills.addFileModalTitle')}
+				</h2>
+				<p className="ref-ai-employees-skill-create-desc">{t('aiEmployees.skills.addFileModalDesc')}</p>
+				<label className="ref-ai-employees-create-dialog-field">
+					<span className="ref-ai-employees-field-label-muted">{t('aiEmployees.skills.addFilePathLabel')}</span>
+					<input
+						className="ref-ai-employees-input ref-ai-employees-input--mono"
+						value={path}
+						onChange={(e) => setPath(e.target.value)}
+						placeholder={t('aiEmployees.skills.addFilePathPh')}
+						autoFocus
+						disabled={busy}
+						onKeyDown={(e) => {
+							if (e.key === 'Enter' && path.trim() && !duplicate) {
+								e.preventDefault();
+								onAdd(path.trim());
+								onClose();
+							}
+						}}
+					/>
+				</label>
+				{duplicate ? <p className="ref-ai-employees-skill-add-file-dup">{t('aiEmployees.skills.addFileDuplicate')}</p> : null}
+				<div className="ref-ai-employees-create-dialog-actions">
+					<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" disabled={busy} onClick={onClose}>
+						{t('common.cancel')}
+					</button>
+					<button
+						type="button"
+						className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+						disabled={busy || !path.trim() || duplicate}
+						onClick={() => {
+							onAdd(path.trim());
+							onClose();
+						}}
+					>
+						{t('aiEmployees.skills.addFileSubmit')}
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+
+	const host = typeof document !== 'undefined' ? document.getElementById('ref-ai-employees-inset-modal-host') : null;
+	return host ? createPortal(node, host) : node;
+}
+
 export function SkillsPage({
 	t,
 	conn,
 	workspaceId,
 	skills,
-	colorScheme,
 	onRefreshSkills,
 }: {
 	t: TFunction;
 	conn: AiEmployeesConnection;
 	workspaceId: string;
 	skills: SkillJson[];
-	colorScheme: 'light' | 'dark';
 	onRefreshSkills: () => void | Promise<void>;
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -38,8 +108,11 @@ export function SkillsPage({
 	const [localFiles, setLocalFiles] = useState<LocalFile[]>([{ path: MAIN_PATH, content: '' }]);
 	const [activePath, setActivePath] = useState(MAIN_PATH);
 	const [busy, setBusy] = useState(false);
+	const [detailLoading, setDetailLoading] = useState(false);
 	const [err, setErr] = useState<string | null>(null);
 	const [createOpen, setCreateOpen] = useState(false);
+	const [addFileOpen, setAddFileOpen] = useState(false);
+	const [baseline, setBaseline] = useState<{ name: string; description: string; filesKey: string } | null>(null);
 
 	const activeContent = localFiles.find((f) => f.path === activePath)?.content ?? '';
 
@@ -51,22 +124,39 @@ export function SkillsPage({
 		[activePath]
 	);
 
+	const fk = useMemo(() => filesKey(localFiles), [localFiles]);
+
+	const isDirty = useMemo(() => {
+		if (!baseline || !selectedId) {
+			return false;
+		}
+		return name.trim() !== baseline.name.trim() || description.trim() !== baseline.description.trim() || fk !== baseline.filesKey;
+	}, [baseline, selectedId, name, description, fk]);
+
 	const loadDetail = useCallback(
 		async (id: string) => {
-			setBusy(true);
+			setDetailLoading(true);
 			setErr(null);
 			try {
 				const s = await apiGetSkill(conn, workspaceId, id);
 				setSelectedId(s.id);
-				setName(s.name);
-				setDescription(s.description ?? '');
+				const nm = s.name;
+				const desc = s.description ?? '';
 				const main = s.content ?? '';
-				setLocalFiles(filesToLocal(s.files, main));
+				const nextFiles = filesToLocal(s.files, main);
+				setName(nm);
+				setDescription(desc);
+				setLocalFiles(nextFiles);
 				setActivePath(MAIN_PATH);
+				setBaseline({
+					name: nm,
+					description: desc,
+					filesKey: filesKey(nextFiles),
+				});
 			} catch (e) {
 				setErr(e instanceof Error ? e.message : String(e));
 			} finally {
-				setBusy(false);
+				setDetailLoading(false);
 			}
 		},
 		[conn, workspaceId]
@@ -78,6 +168,7 @@ export function SkillsPage({
 			setName('');
 			setDescription('');
 			setLocalFiles([{ path: MAIN_PATH, content: '' }]);
+			setBaseline(null);
 			return;
 		}
 		if (selectedId && !skills.some((s) => s.id === selectedId)) {
@@ -156,6 +247,7 @@ export function SkillsPage({
 			setName('');
 			setDescription('');
 			setLocalFiles([{ path: MAIN_PATH, content: '' }]);
+			setBaseline(null);
 			await onRefreshSkills();
 		} catch (e) {
 			setErr(e instanceof Error ? e.message : String(e));
@@ -164,27 +256,20 @@ export function SkillsPage({
 		}
 	};
 
-	const addFile = () => {
-		const base = 'extra.md';
-		let path = base;
-		let n = 1;
-		while (localFiles.some((f) => f.path === path)) {
-			n += 1;
-			path = `extra-${n}.md`;
-		}
+	const handleAddFile = (path: string) => {
 		setLocalFiles((prev) => [...prev, { path, content: '' }]);
 		setActivePath(path);
 	};
 
-	const removeFile = (path: string) => {
-		if (path === MAIN_PATH) {
+	const handleDeleteFile = () => {
+		if (activePath === MAIN_PATH) {
 			return;
 		}
-		setLocalFiles((prev) => prev.filter((f) => f.path !== path));
-		if (activePath === path) {
-			setActivePath(MAIN_PATH);
-		}
+		setLocalFiles((prev) => prev.filter((f) => f.path !== activePath));
+		setActivePath(MAIN_PATH);
 	};
+
+	const filePaths = useMemo(() => localFiles.map((f) => f.path), [localFiles]);
 
 	return (
 		<div className="ref-ai-employees-skills-shell">
@@ -259,66 +344,120 @@ export function SkillsPage({
 							</button>
 						</div>
 					) : (
-						<>
-							<div className="ref-ai-employees-skills-meta">
-								<label className="ref-ai-employees-skills-meta-field">
-									<span>{t('aiEmployees.skills.name')}</span>
-									<input className="ref-ai-employees-input" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
-								</label>
-								<label className="ref-ai-employees-skills-meta-field">
-									<span>{t('aiEmployees.skills.description')}</span>
-									<input className="ref-ai-employees-input" value={description} onChange={(e) => setDescription(e.target.value)} disabled={busy} />
-								</label>
-							</div>
-							<div className="ref-ai-employees-skills-files-editor">
-								<div className="ref-ai-employees-skills-file-tree">
-									<div className="ref-ai-employees-skills-file-tree-head">{t('aiEmployees.skills.mainFile')}</div>
-									<ul>
-										{localFiles.map((f) => (
-											<li key={f.path}>
-												<button
-													type="button"
-													className={`ref-ai-employees-skills-file-tab ${activePath === f.path ? 'is-active' : ''}`}
-													onClick={() => setActivePath(f.path)}
-												>
-													{f.path}
-												</button>
-												{f.path !== MAIN_PATH ? (
-													<button type="button" className="ref-ai-employees-skills-file-del" onClick={() => removeFile(f.path)} title={t('aiEmployees.skills.deleteFile')}>
-														×
-													</button>
-												) : null}
-											</li>
-										))}
-									</ul>
-									<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-btn--sm" onClick={addFile}>
-										{t('aiEmployees.skills.addFile')}
+						<div className="ref-ai-employees-skills-detail">
+							<div className="ref-ai-employees-skills-detail-head">
+								<div className="ref-ai-employees-skills-detail-head-main">
+									<div className="ref-ai-employees-skills-detail-ico" aria-hidden>
+										<IconSparkles />
+									</div>
+									<div className="ref-ai-employees-skills-detail-meta-grid">
+										<input
+											className="ref-ai-employees-input ref-ai-employees-skills-head-input"
+											value={name}
+											onChange={(e) => setName(e.target.value)}
+											disabled={busy || detailLoading}
+											placeholder={t('aiEmployees.skills.name')}
+											aria-label={t('aiEmployees.skills.name')}
+										/>
+										<input
+											className="ref-ai-employees-input ref-ai-employees-skills-head-input"
+											value={description}
+											onChange={(e) => setDescription(e.target.value)}
+											disabled={busy || detailLoading}
+											placeholder={t('aiEmployees.skills.description')}
+											aria-label={t('aiEmployees.skills.description')}
+										/>
+									</div>
+								</div>
+								<div className="ref-ai-employees-skills-detail-head-actions">
+									{isDirty ? (
+										<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-btn--sm" disabled={busy || detailLoading} onClick={() => void save()}>
+											{busy ? t('aiEmployees.skills.saving') : t('aiEmployees.skills.save')}
+										</button>
+									) : null}
+									<button
+										type="button"
+										className="ref-ai-employees-skills-detail-del"
+										title={t('aiEmployees.skills.delete')}
+										aria-label={t('aiEmployees.skills.delete')}
+										disabled={busy || detailLoading}
+										onClick={() => void del()}
+									>
+										<IconTrash className="ref-ai-employees-skills-detail-del-ico" />
 									</button>
 								</div>
-								<div className="ref-ai-employees-skills-monaco-wrap">
-									<Editor
-										height="100%"
-										language="markdown"
-										theme={colorScheme === 'dark' ? 'vs-dark' : 'light'}
-										value={activeContent}
-										onChange={(v) => setActiveContent(v)}
-										options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13 }}
-									/>
+							</div>
+
+							<div className="ref-ai-employees-skills-files-editor">
+								<div className="ref-ai-employees-skills-file-tree-col">
+									<div className="ref-ai-employees-skills-file-tree-toolbar">
+										<span className="ref-ai-employees-skills-file-tree-toolbar-label">{t('aiEmployees.skills.filesSection')}</span>
+										<div className="ref-ai-employees-skills-file-tree-toolbar-btns">
+											<button
+												type="button"
+												className="ref-ai-employees-skills-file-tree-icon-btn"
+												title={t('aiEmployees.skills.addFile')}
+												aria-label={t('aiEmployees.skills.addFile')}
+												disabled={busy || detailLoading}
+												onClick={() => setAddFileOpen(true)}
+											>
+												<IconPlus />
+											</button>
+											{activePath !== MAIN_PATH ? (
+												<button
+													type="button"
+													className="ref-ai-employees-skills-file-tree-icon-btn ref-ai-employees-skills-file-tree-icon-btn--danger"
+													title={t('aiEmployees.skills.deleteFile')}
+													aria-label={t('aiEmployees.skills.deleteFile')}
+													disabled={busy || detailLoading}
+													onClick={handleDeleteFile}
+												>
+													<IconTrash />
+												</button>
+											) : null}
+										</div>
+									</div>
+									<div className="ref-ai-employees-skills-file-tree-scroll">
+										{detailLoading ? (
+											<div className="ref-ai-employees-skills-skeleton">
+												<div className="ref-ai-employees-skills-skeleton-line" />
+												<div className="ref-ai-employees-skills-skeleton-line ref-ai-employees-skills-skeleton-line--short" />
+												<div className="ref-ai-employees-skills-skeleton-line ref-ai-employees-skills-skeleton-line--medium" />
+											</div>
+										) : (
+											<SkillFileTree filePaths={filePaths} selectedPath={activePath} onSelect={setActivePath} emptyLabel={t('aiEmployees.skills.treeEmpty')} />
+										)}
+									</div>
+								</div>
+								<div className="ref-ai-employees-skills-file-viewer-col">
+									{detailLoading ? (
+										<div className="ref-ai-employees-skills-skeleton ref-ai-employees-skills-skeleton--viewer">
+											<div className="ref-ai-employees-skills-skeleton-line" />
+											<div className="ref-ai-employees-skills-skeleton-line" />
+											<div className="ref-ai-employees-skills-skeleton-line ref-ai-employees-skills-skeleton-line--medium" />
+											<div className="ref-ai-employees-skills-skeleton-line" />
+										</div>
+									) : (
+										<SkillFileViewer key={activePath} path={activePath} content={activeContent} onChange={setActiveContent} t={t} />
+									)}
 								</div>
 							</div>
-							<div className="ref-ai-employees-skills-actions">
-								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={busy} onClick={() => void save()}>
-									{t('aiEmployees.skills.save')}
-								</button>
-								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" disabled={busy} onClick={() => void del()}>
-									{t('aiEmployees.skills.delete')}
-								</button>
-							</div>
-						</>
+						</div>
 					)}
 				</div>
 			</div>
 			<CreateSkillDialog open={createOpen} t={t} onClose={() => setCreateOpen(false)} onCreate={handleCreateFromModal} onImport={handleImportFromModal} />
+			{addFileOpen ? (
+				<SkillAddFileDialog
+					t={t}
+					busy={busy}
+					existingPaths={filePaths}
+					onClose={() => setAddFileOpen(false)}
+					onAdd={(p) => {
+						handleAddFile(p);
+					}}
+				/>
+			) : null}
 		</div>
 	);
 }

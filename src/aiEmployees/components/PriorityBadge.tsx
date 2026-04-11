@@ -18,7 +18,7 @@ function priorityLabel(p: (typeof PRI_KEYS)[number], t: TFunction): string {
 					: t('aiEmployees.issuesHub.priorityNone');
 }
 
-/** 下拉/表单内：与 multica PriorityPicker 选项类似的彩色标签（字母 + 文案） */
+/** 下拉/表单内：彩色标签（字母 + 文案） */
 export function PriorityPillChip({ priority, t }: { priority: string; t: TFunction }) {
 	const p = normalizePriority(priority);
 	const label = priorityLabel(p, t);

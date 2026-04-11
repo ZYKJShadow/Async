@@ -29,7 +29,7 @@ type Props = {
 
 const MENU_Z = 6000;
 
-/** 任意时刻只保留一个打开的 VoidSelect listbox（对齐 multica Popover 互斥） */
+/** 任意时刻只保留一个打开的 VoidSelect listbox（互斥） */
 const voidSelectOpenClosers = new Set<() => void>();
 
 function IconChevDown({ className }: { className?: string }) {

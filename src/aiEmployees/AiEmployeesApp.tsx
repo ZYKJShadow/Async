@@ -308,7 +308,6 @@ export function AiEmployeesApp() {
 											conn={c.conn}
 											workspaceId={c.workspaceId}
 											skills={c.skills}
-											colorScheme={c.effectiveScheme}
 											onRefreshSkills={() => void c.refreshSkillsOnly()}
 										/>
 									) : null}

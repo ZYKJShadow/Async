@@ -173,7 +173,7 @@ export function IconCloseSmall({ className }: { className?: string }) {
 	);
 }
 
-/** 弹窗放大（对齐 multica Maximize2） */
+/** 弹窗放大 */
 export function IconWindowMaximize({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -186,7 +186,7 @@ export function IconWindowMaximize({ className }: { className?: string }) {
 	);
 }
 
-/** 弹窗缩小（对齐 multica Minimize2） */
+/** 弹窗缩小 */
 export function IconWindowMinimize({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
