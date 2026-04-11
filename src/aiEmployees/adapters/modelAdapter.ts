@@ -53,6 +53,33 @@ export function formatLocalModelPickLabel(entry: LocalModelEntry): string {
 	return entry.displayName;
 }
 
+/** 解析员工实际绑定的本地模型并格式化为「模型名 (提供商)」；无可用 id 时返回 null。 */
+export function formatEmployeeResolvedModelLabel(params: {
+	employee: { id: string; linkedRemoteAgentId?: string | null };
+	employeeLocalModelMap?: Record<string, string>;
+	agentLocalModelMap?: Record<string, string>;
+	defaultModelId?: string;
+	modelOptionIdSet: Set<string>;
+	modelOptions: LocalModelEntry[];
+}): string | null {
+	const modelId = resolveEmployeeLocalModelId({
+		remoteAgentId: params.employee.linkedRemoteAgentId ?? undefined,
+		employeeId: params.employee.id,
+		agentLocalModelMap: params.agentLocalModelMap,
+		employeeLocalModelMap: params.employeeLocalModelMap,
+		defaultModelId: params.defaultModelId,
+		modelOptionIds: params.modelOptionIdSet,
+	});
+	if (!modelId) {
+		return null;
+	}
+	const entry = params.modelOptions.find((m) => m.id === modelId);
+	if (entry) {
+		return formatLocalModelPickLabel(entry);
+	}
+	return modelId;
+}
+
 export function describeModelRoute(conn: AiEmployeesConnection, modelId: string): string {
 	if (!modelId) {
 		return 'default';

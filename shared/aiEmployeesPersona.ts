@@ -58,6 +58,8 @@ export type HiringPlanGeneratorInput = {
 	ceoDisplayName: string;
 	ceoPersonaSeed?: RolePersonaSeed | null;
 	ceoSystemPrompt: string;
+	/** User-stated goals for the team (CEO-arrange onboarding); optional. */
+	userRequirements?: string;
 	currentEmployees: Array<{
 		id: string;
 		displayName: string;

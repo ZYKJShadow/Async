@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from '../../i18n';
-import { IconDotsHorizontal, IconInbox, IconSend } from '../../icons';
-import type { AiCollabMessage, AiEmployeesOrchestrationState, AiOrchestrationRun } from '../../../shared/aiEmployeesSettings';
+import { IconDotsHorizontal, IconMessageCircle, IconSend } from '../../icons';
+import type {
+	AiCollabMessage,
+	AiEmployeesOrchestrationState,
+	AiOrchestrationRun,
+} from '../../../shared/aiEmployeesSettings';
 import type { OrgEmployee } from '../api/orgTypes';
 import {
 	apiBatchInbox,
@@ -9,27 +13,30 @@ import {
 	type AiEmployeesConnection,
 } from '../api/client';
 import type { InboxItemJson } from '../api/types';
-import {
-	describeCollaborationContract,
-	formatRuleDrivenMessageBody,
-	getEmployeeCollaborationContract,
-	hasEmployeeCollaborationContract,
-	HANDOFF_REPORT_TEMPLATE,
-} from '../domain/collaborationRules';
-
-function latestBlockedReason(run: AiOrchestrationRun | undefined): string | undefined {
-	return [...(run?.handoffs ?? [])].reverse().find((handoff) => handoff.status === 'blocked')?.blockedReason;
+import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
+import type { LocalModelEntry } from '../sessionTypes';
+function calendarDayKey(iso: string): string {
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) {
+		return '';
+	}
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function collaborationLabels(t: TFunction) {
-	return {
-		jobMission: t('aiEmployees.role.jobMission'),
-		domainContext: t('aiEmployees.role.domainContext'),
-		communicationNotes: t('aiEmployees.role.communicationNotes'),
-		collaborationRules: t('aiEmployees.role.collaborationRules'),
-		handoffRules: t('aiEmployees.role.handoffRules'),
-		reportTemplate: t('aiEmployees.handoff.reportTemplateLabel'),
-	};
+function formatChatDayDivider(iso: string): string {
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) {
+		return '';
+	}
+	return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatChatMessageTime(iso: string): string {
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) {
+		return '';
+	}
+	return d.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 export function InboxPage({
@@ -39,6 +46,11 @@ export function InboxPage({
 	conn,
 	workspaceId,
 	inboxVersion,
+	agentLocalModelMap,
+	employeeLocalModelMap,
+	defaultModelId,
+	modelOptions,
+	modelOptionIdSet,
 	onCreateRun,
 	onSendMessage,
 	onMarkMessageRead,
@@ -53,15 +65,14 @@ export function InboxPage({
 	conn: AiEmployeesConnection;
 	workspaceId: string;
 	inboxVersion: number;
+	agentLocalModelMap: Record<string, string> | undefined;
+	employeeLocalModelMap: Record<string, string> | undefined;
+	defaultModelId?: string;
+	modelOptions: LocalModelEntry[];
+	modelOptionIdSet: Set<string>;
 	employeeChatStreaming: Record<string, string>;
 	employeeChatError: Record<string, string | undefined>;
-	onCreateRun: (
-		employeeId: string,
-		title: string,
-		details: string,
-		targetBranch: string,
-		options?: { assignmentBody?: string }
-	) => string;
+	onCreateRun: (employeeId: string, title: string, details: string, targetBranch: string) => string;
 	onSendMessage: (input: {
 		runId: string;
 		type?: 'text' | 'task_assignment';
@@ -78,12 +89,25 @@ export function InboxPage({
 		[orgEmployees]
 	);
 
+	const modelRouteParams = useMemo(
+		() => ({
+			agentLocalModelMap,
+			employeeLocalModelMap,
+			defaultModelId,
+			modelOptionIdSet,
+			modelOptions,
+		}),
+		[agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet, modelOptions]
+	);
+
+	const employeeModelLine = useCallback(
+		(employee: OrgEmployee) =>
+			formatEmployeeResolvedModelLabel({ employee, ...modelRouteParams }) ?? t('aiEmployees.modelDisplayNone'),
+		[modelRouteParams, t]
+	);
+
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [draft, setDraft] = useState('');
-	const [taskOpen, setTaskOpen] = useState(false);
-	const [taskTitle, setTaskTitle] = useState('');
-	const [taskBody, setTaskBody] = useState('');
-	const [taskBranch, setTaskBranch] = useState('');
 	const [moreOpen, setMoreOpen] = useState(false);
 	const moreRef = useRef<HTMLDivElement>(null);
 
@@ -155,16 +179,6 @@ export function InboxPage({
 	const streamDraft = selectedId ? employeeChatStreaming[selectedId] : undefined;
 	const streamErr = selectedId ? employeeChatError[selectedId] : undefined;
 	const activeRun = selectedId ? findActiveRunByEmployee(selectedId) : undefined;
-	const blocker = latestBlockedReason(activeRun);
-	const contract = useMemo(() => getEmployeeCollaborationContract(selected), [selected]);
-	const contractSections = useMemo(
-		() => describeCollaborationContract(contract, collaborationLabels(t)),
-		[contract, t]
-	);
-	const assignmentBodyPreview = useMemo(
-		() => formatRuleDrivenMessageBody(taskBody, contract, collaborationLabels(t)),
-		[contract, t, taskBody]
-	);
 
 	useEffect(() => {
 		for (const message of thread) {
@@ -202,24 +216,6 @@ export function InboxPage({
 			onCreateRun(selectedId, t('aiEmployees.inbox.defaultRunTitle'), text, '');
 		}
 		setDraft('');
-	};
-
-	const submitTask = () => {
-		if (!selected) {
-			return;
-		}
-		const title = taskTitle.trim();
-		const body = taskBody.trim();
-		if (!title) {
-			return;
-		}
-		onCreateRun(selected.id, title, body, taskBranch.trim(), {
-			assignmentBody: assignmentBodyPreview,
-		});
-		setTaskOpen(false);
-		setTaskTitle('');
-		setTaskBody('');
-		setTaskBranch('');
 	};
 
 	return (
@@ -262,7 +258,7 @@ export function InboxPage({
 					<div className="ref-ai-employees-inbox-list-scroll">
 						{sorted.length === 0 ? (
 							<div className="ref-ai-employees-inbox-list-zero">
-								<IconInbox className="ref-ai-employees-inbox-list-zero-icon" aria-hidden />
+								<IconMessageCircle className="ref-ai-employees-inbox-list-zero-icon" aria-hidden />
 								<p className="ref-ai-employees-inbox-list-zero-text">{t('aiEmployees.inbox.noThreads')}</p>
 							</div>
 						) : (
@@ -272,6 +268,7 @@ export function InboxPage({
 									const initial = employee.displayName.trim().slice(0, 1).toUpperCase() || '?';
 									const unread = unreadCountByEmployee.get(employee.id) ?? 0;
 									const run = findActiveRunByEmployee(employee.id);
+									const modelLine = employeeModelLine(employee);
 									return (
 										<li key={employee.id}>
 											<button
@@ -287,6 +284,9 @@ export function InboxPage({
 													<span className="ref-ai-employees-inbox-peer-role">
 														{run?.statusSummary ?? (employee.customRoleTitle || employee.roleKey)}
 													</span>
+													<span className="ref-ai-employees-inbox-peer-model" title={modelLine}>
+														{modelLine}
+													</span>
 												</span>
 												{unread > 0 ? <span className="ref-ai-employees-inbox-peer-badge">{unread}</span> : null}
 											</button>
@@ -301,28 +301,22 @@ export function InboxPage({
 				<div className="ref-ai-employees-inbox-detail">
 					{!selected ? (
 						<div className="ref-ai-employees-inbox-detail-empty">
-							<IconInbox className="ref-ai-employees-inbox-detail-empty-ico ref-ai-employees-inbox-detail-empty-ico--muted" aria-hidden />
+							<IconMessageCircle className="ref-ai-employees-inbox-detail-empty-ico ref-ai-employees-inbox-detail-empty-ico--muted" aria-hidden />
 							<p className="ref-ai-employees-inbox-detail-empty-title">{t('aiEmployees.inbox.detailPickTitle')}</p>
 							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">{t('aiEmployees.inbox.detailPickHint')}</p>
 						</div>
 					) : (
 						<>
 							<div className="ref-ai-employees-inbox-detail-headbar">
-								<div>
+								<div className="ref-ai-employees-inbox-detail-headbar-main">
 									<div className="ref-ai-employees-inbox-detail-title">{selected.displayName}</div>
 									<div className="ref-ai-employees-inbox-detail-subtitle">{selected.customRoleTitle || selected.roleKey}</div>
-								</div>
-								<div className="ref-ai-employees-inbox-detail-pills">
-									<span className="ref-ai-employees-pill ref-ai-employees-pill--muted">
-										{activeRun ? `${t('aiEmployees.inbox.activeRun')}: ${activeRun.goal}` : t('aiEmployees.inbox.noActiveRun')}
-									</span>
-									{activeRun?.statusSummary ? (
-										<span className="ref-ai-employees-pill ref-ai-employees-pill--muted">{activeRun.statusSummary}</span>
-									) : null}
-									{blocker ? <span className="ref-ai-employees-pill ref-ai-employees-pill--warn">{blocker}</span> : null}
+									<div className="ref-ai-employees-inbox-detail-model" title={employeeModelLine(selected)}>
+										{employeeModelLine(selected)}
+									</div>
 								</div>
 							</div>
-							<div className="ref-ai-employees-comm-thread" role="log" aria-live="polite">
+							<div className="ref-ai-employees-comm-thread ref-ai-employees-inbox-chat-thread" role="log" aria-live="polite">
 								{streamErr ? (
 									<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
 										{streamErr}
@@ -331,67 +325,81 @@ export function InboxPage({
 								{thread.length === 0 && streamDraft === undefined ? (
 									<div className="ref-ai-employees-inbox-thread-empty ref-ai-employees-muted">{t('aiEmployees.inbox.threadEmptyHint')}</div>
 								) : (
-									thread.map((message) => (
-										<div
-											key={message.id}
-											className={`ref-ai-employees-comm-bubble ${
-												message.toEmployeeId === selected.id
-													? 'ref-ai-employees-comm-bubble--user'
-													: 'ref-ai-employees-comm-bubble--system'
-											}`}
-										>
-											<div className="ref-ai-employees-inbox-message-summary">{message.summary}</div>
-											{message.body}
-										</div>
-									))
+									thread.map((message, idx) => {
+										const prev = thread[idx - 1];
+										const showDay =
+											!prev || calendarDayKey(prev.createdAtIso) !== calendarDayKey(message.createdAtIso);
+										const isUser = message.toEmployeeId === selected.id;
+										return (
+											<Fragment key={message.id}>
+												{showDay ? (
+													<div className="ref-ai-employees-inbox-chat-day" role="separator" aria-label={formatChatDayDivider(message.createdAtIso)}>
+														{formatChatDayDivider(message.createdAtIso)}
+													</div>
+												) : null}
+												<div className={`ref-ai-employees-inbox-chat-msg ${isUser ? 'is-user' : 'is-peer'}`}>
+													<time className="ref-ai-employees-inbox-chat-time" dateTime={message.createdAtIso}>
+														{formatChatMessageTime(message.createdAtIso)}
+													</time>
+													<div
+														className={`ref-ai-employees-comm-bubble ${
+															isUser ? 'ref-ai-employees-comm-bubble--user' : 'ref-ai-employees-comm-bubble--system'
+														}`}
+													>
+														{message.body}
+													</div>
+												</div>
+											</Fragment>
+										);
+									})
 								)}
 								{streamDraft !== undefined ? (
-									<div
-										className="ref-ai-employees-comm-bubble ref-ai-employees-comm-bubble--system ref-ai-employees-inbox-streaming"
-										aria-busy={!streamDraft}
-									>
-										<div className="ref-ai-employees-inbox-message-summary">
-											{streamDraft ? t('aiEmployees.inbox.streamingLabel') : t('aiEmployees.inbox.typing')}
+									<div className="ref-ai-employees-inbox-chat-msg is-peer ref-ai-employees-inbox-chat-msg--streaming">
+										<time className="ref-ai-employees-inbox-chat-time" dateTime={new Date().toISOString()}>
+											{t('aiEmployees.inbox.justNow')}
+										</time>
+										<div
+											className="ref-ai-employees-comm-bubble ref-ai-employees-comm-bubble--system ref-ai-employees-inbox-streaming"
+											aria-busy={!streamDraft}
+											aria-label={streamDraft ? t('aiEmployees.inbox.streamingLabel') : t('aiEmployees.inbox.typing')}
+										>
+											{streamDraft ? (
+												<div className="ref-ai-employees-inbox-stream-body">{streamDraft}</div>
+											) : (
+												<span className="ref-ai-employees-typing-dots" aria-hidden>
+													<span />
+													<span />
+													<span />
+												</span>
+											)}
 										</div>
-										{streamDraft ? (
-											<div className="ref-ai-employees-inbox-stream-body">{streamDraft}</div>
-										) : (
-											<span className="ref-ai-employees-typing-dots" aria-hidden>
-												<span />
-												<span />
-												<span />
-											</span>
-										)}
 									</div>
 								) : null}
 							</div>
 							<div className="ref-ai-employees-comm-composer-wrap">
-								<div className="ref-ai-employees-comm-composer">
-									<textarea
-										className="ref-ai-employees-comm-input ref-ai-employees-input"
-										rows={2}
-										value={draft}
-										placeholder={t('aiEmployees.inbox.messagePlaceholder')}
-										onChange={(event) => setDraft(event.target.value)}
-										onKeyDown={(event) => {
-											if (event.key === 'Enter' && !event.shiftKey) {
-												event.preventDefault();
-												sendMessage();
-											}
-										}}
-									/>
-									<div className="ref-ai-employees-comm-composer-actions">
-										<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setTaskOpen(true)}>
-											{activeRun ? t('aiEmployees.inbox.appendTask') : t('aiEmployees.inbox.assignTask')}
-										</button>
+								<div className="ref-ai-employees-comm-composer ref-ai-employees-inbox-composer">
+									<div className="ref-ai-employees-inbox-composer-inner">
+										<textarea
+											className="ref-ai-employees-comm-input ref-ai-employees-input ref-ai-employees-inbox-composer-input"
+											rows={2}
+											value={draft}
+											placeholder={t('aiEmployees.inbox.messagePlaceholder')}
+											onChange={(event) => setDraft(event.target.value)}
+											onKeyDown={(event) => {
+												if (event.key === 'Enter' && !event.shiftKey) {
+													event.preventDefault();
+													sendMessage();
+												}
+											}}
+										/>
 										<button
 											type="button"
-											className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-comm-send"
+											className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-inbox-composer-send"
 											disabled={!draft.trim()}
 											onClick={sendMessage}
+											aria-label={t('aiEmployees.inbox.send')}
 										>
-											<IconSend className="ref-ai-employees-comm-send-ico" />
-											{t('aiEmployees.inbox.send')}
+											<IconSend className="ref-ai-employees-comm-send-ico" aria-hidden />
 										</button>
 									</div>
 								</div>
@@ -401,66 +409,6 @@ export function InboxPage({
 				</div>
 			</div>
 
-			{taskOpen && selected ? (
-				<div className="ref-ai-employees-org-modal-overlay" role="presentation" onClick={() => setTaskOpen(false)}>
-					<div
-						className="ref-ai-employees-org-modal ref-ai-employees-comm-task-modal"
-						role="dialog"
-						aria-modal="true"
-						aria-labelledby="ref-ai-employees-inbox-task-title"
-						onClick={(event) => event.stopPropagation()}
-					>
-						<div className="ref-ai-employees-org-modal-head">
-							<h3 id="ref-ai-employees-inbox-task-title" className="ref-ai-employees-org-modal-title">
-								{activeRun ? t('aiEmployees.inbox.appendTask') : t('aiEmployees.inbox.assignTask')} · {selected.displayName}
-							</h3>
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-modal-close" onClick={() => setTaskOpen(false)} aria-label={t('common.close')}>
-								×
-							</button>
-						</div>
-						<div className="ref-ai-employees-org-modal-body">
-							<label className="ref-ai-employees-catalog-field">
-								<span>{t('aiEmployees.inbox.taskTitleLabel')}</span>
-								<input className="ref-ai-employees-input" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} />
-							</label>
-							<label className="ref-ai-employees-catalog-field">
-								<span>{t('aiEmployees.inbox.taskDescLabel')}</span>
-								<textarea className="ref-ai-employees-input ref-ai-employees-textarea" rows={4} value={taskBody} onChange={(event) => setTaskBody(event.target.value)} />
-							</label>
-							<label className="ref-ai-employees-catalog-field">
-								<span>{t('aiEmployees.inbox.taskBranchLabel')}</span>
-								<input className="ref-ai-employees-input" value={taskBranch} onChange={(event) => setTaskBranch(event.target.value)} placeholder={t('aiEmployees.inbox.taskBranchPh')} />
-							</label>
-							{hasEmployeeCollaborationContract(contract) ? (
-								<div className="ref-ai-employees-panel">
-									<strong>{t('aiEmployees.handoff.guidanceTitle')}</strong>
-									<p className="ref-ai-employees-muted">{t('aiEmployees.handoff.rulesAppliedHint')}</p>
-									<ul className="ref-ai-employees-runs-message-list">
-										{contractSections.map((section) => (
-											<li key={section.label}>
-												<div className="ref-ai-employees-runs-message-summary">{section.label}</div>
-												<div className="ref-ai-employees-runs-message-body">{section.value}</div>
-											</li>
-										))}
-										<li>
-											<div className="ref-ai-employees-runs-message-summary">{t('aiEmployees.handoff.reportTemplateLabel')}</div>
-											<div className="ref-ai-employees-runs-message-body">{HANDOFF_REPORT_TEMPLATE.join(' / ')}</div>
-										</li>
-									</ul>
-								</div>
-							) : null}
-							<div className="ref-ai-employees-form-actions ref-ai-employees-org-modal-actions">
-								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setTaskOpen(false)}>
-									{t('common.cancel')}
-								</button>
-								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" disabled={!taskTitle.trim()} onClick={submitTask}>
-									{t('aiEmployees.inbox.taskSubmit')}
-								</button>
-							</div>
-						</div>
-					</div>
-				</div>
-			) : null}
 		</div>
 	);
 }

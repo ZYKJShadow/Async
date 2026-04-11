@@ -12,6 +12,7 @@ import {
 	toPersonaSeed,
 	type RoleProfileDraft,
 } from '../domain/roleDraft';
+import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
 import type { LocalModelEntry } from '../sessionTypes';
 import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
 import { invokeGenerateHiringPlanForOrg, mapHiringCandidatesToMemberDrafts } from '../domain/ceoHiringPlan';
@@ -92,6 +93,7 @@ export function EmployeesPage({
 	companyName,
 	orgEmployees,
 	onRefreshOrg,
+	agentLocalModelMap,
 	employeeLocalModelMap,
 	modelOptions,
 	modelOptionIdSet,
@@ -104,6 +106,7 @@ export function EmployeesPage({
 	companyName: string;
 	orgEmployees: OrgEmployee[];
 	onRefreshOrg: () => void | Promise<void>;
+	agentLocalModelMap: Record<string, string> | undefined;
 	employeeLocalModelMap: Record<string, string> | undefined;
 	modelOptions: LocalModelEntry[];
 	modelOptionIdSet: Set<string>;
@@ -143,6 +146,20 @@ export function EmployeesPage({
 		[selectedId, sortedOrg]
 	);
 	const ceoEmployee = sortedOrg.find((employee) => employee.isCeo) ?? null;
+
+	const modelRouteParams = useMemo(
+		() => ({
+			agentLocalModelMap,
+			employeeLocalModelMap,
+			defaultModelId,
+			modelOptionIdSet,
+			modelOptions,
+		}),
+		[agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet, modelOptions]
+	);
+
+	const employeeModelLine = (employee: OrgEmployee) =>
+		formatEmployeeResolvedModelLabel({ employee, ...modelRouteParams }) ?? t('aiEmployees.modelDisplayNone');
 
 	const ceoReplanModelId = useMemo(() => {
 		if (ceoEmployee) {
@@ -611,6 +628,7 @@ export function EmployeesPage({
 					<div className="ref-ai-employees-org-badge-grid" role="list">
 						{sortedOrg.map((employee) => {
 							const title = (employee.customRoleTitle || employee.roleKey).trim() || '—';
+							const modelLine = employeeModelLine(employee);
 							const isActive = detailModalOpen && selectedId === employee.id;
 							return (
 								<button
@@ -631,6 +649,9 @@ export function EmployeesPage({
 										<div className="ref-ai-employees-org-badge-text">
 											<span className="ref-ai-employees-org-badge-name">{employee.displayName}</span>
 											<span className="ref-ai-employees-org-badge-title">{title}</span>
+											<span className="ref-ai-employees-org-badge-model" title={modelLine}>
+												{modelLine}
+											</span>
 											{employee.isCeo ? <span className="ref-ai-employees-org-badge-chip">{t('aiEmployees.setup.roleLeadLabel')}</span> : null}
 										</div>
 									</div>
@@ -689,6 +710,9 @@ export function EmployeesPage({
 								<div className="ref-ai-employees-org-detail-title">
 									<h3>{selected.displayName}</h3>
 									<p className="ref-ai-employees-muted">{t('aiEmployees.orgRoleKey')}: {selected.roleKey}</p>
+									<p className="ref-ai-employees-org-detail-model" title={employeeModelLine(selected)}>
+										{employeeModelLine(selected)}
+									</p>
 								</div>
 							</div>
 

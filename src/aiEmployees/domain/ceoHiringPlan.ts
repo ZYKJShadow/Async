@@ -15,6 +15,7 @@ export async function invokeGenerateHiringPlanForOrg(
 		ceoDisplayName: string;
 		ceoPersonaSeed: OrgEmployee['personaSeed'];
 		ceoSystemPrompt: string;
+		userRequirements?: string;
 		currentEmployees: OrgEmployee[];
 	}
 ): Promise<{ ok: true; candidates: HiringPlanCandidate[] } | { ok: false; error: string }> {
@@ -24,6 +25,7 @@ export async function invokeGenerateHiringPlanForOrg(
 		ceoDisplayName: input.ceoDisplayName,
 		ceoPersonaSeed: input.ceoPersonaSeed ?? null,
 		ceoSystemPrompt: input.ceoSystemPrompt,
+		...(input.userRequirements?.trim() ? { userRequirements: input.userRequirements.trim() } : {}),
 		currentEmployees: input.currentEmployees.map((e) => ({
 			id: e.id,
 			displayName: e.displayName,

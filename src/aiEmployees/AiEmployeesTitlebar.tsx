@@ -9,7 +9,7 @@ export function AiEmployeesTitlebar({ t }: { t: TFunction }) {
 		<header className="ref-menubar ref-ai-employees-titlebar" role="banner" aria-label={t('aiEmployees.titlebarAria')}>
 			<div className="ref-ai-employees-titlebar-plate" aria-hidden />
 			<div className="ref-ai-employees-titlebar-middle">
-				<span className="ref-ai-employees-titlebar-text">{t('aiEmployees.windowTitle')}</span>
+				<span className="ref-ai-employees-titlebar-text" />
 			</div>
 			<div className="ref-ai-employees-titlebar-plate" aria-hidden />
 		</header>

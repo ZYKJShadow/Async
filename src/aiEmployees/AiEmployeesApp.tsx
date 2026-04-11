@@ -5,8 +5,8 @@ import {
 	IconBot,
 	IconChevron,
 	IconCircleUser,
-	IconInbox,
 	IconListTodo,
+	IconMessageCircle,
 	IconMonitor,
 	IconRefresh,
 	IconSettings,
@@ -35,22 +35,6 @@ export function AiEmployeesApp() {
 		const w = c.workspaces.find((x) => x.id === c.workspaceId);
 		return w?.name ?? (c.workspaceId ? c.workspaceId.slice(0, 8) : '');
 	}, [c.workspaces, c.workspaceId]);
-
-	const userInitials = useMemo(() => {
-		const n = c.meProfile.name?.trim();
-		if (n) {
-			const parts = n.split(/\s+/).filter(Boolean);
-			if (parts.length >= 2) {
-				return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-			}
-			return n.charAt(0).toUpperCase();
-		}
-		const e = c.meProfile.email?.trim();
-		if (e) {
-			return e.charAt(0).toUpperCase();
-		}
-		return 'U';
-	}, [c.meProfile.name, c.meProfile.email]);
 
 	const tabPageTitle = (id: AiEmployeesTabId): string => {
 		switch (id) {
@@ -130,6 +114,7 @@ export function AiEmployeesApp() {
 					onSync={c.syncOnboardingAfterMutation}
 					onBindEmployeeLocalModel={c.bindEmployeeLocalModel}
 					onClearEmployeeLocalModel={c.clearEmployeeLocalModel}
+					modelOptions={c.modelOptions}
 				/>
 			</div>
 		);
@@ -161,7 +146,7 @@ export function AiEmployeesApp() {
 								<div className="ref-ai-employees-nav-group">
 									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.workspace')}</div>
 									<div className="ref-ai-employees-nav-group-content">
-										{navBtn('inbox', t('aiEmployees.tab.inbox'), <IconInbox className="ref-ai-employees-nav-icon" />)}
+										{navBtn('inbox', t('aiEmployees.tab.inbox'), <IconMessageCircle className="ref-ai-employees-nav-icon" />)}
 										{navBtn('myIssues', t('aiEmployees.tab.myIssues'), <IconCircleUser className="ref-ai-employees-nav-icon" />)}
 										{navBtn('issues', t('aiEmployees.tab.issues'), <IconListTodo className="ref-ai-employees-nav-icon" />)}
 										{navBtn('agents', t('aiEmployees.tab.team'), <IconBot className="ref-ai-employees-nav-icon" />)}
@@ -176,19 +161,6 @@ export function AiEmployeesApp() {
 									</div>
 								</div>
 						</nav>
-						<footer className="ref-ai-employees-sidebar-footer">
-							<div className="ref-ai-employees-user-row">
-								<div className="ref-ai-employees-user-avatar" aria-hidden>
-									{userInitials}
-								</div>
-								<div className="ref-ai-employees-user-meta">
-									<div className="ref-ai-employees-user-name">
-										{(c.meProfile.name ?? c.meLabel) || t('aiEmployees.notConnected')}
-									</div>
-									<div className="ref-ai-employees-user-email">{c.meProfile.email ?? ''}</div>
-								</div>
-							</div>
-						</footer>
 					</div>
 				</div>
 				<main className="ref-ai-employees-inset">
@@ -261,6 +233,11 @@ export function AiEmployeesApp() {
 										conn={c.conn}
 										workspaceId={c.workspaceId}
 										inboxVersion={c.inboxVersion}
+										agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
+										employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
+										defaultModelId={c.localModels.defaultModelId}
+										modelOptions={c.modelOptions}
+										modelOptionIdSet={c.modelOptionIdSet}
 										onCreateRun={c.createEmployeeRun}
 										onSendMessage={c.sendCollabMessage}
 										onMarkMessageRead={c.markCollabMessageRead}
@@ -306,6 +283,7 @@ export function AiEmployeesApp() {
 									companyName={c.bootstrapStatus?.companyName ?? ''}
 									orgEmployees={c.orgEmployees}
 									onRefreshOrg={c.refreshOrgEmployeesList}
+									agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
 									employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
 									modelOptions={c.modelOptions}
 									modelOptionIdSet={c.modelOptionIdSet}

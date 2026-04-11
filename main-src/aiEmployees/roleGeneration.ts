@@ -225,10 +225,18 @@ export async function generateHiringPlan(
 		ceoId: ceo?.id ?? null,
 		ceoPersonaSeed: input.ceoPersonaSeed ?? null,
 		ceoSystemPrompt: trimText(input.ceoSystemPrompt),
+		userRequirements: trimText(input.userRequirements ?? ''),
 		currentEmployees: input.currentEmployees,
 	};
+	const systemExtra = trimText(input.userRequirements ?? '')
+		? [
+				'The user has stated specific goals for this team. Prioritize them when proposing roles, collaborationRules, and handoffRules.',
+				'Align candidate jobMission, domainContext, and promptDraft with those goals.',
+		  ].join(' ')
+		: '';
+	const systemFull = systemExtra ? `${system}\n\n${systemExtra}` : system;
 	const text = await runStructuredCompletion(settings, input.modelId, [
-		{ role: 'system', content: system },
+		{ role: 'system', content: systemFull },
 		{ role: 'user', content: JSON.stringify(user, null, 2) },
 	]);
 	return normalizeHiringPlan(extractJsonObject(text));

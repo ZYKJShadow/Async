@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiEmployeesSettings } from '../../../shared/aiEmployeesSettings';
-import type { RolePromptDraft } from '../../../shared/aiEmployeesPersona';
+import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
 import type { AiEmployeesConnection } from '../api/client';
 import type { OrgBootstrapStatus, OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
 import {
@@ -12,10 +12,13 @@ import {
 	apiPostBootstrapConfirmTemplates,
 	apiPostBootstrapOrg,
 } from '../api/orgClient';
-import { resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
+import { formatLocalModelPickLabel, resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
+import { RoleCustomSystemPromptField, RoleProfileEditor } from '../components/RoleProfileEditor';
+import type { LocalModelEntry } from '../sessionTypes';
 import { invokeGenerateHiringPlanForOrg, mapHiringCandidatesToMemberDrafts } from '../domain/ceoHiringPlan';
 import { emptyPromptDraft } from '../domain/persona';
 import {
+	applyGeneratedPromptDraft,
 	createEmptyRoleProfileDraft,
 	createRoleDraftFromOrgEmployee,
 	toPersonaSeed,
@@ -23,10 +26,14 @@ import {
 } from '../domain/roleDraft';
 import type { AiEmployeesSessionPhase } from '../sessionTypes';
 
-type SetupStage = 'connect' | 'choose_team_mode' | 'confirm_team_name';
-type TeamModeId = 'product_delivery' | 'lean_builder' | 'custom';
-
-const SETUP_STAGE_ORDER: SetupStage[] = ['connect', 'choose_team_mode', 'confirm_team_name'];
+type SetupStage =
+	| 'connect'
+	| 'configure_model'
+	| 'choose_team_mode'
+	| 'ceo_generate'
+	| 'preview_team'
+	| 'confirm_team_name';
+type TeamModeId = 'product_delivery' | 'lean_builder' | 'ceo_arrange';
 
 type TeamModeConfig = {
 	id: TeamModeId;
@@ -129,10 +136,20 @@ function createTeamModes(t: TFunction): TeamModeConfig[] {
 			],
 		},
 		{
-			id: 'custom',
-			titleKey: 'aiEmployees.setup.modeCustomTitle',
-			descKey: 'aiEmployees.setup.modeCustomDesc',
-			roles: [],
+			id: 'ceo_arrange',
+			titleKey: 'aiEmployees.setup.modeCeoArrangeTitle',
+			descKey: 'aiEmployees.setup.modeCeoArrangeDesc',
+			roles: [
+				{
+					id: 'lead',
+					roleKey: 'ceo',
+					customRoleTitle: t('aiEmployees.setup.role.coordinatorTitle'),
+					jobMission: t('aiEmployees.setup.role.coordinatorMission'),
+					domainContext: t('aiEmployees.setup.role.coordinatorContext'),
+					communicationNotes: t('aiEmployees.setup.role.coordinatorNotes'),
+					templateHints: ['ceo', 'lead', 'coordinator', 'manager'],
+				},
+			],
 		},
 	];
 }
@@ -196,7 +213,7 @@ function inferStage(sessionPhase: AiEmployeesSessionPhase, workspaceId: string, 
 	if (status?.hasCeo || status?.hasOrgProfile) {
 		return 'confirm_team_name';
 	}
-	return 'choose_team_mode';
+	return 'configure_model';
 }
 
 function clonePromptDraft(draft: RolePromptDraft): RolePromptDraft {
@@ -330,6 +347,7 @@ export function AiEmployeesSetupFlow({
 	onSync,
 	onBindEmployeeLocalModel,
 	onClearEmployeeLocalModel,
+	modelOptions,
 }: {
 	t: TFunction;
 	sessionPhase: AiEmployeesSessionPhase;
@@ -346,6 +364,7 @@ export function AiEmployeesSetupFlow({
 	bootstrapStatus: OrgBootstrapStatus | null;
 	orgEmployees: OrgEmployee[];
 	promptTemplates: OrgPromptTemplate[];
+	modelOptions: LocalModelEntry[];
 	modelOptionIdSet: Set<string>;
 	defaultModelId: string | undefined;
 	agentLocalModelMap: Record<string, string> | undefined;
@@ -362,13 +381,41 @@ export function AiEmployeesSetupFlow({
 	const [submitErr, setSubmitErr] = useState<string | null>(null);
 	const [ceoAiMemberDrafts, setCeoAiMemberDrafts] = useState<RoleProfileDraft[] | null>(null);
 	const [ceoPlanBusy, setCeoPlanBusy] = useState(false);
+	const [selectedModelId, setSelectedModelId] = useState('');
+	const [ceoRequirements, setCeoRequirements] = useState('');
+	const [previewTeamDrafts, setPreviewTeamDrafts] = useState<RoleProfileDraft[]>([]);
+	const [wizardCommitDrafts, setWizardCommitDrafts] = useState<RoleProfileDraft[] | null>(null);
+	const [previewEditDraft, setPreviewEditDraft] = useState<RoleProfileDraft | null>(null);
+	const [previewPromptBusy, setPreviewPromptBusy] = useState(false);
 	const prevStageRef = useRef<SetupStage | null>(null);
 
 	const setupFinishOnlyResume = Boolean(bootstrapStatus?.templatesConfirmed && !bootstrapStatus?.onboardingCompleted);
 
 	useEffect(() => {
+		setSelectedModelId((cur) => {
+			if (cur && modelOptionIdSet.has(cur)) {
+				return cur;
+			}
+			if (defaultModelId && modelOptionIdSet.has(defaultModelId)) {
+				return defaultModelId;
+			}
+			return modelOptions.find((m) => modelOptionIdSet.has(m.id))?.id ?? '';
+		});
+	}, [defaultModelId, modelOptions, modelOptionIdSet]);
+
+	useEffect(() => {
 		const inferred = inferStage(sessionPhase, workspaceId, bootstrapStatus);
-		setStage(inferred);
+		if (inferred === 'connect') {
+			setStage('connect');
+			return;
+		}
+		if (inferred === 'confirm_team_name') {
+			setStage('confirm_team_name');
+			return;
+		}
+		if (inferred === 'configure_model') {
+			setStage((cur) => (cur === 'connect' ? 'configure_model' : cur));
+		}
 	}, [
 		sessionPhase,
 		workspaceId,
@@ -397,7 +444,7 @@ export function AiEmployeesSetupFlow({
 	}, [stage, localRoot, workspaces, workspaceId, companyName, bootstrapStatus?.companyName]);
 
 	useEffect(() => {
-		if (stage === 'choose_team_mode') {
+		if (stage === 'choose_team_mode' || stage === 'configure_model') {
 			void onLoadPromptTemplates();
 		}
 	}, [stage, onLoadPromptTemplates]);
@@ -414,10 +461,12 @@ export function AiEmployeesSetupFlow({
 		[connectionError]
 	);
 
+	const effectiveModelForDrafts = selectedModelId && modelOptionIdSet.has(selectedModelId) ? selectedModelId : defaultModelId;
+
 	const previewDrafts = useMemo(() => {
 		const mode = teamModes.find((item) => item.id === teamMode) ?? teamModes[0];
-		return mode.roles.map((role) => createDraftFromModeRole(role, promptTemplates, defaultModelId, t));
-	}, [teamMode, promptTemplates, defaultModelId, teamModes, t]);
+		return mode.roles.map((role) => createDraftFromModeRole(role, promptTemplates, effectiveModelForDrafts, t));
+	}, [teamMode, promptTemplates, effectiveModelForDrafts, teamModes, t]);
 
 	const commitDrafts = useMemo((): RoleProfileDraft[] => {
 		if (orgEmployees.length > 0) {
@@ -434,15 +483,61 @@ export function AiEmployeesSetupFlow({
 		if (stage === 'confirm_team_name' && setupFinishOnlyResume) {
 			return;
 		}
-		const idx = SETUP_STAGE_ORDER.indexOf(stage);
-		if (idx <= 0) {
+		setSubmitErr(null);
+		if (stage === 'confirm_team_name') {
+			if (wizardCommitDrafts?.length) {
+				setPreviewTeamDrafts(wizardCommitDrafts.map((d) => cloneRoleDraft(d)));
+			}
+			setStage('preview_team');
 			return;
 		}
-		setStage(SETUP_STAGE_ORDER[idx - 1]);
-		setSubmitErr(null);
+		if (stage === 'preview_team') {
+			setStage(teamMode === 'ceo_arrange' ? 'ceo_generate' : 'choose_team_mode');
+			return;
+		}
+		if (stage === 'ceo_generate') {
+			setStage('choose_team_mode');
+			return;
+		}
+		if (stage === 'choose_team_mode') {
+			setStage('configure_model');
+			return;
+		}
+		if (stage === 'configure_model') {
+			setStage('connect');
+			return;
+		}
 	};
 
-	const goToConfirmTeamName = () => {
+	const goConfigureNext = () => {
+		if (!selectedModelId || !modelOptionIdSet.has(selectedModelId)) {
+			setSubmitErr(t('aiEmployees.setup.ceoPlanNeedModel'));
+			return;
+		}
+		setSubmitErr(null);
+		setStage('choose_team_mode');
+	};
+
+	const goChooseTeamNext = () => {
+		setSubmitErr(null);
+		if (teamMode === 'ceo_arrange') {
+			setCeoAiMemberDrafts(null);
+			setStage('ceo_generate');
+			return;
+		}
+		setCeoAiMemberDrafts(null);
+		setPreviewTeamDrafts(previewDrafts.map((d) => cloneRoleDraft(d)));
+		setStage('preview_team');
+	};
+
+	const goPreviewNext = () => {
+		const lead = previewTeamDrafts.find((d) => d.roleKey === 'ceo');
+		const members = previewTeamDrafts.filter((d) => d.roleKey !== 'ceo');
+		if (!lead || members.length === 0) {
+			setSubmitErr(t('aiEmployees.setup.previewNeedMembers'));
+			return;
+		}
+		setWizardCommitDrafts(previewTeamDrafts.map((d) => cloneRoleDraft(d)));
 		setSubmitErr(null);
 		setStage('confirm_team_name');
 	};
@@ -463,21 +558,26 @@ export function AiEmployeesSetupFlow({
 		}
 	};
 
-	const leadPreviewDraft = useMemo(() => previewDrafts.find((d) => d.roleKey === 'ceo'), [previewDrafts]);
-
-	const generateCeoTeamPlan = async () => {
+	const triggerCeoGenerate = async () => {
 		const shell = window.asyncShell;
 		if (!shell) {
 			setSubmitErr(t('aiEmployees.setup.ceoPlanNoShell'));
 			return;
 		}
 		const modelId =
-			defaultModelId && modelOptionIdSet.has(defaultModelId) ? defaultModelId : previewDrafts.find((d) => d.localModelId && modelOptionIdSet.has(d.localModelId))?.localModelId;
+			selectedModelId && modelOptionIdSet.has(selectedModelId)
+				? selectedModelId
+				: previewDrafts.find((d) => d.localModelId && modelOptionIdSet.has(d.localModelId))?.localModelId;
 		if (!modelId) {
 			setSubmitErr(t('aiEmployees.setup.ceoPlanNeedModel'));
 			return;
 		}
 		if (!workspaceId) {
+			return;
+		}
+		const lead = previewDrafts.find((d) => d.roleKey === 'ceo');
+		if (!lead) {
+			setSubmitErr(t('aiEmployees.setup.ceoPlanNeedCeo'));
 			return;
 		}
 		setCeoPlanBusy(true);
@@ -491,20 +591,18 @@ export function AiEmployeesSetupFlow({
 			await onSync();
 			let employees = await apiListOrgEmployees(conn, workspaceId);
 			let ceoEmp = employees.find((e) => e.isCeo);
-			if (!ceoEmp && leadPreviewDraft) {
+			if (!ceoEmp) {
 				const created = await apiCreateOrgEmployee(conn, workspaceId, {
-					displayName: leadPreviewDraft.displayName.trim(),
+					displayName: lead.displayName.trim(),
 					roleKey: 'ceo',
-					customRoleTitle: leadPreviewDraft.customRoleTitle.trim() || undefined,
+					customRoleTitle: lead.customRoleTitle.trim() || undefined,
 					isCeo: true,
-					templatePromptKey: leadPreviewDraft.templatePromptKey?.trim() || undefined,
-					...(leadPreviewDraft.promptDraft.systemPrompt.trim()
-						? { customSystemPrompt: leadPreviewDraft.promptDraft.systemPrompt.trim() }
-						: {}),
-					personaSeed: toPersonaSeed(leadPreviewDraft, 'user'),
+					templatePromptKey: lead.templatePromptKey?.trim() || undefined,
+					...(lead.promptDraft.systemPrompt.trim() ? { customSystemPrompt: lead.promptDraft.systemPrompt.trim() } : {}),
+					personaSeed: toPersonaSeed(lead, 'user'),
 					modelSource: 'local_model',
 				});
-				const bindId = leadPreviewDraft.localModelId && modelOptionIdSet.has(leadPreviewDraft.localModelId) ? leadPreviewDraft.localModelId : modelId;
+				const bindId = lead.localModelId && modelOptionIdSet.has(lead.localModelId) ? lead.localModelId : modelId;
 				onBindEmployeeLocalModel(created.id, bindId);
 				await onSync();
 				employees = await apiListOrgEmployees(conn, workspaceId);
@@ -520,6 +618,7 @@ export function AiEmployeesSetupFlow({
 				ceoDisplayName: ceoEmp.displayName,
 				ceoPersonaSeed: ceoEmp.personaSeed ?? null,
 				ceoSystemPrompt: ceoEmp.customSystemPrompt ?? '',
+				userRequirements: ceoRequirements.trim() || undefined,
 				currentEmployees: employees,
 			});
 			if (!result.ok) {
@@ -532,6 +631,8 @@ export function AiEmployeesSetupFlow({
 				return;
 			}
 			setCeoAiMemberDrafts(memberDrafts);
+			setPreviewTeamDrafts([cloneRoleDraft(lead), ...memberDrafts.map((m) => cloneRoleDraft(m))]);
+			setStage('preview_team');
 		} catch (error) {
 			setSubmitErr(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -539,13 +640,25 @@ export function AiEmployeesSetupFlow({
 		}
 	};
 
+	/** Prefer wizard snapshot: CEO 规划会在服务端先建 CEO，此时 org 里只有一人，不能覆盖预览里已确认的完整名单。 */
+	const draftsForBootstrapCommit = useMemo(() => {
+		if (wizardCommitDrafts?.length) {
+			return wizardCommitDrafts.map((d) => cloneRoleDraft(d));
+		}
+		if (orgEmployees.length > 0) {
+			return mapOrgEmployeesToCommitDrafts(orgEmployees, agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet);
+		}
+		return commitDrafts;
+	}, [orgEmployees, wizardCommitDrafts, commitDrafts, agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet]);
+
 	const commitTeamAndFinish = async () => {
 		if (!workspaceId) {
 			return;
 		}
-		if (commitDrafts.length > 0) {
-			const lead = commitDrafts.find((item) => item.roleKey === 'ceo');
-			const members = commitDrafts.filter((item) => item.roleKey !== 'ceo');
+		const commitList = draftsForBootstrapCommit;
+		if (commitList.length > 0) {
+			const lead = commitList.find((item) => item.roleKey === 'ceo');
+			const members = commitList.filter((item) => item.roleKey !== 'ceo');
 			if (!lead) {
 				setSubmitErr(t('aiEmployees.setup.needLeadError'));
 				return;
@@ -559,17 +672,18 @@ export function AiEmployeesSetupFlow({
 		setSubmitErr(null);
 		try {
 			await apiPostBootstrapOrg(conn, workspaceId, teamName.trim() || companyName.trim() || draftOrgLabel);
-			if (commitDrafts.length === 0) {
+			if (commitList.length === 0) {
 				await apiPostBootstrapConfirmTemplates(conn, workspaceId);
 				await onSync();
 				await apiPostBootstrapComplete(conn, workspaceId);
 				await onSync();
 				return;
 			}
-			const lead = commitDrafts.find((item) => item.roleKey === 'ceo')!;
-			const members = commitDrafts.filter((item) => item.roleKey !== 'ceo');
+			const lead = commitList.find((item) => item.roleKey === 'ceo')!;
+			const members = commitList.filter((item) => item.roleKey !== 'ceo');
 			const actualEmployeeIds = new Map<string, string>();
 			const existingEmployees = new Map(orgEmployees.map((item) => [item.id, item]));
+			const existingCeoEmployee = orgEmployees.find((e) => e.isCeo);
 			for (const draft of [lead, ...members]) {
 				const managerEmployeeId =
 					draft.roleKey === 'ceo'
@@ -578,7 +692,9 @@ export function AiEmployeesSetupFlow({
 							? actualEmployeeIds.get(draft.managerEmployeeId) ?? draft.managerEmployeeId
 							: actualEmployeeIds.get(lead.id ?? '');
 				const systemPrompt = draft.promptDraft.systemPrompt.trim();
-				const existing = draft.id ? existingEmployees.get(draft.id) : undefined;
+				const existingByDraftId = draft.id ? existingEmployees.get(draft.id) : undefined;
+				const existing =
+					existingByDraftId ?? (draft.roleKey === 'ceo' && existingCeoEmployee ? existingCeoEmployee : undefined);
 				const employee = existing
 					? await apiPatchOrgEmployee(conn, workspaceId, existing.id, {
 							displayName: draft.displayName.trim(),
@@ -633,11 +749,77 @@ export function AiEmployeesSetupFlow({
 	};
 
 	const setupFrameClass =
-		stage === 'connect' || stage === 'confirm_team_name'
+		stage === 'connect' ||
+		stage === 'configure_model' ||
+		stage === 'ceo_generate' ||
+		stage === 'confirm_team_name'
 			? 'ref-ai-employees-setup-frame ref-ai-employees-setup-frame--narrow'
-			: stage === 'choose_team_mode'
+			: stage === 'choose_team_mode' || stage === 'preview_team'
 				? 'ref-ai-employees-setup-frame ref-ai-employees-setup-frame--wide'
 				: 'ref-ai-employees-setup-frame';
+
+	const generatePreviewRolePrompt = async () => {
+		if (!previewEditDraft || !window.asyncShell) {
+			return;
+		}
+		if (!previewEditDraft.localModelId || !modelOptionIdSet.has(previewEditDraft.localModelId)) {
+			setSubmitErr(t('aiEmployees.role.modelRequired'));
+			return;
+		}
+		setPreviewPromptBusy(true);
+		setSubmitErr(null);
+		try {
+			const ceoName = previewTeamDrafts.find((d) => d.roleKey === 'ceo')?.displayName ?? '';
+			const payload: RolePromptGeneratorInput = {
+				modelId: previewEditDraft.localModelId,
+				roleKey: previewEditDraft.roleKey,
+				templatePromptKey: previewEditDraft.templatePromptKey,
+				displayName: previewEditDraft.displayName,
+				customRoleTitle: previewEditDraft.customRoleTitle,
+				nationalityCode: previewEditDraft.nationalityCode ?? null,
+				jobMission: previewEditDraft.jobMission,
+				domainContext: previewEditDraft.domainContext,
+				communicationNotes: previewEditDraft.communicationNotes,
+				collaborationRules: previewEditDraft.promptDraft.collaborationRules,
+				handoffRules: previewEditDraft.promptDraft.handoffRules,
+				companyName: draftOrgLabel,
+				managerSummary: ceoName,
+			};
+			const result = (await window.asyncShell.invoke('aiEmployees:generateRolePrompt', payload)) as
+				| { ok: true; draft: RolePromptDraft }
+				| { ok: false; error?: string };
+			if (result.ok) {
+				setPreviewEditDraft((prev) => (prev ? applyGeneratedPromptDraft(prev, result.draft) : null));
+			}
+		} catch (error) {
+			setSubmitErr(error instanceof Error ? error.message : String(error));
+		} finally {
+			setPreviewPromptBusy(false);
+		}
+	};
+
+	const savePreviewModal = () => {
+		if (!previewEditDraft) {
+			return;
+		}
+		if (previewEditDraft.id) {
+			setPreviewTeamDrafts((prev) => prev.map((d) => (d.id === previewEditDraft.id ? cloneRoleDraft(previewEditDraft) : d)));
+		}
+		setPreviewEditDraft(null);
+	};
+
+	useEffect(() => {
+		if (!previewEditDraft) {
+			return;
+		}
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				setPreviewEditDraft(null);
+			}
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	}, [previewEditDraft]);
 
 	return (
 		<div className="ref-ai-employees-setup-shell">
@@ -734,6 +916,51 @@ export function AiEmployeesSetupFlow({
 					</div>
 				) : null}
 
+				{stage === 'configure_model' ? (
+					<div className="ref-ai-employees-setup-step">
+						<div className="ref-ai-employees-setup-panel-head">
+							<div className="ref-ai-employees-setup-chip">{t('aiEmployees.setup.stepConfigModel')}</div>
+							<h2>{t('aiEmployees.setup.configModelHeading')}</h2>
+							<p>{t('aiEmployees.setup.configModelBlurb')}</p>
+						</div>
+						<label className="ref-ai-employees-catalog-field">
+							<span>{t('aiEmployees.role.localModel')}</span>
+							<select
+								className="ref-settings-native-select ref-ai-employees-workspace-select"
+								value={selectedModelId}
+								onChange={(e) => setSelectedModelId(e.target.value)}
+							>
+								<option value="">{t('aiEmployees.role.modelRequired')}</option>
+								{modelOptions
+									.filter((m) => modelOptionIdSet.has(m.id))
+									.map((m) => (
+										<option key={m.id} value={m.id}>
+											{formatLocalModelPickLabel(m)}
+										</option>
+									))}
+							</select>
+						</label>
+						{modelOptions.filter((m) => modelOptionIdSet.has(m.id)).length === 0 ? (
+							<p className="ref-ai-employees-setup-muted">{t('aiEmployees.setup.configModelNoModels')}</p>
+						) : null}
+						<div className="ref-ai-employees-form-actions ref-ai-employees-setup-actions ref-ai-employees-setup-nav-row">
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={goBack}>
+								{t('aiEmployees.onboarding.prevStep')}
+							</button>
+							<div className="ref-ai-employees-setup-nav-trailing">
+								<button
+									type="button"
+									className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+									onClick={goConfigureNext}
+									disabled={!selectedModelId || !modelOptionIdSet.has(selectedModelId)}
+								>
+									{t('aiEmployees.setup.nextStep')}
+								</button>
+							</div>
+						</div>
+					</div>
+				) : null}
+
 				{stage === 'choose_team_mode' ? (
 					<div className="ref-ai-employees-setup-step">
 						<div className="ref-ai-employees-setup-panel-head">
@@ -771,6 +998,9 @@ export function AiEmployeesSetupFlow({
 														<li key={role.id}>{role.customRoleTitle}</li>
 													))}
 												</ul>
+												{mode.id === 'ceo_arrange' ? (
+													<p className="ref-ai-employees-setup-muted ref-ai-employees-setup-tier-ceo-hint">{t('aiEmployees.setup.tierCeoWillGenerate')}</p>
+												) : null}
 											</>
 										) : (
 											<p className="ref-ai-employees-setup-tier-no-roles">{t('aiEmployees.setup.tierNoRolesPreset')}</p>
@@ -790,7 +1020,105 @@ export function AiEmployeesSetupFlow({
 								{t('aiEmployees.onboarding.prevStep')}
 							</button>
 							<div className="ref-ai-employees-setup-nav-trailing">
-								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={goToConfirmTeamName}>
+								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={goChooseTeamNext}>
+									{t('aiEmployees.setup.nextStep')}
+								</button>
+							</div>
+						</div>
+					</div>
+				) : null}
+
+				{stage === 'ceo_generate' ? (
+					<div className="ref-ai-employees-setup-step ref-ai-employees-setup-step--ceo-gen">
+						<div className="ref-ai-employees-setup-panel-head">
+							<div className="ref-ai-employees-setup-chip">{t('aiEmployees.setup.stepCeoGenerate')}</div>
+							<h2>{t('aiEmployees.setup.ceoGenHeading')}</h2>
+							<p>{t('aiEmployees.setup.ceoGenBlurb')}</p>
+						</div>
+						<label className="ref-ai-employees-catalog-field">
+							<span>{t('aiEmployees.setup.ceoGenRequirementsLabel')}</span>
+							<textarea
+								className="ref-ai-employees-input ref-ai-employees-setup-ceo-gen-textarea"
+								rows={5}
+								value={ceoRequirements}
+								onChange={(e) => setCeoRequirements(e.target.value)}
+								placeholder={t('aiEmployees.setup.ceoGenPlaceholder')}
+								disabled={ceoPlanBusy}
+							/>
+						</label>
+						<div className="ref-ai-employees-form-actions ref-ai-employees-setup-actions ref-ai-employees-setup-nav-row">
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={goBack} disabled={ceoPlanBusy}>
+								{t('aiEmployees.onboarding.prevStep')}
+							</button>
+							<div className="ref-ai-employees-setup-nav-trailing">
+								<button
+									type="button"
+									className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+									disabled={ceoPlanBusy}
+									onClick={() => void triggerCeoGenerate()}
+								>
+									{ceoPlanBusy ? t('common.loading') : t('aiEmployees.setup.ceoGenStart')}
+								</button>
+							</div>
+						</div>
+						{ceoPlanBusy ? (
+							<div className="ref-ai-employees-ceo-gen-overlay" aria-busy="true" aria-live="polite">
+								<p className="ref-ai-employees-ceo-gen-status-text">{t('aiEmployees.setup.ceoGenBusy')}</p>
+								<div className="ref-ai-employees-ceo-gen-skeleton-grid">
+									{[0, 1, 2, 3].map((i) => (
+										<div key={i} className="ref-ai-employees-ceo-gen-skeleton-card">
+											<div className="ref-ai-employees-ceo-gen-skeleton-face ref-ai-employees-skeleton" />
+											<div className="ref-ai-employees-ceo-gen-skeleton-line ref-ai-employees-ceo-gen-skeleton-line--wide ref-ai-employees-skeleton" />
+											<div className="ref-ai-employees-ceo-gen-skeleton-line ref-ai-employees-ceo-gen-skeleton-line--narrow ref-ai-employees-skeleton" />
+										</div>
+									))}
+								</div>
+							</div>
+						) : null}
+					</div>
+				) : null}
+
+				{stage === 'preview_team' ? (
+					<div className="ref-ai-employees-setup-step">
+						<div className="ref-ai-employees-setup-panel-head">
+							<div className="ref-ai-employees-setup-chip">{t('aiEmployees.setup.stepPreviewTeam')}</div>
+							<h2>{t('aiEmployees.setup.previewHeading')}</h2>
+							<p>{t('aiEmployees.setup.previewBlurb')}</p>
+							<p className="ref-ai-employees-setup-muted">{t('aiEmployees.setup.previewEditHint')}</p>
+						</div>
+						<div className="ref-ai-employees-org-badge-grid" role="list">
+							{previewTeamDrafts.map((draft) => {
+								const initial = (draft.displayName || draft.customRoleTitle || '?').trim().slice(0, 1).toUpperCase() || '?';
+								const title = (draft.customRoleTitle || draft.roleKey).trim() || '—';
+								const isActive = Boolean(previewEditDraft && previewEditDraft.id === draft.id);
+								return (
+									<button
+										key={draft.id ?? draft.displayName}
+										type="button"
+										className={`ref-ai-employees-org-badge-card ${isActive ? 'is-active' : ''}`}
+										onClick={() => setPreviewEditDraft(cloneRoleDraft(draft))}
+									>
+										<div className="ref-ai-employees-org-badge-lanyard" aria-hidden />
+										<div className="ref-ai-employees-org-badge-card-inner">
+											<div className="ref-ai-employees-org-badge-face" aria-hidden>
+												<div className="ref-ai-employees-org-badge-face-ph">{initial}</div>
+											</div>
+											<div className="ref-ai-employees-org-badge-text">
+												<span className="ref-ai-employees-org-badge-name">{draft.displayName || title}</span>
+												<span className="ref-ai-employees-org-badge-title">{title}</span>
+											</div>
+											{draft.roleKey === 'ceo' ? <span className="ref-ai-employees-org-badge-chip">CEO</span> : null}
+										</div>
+									</button>
+								);
+							})}
+						</div>
+						<div className="ref-ai-employees-form-actions ref-ai-employees-setup-actions ref-ai-employees-setup-nav-row">
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={goBack}>
+								{t('aiEmployees.onboarding.prevStep')}
+							</button>
+							<div className="ref-ai-employees-setup-nav-trailing">
+								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={goPreviewNext}>
 									{t('aiEmployees.setup.nextStep')}
 								</button>
 							</div>
@@ -803,66 +1131,13 @@ export function AiEmployeesSetupFlow({
 						<div className="ref-ai-employees-setup-panel-head">
 							<div className="ref-ai-employees-setup-chip">{t('aiEmployees.setup.stepConfirmName')}</div>
 							<h2>{setupFinishOnlyResume ? t('aiEmployees.setup.finishAlmostHeading') : t('aiEmployees.setup.confirmTeamNameHeading')}</h2>
-							<p>
-								{setupFinishOnlyResume
-									? t('aiEmployees.setup.finishAlmostBlurb')
-									: teamMode === 'custom'
-										? t('aiEmployees.setup.confirmTeamNameBlurbDeferRoles')
-										: t('aiEmployees.setup.confirmTeamNameBlurb')}
-							</p>
+							<p>{setupFinishOnlyResume ? t('aiEmployees.setup.finishAlmostBlurb') : t('aiEmployees.setup.confirmTeamNameBlurb')}</p>
 						</div>
 						{!setupFinishOnlyResume ? (
 							<label className="ref-ai-employees-catalog-field">
 								<span>{t('aiEmployees.setup.teamNameFieldLabel')}</span>
 								<input className="ref-ai-employees-input" value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder={t('aiEmployees.onboarding.companyPh')} autoComplete="organization" />
 							</label>
-						) : null}
-						{!setupFinishOnlyResume && teamMode !== 'custom' && leadPreviewDraft ? (
-							<div className="ref-ai-employees-setup-ceo-plan">
-								<p className="ref-ai-employees-muted">{t('aiEmployees.setup.ceoPlanBlurb')}</p>
-								<div className="ref-ai-employees-form-actions ref-ai-employees-setup-ceo-plan-actions">
-									<button
-										type="button"
-										className="ref-ai-employees-btn ref-ai-employees-btn--secondary"
-										disabled={ceoPlanBusy || submitBusy}
-										onClick={() => void generateCeoTeamPlan()}
-									>
-										{ceoPlanBusy ? t('common.loading') : t('aiEmployees.setup.ceoPlanButton')}
-									</button>
-									{ceoAiMemberDrafts ? (
-										<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setCeoAiMemberDrafts(null)}>
-											{t('aiEmployees.setup.ceoPlanUseTemplate')}
-										</button>
-									) : null}
-								</div>
-								{ceoAiMemberDrafts?.length ? (
-									<ul className="ref-ai-employees-setup-ceo-plan-list">
-										{ceoAiMemberDrafts.map((d) => (
-											<li key={d.id ?? d.displayName} className="ref-ai-employees-setup-ceo-plan-card">
-												<div className="ref-ai-employees-setup-ceo-plan-card-head">
-													<strong>{d.displayName}</strong>
-													<span className="ref-ai-employees-muted">{d.customRoleTitle || d.roleKey}</span>
-												</div>
-												{d.reason ? <p className="ref-ai-employees-setup-ceo-plan-reason">{d.reason}</p> : null}
-												{d.promptDraft.collaborationRules ? (
-													<p className="ref-ai-employees-setup-ceo-plan-rules">
-														<span className="ref-ai-employees-setup-ceo-plan-k">{t('aiEmployees.setup.collabShort')}</span>
-														{d.promptDraft.collaborationRules.slice(0, 280)}
-														{d.promptDraft.collaborationRules.length > 280 ? '…' : ''}
-													</p>
-												) : null}
-												{d.promptDraft.handoffRules ? (
-													<p className="ref-ai-employees-setup-ceo-plan-rules ref-ai-employees-setup-ceo-plan-rules--handoff">
-														<span className="ref-ai-employees-setup-ceo-plan-k">{t('aiEmployees.setup.handoffShort')}</span>
-														{d.promptDraft.handoffRules.slice(0, 280)}
-														{d.promptDraft.handoffRules.length > 280 ? '…' : ''}
-													</p>
-												) : null}
-											</li>
-										))}
-									</ul>
-								) : null}
-							</div>
 						) : null}
 						<div className="ref-ai-employees-form-actions ref-ai-employees-setup-actions ref-ai-employees-setup-nav-row">
 							{!setupFinishOnlyResume ? (
@@ -886,6 +1161,72 @@ export function AiEmployeesSetupFlow({
 				</div>
 				</div>
 			</div>
+			{previewEditDraft ? (
+				<div
+					className="ref-ai-employees-org-modal-overlay"
+					role="presentation"
+					onClick={() => {
+						setPreviewEditDraft(null);
+					}}
+				>
+					<div
+						className="ref-ai-employees-org-modal ref-ai-employees-setup-preview-modal"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="ref-ai-employees-setup-preview-modal-title"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<div className="ref-ai-employees-org-modal-head">
+							<h3 id="ref-ai-employees-setup-preview-modal-title" className="ref-ai-employees-org-modal-title">
+								{previewEditDraft.displayName || previewEditDraft.customRoleTitle || previewEditDraft.roleKey}
+							</h3>
+							<button
+								type="button"
+								className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-modal-close"
+								onClick={() => setPreviewEditDraft(null)}
+								aria-label={t('common.close')}
+							>
+								×
+							</button>
+						</div>
+						<div className="ref-ai-employees-org-modal-body">
+							<RoleProfileEditor
+								t={t}
+								draft={previewEditDraft}
+								modelOptions={modelOptions}
+								onChange={(patch) => setPreviewEditDraft((prev) => (prev ? { ...prev, ...patch } : null))}
+							/>
+							<RoleCustomSystemPromptField
+								t={t}
+								value={previewEditDraft.promptDraft.systemPrompt}
+								disabled={previewPromptBusy}
+								generating={previewPromptBusy}
+								generateDisabled={!previewEditDraft.localModelId || !modelOptionIdSet.has(previewEditDraft.localModelId)}
+								onGenerate={() => void generatePreviewRolePrompt()}
+								onRestore={() =>
+									setPreviewEditDraft((prev) =>
+										prev ? { ...prev, promptDraft: prev.lastGeneratedPromptDraft ?? prev.promptDraft } : null
+									)
+								}
+								canRestore={Boolean(previewEditDraft.lastGeneratedPromptDraft)}
+								onChange={(value) =>
+									setPreviewEditDraft((prev) =>
+										prev ? { ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } } : null
+									)
+								}
+							/>
+						</div>
+						<div className="ref-ai-employees-form-actions ref-ai-employees-org-modal-actions">
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setPreviewEditDraft(null)}>
+								{t('common.cancel')}
+							</button>
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={savePreviewModal}>
+								{t('common.save')}
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
 }
