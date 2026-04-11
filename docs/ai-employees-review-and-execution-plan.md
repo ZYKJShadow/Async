@@ -6,6 +6,202 @@
 
 ---
 
+## Part 0: Critical Issue — AI Employees Have No Workspace Context
+
+### Problem
+
+When chatting with an AI employee, they cannot see projects, issues, skills, or team info.
+Asking "Can you see my projects?" gets the response "I can't directly see your projects."
+
+### Root Cause Analysis
+
+The full conversation chain has been traced:
+
+```
+User sends message in InboxPage
+  → sendMessage() → onCreateRun(employeeId, title, details)
+    → createEmployeeRun()  [useAiEmployeesController.ts:1795]
+      → createOrchestrationRun() + apiCreateIssue()
+      → requestEmployeeReply(employeeId, runId)  [line 1199]
+        → resolveEmployeeLocalModelId() → get modelId
+        → buildCollabHistoryForEmployee() → get chat history (user/assistant turns only)
+        → Build EmployeeChatInput payload:
+            { modelId, displayName, roleKey, customSystemPrompt,
+              jobMission, domainContext, communicationNotes,
+              collaborationRules, handoffRules, history, teamMembers }
+        → shell.invoke('aiEmployees:chat', payload)  [line 1275]
+          → runEmployeeChat()  [main-src/aiEmployees/employeeChat.ts:69]
+            → buildEmployeeSystemPrompt(input)  [line 12]
+            → streamChatUnified(messages)
+```
+
+**`buildEmployeeSystemPrompt()` in [employeeChat.ts:12-64](main-src/aiEmployees/employeeChat.ts) builds:**
+- Employee name, role title
+- Custom system prompt OR fallback role description
+- Job mission, domain context, communication style
+- Collaboration rules, handoff rules
+- Team roster (colleagues' names, roles, missions)
+- Boss communication instructions
+
+**What's completely missing — NEVER injected:**
+- Workspace projects list (titles, descriptions, boundaries, progress)
+- Issues list (status, assignees, priorities)
+- Skills catalog
+- Organization info (company name)
+- Any real-time workspace state
+
+**`EmployeeChatInput` type in [shared/aiEmployeesPersona.ts:86-101](shared/aiEmployeesPersona.ts) has no fields for workspace data.**
+
+The same gap exists in the backend executor path (`scheduler.rs:build_system_prompt()`),
+but for local-model inbox chat, the frontend path is what matters.
+
+### Solution Design
+
+**Principle**: Inject a structured workspace context snapshot into the system prompt so employees
+are aware of what exists in the workspace. Keep it concise to fit within context windows.
+
+#### Step 1: Extend `EmployeeChatInput` type
+
+Add an optional `workspaceContext` field:
+
+```typescript
+// shared/aiEmployeesPersona.ts
+export type WorkspaceContextSnapshot = {
+  companyName?: string;
+  projects: Array<{
+    id: string;
+    title: string;
+    icon?: string;
+    description?: string;
+    boundaryKind: string;
+    boundaryPath?: string;
+    issueCount: number;
+    doneCount: number;
+    leadName?: string;
+  }>;
+  recentIssues: Array<{
+    id: string;
+    identifier?: string;
+    title: string;
+    status: string;
+    priority?: string;
+    assigneeName?: string;
+    projectTitle?: string;
+  }>;
+  skills: Array<{
+    name: string;
+    description?: string;
+  }>;
+};
+
+export type EmployeeChatInput = {
+  // ... existing fields ...
+  workspaceContext?: WorkspaceContextSnapshot;
+};
+```
+
+#### Step 2: Build the snapshot in `requestEmployeeReply`
+
+In [useAiEmployeesController.ts:1258](src/aiEmployees/hooks/useAiEmployeesController.ts),
+before constructing the payload, build the snapshot from data already in memory:
+
+```typescript
+const workspaceContext: WorkspaceContextSnapshot = {
+  companyName: bootstrapStatus?.companyName,
+  projects: projects.map(p => ({
+    id: p.id,
+    title: p.title,
+    icon: p.icon ?? undefined,
+    description: p.description ?? undefined,
+    boundaryKind: p.boundary_kind ?? 'none',
+    boundaryPath: p.boundary_local_path ?? p.boundary_git_url ?? undefined,
+    issueCount: p.issue_count ?? 0,
+    doneCount: p.done_count ?? 0,
+    leadName: leadLabel(p, workspaceMembers, agents),
+  })),
+  recentIssues: issues.slice(0, 30).map(i => ({
+    id: i.id,
+    identifier: i.identifier,
+    title: i.title,
+    status: i.status,
+    priority: i.priority,
+    assigneeName: resolveAssigneeName(i, workspaceMembers, agents),
+    projectTitle: projects.find(p => p.id === i.project_id)?.title,
+  })),
+  skills: skills.map(s => ({ name: s.name, description: s.description })),
+};
+
+const payload: EmployeeChatInput = {
+  // ... existing fields ...
+  workspaceContext,
+};
+```
+
+#### Step 3: Inject into system prompt
+
+In [main-src/aiEmployees/employeeChat.ts:12](main-src/aiEmployees/employeeChat.ts), add workspace context section:
+
+```typescript
+// Inside buildEmployeeSystemPrompt(), after team roster section:
+if (input.workspaceContext) {
+  const ctx = input.workspaceContext;
+  const lines: string[] = [];
+
+  if (ctx.companyName) {
+    lines.push(`Company: ${ctx.companyName}`);
+  }
+
+  if (ctx.projects.length > 0) {
+    lines.push('Current projects:');
+    for (const p of ctx.projects) {
+      const progress = p.issueCount > 0 ? ` [${p.doneCount}/${p.issueCount} done]` : '';
+      const lead = p.leadName ? ` (lead: ${p.leadName})` : '';
+      const boundary = p.boundaryKind !== 'none'
+        ? ` [${p.boundaryKind}: ${p.boundaryPath}]` : '';
+      lines.push(`  • ${p.icon ?? '📁'} ${p.title}${progress}${lead}${boundary}`);
+      if (p.description) lines.push(`    ${p.description.slice(0, 120)}`);
+    }
+  }
+
+  if (ctx.recentIssues.length > 0) {
+    lines.push('Recent issues:');
+    for (const i of ctx.recentIssues.slice(0, 20)) {
+      const proj = i.projectTitle ? ` [${i.projectTitle}]` : '';
+      const assignee = i.assigneeName ? ` → ${i.assigneeName}` : '';
+      lines.push(`  • ${i.identifier ?? i.id.slice(0,8)} ${i.title} (${i.status})${proj}${assignee}`);
+    }
+  }
+
+  if (ctx.skills.length > 0) {
+    lines.push(`Available skills: ${ctx.skills.map(s => s.name).join(', ')}`);
+  }
+
+  parts.push(`== Workspace state (live) ==\n${lines.join('\n')}`);
+}
+```
+
+#### Step 4: Apply same pattern to backend executor
+
+In `scheduler.rs:build_system_prompt()`, query workspace projects/issues and inject the same
+structured context. This ensures both local-model and remote-model paths are consistent.
+
+### Files to Modify
+
+| File | Change |
+|------|--------|
+| `shared/aiEmployeesPersona.ts` | Add `WorkspaceContextSnapshot` type, extend `EmployeeChatInput` |
+| `src/aiEmployees/hooks/useAiEmployeesController.ts` | Build snapshot from in-memory data in `requestEmployeeReply` |
+| `main-src/aiEmployees/employeeChat.ts` | Add workspace context section to `buildEmployeeSystemPrompt()` |
+| `async-agent-proxy/src/executor/scheduler.rs` | Query workspace data, inject into `build_system_prompt()` |
+
+### Impact
+
+After this change, asking an AI employee "Can you see my projects?" will yield a response
+listing all workspace projects with their status, progress, and boundaries. Employees will also
+be able to reference issues, suggest task assignments, and operate with full workspace awareness.
+
+---
+
 ## Part 1: Current State Assessment
 
 ### 1.1 Architecture Overview
@@ -353,7 +549,12 @@ Urgency  │                  │                  │
 
 ## Part 5: Suggested Sprint Plan
 
-### Sprint 1 (Current): Foundation Fixes
+### Sprint 1 (Current): Foundation Fixes + Workspace Context
+- [ ] **P0 — Inject workspace context into AI employee system prompt** (Part 0)
+  - [ ] P0.1 — Add `WorkspaceContextSnapshot` type to `shared/aiEmployeesPersona.ts`
+  - [ ] P0.2 — Build snapshot in `requestEmployeeReply` from in-memory state
+  - [ ] P0.3 — Inject into `buildEmployeeSystemPrompt()` in `employeeChat.ts`
+  - [ ] P0.4 — Mirror in backend `scheduler.rs:build_system_prompt()`
 - [ ] A1 — Fix boundary null/empty mismatch (frontend + backend)
 - [ ] A2 — Tighten TypeScript types
 - [ ] A3 — Fix error handling (CreateProjectDialog, pickDirectory, IssuesHub)
