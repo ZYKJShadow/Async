@@ -15,7 +15,6 @@ import {
 import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
 import type { LocalModelEntry } from '../sessionTypes';
 import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
-import { invokeGenerateHiringPlanForOrg, mapHiringCandidatesToMemberDrafts } from '../domain/ceoHiringPlan';
 import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 
 function EmployeeBadgeFace({
@@ -64,7 +63,7 @@ export function EmployeesPage({
 	modelOptions: LocalModelEntry[];
 	modelOptionIdSet: Set<string>;
 	onBindEmployeeLocalModel: (employeeId: string, modelEntryId: string) => void;
-	/** Async 设置中的默认本地模型（用于 CEO 规划与自动招聘） */
+	/** Async 设置中的默认本地模型（用于招聘等流程） */
 	defaultModelId?: string;
 	orchestration?: import('../../../shared/aiEmployeesSettings').AiEmployeesOrchestrationState;
 }) {
@@ -77,14 +76,13 @@ export function EmployeesPage({
 	const [saving, setSaving] = useState(false);
 	const [selectedDraft, setSelectedDraft] = useState<RoleProfileDraft | null>(null);
 	const [hireDrafts, setHireDrafts] = useState<RoleProfileDraft[]>([]);
-	const [hirePanelOpen, setHirePanelOpen] = useState(false);
+	const [hireModalOpen, setHireModalOpen] = useState(false);
+	const [hireModalExiting, setHireModalExiting] = useState(false);
+	const hireModalBodyRef = useRef<HTMLDivElement>(null);
 	const [hireBusy, setHireBusy] = useState(false);
 	const [hireErr, setHireErr] = useState<string | null>(null);
 	const [detailPromptBusy, setDetailPromptBusy] = useState(false);
 	const [hirePromptDraftId, setHirePromptDraftId] = useState<string | null>(null);
-	const [ceoReplanBusy, setCeoReplanBusy] = useState(false);
-	const [ceoReplanErr, setCeoReplanErr] = useState<string | null>(null);
-	const [ceoReplanDrafts, setCeoReplanDrafts] = useState<RoleProfileDraft[] | null>(null);
 	const effectiveCompanyName = companyName.trim() || 'Async Company';
 	const sortedOrg = useMemo(() => {
 		const list = [...orgEmployees];
@@ -141,19 +139,6 @@ export function EmployeesPage({
 	const employeeModelLine = (employee: OrgEmployee) =>
 		formatEmployeeResolvedModelLabel({ employee, ...modelRouteParams }) ?? t('aiEmployees.modelDisplayNone');
 
-	const ceoReplanModelId = useMemo(() => {
-		if (ceoEmployee) {
-			const bound = employeeLocalModelMap?.[ceoEmployee.id];
-			if (bound && modelOptionIdSet.has(bound)) {
-				return bound;
-			}
-		}
-		if (defaultModelId && modelOptionIdSet.has(defaultModelId)) {
-			return defaultModelId;
-		}
-		return modelOptions.find((m) => modelOptionIdSet.has(m.id))?.id ?? '';
-	}, [ceoEmployee, employeeLocalModelMap, defaultModelId, modelOptionIdSet, modelOptions]);
-
 	const beginCloseDetailModal = useCallback(() => {
 		if (detailModalExiting) {
 			return;
@@ -178,6 +163,36 @@ export function EmployeesPage({
 			return;
 		}
 		setDetailModalExiting(false);
+	}, []);
+
+	const beginCloseHireModal = useCallback(() => {
+		if (hireModalExiting) {
+			return;
+		}
+		if (!hireModalOpen) {
+			return;
+		}
+		if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+			setHireModalOpen(false);
+			setHireModalExiting(false);
+			setHireDrafts([]);
+			setHireErr(null);
+			return;
+		}
+		setHireModalOpen(false);
+		setHireModalExiting(true);
+	}, [hireModalOpen, hireModalExiting]);
+
+	const onHireModalOverlayAnimationEnd = useCallback((e: AnimationEvent<HTMLDivElement>) => {
+		if (e.target !== e.currentTarget) {
+			return;
+		}
+		if (e.animationName !== 'ref-ai-employees-org-modal-overlay-out') {
+			return;
+		}
+		setHireModalExiting(false);
+		setHireDrafts([]);
+		setHireErr(null);
 	}, []);
 
 	useEffect(() => {
@@ -214,6 +229,33 @@ export function EmployeesPage({
 		const id = window.setTimeout(() => setDetailModalExiting(false), 500);
 		return () => window.clearTimeout(id);
 	}, [detailModalExiting]);
+
+	useEffect(() => {
+		if (!hireModalOpen && !hireModalExiting) {
+			return;
+		}
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				beginCloseHireModal();
+			}
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, [hireModalOpen, hireModalExiting, beginCloseHireModal]);
+
+	useEffect(() => {
+		if (hireModalOpen && !hireModalExiting) {
+			hireModalBodyRef.current?.focus();
+		}
+	}, [hireModalOpen, hireModalExiting]);
+
+	useEffect(() => {
+		if (!hireModalExiting) {
+			return;
+		}
+		const id = window.setTimeout(() => setHireModalExiting(false), 500);
+		return () => window.clearTimeout(id);
+	}, [hireModalExiting]);
 
 	useEffect(() => {
 		if (!workspaceId) {
@@ -395,7 +437,8 @@ export function EmployeesPage({
 	};
 
 	const startAddMember = () => {
-		setHirePanelOpen(true);
+		setHireModalExiting(false);
+		setHireModalOpen(true);
 		setHireErr(null);
 		const defaultHireModel = modelOptions.find((m) => modelOptionIdSet.has(m.id))?.id ?? '';
 		setHireDrafts([
@@ -408,65 +451,6 @@ export function EmployeesPage({
 				promptDraft: emptyPromptDraft(),
 			}),
 		]);
-	};
-
-	const runCeoReplanTeam = async () => {
-		const shell = window.asyncShell;
-		if (!shell) {
-			setCeoReplanErr(t('aiEmployees.setup.ceoPlanNoShell'));
-			return;
-		}
-		if (!ceoEmployee) {
-			setCeoReplanErr(t('aiEmployees.role.ceoReplanNeedCeo'));
-			return;
-		}
-		if (!ceoReplanModelId) {
-			setCeoReplanErr(t('aiEmployees.setup.ceoPlanNeedModel'));
-			return;
-		}
-		setCeoReplanBusy(true);
-		setCeoReplanErr(null);
-		try {
-			const result = await invokeGenerateHiringPlanForOrg(shell, {
-				modelId: ceoReplanModelId,
-				companyName: effectiveCompanyName,
-				ceoDisplayName: ceoEmployee.displayName,
-				ceoPersonaSeed: ceoEmployee.personaSeed ?? null,
-				ceoSystemPrompt: ceoEmployee.customSystemPrompt ?? '',
-				currentEmployees: orgEmployees,
-			});
-			if (!result.ok) {
-				setCeoReplanErr(result.error ?? t('aiEmployees.setup.ceoPlanFailed'));
-				return;
-			}
-			const drafts = mapHiringCandidatesToMemberDrafts(result.candidates, ceoReplanModelId);
-			if (drafts.length === 0) {
-				setCeoReplanErr(t('aiEmployees.setup.ceoPlanEmpty'));
-				return;
-			}
-			setCeoReplanDrafts(drafts);
-		} catch (error) {
-			setCeoReplanErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setCeoReplanBusy(false);
-		}
-	};
-
-	const appendCeoSuggestionsToHireQueue = () => {
-		if (!ceoReplanDrafts?.length) {
-			return;
-		}
-		setHireDrafts((prev) => [
-			...prev,
-			...ceoReplanDrafts.map((d) => ({
-				...d,
-				id: crypto.randomUUID(),
-				rejected: false,
-			})),
-		]);
-		setHirePanelOpen(true);
-		setCeoReplanDrafts(null);
-		setCeoReplanErr(null);
 	};
 
 	const createHires = async () => {
@@ -503,7 +487,8 @@ export function EmployeesPage({
 				onBindEmployeeLocalModel(created.id, enriched.localModelId);
 			}
 			setHireDrafts([]);
-			setHirePanelOpen(false);
+			setHireModalOpen(false);
+			setHireModalExiting(false);
 			await onRefreshOrg();
 		} catch (error) {
 			setHireErr(error instanceof Error ? error.message : String(error));
@@ -518,122 +503,7 @@ export function EmployeesPage({
 				<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={startAddMember}>
 					{t('aiEmployees.role.manualHireAction')}
 				</button>
-				<button
-					type="button"
-					className="ref-ai-employees-btn ref-ai-employees-btn--secondary"
-					disabled={ceoReplanBusy || !ceoEmployee}
-					onClick={() => void runCeoReplanTeam()}
-				>
-					{ceoReplanBusy ? t('common.loading') : t('aiEmployees.role.ceoReplanTeam')}
-				</button>
 			</div>
-			<p className="ref-ai-employees-muted ref-ai-employees-ceo-replan-hint">{t('aiEmployees.role.ceoReplanHint')}</p>
-			{ceoReplanErr ? <div className="ref-ai-employees-banner ref-ai-employees-banner--err">{ceoReplanErr}</div> : null}
-			{ceoReplanDrafts && ceoReplanDrafts.length > 0 ? (
-				<div className="ref-ai-employees-panel ref-ai-employees-ceo-replan-panel">
-					<div className="ref-ai-employees-role-review-head">
-						<strong>{t('aiEmployees.role.ceoReplanTeam')}</strong>
-						<div className="ref-ai-employees-form-actions">
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setCeoReplanDrafts(null)}>
-								{t('aiEmployees.role.ceoReplanDismiss')}
-							</button>
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={appendCeoSuggestionsToHireQueue}>
-								{t('aiEmployees.role.ceoReplanAddToHire')}
-							</button>
-						</div>
-					</div>
-					<ul className="ref-ai-employees-setup-ceo-plan-list">
-						{ceoReplanDrafts.map((d) => (
-							<li key={d.id ?? d.displayName} className="ref-ai-employees-setup-ceo-plan-card">
-								<div className="ref-ai-employees-setup-ceo-plan-card-head">
-									<strong>{d.displayName}</strong>
-									<span className="ref-ai-employees-muted">{d.customRoleTitle || d.roleKey}</span>
-								</div>
-								{d.reason ? <p className="ref-ai-employees-setup-ceo-plan-reason">{d.reason}</p> : null}
-								{d.promptDraft.collaborationRules ? (
-									<p className="ref-ai-employees-setup-ceo-plan-rules">
-										<span className="ref-ai-employees-setup-ceo-plan-k">{t('aiEmployees.setup.collabShort')}</span>
-										{d.promptDraft.collaborationRules.slice(0, 280)}
-										{d.promptDraft.collaborationRules.length > 280 ? '…' : ''}
-									</p>
-								) : null}
-								{d.promptDraft.handoffRules ? (
-									<p className="ref-ai-employees-setup-ceo-plan-rules ref-ai-employees-setup-ceo-plan-rules--handoff">
-										<span className="ref-ai-employees-setup-ceo-plan-k">{t('aiEmployees.setup.handoffShort')}</span>
-										{d.promptDraft.handoffRules.slice(0, 280)}
-										{d.promptDraft.handoffRules.length > 280 ? '…' : ''}
-									</p>
-								) : null}
-							</li>
-						))}
-					</ul>
-				</div>
-			) : null}
-
-			{hirePanelOpen ? (
-				<div className="ref-ai-employees-panel ref-ai-employees-role-hire-panel">
-					<div className="ref-ai-employees-role-review-head">
-						<strong>{t('aiEmployees.role.manualHireAction')}</strong>
-						<div className="ref-ai-employees-form-actions">
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => { setHirePanelOpen(false); setHireDrafts([]); }}>
-								{t('common.cancel')}
-							</button>
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={() => void createHires()} disabled={hireBusy}>
-								{t('aiEmployees.role.createSelectedRoles')}
-							</button>
-						</div>
-					</div>
-					{hireErr ? <div className="ref-ai-employees-banner ref-ai-employees-banner--err">{hireErr}</div> : null}
-					<div className="ref-ai-employees-role-review-list">
-						{hireDrafts.map((draft) => (
-							<div key={draft.id} className={`ref-ai-employees-role-review-card ${draft.rejected ? 'is-rejected' : ''}`}>
-								<div className="ref-ai-employees-role-review-head">
-									<strong>{draft.displayName || draft.customRoleTitle || draft.roleKey}</strong>
-									<div className="ref-ai-employees-form-actions">
-										<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, rejected: !item.rejected } : item)))}>
-											{draft.rejected ? t('aiEmployees.role.acceptCandidate') : t('aiEmployees.role.rejectCandidate')}
-										</button>
-										<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--danger" onClick={() => setHireDrafts((prev) => prev.filter((item) => item.id !== draft.id))}>
-											{t('common.remove')}
-										</button>
-									</div>
-								</div>
-								<label className="ref-ai-employees-catalog-field">
-									<span>{t('aiEmployees.managerEmployee')}</span>
-									<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={draft.managerEmployeeId ?? ''} onChange={(e) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, managerEmployeeId: e.target.value || undefined } : item)))}>
-										<option value="">{t('aiEmployees.managerNone')}</option>
-										{sortedOrg.map((employee) => (
-											<option key={employee.id} value={employee.id}>{employee.displayName}</option>
-										))}
-									</select>
-								</label>
-								<RoleProfileEditor t={t} draft={draft} modelOptions={modelOptions} onChange={(patch) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, ...patch } : item)))} />
-								<RoleCustomSystemPromptField
-									t={t}
-									value={draft.promptDraft.systemPrompt}
-									disabled={hireBusy}
-									generating={hirePromptDraftId === draft.id}
-									generateDisabled={!draft.localModelId || !modelOptionIdSet.has(draft.localModelId)}
-									onGenerate={() => {
-										if (draft.id) {
-											void generateHirePrompt(draft.id);
-										}
-									}}
-									onRestore={() =>
-										setHireDrafts((prev) =>
-											prev.map((item) =>
-												item.id === draft.id ? { ...item, promptDraft: item.lastGeneratedPromptDraft ?? item.promptDraft } : item
-											)
-										)
-									}
-									canRestore={Boolean(draft.lastGeneratedPromptDraft)}
-									onChange={(value) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, promptDraft: { ...item.promptDraft, systemPrompt: value } } : item)))}
-								/>
-							</div>
-						))}
-					</div>
-				</div>
-			) : null}
 
 			<div className="ref-ai-employees-org-team-block">
 				<p className="ref-ai-employees-muted ref-ai-employees-org-team-hint">{t('aiEmployees.orgBadgeGridHint')}</p>
@@ -792,6 +662,100 @@ export function EmployeesPage({
 								onClick={() => void saveDetail()}
 							>
 								{t('aiEmployees.orgSaveProfile')}
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
+
+			{(hireModalOpen || hireModalExiting) ? (
+				<div
+					className={`ref-ai-employees-org-modal-overlay ref-ai-employees-role-hire-modal-overlay${hireModalExiting ? ' ref-ai-employees-org-modal-overlay--exiting' : ''}`}
+					role="presentation"
+					onClick={() => beginCloseHireModal()}
+					onAnimationEnd={onHireModalOverlayAnimationEnd}
+				>
+					<div
+						className="ref-ai-employees-org-modal ref-ai-employees-role-hire-modal"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="ref-ai-employees-hire-modal-title"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<div className="ref-ai-employees-org-modal-head">
+							<h3 id="ref-ai-employees-hire-modal-title" className="ref-ai-employees-org-modal-title">
+								{t('aiEmployees.role.manualHireAction')}
+							</h3>
+							<button
+								type="button"
+								className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-modal-close"
+								onClick={() => beginCloseHireModal()}
+								aria-label={t('common.close')}
+							>
+								×
+							</button>
+						</div>
+						<div
+							ref={hireModalBodyRef}
+							tabIndex={-1}
+							className="ref-ai-employees-org-modal-body ref-ai-employees-role-hire-modal-body"
+						>
+							{hireErr ? <div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">{hireErr}</div> : null}
+							<div className="ref-ai-employees-role-review-list">
+								{hireDrafts.map((draft) => (
+									<div key={draft.id} className={`ref-ai-employees-role-review-card ${draft.rejected ? 'is-rejected' : ''}`}>
+										<div className="ref-ai-employees-role-review-head">
+											<strong>{draft.displayName || draft.customRoleTitle || draft.roleKey}</strong>
+											<div className="ref-ai-employees-form-actions">
+												<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, rejected: !item.rejected } : item)))}>
+													{draft.rejected ? t('aiEmployees.role.acceptCandidate') : t('aiEmployees.role.rejectCandidate')}
+												</button>
+												<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--danger" onClick={() => setHireDrafts((prev) => prev.filter((item) => item.id !== draft.id))}>
+													{t('common.remove')}
+												</button>
+											</div>
+										</div>
+										<label className="ref-ai-employees-catalog-field">
+											<span>{t('aiEmployees.managerEmployee')}</span>
+											<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={draft.managerEmployeeId ?? ''} onChange={(e) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, managerEmployeeId: e.target.value || undefined } : item)))}>
+												<option value="">{t('aiEmployees.managerNone')}</option>
+												{sortedOrg.map((employee) => (
+													<option key={employee.id} value={employee.id}>{employee.displayName}</option>
+												))}
+											</select>
+										</label>
+										<RoleProfileEditor t={t} draft={draft} modelOptions={modelOptions} onChange={(patch) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, ...patch } : item)))} />
+										<RoleCustomSystemPromptField
+											t={t}
+											value={draft.promptDraft.systemPrompt}
+											disabled={hireBusy}
+											generating={hirePromptDraftId === draft.id}
+											generateDisabled={!draft.localModelId || !modelOptionIdSet.has(draft.localModelId)}
+											onGenerate={() => {
+												if (draft.id) {
+													void generateHirePrompt(draft.id);
+												}
+											}}
+											onRestore={() =>
+												setHireDrafts((prev) =>
+													prev.map((item) =>
+														item.id === draft.id ? { ...item, promptDraft: item.lastGeneratedPromptDraft ?? item.promptDraft } : item
+													)
+												)
+											}
+											canRestore={Boolean(draft.lastGeneratedPromptDraft)}
+											onChange={(value) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, promptDraft: { ...item.promptDraft, systemPrompt: value } } : item)))}
+										/>
+									</div>
+								))}
+							</div>
+						</div>
+						<div className="ref-ai-employees-org-modal-footer">
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => beginCloseHireModal()}>
+								{t('common.cancel')}
+							</button>
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={() => void createHires()} disabled={hireBusy}>
+								{t('aiEmployees.role.createSelectedRoles')}
 							</button>
 						</div>
 					</div>

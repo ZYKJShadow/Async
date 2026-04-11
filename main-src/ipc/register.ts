@@ -1136,6 +1136,22 @@ export function registerIpc(): void {
 				}
 			}
 		}
+		/** 主界面等任意窗口写入 `ui`（主题色、预设、字体等）后，同步到所有窗口，避免 AI 员工窗口外观滞后 */
+		if (
+			partial &&
+			typeof partial === 'object' &&
+			'ui' in partial &&
+			partial.ui !== null &&
+			partial.ui !== undefined &&
+			typeof partial.ui === 'object'
+		) {
+			const uiPayload = next.ui ?? {};
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) {
+					win.webContents.send('async-shell:appearanceUi', { ui: uiPayload });
+				}
+			}
+		}
 		return next;
 	});
 

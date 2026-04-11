@@ -111,6 +111,9 @@ let layoutSeq = 0;
 const themeModeHandlers = new Map();
 let themeModeSeq = 0;
 
+const appearanceUiHandlers = new Map();
+let appearanceUiSeq = 0;
+
 const workspaceFsTouchedHandlers = new Map();
 let workspaceFsTouchedSeq = 0;
 
@@ -155,6 +158,16 @@ ipcRenderer.on('async-shell:layout', () => {
 
 ipcRenderer.on('async-shell:themeMode', (_event, payload) => {
 	for (const fn of themeModeHandlers.values()) {
+		try {
+			fn(payload);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:appearanceUi', (_event, payload) => {
+	for (const fn of appearanceUiHandlers.values()) {
 		try {
 			fn(payload);
 		} catch (e) {
@@ -245,6 +258,11 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++themeModeSeq;
 		themeModeHandlers.set(id, callback);
 		return () => themeModeHandlers.delete(id);
+	},
+	subscribeAppearanceUi(callback) {
+		const id = ++appearanceUiSeq;
+		appearanceUiHandlers.set(id, callback);
+		return () => appearanceUiHandlers.delete(id);
 	},
 	subscribeWorkspaceFsTouched(callback) {
 		const id = ++workspaceFsTouchedSeq;

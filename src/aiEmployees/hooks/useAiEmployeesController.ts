@@ -5,7 +5,14 @@ import {
 	nativeWindowChromeFromAppearance,
 	type AppAppearanceSettings,
 } from '../../appearanceSettings';
-import { readPrefersDark, readStoredColorMode, resolveEffectiveScheme } from '../../colorMode';
+import {
+	APP_UI_STYLE,
+	readPrefersDark,
+	readStoredColorMode,
+	resolveEffectiveScheme,
+	writeStoredColorMode,
+	type AppColorMode,
+} from '../../colorMode';
 import type {
 	AiCollabMessage,
 	AiCollabMessageType,
@@ -75,6 +82,27 @@ import type { EmployeeChatInput, TeamMemberSummary } from '../../../shared/aiEmp
 
 type Shell = NonNullable<Window['asyncShell']>;
 
+type ShellUiLike = Record<string, unknown>;
+
+function shellUiColorMode(ui: ShellUiLike): AppColorMode | undefined {
+	const c = ui.colorMode;
+	return c === 'light' || c === 'dark' || c === 'system' ? c : undefined;
+}
+
+/** 将 `settings.ui` 中可合并进外观状态的字段拆出（排除布局、侧栏宽度、colorMode 等） */
+function appearancePatchFromShellUi(ui: ShellUiLike): Partial<AppAppearanceSettings> {
+	const { colorMode: _c, layoutMode: _l, sidebarLayout: _s, fontPreset, ...rest } = ui;
+	const patch = { ...rest } as Partial<AppAppearanceSettings>;
+	if (
+		typeof fontPreset === 'string' &&
+		!patch.uiFontPreset &&
+		(fontPreset === 'apple' || fontPreset === 'inter' || fontPreset === 'segoe')
+	) {
+		patch.uiFontPreset = fontPreset as AppAppearanceSettings['uiFontPreset'];
+	}
+	return patch;
+}
+
 /** 供「我的事务」服务端筛选：成员本人 + 组织成员上已关联的远端 Agent 指派 */
 function myIssuesListQuery(meUserId: string | undefined, orgEmps: OrgEmployee[] | undefined): ListIssuesQueryOptions | undefined {
 	const agentIds = (orgEmps ?? []).map((e) => e.linkedRemoteAgentId).filter((x): x is string => Boolean(x));
@@ -97,6 +125,7 @@ export function useAiEmployeesController() {
 	const shell = window.asyncShell as Shell | undefined;
 
 	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(() => defaultAppearanceSettings());
+	const [colorMode, setColorMode] = useState<AppColorMode>(() => readStoredColorMode());
 	const [localRoot, setLocalRoot] = useState<string | null>(null);
 	const [aiSettings, setAiSettings] = useState<AiEmployeesSettings>({});
 	const [tab, setTab] = useState<AiEmployeesTabId>('inbox');
@@ -143,10 +172,7 @@ export function useAiEmployeesController() {
 		readPrefersDark,
 		readPrefersDark
 	);
-	const effectiveScheme = useMemo(
-		() => resolveEffectiveScheme(readStoredColorMode(), prefersDark),
-		[prefersDark]
-	);
+	const effectiveScheme = useMemo(() => resolveEffectiveScheme(colorMode, prefersDark), [colorMode, prefersDark]);
 
 	const conn = useMemo(() => normConn(aiSettings), [aiSettings]);
 
@@ -160,6 +186,10 @@ export function useAiEmployeesController() {
 
 	useEffect(() => {
 		applyAppearanceSettingsToDom(appearanceSettings, effectiveScheme);
+		if (typeof document !== 'undefined') {
+			document.documentElement.setAttribute('data-ui-style', APP_UI_STYLE);
+			document.documentElement.setAttribute('data-color-scheme', effectiveScheme);
+		}
 		if (!shell) {
 			return;
 		}
@@ -173,6 +203,37 @@ export function useAiEmployeesController() {
 	}, [shell, appearanceSettings, effectiveScheme]);
 
 	useEffect(() => {
+		if (!shell?.subscribeThemeMode) {
+			return;
+		}
+		return shell.subscribeThemeMode((payload) => {
+			const next = (payload as { colorMode?: unknown } | null)?.colorMode;
+			if (next === 'light' || next === 'dark' || next === 'system') {
+				setColorMode(next);
+				writeStoredColorMode(next);
+			}
+		});
+	}, [shell]);
+
+	useEffect(() => {
+		if (!shell?.subscribeAppearanceUi) {
+			return;
+		}
+		return shell.subscribeAppearanceUi((raw) => {
+			const ui = (raw as { ui?: ShellUiLike } | null)?.ui;
+			if (!ui || typeof ui !== 'object') {
+				return;
+			}
+			const cm = shellUiColorMode(ui);
+			if (cm) {
+				setColorMode(cm);
+				writeStoredColorMode(cm);
+			}
+			setAppearanceSettings((prev) => ({ ...prev, ...appearancePatchFromShellUi(ui) }));
+		});
+	}, [shell]);
+
+	useEffect(() => {
 		if (!shell) {
 			return;
 		}
@@ -181,7 +242,7 @@ export function useAiEmployeesController() {
 			const root = (wsRaw as { root?: string | null }).root ?? null;
 			setLocalRoot(root);
 			const r = raw as {
-				ui?: Partial<AppAppearanceSettings>;
+				ui?: ShellUiLike;
 				aiEmployees?: AiEmployeesSettings;
 				models?: {
 					providers?: Array<{ id?: string; displayName?: string }>;
@@ -191,7 +252,13 @@ export function useAiEmployeesController() {
 				defaultModel?: string;
 			};
 			if (r?.ui) {
-				setAppearanceSettings((prev) => ({ ...prev, ...r.ui }));
+				const ui = r.ui;
+				const cm = shellUiColorMode(ui);
+				if (cm) {
+					setColorMode(cm);
+					writeStoredColorMode(cm);
+				}
+				setAppearanceSettings((prev) => ({ ...prev, ...appearancePatchFromShellUi(ui) }));
 			}
 			if (r?.aiEmployees) {
 				setAiSettings(r.aiEmployees);

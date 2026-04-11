@@ -2007,6 +2007,20 @@
 	animation: ref-ai-employees-org-modal-overlay-out 0.22s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+/* 添加成员：叠在成员详情弹窗之上 */
+.ref-ai-employees-org-modal-overlay.ref-ai-employees-role-hire-modal-overlay {
+	z-index: 1220;
+}
+
+.ref-ai-employees-org-modal.ref-ai-employees-role-hire-modal {
+	width: min(100%, 640px);
+	max-height: min(90vh, 820px);
+}
+
+.ref-ai-employees-org-modal-body.ref-ai-employees-role-hire-modal-body {
+	max-height: min(70vh, 640px);
+}
+
 .ref-ai-employees-org-modal {
 	width: min(100%, 520px);
 	max-height: min(88vh, 720px);
@@ -2626,15 +2640,6 @@
 
 .ref-ai-employees-setup-ceo-plan-rules--handoff {
 	margin-top: 6px;
-}
-
-.ref-ai-employees-ceo-replan-hint {
-	margin: 0 0 10px;
-	font-size: 12px;
-}
-
-.ref-ai-employees-ceo-replan-panel {
-	margin-bottom: 16px;
 }
 
 .ref-ai-employees-setup-tier-ceo-hint {

@@ -6,6 +6,8 @@ export interface AsyncShellAPI {
 	/** 窗口移动 / 缩放时触发，用于重算 fixed 浮层锚点 */
 	subscribeLayout?(callback: () => void): () => void;
 	subscribeThemeMode?(callback: (payload: unknown) => void): () => void;
+	/** 合并后的 `settings.ui` 自任意窗口写入后广播，用于多窗口主题同步 */
+	subscribeAppearanceUi?(callback: (payload: unknown) => void): () => void;
 	/** 工作区目录内文件在磁盘上增删改（外部编辑器保存等），主进程经 chokidar 防抖后广播 */
 	subscribeWorkspaceFsTouched?(callback: () => void): () => void;
 	/** 工作区文件索引首次全量扫描完成（与当前窗口 root 比对由订阅方完成） */
