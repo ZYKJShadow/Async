@@ -40,6 +40,7 @@ import {
 	upsertRun,
 	upsertCollabMessageInState,
 } from '../domain/orchestration';
+import { employeeHasActiveRunInvolvement, isOrchestrationRunIncomplete } from '../domain/employeeActivityStatus';
 import { buildModelOptions } from '../adapters/modelAdapter';
 import { formatOrchestrationCommitMessage, requestCommitToBranch } from '../adapters/gitAdapter';
 import {
@@ -1738,7 +1739,8 @@ export function useAiEmployeesController() {
 	const findActiveRunByEmployee = useCallback(
 		(employeeId: string) =>
 			orchestration.runs
-				.filter((run) => run.currentAssigneeEmployeeId === employeeId || run.handoffs.some((handoff) => handoff.toEmployeeId === employeeId))
+				.filter(isOrchestrationRunIncomplete)
+				.filter((run) => employeeHasActiveRunInvolvement(employeeId, run))
 				.sort((a, b) => Date.parse(b.lastEventAtIso ?? b.createdAtIso) - Date.parse(a.lastEventAtIso ?? a.createdAtIso))[0],
 		[orchestration.runs]
 	);

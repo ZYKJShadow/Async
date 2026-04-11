@@ -19,12 +19,15 @@ export function RoleProfileEditor({
 	modelOptions,
 	modelDisabled,
 	onChange,
+	fieldGroup = 'all',
 }: {
 	t: TFunction;
 	draft: RoleProfileDraft;
 	modelOptions: LocalModelEntry[];
 	modelDisabled?: boolean;
 	onChange: (patch: Partial<RoleProfileDraft>) => void;
+	/** `identityModel`：姓名、职位、本地模型；`personaPrompts`：岗位叙述与协作规则；默认全部。 */
+	fieldGroup?: 'all' | 'identityModel' | 'personaPrompts';
 }) {
 	const bindText =
 		(key: keyof RoleProfileDraft) =>
@@ -55,34 +58,43 @@ export function RoleProfileEditor({
 		[modelOptions, t]
 	);
 
+	const showIdentity = fieldGroup === 'all' || fieldGroup === 'identityModel';
+	const showPersona = fieldGroup === 'all' || fieldGroup === 'personaPrompts';
+
 	return (
 		<div className="ref-ai-employees-role-editor">
 			<div className="ref-ai-employees-catalog-fields">
-				<label className="ref-ai-employees-catalog-field">
-					<span>{t('aiEmployees.employeeDisplayName')}</span>
-					<input className="ref-ai-employees-input" value={draft.displayName} onChange={bindText('displayName')} />
-				</label>
-				<label className="ref-ai-employees-catalog-field">
-					<span>{t('aiEmployees.orgCustomTitle')}</span>
-					<input className="ref-ai-employees-input" value={draft.customRoleTitle} onChange={bindText('customRoleTitle')} />
-				</label>
-				<label className="ref-settings-field ref-settings-field--compact ref-ai-employees-role-model-field">
-					<span>{t('aiEmployees.role.localModel')}</span>
-					<p className="ref-settings-field-hint ref-ai-employees-muted">{t('aiEmployees.modelSource.localOnlyBlurb')}</p>
-					{modelOptions.length === 0 ? (
-						<p className="ref-settings-field-hint ref-ai-employees-muted" role="status">
-							{t('aiEmployees.localModelMissingHint')}
-						</p>
-					) : null}
-					<VoidSelect
-						className="ref-ai-employees-model-void-select"
-						ariaLabel={t('aiEmployees.role.localModel')}
-						value={draft.localModelId || ''}
-						disabled={modelSelectDisabled}
-						onChange={(next) => onChange({ localModelId: next })}
-						options={modelSelectOptions}
-					/>
-				</label>
+				{showIdentity ? (
+					<>
+						<label className="ref-ai-employees-catalog-field">
+							<span>{t('aiEmployees.employeeDisplayName')}</span>
+							<input className="ref-ai-employees-input" value={draft.displayName} onChange={bindText('displayName')} />
+						</label>
+						<label className="ref-ai-employees-catalog-field">
+							<span>{t('aiEmployees.orgCustomTitle')}</span>
+							<input className="ref-ai-employees-input" value={draft.customRoleTitle} onChange={bindText('customRoleTitle')} />
+						</label>
+						<label className="ref-settings-field ref-settings-field--compact ref-ai-employees-role-model-field">
+							<span>{t('aiEmployees.role.localModel')}</span>
+							<p className="ref-settings-field-hint ref-ai-employees-muted">{t('aiEmployees.modelSource.localOnlyBlurb')}</p>
+							{modelOptions.length === 0 ? (
+								<p className="ref-settings-field-hint ref-ai-employees-muted" role="status">
+									{t('aiEmployees.localModelMissingHint')}
+								</p>
+							) : null}
+							<VoidSelect
+								className="ref-ai-employees-model-void-select"
+								ariaLabel={t('aiEmployees.role.localModel')}
+								value={draft.localModelId || ''}
+								disabled={modelSelectDisabled}
+								onChange={(next) => onChange({ localModelId: next })}
+								options={modelSelectOptions}
+							/>
+						</label>
+					</>
+				) : null}
+				{showPersona ? (
+					<>
 				<label className="ref-ai-employees-catalog-field">
 					<span>{t('aiEmployees.role.jobMission')}</span>
 					<textarea className="ref-ai-employees-input ref-ai-employees-textarea" rows={3} value={draft.jobMission} onChange={bindText('jobMission')} />
@@ -113,6 +125,8 @@ export function RoleProfileEditor({
 						onChange={bindPromptText('handoffRules')}
 					/>
 				</label>
+					</>
+				) : null}
 			</div>
 		</div>
 	);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
+import { IconBookOpen, IconDoc, IconListTodo, IconSettings, IconBot } from '../../icons';
 import type { AiEmployeesConnection } from '../api/client';
 import { apiCreateOrgEmployee, apiPatchOrgEmployee, apiUploadOrgEmployeeAvatar } from '../api/orgClient';
 import type { OrgEmployee } from '../api/orgTypes';
@@ -13,8 +14,12 @@ import {
 	toPersonaSeed,
 	type RoleProfileDraft,
 } from '../domain/roleDraft';
+import { EmployeeActivityStatusLabel } from '../components/EmployeeActivityStatus';
+import { EmployeeRunOperationsFeed } from '../components/EmployeeRunOperationsFeed';
 import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
+import { buildEmployeeActivityStatusMap, employeeHasActiveRunInvolvement, isOrchestrationRunIncomplete } from '../domain/employeeActivityStatus';
 import type { LocalModelEntry } from '../sessionTypes';
+import type { AiEmployeesOrchestrationState } from '../../../shared/aiEmployeesSettings';
 import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
 import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 
@@ -52,6 +57,8 @@ export function EmployeesPage({
 	onBindEmployeeLocalModel,
 	defaultModelId,
 	orchestration,
+	employeeChatStreaming,
+	employeeChatError,
 }: {
 	t: TFunction;
 	conn: AiEmployeesConnection;
@@ -66,13 +73,14 @@ export function EmployeesPage({
 	onBindEmployeeLocalModel: (employeeId: string, modelEntryId: string) => void;
 	/** Async 设置中的默认本地模型（用于招聘等流程） */
 	defaultModelId?: string;
-	orchestration?: import('../../../shared/aiEmployeesSettings').AiEmployeesOrchestrationState;
+	orchestration?: AiEmployeesOrchestrationState;
+	employeeChatStreaming?: Record<string, string>;
+	employeeChatError?: Record<string, string | undefined>;
 }) {
+	type AiEmployeeDetailTab = 'instructions' | 'skills' | 'tasks' | 'settings';
+
 	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const [detailModalOpen, setDetailModalOpen] = useState(false);
-	/** 为渐出动画保留挂载，直至 overlay 的 exit 动画结束 */
-	const [detailModalExiting, setDetailModalExiting] = useState(false);
-	const modalBodyRef = useRef<HTMLDivElement>(null);
+	const [detailTab, setDetailTab] = useState<AiEmployeeDetailTab>('instructions');
 	const [saveErr, setSaveErr] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [selectedDraft, setSelectedDraft] = useState<RoleProfileDraft | null>(null);
@@ -82,8 +90,6 @@ export function EmployeesPage({
 	const hireModalBodyRef = useRef<HTMLDivElement>(null);
 	const [hireBusy, setHireBusy] = useState(false);
 	const [hireErr, setHireErr] = useState<string | null>(null);
-	const [detailPromptBusy, setDetailPromptBusy] = useState(false);
-	const [hirePromptDraftId, setHirePromptDraftId] = useState<string | null>(null);
 	const effectiveCompanyName = companyName.trim() || 'Async Company';
 	const sortedOrg = useMemo(() => {
 		const list = [...orgEmployees];
@@ -96,29 +102,21 @@ export function EmployeesPage({
 		return list;
 	}, [orgEmployees]);
 
-	// Derive per-employee status from orchestration runs
-	const employeeStatusMap = useMemo(() => {
-		const map = new Map<string, { status: 'idle' | 'working' | 'blocked' | 'waiting'; runGoal?: string }>();
-		if (!orchestration) return map;
-		for (const emp of sortedOrg) {
-			const activeRun = orchestration.runs
-				.filter((r) => r.currentAssigneeEmployeeId === emp.id || r.handoffs.some((h) => h.toEmployeeId === emp.id && h.status !== 'done'))
-				.sort((a, b) => Date.parse(b.lastEventAtIso ?? b.createdAtIso) - Date.parse(a.lastEventAtIso ?? a.createdAtIso))[0];
-			if (!activeRun) {
-				map.set(emp.id, { status: 'idle' });
-				continue;
-			}
-			const handoff = activeRun.handoffs.find((h) => h.toEmployeeId === emp.id && h.status !== 'done');
-			if (handoff?.status === 'blocked') {
-				map.set(emp.id, { status: 'blocked', runGoal: activeRun.goal });
-			} else if (activeRun.status === 'awaiting_approval') {
-				map.set(emp.id, { status: 'waiting', runGoal: activeRun.goal });
-			} else {
-				map.set(emp.id, { status: 'working', runGoal: activeRun.goal });
-			}
+	const orgById = useMemo(() => new Map(sortedOrg.map((e) => [e.id, e])), [sortedOrg]);
+
+	const employeeActivityMap = useMemo(
+		() => buildEmployeeActivityStatusMap(sortedOrg, orchestration),
+		[orchestration, sortedOrg],
+	);
+
+	const openRunsForSelected = useMemo(() => {
+		if (!orchestration || !selectedId) {
+			return [];
 		}
-		return map;
-	}, [orchestration, sortedOrg]);
+		return orchestration.runs
+			.filter((r) => isOrchestrationRunIncomplete(r) && employeeHasActiveRunInvolvement(selectedId, r))
+			.sort((a, b) => Date.parse(b.lastEventAtIso ?? b.createdAtIso) - Date.parse(a.lastEventAtIso ?? a.createdAtIso));
+	}, [orchestration, selectedId]);
 
 	const selected = useMemo(
 		() => (selectedId ? sortedOrg.find((employee) => employee.id === selectedId) ?? null : null),
@@ -139,32 +137,6 @@ export function EmployeesPage({
 
 	const employeeModelLine = (employee: OrgEmployee) =>
 		formatEmployeeResolvedModelLabel({ employee, ...modelRouteParams }) ?? t('aiEmployees.modelDisplayNone');
-
-	const beginCloseDetailModal = useCallback(() => {
-		if (detailModalExiting) {
-			return;
-		}
-		if (!detailModalOpen) {
-			return;
-		}
-		if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-			setDetailModalOpen(false);
-			setDetailModalExiting(false);
-			return;
-		}
-		setDetailModalOpen(false);
-		setDetailModalExiting(true);
-	}, [detailModalOpen, detailModalExiting]);
-
-	const onDetailModalOverlayAnimationEnd = useCallback((e: AnimationEvent<HTMLDivElement>) => {
-		if (e.target !== e.currentTarget) {
-			return;
-		}
-		if (e.animationName !== 'ref-ai-employees-org-modal-overlay-out') {
-			return;
-		}
-		setDetailModalExiting(false);
-	}, []);
 
 	const beginCloseHireModal = useCallback(() => {
 		if (hireModalExiting) {
@@ -197,39 +169,14 @@ export function EmployeesPage({
 	}, []);
 
 	useEffect(() => {
-		if (selectedId && !sortedOrg.some((employee) => employee.id === selectedId)) {
+		if (sortedOrg.length === 0) {
 			setSelectedId(null);
-			setDetailModalOpen(false);
-			setDetailModalExiting(false);
-		}
-	}, [selectedId, sortedOrg]);
-
-	useEffect(() => {
-		if (!detailModalOpen && !detailModalExiting) {
 			return;
 		}
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') {
-				beginCloseDetailModal();
-			}
-		};
-		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [detailModalOpen, detailModalExiting, beginCloseDetailModal]);
-
-	useEffect(() => {
-		if (detailModalOpen && !detailModalExiting) {
-			modalBodyRef.current?.focus();
+		if (!selectedId || !sortedOrg.some((employee) => employee.id === selectedId)) {
+			setSelectedId(sortedOrg[0]!.id);
 		}
-	}, [detailModalOpen, detailModalExiting, selectedId]);
-
-	useEffect(() => {
-		if (!detailModalExiting) {
-			return;
-		}
-		const id = window.setTimeout(() => setDetailModalExiting(false), 500);
-		return () => window.clearTimeout(id);
-	}, [detailModalExiting]);
+	}, [sortedOrg, selectedId]);
 
 	useEffect(() => {
 		if (!hireModalOpen && !hireModalExiting) {
@@ -319,70 +266,6 @@ export function EmployeesPage({
 			/* keep draft */
 		}
 		return draft;
-	};
-
-	const invokeRolePromptGenerator = async (draft: RoleProfileDraft) => {
-		if (!window.asyncShell) {
-			throw new Error('async shell unavailable');
-		}
-		if (!draft.localModelId || !modelOptionIdSet.has(draft.localModelId)) {
-			throw new Error(t('aiEmployees.role.modelRequired'));
-		}
-		const payload: RolePromptGeneratorInput = {
-			modelId: draft.localModelId,
-			roleKey: draft.roleKey,
-			templatePromptKey: draft.templatePromptKey,
-			displayName: draft.displayName,
-			customRoleTitle: draft.customRoleTitle,
-			nationalityCode: draft.nationalityCode ?? null,
-			jobMission: draft.jobMission,
-			domainContext: draft.domainContext,
-			communicationNotes: draft.communicationNotes,
-			collaborationRules: draft.promptDraft.collaborationRules,
-			handoffRules: draft.promptDraft.handoffRules,
-			companyName: effectiveCompanyName,
-			managerSummary: managerSummaryLine,
-		};
-		const result = (await window.asyncShell.invoke('aiEmployees:generateRolePrompt', payload)) as
-			| { ok: true; draft: RolePromptDraft }
-			| { ok: false; error?: string };
-		if (!result.ok) {
-			throw new Error(result.error || 'generate prompt failed');
-		}
-		return result.draft;
-	};
-
-	const generateSelectedPrompt = async () => {
-		if (!selectedDraft) {
-			return;
-		}
-		setDetailPromptBusy(true);
-		setSaveErr(null);
-		try {
-			const promptDraft = await invokeRolePromptGenerator(selectedDraft);
-			setSelectedDraft((prev) => (prev ? applyGeneratedPromptDraft(prev, promptDraft) : prev));
-		} catch (error) {
-			setSaveErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setDetailPromptBusy(false);
-		}
-	};
-
-	const generateHirePrompt = async (draftId: string) => {
-		const draft = hireDrafts.find((item) => item.id === draftId);
-		if (!draft) {
-			return;
-		}
-		setHirePromptDraftId(draftId);
-		setHireErr(null);
-		try {
-			const promptDraft = await invokeRolePromptGenerator(draft);
-			setHireDrafts((prev) => prev.map((item) => (item.id === draftId ? applyGeneratedPromptDraft(item, promptDraft) : item)));
-		} catch (error) {
-			setHireErr(error instanceof Error ? error.message : String(error));
-		} finally {
-			setHirePromptDraftId(null);
-		}
 	};
 
 	const saveDetail = async () => {
@@ -498,183 +381,227 @@ export function EmployeesPage({
 		}
 	};
 
+	const detailTabs: { id: AiEmployeeDetailTab; label: string; icon: typeof IconDoc }[] = [
+		{ id: 'instructions', label: t('aiEmployees.aiDetail.tabInstructions'), icon: IconDoc },
+		{ id: 'skills', label: t('aiEmployees.aiDetail.tabSkills'), icon: IconBookOpen },
+		{ id: 'tasks', label: t('aiEmployees.aiDetail.tabTasks'), icon: IconListTodo },
+		{ id: 'settings', label: t('aiEmployees.aiDetail.tabSettings'), icon: IconSettings },
+	];
+
 	return (
-		<div className="ref-ai-employees-panel ref-ai-employees-org-layout">
-			<div className="ref-ai-employees-form-actions ref-ai-employees-org-top-actions">
-				<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={startAddMember}>
-					{t('aiEmployees.role.manualHireAction')}
-				</button>
-			</div>
-
-			<div className="ref-ai-employees-org-team-block">
-				<p className="ref-ai-employees-muted ref-ai-employees-org-team-hint">{t('aiEmployees.orgBadgeGridHint')}</p>
-				{sortedOrg.length === 0 ? (
-					<p className="ref-ai-employees-muted">{t('aiEmployees.orgEmptyHint')}</p>
-				) : (
-					<div className="ref-ai-employees-org-badge-grid" role="list">
-						{sortedOrg.map((employee) => {
-							const title = (employee.customRoleTitle || employee.roleKey).trim() || '—';
-							const modelLine = employeeModelLine(employee);
-							const isActive = (detailModalOpen || detailModalExiting) && selectedId === employee.id;
-							return (
-								<button
-									key={employee.id}
-									type="button"
-									role="listitem"
-									className={`ref-ai-employees-org-badge-card ${isActive ? 'is-active' : ''}`}
-									onClick={() => {
-										setSelectedId(employee.id);
-										setDetailModalExiting(false);
-										setDetailModalOpen(true);
-									}}
-								>
-									<div className="ref-ai-employees-org-badge-lanyard" aria-hidden />
-									<div className="ref-ai-employees-org-badge-card-inner">
-										<div className="ref-ai-employees-org-badge-face">
-											<EmployeeBadgeFace conn={conn} workspaceId={workspaceId} employee={employee} />
-										</div>
-										<div className="ref-ai-employees-org-badge-text">
-											<span className="ref-ai-employees-org-badge-name">{employee.displayName}</span>
-											<span className="ref-ai-employees-org-badge-title">{title}</span>
-											<span className="ref-ai-employees-org-badge-model" title={modelLine}>
-												{modelLine}
+		<div className="ref-ai-employees-panel ref-ai-employees-agents-shell">
+			<div className="ref-ai-employees-agents-list" aria-label={t('aiEmployees.agentsListAria')}>
+				<div className="ref-ai-employees-agents-list-toolbar">
+					<h2 className="ref-ai-employees-agents-list-title">{t('aiEmployees.tab.team')}</h2>
+					<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-btn--sm" onClick={startAddMember}>
+						{t('aiEmployees.role.manualHireAction')}
+					</button>
+				</div>
+				<p className="ref-ai-employees-muted ref-ai-employees-agents-list-hint">{t('aiEmployees.orgBadgeGridHint')}</p>
+				<div className="ref-ai-employees-agents-list-scroll">
+					{sortedOrg.length === 0 ? (
+						<p className="ref-ai-employees-muted ref-ai-employees-agents-list-zero">{t('aiEmployees.orgEmptyHint')}</p>
+					) : (
+						<ul className="ref-ai-employees-agents-roster">
+							{sortedOrg.map((employee) => {
+								const title = (employee.customRoleTitle || employee.roleKey).trim() || '—';
+								const modelLine = employeeModelLine(employee);
+								const isSel = employee.id === selectedId;
+								return (
+									<li key={employee.id}>
+										<button
+											type="button"
+											className={`ref-ai-employees-agents-roster-row ${isSel ? 'is-active' : ''}`}
+											onClick={() => {
+												setSelectedId(employee.id);
+												setDetailTab('instructions');
+											}}
+										>
+											<span className="ref-ai-employees-agents-roster-face" aria-hidden>
+												<EmployeeBadgeFace conn={conn} workspaceId={workspaceId} employee={employee} />
 											</span>
-											{(() => {
-												const empStatus = employeeStatusMap.get(employee.id);
-												if (empStatus && empStatus.status !== 'idle') {
-													const dotColor = empStatus.status === 'working'
-														? 'color-mix(in srgb, var(--void-accent-cool) 70%, var(--void-fg-0))'
-														: empStatus.status === 'blocked'
-															? '#f85149'
-															: '#d29922';
-													return (
-														<span
-															className="ref-ai-employees-org-badge-title"
-															style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}
-															title={empStatus.runGoal}
-														>
-															<span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-															{empStatus.runGoal ? (empStatus.runGoal.length > 24 ? `${empStatus.runGoal.slice(0, 24)}…` : empStatus.runGoal) : empStatus.status}
-														</span>
-													);
-												}
-												return null;
-											})()}
-											{employee.isCeo ? <span className="ref-ai-employees-org-badge-chip">{t('aiEmployees.setup.roleLeadLabel')}</span> : null}
-										</div>
-									</div>
-								</button>
-							);
-						})}
-					</div>
-				)}
+											<span className="ref-ai-employees-agents-roster-meta">
+												<span className="ref-ai-employees-agents-roster-name">
+													{employee.displayName}
+													{employee.isCeo ? (
+														<span className="ref-ai-employees-agents-roster-chip">{t('aiEmployees.setup.roleLeadLabel')}</span>
+													) : null}
+												</span>
+												<span className="ref-ai-employees-agents-roster-sub">{title}</span>
+												<span className="ref-ai-employees-agents-roster-model" title={modelLine}>
+													{modelLine}
+												</span>
+											</span>
+											<EmployeeActivityStatusLabel
+												t={t}
+												activity={employeeActivityMap.get(employee.id) ?? { status: 'idle' }}
+												className="ref-ai-employees-agents-roster-status"
+											/>
+										</button>
+									</li>
+								);
+							})}
+						</ul>
+					)}
+				</div>
 			</div>
 
-			{(() => {
-				const host = typeof document !== 'undefined' ? document.getElementById('ref-ai-employees-inset-modal-host') : null;
-				if (!(detailModalOpen || detailModalExiting) || !selected || !selectedDraft) {
-					return null;
-				}
-				const node = (
-				<div
-					className={`ref-ai-employees-org-modal-overlay${detailModalExiting ? ' ref-ai-employees-org-modal-overlay--exiting' : ''}`}
-					role="presentation"
-					onClick={() => beginCloseDetailModal()}
-					onAnimationEnd={onDetailModalOverlayAnimationEnd}
-				>
-					<div
-						className="ref-ai-employees-org-modal"
-						role="dialog"
-						aria-modal="true"
-						aria-labelledby="ref-ai-employees-org-modal-title"
-						onClick={(e) => e.stopPropagation()}
-					>
-						<div className="ref-ai-employees-org-modal-head">
-							<h3 id="ref-ai-employees-org-modal-title" className="ref-ai-employees-org-modal-title">
-								{t('aiEmployees.orgDetailModalTitle')}
-							</h3>
-							<button
-								type="button"
-								className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-modal-close"
-								onClick={() => beginCloseDetailModal()}
-								aria-label={t('common.close')}
-							>
-								×
-							</button>
-						</div>
-						<div
-							ref={modalBodyRef}
-							tabIndex={-1}
-							className="ref-ai-employees-org-modal-body"
-						>
-							<div className="ref-ai-employees-org-detail-head">
-								<div className="ref-ai-employees-org-avatar-wrap">
+			<div className="ref-ai-employees-agents-detail">
+				{!selected || !selectedDraft ? (
+					<div className="ref-ai-employees-agents-detail-empty">
+						<IconBot className="ref-ai-employees-agents-detail-empty-icon" aria-hidden />
+						<p className="ref-ai-employees-muted">{t('aiEmployees.aiDetail.pickMember')}</p>
+					</div>
+				) : (
+					<>
+						<div className="ref-ai-employees-agents-detail-head">
+							<div className="ref-ai-employees-agents-detail-head-main">
+								<div className="ref-ai-employees-agents-detail-avatar" aria-hidden>
 									{avatarPreview ? (
 										<img src={avatarPreview} alt="" className="ref-ai-employees-org-avatar-img" />
 									) : (
-										<div className="ref-ai-employees-org-avatar-ph" aria-hidden>
+										<div className="ref-ai-employees-org-avatar-ph">
 											{selected.displayName.trim().slice(0, 1).toUpperCase() || '?'}
 										</div>
 									)}
-									<label className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-avatar-upload">
-										<input type="file" accept="image/*" className="ref-ai-employees-sr-only" onChange={(ev) => void onAvatarPick(ev.target.files?.[0] ?? null)} />
-										{t('aiEmployees.orgUploadAvatar')}
-									</label>
 								</div>
-								<div className="ref-ai-employees-org-detail-title">
-									<h3>{selected.displayName}</h3>
-									<p className="ref-ai-employees-muted">{t('aiEmployees.orgRoleKey')}: {selected.roleKey}</p>
-									<p className="ref-ai-employees-org-detail-model" title={employeeModelLine(selected)}>
-										{employeeModelLine(selected)}
+								<div className="ref-ai-employees-agents-detail-head-text">
+									<h3 className="ref-ai-employees-agents-detail-name">{selected.displayName}</h3>
+									<p className="ref-ai-employees-muted ref-ai-employees-agents-detail-roleline">
+										{t('aiEmployees.orgRoleKey')}: {selected.roleKey}
+										{' · '}
+										<span title={employeeModelLine(selected)}>{employeeModelLine(selected)}</span>
 									</p>
+									<EmployeeActivityStatusLabel
+										t={t}
+										activity={employeeActivityMap.get(selected.id) ?? { status: 'idle' }}
+										className="ref-ai-employees-agents-detail-activity"
+									/>
 								</div>
 							</div>
-
-							{saveErr ? <div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">{saveErr}</div> : null}
-
-							<label className="ref-ai-employees-catalog-field">
-								<span>{t('aiEmployees.managerEmployee')}</span>
-								<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={selectedDraft.managerEmployeeId ?? ''} onChange={(e) => setSelectedDraft((prev) => (prev ? { ...prev, managerEmployeeId: e.target.value || undefined } : prev))}>
-									<option value="">{t('aiEmployees.managerNone')}</option>
-									{sortedOrg.filter((employee) => employee.id !== selected.id).map((employee) => (
-										<option key={employee.id} value={employee.id}>{employee.displayName}</option>
-									))}
-								</select>
-							</label>
-							<RoleProfileEditor t={t} draft={selectedDraft} modelOptions={modelOptions} onChange={(patch) => setSelectedDraft((prev) => (prev ? { ...prev, ...patch } : prev))} />
-							<RoleCustomSystemPromptField
-								t={t}
-								value={selectedDraft.promptDraft.systemPrompt}
-								disabled={saving}
-								generating={detailPromptBusy}
-								generateDisabled={!selectedDraft.localModelId || !modelOptionIdSet.has(selectedDraft.localModelId)}
-								onGenerate={() => void generateSelectedPrompt()}
-								onRestore={() =>
-									setSelectedDraft((prev) => (prev ? { ...prev, promptDraft: prev.lastGeneratedPromptDraft ?? prev.promptDraft } : prev))
-								}
-								canRestore={Boolean(selectedDraft.lastGeneratedPromptDraft)}
-								onChange={(value) => setSelectedDraft((prev) => (prev ? { ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } } : prev))}
-							/>
-							<ImBindingsSection t={t} conn={conn} workspaceId={workspaceId} employeeId={selected.id} />
-						</div>
-						<div className="ref-ai-employees-org-modal-footer">
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => beginCloseDetailModal()}>
-								{t('common.close')}
-							</button>
 							<button
 								type="button"
-								className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+								className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-btn--sm"
 								disabled={saving || !selectedDraft.localModelId || !modelOptionIdSet.has(selectedDraft.localModelId)}
 								onClick={() => void saveDetail()}
 							>
 								{t('aiEmployees.orgSaveProfile')}
 							</button>
 						</div>
-					</div>
-				</div>
-				);
-				return host ? createPortal(node, host) : node;
-			})()}
+
+						{saveErr ? <div className="ref-ai-employees-banner ref-ai-employees-banner--err ref-ai-employees-agents-detail-banner" role="alert">{saveErr}</div> : null}
+
+						<div className="ref-ai-employees-agents-detail-tabs" role="tablist" aria-label={t('aiEmployees.aiDetail.tabsAria')}>
+							{detailTabs.map((tab) => {
+								const Icon = tab.icon;
+								return (
+									<button
+										key={tab.id}
+										type="button"
+										role="tab"
+										aria-selected={detailTab === tab.id}
+										className={`ref-ai-employees-agents-detail-tab ${detailTab === tab.id ? 'is-active' : ''}`}
+										onClick={() => setDetailTab(tab.id)}
+									>
+										<Icon className="ref-ai-employees-agents-detail-tab-icon" aria-hidden />
+										{tab.label}
+									</button>
+								);
+							})}
+						</div>
+
+						<div className="ref-ai-employees-agents-detail-body">
+							{detailTab === 'instructions' ? (
+								<div className="ref-ai-employees-agents-detail-pane">
+									<RoleProfileEditor
+										t={t}
+										draft={selectedDraft}
+										modelOptions={modelOptions}
+										onChange={(patch) => setSelectedDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
+										fieldGroup="personaPrompts"
+									/>
+									<RoleCustomSystemPromptField
+										t={t}
+										value={selectedDraft.promptDraft.systemPrompt}
+										disabled={saving}
+										onChange={(value) => setSelectedDraft((prev) => (prev ? { ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } } : prev))}
+									/>
+								</div>
+							) : null}
+
+							{detailTab === 'skills' ? (
+								<div className="ref-ai-employees-agents-detail-pane ref-ai-employees-agents-placeholder">
+									<p className="ref-ai-employees-muted">{t('aiEmployees.aiDetail.skillsPlaceholder')}</p>
+								</div>
+							) : null}
+
+							{detailTab === 'tasks' ? (
+								<div className="ref-ai-employees-agents-detail-pane ref-ai-employees-agents-task-pane">
+									{openRunsForSelected.length === 0 ? (
+										<p className="ref-ai-employees-muted">{t('aiEmployees.aiDetail.tasksEmpty')}</p>
+									) : orchestration ? (
+										<EmployeeRunOperationsFeed
+											t={t}
+											orchestration={orchestration}
+											runs={openRunsForSelected}
+											employeeMap={orgById}
+											streamingSnippet={selectedId ? employeeChatStreaming?.[selectedId] : undefined}
+											streamError={selectedId ? employeeChatError?.[selectedId] : undefined}
+										/>
+									) : (
+										<p className="ref-ai-employees-muted">{t('aiEmployees.aiDetail.tasksEmpty')}</p>
+									)}
+								</div>
+							) : null}
+
+							{detailTab === 'settings' ? (
+								<div className="ref-ai-employees-agents-detail-pane">
+									<div className="ref-ai-employees-org-detail-head ref-ai-employees-agents-settings-avatar-block">
+										<div className="ref-ai-employees-org-avatar-wrap">
+											{avatarPreview ? (
+												<img src={avatarPreview} alt="" className="ref-ai-employees-org-avatar-img" />
+											) : (
+												<div className="ref-ai-employees-org-avatar-ph" aria-hidden>
+													{selected.displayName.trim().slice(0, 1).toUpperCase() || '?'}
+												</div>
+											)}
+											<label className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-avatar-upload">
+												<input type="file" accept="image/*" className="ref-ai-employees-sr-only" onChange={(ev) => void onAvatarPick(ev.target.files?.[0] ?? null)} />
+												{t('aiEmployees.orgUploadAvatar')}
+											</label>
+										</div>
+									</div>
+									<label className="ref-ai-employees-catalog-field">
+										<span>{t('aiEmployees.managerEmployee')}</span>
+										<select
+											className="ref-settings-native-select ref-ai-employees-workspace-select"
+											value={selectedDraft.managerEmployeeId ?? ''}
+											onChange={(e) => setSelectedDraft((prev) => (prev ? { ...prev, managerEmployeeId: e.target.value || undefined } : prev))}
+										>
+											<option value="">{t('aiEmployees.managerNone')}</option>
+											{sortedOrg
+												.filter((employee) => employee.id !== selected.id)
+												.map((employee) => (
+													<option key={employee.id} value={employee.id}>
+														{employee.displayName}
+													</option>
+												))}
+										</select>
+									</label>
+									<RoleProfileEditor
+										t={t}
+										draft={selectedDraft}
+										modelOptions={modelOptions}
+										onChange={(patch) => setSelectedDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
+										fieldGroup="identityModel"
+									/>
+									<ImBindingsSection t={t} conn={conn} workspaceId={workspaceId} employeeId={selected.id} />
+								</div>
+							) : null}
+						</div>
+					</>
+				)}
+			</div>
 
 			{(() => {
 				const host = typeof document !== 'undefined' ? document.getElementById('ref-ai-employees-inset-modal-host') : null;
@@ -742,21 +669,6 @@ export function EmployeesPage({
 											t={t}
 											value={draft.promptDraft.systemPrompt}
 											disabled={hireBusy}
-											generating={hirePromptDraftId === draft.id}
-											generateDisabled={!draft.localModelId || !modelOptionIdSet.has(draft.localModelId)}
-											onGenerate={() => {
-												if (draft.id) {
-													void generateHirePrompt(draft.id);
-												}
-											}}
-											onRestore={() =>
-												setHireDrafts((prev) =>
-													prev.map((item) =>
-														item.id === draft.id ? { ...item, promptDraft: item.lastGeneratedPromptDraft ?? item.promptDraft } : item
-													)
-												)
-											}
-											canRestore={Boolean(draft.lastGeneratedPromptDraft)}
 											onChange={(value) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, promptDraft: { ...item.promptDraft, systemPrompt: value } } : item)))}
 										/>
 									</div>

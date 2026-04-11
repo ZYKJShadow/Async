@@ -13,7 +13,9 @@ import {
 	type AiEmployeesConnection,
 } from '../api/client';
 import type { InboxItemJson } from '../api/types';
+import { EmployeeActivityStatusLabel } from '../components/EmployeeActivityStatus';
 import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
+import { buildEmployeeActivityStatusMap } from '../domain/employeeActivityStatus';
 import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 import type { LocalModelEntry } from '../sessionTypes';
 import { CollabCard, isStructuredMessage } from '../components/CollabCard';
@@ -136,6 +138,11 @@ export function InboxPage({
 	);
 
 	const orgById = useMemo(() => new Map(sorted.map((employee) => [employee.id, employee])), [sorted]);
+
+	const employeeActivityMap = useMemo(
+		() => buildEmployeeActivityStatusMap(sorted, _orchestration),
+		[_orchestration, sorted],
+	);
 
 	const [selection, setSelection] = useState<SidebarSelection | null>(null);
 	const [draft, setDraft] = useState('');
@@ -383,7 +390,13 @@ export function InboxPage({
 														{modelLine}
 													</span>
 												</span>
-												{unread > 0 ? <span className="ref-ai-employees-inbox-peer-badge">{unread}</span> : null}
+												<div className="ref-ai-employees-inbox-peer-trail">
+													<EmployeeActivityStatusLabel
+														t={t}
+														activity={employeeActivityMap.get(employee.id) ?? { status: 'idle' }}
+													/>
+													{unread > 0 ? <span className="ref-ai-employees-inbox-peer-badge">{unread}</span> : null}
+												</div>
 											</button>
 										</li>
 									);

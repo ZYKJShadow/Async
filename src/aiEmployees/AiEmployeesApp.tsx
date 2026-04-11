@@ -291,6 +291,8 @@ export function AiEmployeesApp() {
 											onBindEmployeeLocalModel={c.bindEmployeeLocalModel}
 											defaultModelId={c.localModels.defaultModelId}
 											orchestration={c.orchestration}
+											employeeChatStreaming={c.employeeChatStreaming}
+											employeeChatError={c.employeeChatError}
 										/>
 									) : null}
 
