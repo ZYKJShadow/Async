@@ -76,6 +76,13 @@ export type EmployeeChatHistoryTurn = {
 	content: string;
 };
 
+export type TeamMemberSummary = {
+	id: string;
+	displayName: string;
+	roleTitle: string;
+	jobMission?: string;
+};
+
 export type EmployeeChatInput = {
 	requestId: string;
 	modelId: string;
@@ -89,4 +96,6 @@ export type EmployeeChatInput = {
 	collaborationRules?: string;
 	handoffRules?: string;
 	history: EmployeeChatHistoryTurn[];
+	/** Team members the employee can collaborate with. */
+	teamMembers?: TeamMemberSummary[];
 };

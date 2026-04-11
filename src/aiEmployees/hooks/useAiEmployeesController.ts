@@ -71,7 +71,7 @@ import {
 import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
 import { resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
 import { buildCollabHistoryForEmployee } from '../domain/employeeChatHistory';
-import type { EmployeeChatInput } from '../../../shared/aiEmployeesPersona';
+import type { EmployeeChatInput, TeamMemberSummary } from '../../../shared/aiEmployeesPersona';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
@@ -91,7 +91,7 @@ function myIssuesListQuery(meUserId: string | undefined, orgEmps: OrgEmployee[] 
 	return q;
 }
 
-export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'runs' | 'runtimes' | 'connection';
+export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'activity' | 'connection';
 
 export function useAiEmployeesController() {
 	const shell = window.asyncShell as Shell | undefined;
@@ -1057,6 +1057,16 @@ export function useAiEmployeesController() {
 			setEmployeeChatStreaming((prev) => ({ ...prev, [employeeId]: '' }));
 			setEmployeeChatError((prev) => ({ ...prev, [employeeId]: undefined }));
 
+			// Build team roster (excluding the current employee)
+			const teamMembers: TeamMemberSummary[] = orgEmployees
+				.filter((e) => e.id !== employeeId)
+				.map((e) => ({
+					id: e.id,
+					displayName: e.displayName,
+					roleTitle: e.customRoleTitle || e.roleKey,
+					jobMission: e.personaSeed?.jobMission,
+				}));
+
 			const payload: EmployeeChatInput = {
 				requestId,
 				modelId,
@@ -1070,6 +1080,7 @@ export function useAiEmployeesController() {
 				collaborationRules: employee.personaSeed?.collaborationRules,
 				handoffRules: employee.personaSeed?.handoffRules,
 				history,
+				teamMembers,
 			};
 
 			try {

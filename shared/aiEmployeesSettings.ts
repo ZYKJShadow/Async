@@ -35,6 +35,28 @@ export type AiCollabMessageType =
 	| 'approval_response'
 	| 'result';
 
+export type AiCollabCardStatus =
+	| 'pending'
+	| 'in_progress'
+	| 'done'
+	| 'blocked'
+	| 'approved'
+	| 'rejected';
+
+export type AiCollabCardAction = {
+	label: string;
+	action: string;
+};
+
+export type AiCollabCardMeta = {
+	issueId?: string;
+	issueTitle?: string;
+	handoffId?: string;
+	status?: AiCollabCardStatus;
+	actionable?: boolean;
+	actions?: AiCollabCardAction[];
+};
+
 export type AiCollabMessage = {
 	id: string;
 	runId: string;
@@ -46,6 +68,7 @@ export type AiCollabMessage = {
 	taskId?: string;
 	createdAtIso: string;
 	readAtIso?: string;
+	cardMeta?: AiCollabCardMeta;
 };
 
 export type AiOrchestrationTimelineEventType =
@@ -115,6 +138,29 @@ export type AiEmployeesOrchestrationState = {
 	runs: AiOrchestrationRun[];
 	timelineEvents: AiOrchestrationTimelineEvent[];
 	collabMessages: AiCollabMessage[];
+};
+
+/**
+ * Tools available to each AI employee for autonomous collaboration.
+ * These map to function calls the LLM can invoke during task execution.
+ */
+export type AiCollabToolName =
+	| 'assign_task'
+	| 'request_help'
+	| 'submit_result'
+	| 'request_approval'
+	| 'report_blocker'
+	| 'send_message';
+
+export type AiCollabToolCall = {
+	tool: AiCollabToolName;
+	args: Record<string, unknown>;
+};
+
+export type AiCollabToolDefinition = {
+	name: AiCollabToolName;
+	description: string;
+	parameters: Record<string, { type: string; description: string; required?: boolean }>;
 };
 
 export type AiEmployeesSettings = {

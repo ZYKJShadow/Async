@@ -2,6 +2,13 @@ import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiEmployeesSettings } from '../../../shared/aiEmployeesSettings';
 import type { AiEmployeesSessionPhase } from '../sessionTypes';
+import type { RuntimeJson } from '../api/types';
+
+function isOnlineStatus(s: string | undefined): boolean {
+	if (!s) return false;
+	const x = s.toLowerCase();
+	return x === 'online' || x === 'connected' || x === 'active';
+}
 
 export function ConnectionPage({
 	t,
@@ -14,6 +21,7 @@ export function ConnectionPage({
 	workspaceId,
 	sessionPhase,
 	onRebuildTeam,
+	runtimes = [],
 }: {
 	t: TFunction;
 	DEFAULT_API: string;
@@ -25,6 +33,7 @@ export function ConnectionPage({
 	workspaceId: string;
 	sessionPhase: AiEmployeesSessionPhase;
 	onRebuildTeam: () => Promise<void>;
+	runtimes?: RuntimeJson[];
 }) {
 	const [rebuildBusy, setRebuildBusy] = useState(false);
 
@@ -98,6 +107,34 @@ export function ConnectionPage({
 					>
 						{rebuildBusy ? t('common.loading') : t('aiEmployees.settings.rebuildTeamAction')}
 					</button>
+				</section>
+			) : null}
+
+			{runtimes.length > 0 ? (
+				<section className="ref-ai-employees-settings-team-reset" aria-labelledby="ref-ai-employees-runtimes-title">
+					<h3 id="ref-ai-employees-runtimes-title" className="ref-ai-employees-settings-subtitle">
+						{t('aiEmployees.tab.runtimes')}
+					</h3>
+					<p className="ref-ai-employees-muted">
+						{t('aiEmployees.runtimeOnlineCount', {
+							online: String(runtimes.filter((r) => isOnlineStatus(r.status)).length),
+							total: String(runtimes.length),
+						})}
+					</p>
+					<div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+						{runtimes.map((r) => (
+							<div key={r.id} className="ref-ai-employees-list-row" style={{ gap: 10 }}>
+								<span
+									className={`ref-ai-employees-runtime-status-dot ${isOnlineStatus(r.status) ? 'is-online' : ''}`}
+									style={{ flexShrink: 0 }}
+								/>
+								<span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+									{r.name ?? r.id.slice(0, 8)}
+								</span>
+								<span className="ref-ai-employees-muted">{r.runtime_mode ?? r.provider ?? '—'}</span>
+							</div>
+						))}
+					</div>
 				</section>
 			) : null}
 		</div>

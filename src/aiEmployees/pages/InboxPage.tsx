@@ -16,6 +16,9 @@ import type { InboxItemJson } from '../api/types';
 import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
 import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 import type { LocalModelEntry } from '../sessionTypes';
+import { CollabCard, isStructuredMessage } from '../components/CollabCard';
+
+/* ─── Helpers ──────────────────────────────────────────────── */
 
 function InboxChatAvatarSlot({
 	conn,
@@ -43,27 +46,27 @@ function InboxChatAvatarSlot({
 
 function calendarDayKey(iso: string): string {
 	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) {
-		return '';
-	}
+	if (Number.isNaN(d.getTime())) return '';
 	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function formatChatDayDivider(iso: string): string {
 	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) {
-		return '';
-	}
+	if (Number.isNaN(d.getTime())) return '';
 	return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function formatChatMessageTime(iso: string): string {
 	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) {
-		return '';
-	}
+	if (Number.isNaN(d.getTime())) return '';
 	return d.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
+
+type SidebarSelection =
+	| { kind: 'employee'; employeeId: string }
+	| { kind: 'task'; messageId: string };
+
+/* ─── Component ────────────────────────────────────────────── */
 
 export function InboxPage({
 	t,
@@ -135,12 +138,24 @@ export function InboxPage({
 	const orgById = useMemo(() => new Map(sorted.map((employee) => [employee.id, employee])), [sorted]);
 	const leadEmployee = useMemo(() => sorted.find((employee) => employee.isCeo) ?? sorted[0] ?? null, [sorted]);
 
-	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [selection, setSelection] = useState<SidebarSelection | null>(null);
 	const [draft, setDraft] = useState('');
 	const [moreOpen, setMoreOpen] = useState(false);
 	const moreRef = useRef<HTMLDivElement>(null);
 
-	// Remote inbox items from server API (server-side notifications / IM-routed messages)
+	const selectedEmployeeId = selection?.kind === 'employee' ? selection.employeeId : null;
+
+	// Pending tasks for the user: approval_request + blocker messages without a response
+	const pendingTasks = useMemo(() => {
+		const msgs = _orchestration.collabMessages;
+		return msgs.filter(
+			(m) =>
+				(m.type === 'approval_request' || m.type === 'blocker') &&
+				!m.toEmployeeId // sent to user (no toEmployeeId = user-facing)
+		);
+	}, [_orchestration.collabMessages]);
+
+	// Remote inbox items from server API
 	const [remoteItems, setRemoteItems] = useState<InboxItemJson[]>([]);
 
 	const fetchRemoteInbox = useCallback(async () => {
@@ -149,11 +164,10 @@ export function InboxPage({
 			const items = await apiListInboxItems(conn, workspaceId, { archived: false });
 			setRemoteItems(items);
 		} catch {
-			// Remote inbox is optional — silently ignore when server is unreachable
+			// Remote inbox is optional
 		}
 	}, [conn, workspaceId]);
 
-	// Initial fetch + re-fetch whenever inboxVersion bumps (WS event) or workspace changes
 	useEffect(() => {
 		void fetchRemoteInbox();
 	}, [fetchRemoteInbox, inboxVersion]);
@@ -174,19 +188,18 @@ export function InboxPage({
 		}
 	}, [conn, remoteItems, workspaceId]);
 
+	// Auto-select first employee if nothing selected
 	useEffect(() => {
-		if (!selectedId && sorted[0]?.id) {
-			setSelectedId(sorted[0].id);
+		if (!selection && sorted[0]?.id) {
+			setSelection({ kind: 'employee', employeeId: sorted[0].id });
 		}
-		if (selectedId && !sorted.some((employee) => employee.id === selectedId)) {
-			setSelectedId(sorted[0]?.id ?? null);
+		if (selectedEmployeeId && !sorted.some((employee) => employee.id === selectedEmployeeId)) {
+			setSelection(sorted[0] ? { kind: 'employee', employeeId: sorted[0].id } : null);
 		}
-	}, [selectedId, sorted]);
+	}, [selection, selectedEmployeeId, sorted]);
 
 	useEffect(() => {
-		if (!moreOpen) {
-			return;
-		}
+		if (!moreOpen) return;
 		const onDoc = (event: MouseEvent) => {
 			if (!moreRef.current?.contains(event.target as Node)) {
 				setMoreOpen(false);
@@ -196,26 +209,24 @@ export function InboxPage({
 		return () => document.removeEventListener('mousedown', onDoc);
 	}, [moreOpen]);
 
-	const selected = selectedId ? sorted.find((employee) => employee.id === selectedId) : undefined;
+	const selected = selectedEmployeeId ? sorted.find((employee) => employee.id === selectedEmployeeId) : undefined;
 	const thread = useMemo(() => {
-		if (!selectedId) {
-			return [];
-		}
-		return [...listMessagesByEmployee(selectedId)].sort(
+		if (!selectedEmployeeId) return [];
+		return [...listMessagesByEmployee(selectedEmployeeId)].sort(
 			(a, b) => Date.parse(a.createdAtIso) - Date.parse(b.createdAtIso)
 		);
-	}, [listMessagesByEmployee, selectedId]);
-	const streamDraft = selectedId ? employeeChatStreaming[selectedId] : undefined;
-	const streamErr = selectedId ? employeeChatError[selectedId] : undefined;
-	const activeRun = selectedId ? findActiveRunByEmployee(selectedId) : undefined;
+	}, [listMessagesByEmployee, selectedEmployeeId]);
+	const streamDraft = selectedEmployeeId ? employeeChatStreaming[selectedEmployeeId] : undefined;
+	const streamErr = selectedEmployeeId ? employeeChatError[selectedEmployeeId] : undefined;
+	const activeRun = selectedEmployeeId ? findActiveRunByEmployee(selectedEmployeeId) : undefined;
 
 	useEffect(() => {
 		for (const message of thread) {
-			if (message.toEmployeeId === selectedId && !message.readAtIso) {
+			if (message.toEmployeeId === selectedEmployeeId && !message.readAtIso) {
 				onMarkMessageRead(message.id);
 			}
 		}
-	}, [onMarkMessageRead, selectedId, thread]);
+	}, [onMarkMessageRead, selectedEmployeeId, thread]);
 
 	const unreadCountByEmployee = useMemo(() => {
 		const map = new Map<string, number>();
@@ -230,26 +241,33 @@ export function InboxPage({
 
 	const sendMessage = () => {
 		const text = draft.trim();
-		if (!selectedId || !text) {
-			return;
-		}
+		if (!selectedEmployeeId || !text) return;
 		if (activeRun) {
 			onSendMessage({
 				runId: activeRun.id,
 				type: 'text',
 				body: text,
 				summary: text.slice(0, 80),
-				toEmployeeId: selectedId,
+				toEmployeeId: selectedEmployeeId,
 			});
 		} else {
-			onCreateRun(selectedId, t('aiEmployees.inbox.defaultRunTitle'), text, '');
+			onCreateRun(selectedEmployeeId, t('aiEmployees.inbox.defaultRunTitle'), text, '');
 		}
 		setDraft('');
 	};
 
+	// When viewing a task message, find the related employee for the detail panel
+	const taskMessage = selection?.kind === 'task'
+		? _orchestration.collabMessages.find((m) => m.id === selection.messageId)
+		: undefined;
+	const taskEmployee = taskMessage?.fromEmployeeId
+		? orgById.get(taskMessage.fromEmployeeId)
+		: undefined;
+
 	return (
 		<div className="ref-ai-employees-inbox">
 			<div className="ref-ai-employees-inbox-split">
+				{/* ── Left sidebar ── */}
 				<div className="ref-ai-employees-inbox-list-col">
 					<div className="ref-ai-employees-inbox-list-head">
 						<div className="ref-ai-employees-inbox-list-head-left">
@@ -285,6 +303,47 @@ export function InboxPage({
 						</div>
 					</div>
 					<div className="ref-ai-employees-inbox-list-scroll">
+						{/* Tasks / Approvals section */}
+						{pendingTasks.length > 0 ? (
+							<>
+								<div className="ref-ai-employees-inbox-section-label">
+									{t('aiEmployees.inbox.sectionTasks')}
+									<span className="ref-ai-employees-inbox-section-label-count">{pendingTasks.length}</span>
+								</div>
+								<ul className="ref-ai-employees-inbox-peer-list" style={{ paddingTop: 0 }}>
+									{pendingTasks.map((task) => {
+										const fromName = orgById.get(task.fromEmployeeId ?? '')?.displayName ?? '?';
+										const isActive = selection?.kind === 'task' && selection.messageId === task.id;
+										return (
+											<li key={task.id}>
+												<button
+													type="button"
+													className={`ref-ai-employees-inbox-task-item ${isActive ? 'is-active' : ''}`}
+													onClick={() => setSelection({ kind: 'task', messageId: task.id })}
+												>
+													<span
+														className={`ref-ai-employees-inbox-task-dot ${
+															task.type === 'approval_request'
+																? 'ref-ai-employees-inbox-task-dot--approval'
+																: 'ref-ai-employees-inbox-task-dot--blocker'
+														}`}
+													/>
+													<span className="ref-ai-employees-inbox-task-meta">
+														<span className="ref-ai-employees-inbox-task-title">{task.summary}</span>
+														<span className="ref-ai-employees-inbox-task-from">{fromName}</span>
+													</span>
+												</button>
+											</li>
+										);
+									})}
+								</ul>
+							</>
+						) : null}
+
+						{/* Conversations section */}
+						<div className="ref-ai-employees-inbox-section-label">
+							{t('aiEmployees.inbox.sectionConversations')}
+						</div>
 						{sorted.length === 0 ? (
 							<div className="ref-ai-employees-inbox-list-zero">
 								<IconMessageCircle className="ref-ai-employees-inbox-list-zero-icon" aria-hidden />
@@ -293,7 +352,7 @@ export function InboxPage({
 						) : (
 							<ul className="ref-ai-employees-inbox-peer-list" aria-label={t('aiEmployees.inbox.railAria')}>
 								{sorted.map((employee) => {
-									const active = employee.id === selectedId;
+									const active = selection?.kind === 'employee' && employee.id === selectedEmployeeId;
 									const initial = employee.displayName.trim().slice(0, 1).toUpperCase() || '?';
 									const unread = unreadCountByEmployee.get(employee.id) ?? 0;
 									const run = findActiveRunByEmployee(employee.id);
@@ -303,7 +362,7 @@ export function InboxPage({
 											<button
 												type="button"
 												className={`ref-ai-employees-inbox-peer-row ${active ? 'is-active' : ''}`}
-												onClick={() => setSelectedId(employee.id)}
+												onClick={() => setSelection({ kind: 'employee', employeeId: employee.id })}
 											>
 												<span className="ref-ai-employees-inbox-peer-avatar" aria-hidden>
 													{initial}
@@ -327,14 +386,62 @@ export function InboxPage({
 					</div>
 				</div>
 
+				{/* ── Right detail panel ── */}
 				<div className="ref-ai-employees-inbox-detail">
-					{!selected ? (
+					{/* Task detail view */}
+					{selection?.kind === 'task' && taskMessage ? (
+						<>
+							<div className="ref-ai-employees-inbox-detail-headbar">
+								<div className="ref-ai-employees-inbox-detail-headbar-main">
+									<div className="ref-ai-employees-inbox-detail-title">{taskMessage.summary}</div>
+									<div className="ref-ai-employees-inbox-detail-subtitle">
+										{taskEmployee?.displayName ?? '?'} · {taskMessage.type === 'approval_request'
+											? t('aiEmployees.collab.approvalRequest')
+											: t('aiEmployees.collab.blocker')}
+									</div>
+								</div>
+							</div>
+							<div className="ref-ai-employees-comm-thread" style={{ padding: '24px 18px' }}>
+								<CollabCard
+									t={t}
+									message={taskMessage}
+									employeeMap={orgById}
+								/>
+								{taskMessage.body ? (
+									<div style={{ marginTop: 16, fontSize: 13, lineHeight: 1.6, color: 'var(--void-fg-1, #9aa4b2)', whiteSpace: 'pre-wrap' }}>
+										{taskMessage.body}
+									</div>
+								) : null}
+								{taskMessage.type === 'approval_request' ? (
+									<div className="ref-ai-employees-collab-card-actions" style={{ marginTop: 16 }}>
+										<button
+											type="button"
+											className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+										>
+											{t('aiEmployees.inbox.approveAction')}
+										</button>
+										<button
+											type="button"
+											className="ref-ai-employees-btn ref-ai-employees-btn--secondary"
+										>
+											{t('aiEmployees.inbox.rejectAction')}
+										</button>
+									</div>
+								) : null}
+							</div>
+						</>
+					) : null}
+
+					{/* Employee chat view */}
+					{selection?.kind === 'employee' && !selected ? (
 						<div className="ref-ai-employees-inbox-detail-empty">
 							<IconMessageCircle className="ref-ai-employees-inbox-detail-empty-ico ref-ai-employees-inbox-detail-empty-ico--muted" aria-hidden />
 							<p className="ref-ai-employees-inbox-detail-empty-title">{t('aiEmployees.inbox.detailPickTitle')}</p>
 							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">{t('aiEmployees.inbox.detailPickHint')}</p>
 						</div>
-					) : (
+					) : null}
+
+					{selection?.kind === 'employee' && selected ? (
 						<>
 							<div className="ref-ai-employees-inbox-detail-headbar">
 								<div className="ref-ai-employees-inbox-detail-headbar-main">
@@ -359,6 +466,35 @@ export function InboxPage({
 										const showDay =
 											!prev || calendarDayKey(prev.createdAtIso) !== calendarDayKey(message.createdAtIso);
 										const isUser = message.toEmployeeId === selected.id;
+
+										// Render structured messages as cards
+										if (isStructuredMessage(message)) {
+											return (
+												<Fragment key={message.id}>
+													{showDay ? (
+														<div className="ref-ai-employees-inbox-chat-day" role="separator" aria-label={formatChatDayDivider(message.createdAtIso)}>
+															{formatChatDayDivider(message.createdAtIso)}
+														</div>
+													) : null}
+													<div className={`ref-ai-employees-inbox-chat-row ${isUser ? 'is-user' : 'is-peer'}`}>
+														{!isUser ? (
+															<InboxChatAvatarSlot
+																conn={conn}
+																workspaceId={workspaceId}
+																employee={message.fromEmployeeId ? orgById.get(message.fromEmployeeId) ?? selected : selected}
+															/>
+														) : null}
+														<CollabCard
+															t={t}
+															message={message}
+															employeeMap={orgById}
+														/>
+													</div>
+												</Fragment>
+											);
+										}
+
+										// Regular text messages
 										const peerFace =
 											!isUser && message.fromEmployeeId
 												? orgById.get(message.fromEmployeeId) ?? selected
@@ -451,10 +587,18 @@ export function InboxPage({
 								</div>
 							</div>
 						</>
-					)}
+					) : null}
+
+					{/* Nothing selected at all */}
+					{!selection ? (
+						<div className="ref-ai-employees-inbox-detail-empty">
+							<IconMessageCircle className="ref-ai-employees-inbox-detail-empty-ico ref-ai-employees-inbox-detail-empty-ico--muted" aria-hidden />
+							<p className="ref-ai-employees-inbox-detail-empty-title">{t('aiEmployees.inbox.detailPickTitle')}</p>
+							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">{t('aiEmployees.inbox.detailPickHint')}</p>
+						</div>
+					) : null}
 				</div>
 			</div>
-
 		</div>
 	);
 }

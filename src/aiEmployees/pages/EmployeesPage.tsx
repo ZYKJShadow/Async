@@ -51,6 +51,7 @@ export function EmployeesPage({
 	modelOptionIdSet,
 	onBindEmployeeLocalModel,
 	defaultModelId,
+	orchestration,
 }: {
 	t: TFunction;
 	conn: AiEmployeesConnection;
@@ -65,6 +66,7 @@ export function EmployeesPage({
 	onBindEmployeeLocalModel: (employeeId: string, modelEntryId: string) => void;
 	/** Async 设置中的默认本地模型（用于 CEO 规划与自动招聘） */
 	defaultModelId?: string;
+	orchestration?: import('../../../shared/aiEmployeesSettings').AiEmployeesOrchestrationState;
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -92,6 +94,30 @@ export function EmployeesPage({
 		});
 		return list;
 	}, [orgEmployees]);
+
+	// Derive per-employee status from orchestration runs
+	const employeeStatusMap = useMemo(() => {
+		const map = new Map<string, { status: 'idle' | 'working' | 'blocked' | 'waiting'; runGoal?: string }>();
+		if (!orchestration) return map;
+		for (const emp of sortedOrg) {
+			const activeRun = orchestration.runs
+				.filter((r) => r.currentAssigneeEmployeeId === emp.id || r.handoffs.some((h) => h.toEmployeeId === emp.id && h.status !== 'done'))
+				.sort((a, b) => Date.parse(b.lastEventAtIso ?? b.createdAtIso) - Date.parse(a.lastEventAtIso ?? a.createdAtIso))[0];
+			if (!activeRun) {
+				map.set(emp.id, { status: 'idle' });
+				continue;
+			}
+			const handoff = activeRun.handoffs.find((h) => h.toEmployeeId === emp.id && h.status !== 'done');
+			if (handoff?.status === 'blocked') {
+				map.set(emp.id, { status: 'blocked', runGoal: activeRun.goal });
+			} else if (activeRun.status === 'awaiting_approval') {
+				map.set(emp.id, { status: 'waiting', runGoal: activeRun.goal });
+			} else {
+				map.set(emp.id, { status: 'working', runGoal: activeRun.goal });
+			}
+		}
+		return map;
+	}, [orchestration, sortedOrg]);
 
 	const selected = useMemo(
 		() => (selectedId ? sortedOrg.find((employee) => employee.id === selectedId) ?? null : null),
@@ -604,6 +630,27 @@ export function EmployeesPage({
 											<span className="ref-ai-employees-org-badge-model" title={modelLine}>
 												{modelLine}
 											</span>
+											{(() => {
+												const empStatus = employeeStatusMap.get(employee.id);
+												if (empStatus && empStatus.status !== 'idle') {
+													const dotColor = empStatus.status === 'working'
+														? 'color-mix(in srgb, var(--void-accent-cool) 70%, var(--void-fg-0))'
+														: empStatus.status === 'blocked'
+															? '#f85149'
+															: '#d29922';
+													return (
+														<span
+															className="ref-ai-employees-org-badge-title"
+															style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}
+															title={empStatus.runGoal}
+														>
+															<span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+															{empStatus.runGoal ? (empStatus.runGoal.length > 24 ? `${empStatus.runGoal.slice(0, 24)}…` : empStatus.runGoal) : empStatus.status}
+														</span>
+													);
+												}
+												return null;
+											})()}
 											{employee.isCeo ? <span className="ref-ai-employees-org-badge-chip">{t('aiEmployees.setup.roleLeadLabel')}</span> : null}
 										</div>
 									</div>

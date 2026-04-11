@@ -35,6 +35,22 @@ export function buildEmployeeSystemPrompt(input: EmployeeChatInput): string {
 		parts.push(`Handoff rules:\n${trim(input.handoffRules)}`);
 	}
 
+	// Team context: let the employee know about colleagues
+	if (input.teamMembers && input.teamMembers.length > 0) {
+		const roster = input.teamMembers
+			.map((m) => {
+				const mission = m.jobMission ? ` — ${m.jobMission}` : '';
+				return `• ${m.displayName} (${m.roleTitle})${mission}`;
+			})
+			.join('\n');
+		parts.push(
+			`Your team members:\n${roster}\n\n` +
+			'When a task involves expertise outside your role, you should suggest involving the appropriate teammate. ' +
+			'If you receive a task that is clearly in another teammate\'s domain, recommend assigning it to them. ' +
+			'When you complete a task, summarize your results clearly so they can be handed off.'
+		);
+	}
+
 	parts.push(
 		'You are communicating with your team lead in a work inbox.',
 		'Be concise, professional, and action-oriented.',
