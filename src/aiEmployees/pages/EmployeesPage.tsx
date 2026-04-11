@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
 import { VoidSelect } from '../../VoidSelect';
 import { IconBookOpen, IconDoc, IconListTodo, IconSettings, IconBot } from '../../icons';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import type { AiEmployeesConnection } from '../api/client';
 import type { SkillJson } from '../api/types';
 import { apiCreateOrgEmployee, apiPatchOrgEmployee, apiUploadOrgEmployeeAvatar } from '../api/orgClient';
@@ -311,7 +312,7 @@ export function EmployeesPage({
 			onBindEmployeeLocalModel(selected.id, selectedDraft.localModelId);
 			await onRefreshOrg();
 		} catch (error) {
-			setSaveErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setSaving(false);
 		}
@@ -327,7 +328,7 @@ export function EmployeesPage({
 			await apiUploadOrgEmployeeAvatar(conn, workspaceId, selected.id, file);
 			await onRefreshOrg();
 		} catch (error) {
-			setSaveErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setSaving(false);
 		}
@@ -388,7 +389,7 @@ export function EmployeesPage({
 			setHireModalExiting(false);
 			await onRefreshOrg();
 		} catch (error) {
-			setHireErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setHireBusy(false);
 		}

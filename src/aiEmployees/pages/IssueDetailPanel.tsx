@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import { VoidSelect } from '../../VoidSelect';
-import type { AgentJson, IssueJson, WorkspaceMemberJson } from '../api/types';
+import type { AgentJson, IssueJson, ProjectJson, WorkspaceMemberJson } from '../api/types';
 import { IconCloseSmall } from '../../icons';
-import { assigneeVoidOptions, issueStatusVoidOptions, priorityFieldVoidOptions } from '../voidSelectOptions';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
+import { assigneeVoidOptions, issueProjectVoidOptions, issueStatusVoidOptions, priorityFieldVoidOptions } from '../voidSelectOptions';
 
 const ISSUE_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled'] as const;
 
@@ -17,6 +18,7 @@ export function IssueDetailPanel({
 	issue,
 	agents,
 	members,
+	projects = [],
 	parentIssue,
 	onClose,
 	onPatch,
@@ -28,6 +30,7 @@ export function IssueDetailPanel({
 	issue: IssueJson;
 	agents: AgentJson[];
 	members: WorkspaceMemberJson[];
+	projects?: ProjectJson[];
 	parentIssue: IssueJson | null;
 	onClose: () => void;
 	onPatch: (issueId: string, patch: Record<string, unknown>) => Promise<void>;
@@ -59,6 +62,7 @@ export function IssueDetailPanel({
 	const priorityOpts = useMemo(() => priorityFieldVoidOptions(t), [t]);
 	const assigneeOpts = useMemo(() => assigneeVoidOptions(t, members, agents), [t, members, agents]);
 	const childAssigneeOpts = useMemo(() => assigneeVoidOptions(t, members, agents), [t, members, agents]);
+	const projectOpts = useMemo(() => issueProjectVoidOptions(t, projects), [t, projects]);
 
 	const runPatch = useCallback(
 		async (patch: Record<string, unknown>) => {
@@ -67,7 +71,7 @@ export function IssueDetailPanel({
 			try {
 				await onPatch(issue.id, patch);
 			} catch (e) {
-				setErr(e instanceof Error ? e.message : String(e));
+				notifyAiEmployeesRequestFailed(e);
 			} finally {
 				setSaving(false);
 			}
@@ -187,6 +191,19 @@ export function IssueDetailPanel({
 					/>
 				</label>
 
+				{projects.length > 0 ? (
+					<label className="ref-ai-employees-issue-field">
+						<span>{t('aiEmployees.issueDetail.project')}</span>
+						<VoidSelect
+							ariaLabel={t('aiEmployees.issueDetail.project')}
+							value={issue.project_id ?? ''}
+							disabled={saving}
+							options={projectOpts}
+							onChange={(v) => void runPatch({ project_id: v ? v : null })}
+						/>
+					</label>
+				) : null}
+
 				{issue.parent_issue_id ? (
 					<div className="ref-ai-employees-issue-field">
 						<span>{t('aiEmployees.issueDetail.parent')}</span>
@@ -243,7 +260,7 @@ export function IssueDetailPanel({
 								setChildTitle('');
 								setChildAssignee('');
 							} catch (e) {
-								setErr(e instanceof Error ? e.message : String(e));
+								notifyAiEmployeesRequestFailed(e);
 							} finally {
 								setSaving(false);
 							}
@@ -269,7 +286,7 @@ export function IssueDetailPanel({
 									await onDelete(issue.id);
 									onClose();
 								} catch (e) {
-									setErr(e instanceof Error ? e.message : String(e));
+									notifyAiEmployeesRequestFailed(e);
 								} finally {
 									setSaving(false);
 								}

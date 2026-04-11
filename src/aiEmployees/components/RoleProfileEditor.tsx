@@ -5,6 +5,7 @@ import { formatLocalModelPickLabel } from '../adapters/modelAdapter';
 import type { LocalModelEntry } from '../sessionTypes';
 import type { RoleProfileDraft } from '../domain/roleDraft';
 import type { TFunction } from '../../i18n';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import {
 	apiCreateChatBinding,
 	apiDeleteChatBinding,
@@ -232,7 +233,7 @@ export function ImBindingsSection({
 			setEditProvider(null);
 			setEditToken('');
 		} catch (e) {
-			setErr(e instanceof Error ? e.message : 'save failed');
+			notifyAiEmployeesRequestFailed(e);
 		} finally {
 			setSaving(false);
 		}
@@ -258,8 +259,8 @@ export function ImBindingsSection({
 						: { ...b, status: 'disabled' as const }
 				)
 			);
-		} catch {
-			// ignore
+		} catch (e) {
+			notifyAiEmployeesRequestFailed(e);
 		} finally {
 			setSaving(false);
 		}
@@ -271,8 +272,8 @@ export function ImBindingsSection({
 		try {
 			await apiDeleteChatBinding(conn, workspaceId, employeeId, binding.id);
 			setBindings((prev) => prev.filter((b) => b.provider !== provider));
-		} catch {
-			// ignore
+		} catch (e) {
+			notifyAiEmployeesRequestFailed(e);
 		}
 	};
 

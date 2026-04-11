@@ -3,6 +3,7 @@ import type { TFunction } from '../../i18n';
 import { VoidSelect } from '../../VoidSelect';
 import type { AiEmployeesSettings } from '../../../shared/aiEmployeesSettings';
 import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import type { AiEmployeesConnection } from '../api/client';
 import type { OrgBootstrapStatus, OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
 import {
@@ -155,52 +156,6 @@ function createTeamModes(t: TFunction): TeamModeConfig[] {
 	];
 }
 
-type ConnectFailureKind = 'network' | 'auth' | 'forbidden' | 'notfound' | 'server' | 'unknown';
-
-function classifyConnectionFailure(raw: string): ConnectFailureKind {
-	if (raw.includes('HTTP 401')) {
-		return 'auth';
-	}
-	if (raw.includes('HTTP 403')) {
-		return 'forbidden';
-	}
-	if (raw.includes('HTTP 404')) {
-		return 'notfound';
-	}
-	if (/HTTP 5\d\d/.test(raw)) {
-		return 'server';
-	}
-	const lo = raw.toLowerCase();
-	if (
-		lo.includes('failed to fetch') ||
-		lo.includes('networkerror') ||
-		lo.includes('load failed') ||
-		lo.includes('econnrefused') ||
-		lo.includes('err_connection') ||
-		lo.includes('network request failed')
-	) {
-		return 'network';
-	}
-	return 'unknown';
-}
-
-function connectFailureHintKey(kind: ConnectFailureKind): string {
-	switch (kind) {
-		case 'network':
-			return 'aiEmployees.setup.connectFailureHintNetwork';
-		case 'auth':
-			return 'aiEmployees.setup.connectFailureHintAuth';
-		case 'forbidden':
-			return 'aiEmployees.setup.connectFailureHintForbidden';
-		case 'notfound':
-			return 'aiEmployees.setup.connectFailureHintNotFound';
-		case 'server':
-			return 'aiEmployees.setup.connectFailureHintServer';
-		default:
-			return 'aiEmployees.setup.connectFailureHintUnknown';
-	}
-}
-
 function inferStage(sessionPhase: AiEmployeesSessionPhase, workspaceId: string, status: OrgBootstrapStatus | null): SetupStage {
 	if (sessionPhase === 'need_connection' || sessionPhase === 'bootstrapping') {
 		return 'connect';
@@ -331,8 +286,8 @@ export function AiEmployeesSetupFlow({
 	aiSettings,
 	setAiSettings,
 	onSaveConnection,
-	connectionError,
-	onClearConnectionError,
+	connectRefreshFailed,
+	onClearConnectRefreshFailed,
 	localRoot,
 	workspaceId,
 	workspaces,
@@ -356,8 +311,8 @@ export function AiEmployeesSetupFlow({
 	aiSettings: AiEmployeesSettings;
 	setAiSettings: Dispatch<SetStateAction<AiEmployeesSettings>>;
 	onSaveConnection: () => void;
-	connectionError: string | null;
-	onClearConnectionError: () => void;
+	connectRefreshFailed: boolean;
+	onClearConnectRefreshFailed: () => void;
 	localRoot: string | null;
 	workspaceId: string;
 	workspaces: { id: string; name?: string }[];
@@ -470,11 +425,6 @@ export function AiEmployeesSetupFlow({
 		[teamName, localRoot, workspaces, workspaceId, companyName]
 	);
 
-	const connectFailureKind = useMemo(
-		() => (connectionError ? classifyConnectionFailure(connectionError) : 'unknown'),
-		[connectionError]
-	);
-
 	const effectiveModelForDrafts = selectedModelId && modelOptionIdSet.has(selectedModelId) ? selectedModelId : defaultModelId;
 
 	const previewDrafts = useMemo(() => {
@@ -566,7 +516,7 @@ export function AiEmployeesSetupFlow({
 			await apiPostBootstrapComplete(conn, workspaceId);
 			await onSync();
 		} catch (error) {
-			setSubmitErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setSubmitBusy(false);
 		}
@@ -648,7 +598,7 @@ export function AiEmployeesSetupFlow({
 			setPreviewTeamDrafts([cloneRoleDraft(lead), ...memberDrafts.map((m) => cloneRoleDraft(m))]);
 			setStage('preview_team');
 		} catch (error) {
-			setSubmitErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setCeoPlanBusy(false);
 		}
@@ -756,7 +706,7 @@ export function AiEmployeesSetupFlow({
 			await apiPostBootstrapComplete(conn, workspaceId);
 			await onSync();
 		} catch (error) {
-			setSubmitErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setSubmitBusy(false);
 		}
@@ -806,7 +756,7 @@ export function AiEmployeesSetupFlow({
 				setPreviewEditDraft((prev) => (prev ? applyGeneratedPromptDraft(prev, result.draft) : null));
 			}
 		} catch (error) {
-			setSubmitErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setPreviewPromptBusy(false);
 		}
@@ -853,26 +803,6 @@ export function AiEmployeesSetupFlow({
 							<h2>{t('aiEmployees.gateTitle')}</h2>
 							<p>{t('aiEmployees.setup.connectBlurb')}</p>
 						</div>
-						{connectionError?.trim() ? (
-							<div className="ref-ai-employees-setup-connect-alert" role="alert" aria-live="polite">
-								<div className="ref-ai-employees-setup-connect-alert-top">
-									<div className="ref-ai-employees-setup-connect-alert-title-wrap">
-										<span className="ref-ai-employees-setup-connect-alert-icon" aria-hidden>
-											!
-										</span>
-										<strong className="ref-ai-employees-setup-connect-alert-title">{t('aiEmployees.setup.connectFailureTitle')}</strong>
-									</div>
-									<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-setup-connect-alert-dismiss" onClick={onClearConnectionError}>
-										{t('aiEmployees.setup.connectFailureDismiss')}
-									</button>
-								</div>
-								<p className="ref-ai-employees-setup-connect-alert-hint">{t(connectFailureHintKey(connectFailureKind))}</p>
-								<details className="ref-ai-employees-setup-connect-alert-details">
-									<summary>{t('aiEmployees.setup.connectFailureDetailToggle')}</summary>
-									<pre className="ref-ai-employees-setup-connect-alert-pre">{connectionError}</pre>
-								</details>
-							</div>
-						) : null}
 						<div className="ref-ai-employees-setup-grid">
 							<label className="ref-ai-employees-catalog-field">
 								<span>{t('aiEmployees.apiBaseUrl')}</span>
@@ -880,7 +810,7 @@ export function AiEmployeesSetupFlow({
 									className="ref-ai-employees-input"
 									value={aiSettings.apiBaseUrl ?? conn.apiBaseUrl}
 									onChange={(e) => {
-										onClearConnectionError();
+										onClearConnectRefreshFailed();
 										setAiSettings((prev) => ({ ...prev, apiBaseUrl: e.target.value }));
 									}}
 								/>
@@ -891,7 +821,7 @@ export function AiEmployeesSetupFlow({
 									className="ref-ai-employees-input"
 									value={aiSettings.wsBaseUrl ?? conn.wsBaseUrl}
 									onChange={(e) => {
-										onClearConnectionError();
+										onClearConnectRefreshFailed();
 										setAiSettings((prev) => ({ ...prev, wsBaseUrl: e.target.value }));
 									}}
 								/>
@@ -905,7 +835,7 @@ export function AiEmployeesSetupFlow({
 								autoComplete="off"
 								value={aiSettings.token ?? conn.token}
 								onChange={(e) => {
-									onClearConnectionError();
+									onClearConnectRefreshFailed();
 									setAiSettings((prev) => ({ ...prev, token: e.target.value }));
 								}}
 							/>
@@ -921,7 +851,7 @@ export function AiEmployeesSetupFlow({
 								>
 									{sessionPhase === 'bootstrapping'
 										? t('common.loading')
-										: connectionError?.trim()
+										: connectRefreshFailed
 											? t('aiEmployees.setup.connectRetry')
 											: t('aiEmployees.setup.nextStep')}
 								</button>

@@ -42,11 +42,56 @@ export type CreateIssuePayload = {
 	title: string;
 	description?: string;
 	parent_issue_id?: string;
+	project_id?: string | null;
 	assignee_type?: IssueAssigneeType;
 	assignee_id?: string;
 	status?: string;
 	priority?: string;
 	due_date?: string | null;
+};
+
+/** 项目权限边界：不限制 / 本地目录 / Git 远端 */
+export type ProjectBoundaryKind = 'none' | 'local_folder' | 'git_repo';
+
+export type ProjectJson = {
+	id: string;
+	workspace_id?: string;
+	title: string;
+	description?: string | null;
+	icon?: string | null;
+	status?: string;
+	priority?: string;
+	lead_type?: IssueAssigneeType | string | null;
+	lead_id?: string | null;
+	boundary_kind?: ProjectBoundaryKind | string;
+	boundary_local_path?: string | null;
+	boundary_git_url?: string | null;
+	created_at?: string;
+	updated_at?: string;
+	issue_count?: number;
+	done_count?: number;
+};
+
+export type CreateProjectPayload = {
+	title: string;
+	description?: string;
+	icon?: string;
+	lead_type?: IssueAssigneeType;
+	lead_id?: string;
+	boundary_kind?: ProjectBoundaryKind;
+	boundary_local_path?: string | null;
+	boundary_git_url?: string | null;
+};
+
+export type UpdateProjectPayload = {
+	title?: string;
+	description?: string | null;
+	icon?: string | null;
+	lead_type?: IssueAssigneeType | string | null;
+	lead_id?: string | null;
+	boundary_kind?: ProjectBoundaryKind | string | null;
+	boundary_local_path?: string | null;
+	boundary_git_url?: string | null;
 };
 
 export type AgentJson = {

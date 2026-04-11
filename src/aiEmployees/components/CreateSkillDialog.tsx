@@ -2,6 +2,7 @@ import type { TransitionEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import { IconDownload, IconPlus } from '../../icons';
 
 type SkillDialogTab = 'create' | 'import';
@@ -126,7 +127,7 @@ export function CreateSkillDialog({
 			await onCreate(nm, description.trim());
 			onClose();
 		} catch (e) {
-			setCreateErr(e instanceof Error ? e.message : String(e));
+			notifyAiEmployeesRequestFailed(e);
 		} finally {
 			setBusy(false);
 		}
@@ -143,7 +144,7 @@ export function CreateSkillDialog({
 			await onImport(u);
 			onClose();
 		} catch (e) {
-			setImportErr(e instanceof Error ? e.message : String(e));
+			notifyAiEmployeesRequestFailed(e);
 		} finally {
 			setBusy(false);
 		}

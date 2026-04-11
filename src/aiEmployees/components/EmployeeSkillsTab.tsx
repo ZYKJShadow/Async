@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
 import { IconFileDoc, IconPlus, IconTrash } from '../../icons';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import type { AiEmployeesConnection } from '../api/client';
 import { apiListAgentSkills, apiSetAgentSkills } from '../api/client';
 import type { OrgEmployee } from '../api/orgTypes';
@@ -26,7 +27,6 @@ export function EmployeeSkillsTab({
 	const [assigned, setAssigned] = useState<SkillJson[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
-	const [err, setErr] = useState<string | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);
 
 	const load = useCallback(async () => {
@@ -35,11 +35,10 @@ export function EmployeeSkillsTab({
 			return;
 		}
 		setLoading(true);
-		setErr(null);
 		try {
 			setAssigned(await apiListAgentSkills(conn, workspaceId, agentId));
 		} catch (e) {
-			setErr(e instanceof Error ? e.message : String(e));
+			notifyAiEmployeesRequestFailed(e);
 			setAssigned([]);
 		} finally {
 			setLoading(false);
@@ -60,14 +59,13 @@ export function EmployeeSkillsTab({
 				return false;
 			}
 			setSaving(true);
-			setErr(null);
 			try {
 				await apiSetAgentSkills(conn, workspaceId, agentId, { skill_ids: ids });
 				await load();
 				void onRefreshSkills();
 				return true;
 			} catch (e) {
-				setErr(e instanceof Error ? e.message : String(e));
+				notifyAiEmployeesRequestFailed(e);
 				return false;
 			} finally {
 				setSaving(false);
@@ -135,11 +133,6 @@ export function EmployeeSkillsTab({
 
 	return (
 		<div className="ref-ai-employees-employee-skills">
-			{err ? (
-				<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
-					{err}
-				</div>
-			) : null}
 			<div className="ref-ai-employees-employee-skills-intro">
 				<div>
 					<h3 className="ref-ai-employees-employee-skills-title">{t('aiEmployees.employee.skillsTab')}</h3>

@@ -7,6 +7,7 @@ import {
 	IconBot,
 	IconChevron,
 	IconCircleUser,
+	IconFolderKanban,
 	IconListTodo,
 	IconMessageCircle,
 	IconPlus,
@@ -19,10 +20,12 @@ import { ConnectionPage } from './pages/ConnectionPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { InboxPage } from './pages/InboxPage';
 import { IssuesHubPage } from './pages/IssuesHubPage';
+import { ProjectsPage } from './pages/ProjectsPage';
 import { ActivityFeedPage } from './pages/ActivityFeedPage';
 import { SkillsPage } from './pages/SkillsPage';
 import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
 import { AiEmployeesLaunchOverlay } from './AiEmployeesLaunchOverlay';
+import { AiEmployeesNetworkToastHost } from './AiEmployeesNetworkToast';
 import { workspacePickVoidOptions } from './voidSelectOptions';
 import './aiEmployees.css';
 
@@ -50,6 +53,8 @@ export function AiEmployeesApp() {
 				return t('aiEmployees.tab.myIssues');
 			case 'issues':
 				return t('aiEmployees.tab.issues');
+			case 'projects':
+				return t('aiEmployees.tab.projects');
 			case 'agents':
 				return t('aiEmployees.tab.team');
 			case 'skills':
@@ -63,7 +68,7 @@ export function AiEmployeesApp() {
 		}
 	};
 
-	const visibleTabs: AiEmployeesTabId[] = ['inbox', 'myIssues', 'issues', 'agents', 'skills', 'activity', 'connection'];
+	const visibleTabs: AiEmployeesTabId[] = ['inbox', 'myIssues', 'issues', 'projects', 'agents', 'skills', 'activity', 'connection'];
 	const activeTab = visibleTabs.includes(c.tab) ? c.tab : 'inbox';
 
 	const navBusy = c.sessionPhase === 'bootstrapping';
@@ -95,6 +100,7 @@ export function AiEmployeesApp() {
 	if (showAiEmployeesSetupFlow) {
 		return (
 			<>
+				<AiEmployeesNetworkToastHost t={t} />
 				<AiEmployeesLaunchOverlay sessionPhase={c.sessionPhase} t={t} />
 				<div className="ref-shell ref-shell--agent-layout ref-ai-employees-root">
 				<AiEmployeesTitlebar t={t} />
@@ -105,8 +111,8 @@ export function AiEmployeesApp() {
 					aiSettings={c.aiSettings}
 					setAiSettings={c.setAiSettings}
 					onSaveConnection={() => void c.saveConnectionAndReconnect()}
-					connectionError={c.loadErr}
-					onClearConnectionError={c.clearLoadErr}
+					connectRefreshFailed={c.connectRefreshFailed}
+					onClearConnectRefreshFailed={c.clearConnectRefreshFailed}
 					localRoot={c.localRoot}
 					workspaceId={c.workspaceId}
 					workspaces={c.workspaces}
@@ -131,6 +137,7 @@ export function AiEmployeesApp() {
 
 	return (
 		<>
+			<AiEmployeesNetworkToastHost t={t} />
 			<AiEmployeesLaunchOverlay sessionPhase={c.sessionPhase} t={t} />
 			<div className="ref-shell ref-shell--agent-layout ref-ai-employees-root">
 			<AiEmployeesTitlebar t={t} />
@@ -170,6 +177,7 @@ export function AiEmployeesApp() {
 									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.workspace')}</div>
 									<div className="ref-ai-employees-nav-group-content">
 										{navBtn('issues', t('aiEmployees.tab.issues'), <IconListTodo className="ref-ai-employees-nav-icon" />)}
+										{navBtn('projects', t('aiEmployees.tab.projects'), <IconFolderKanban className="ref-ai-employees-nav-icon" />)}
 										{navBtn('agents', t('aiEmployees.tab.team'), <IconBot className="ref-ai-employees-nav-icon" />)}
 										{navBtn('activity', t('aiEmployees.tab.activity'), <IconTaskPulse className="ref-ai-employees-nav-icon" />)}
 									</div>
@@ -241,12 +249,6 @@ export function AiEmployeesApp() {
 							</div>
 						) : (
 							<>
-								{c.loadErr ? (
-									<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
-										{c.loadErr}
-									</div>
-								) : null}
-
 								<div key={activeTab} className="ref-ai-employees-tab-panel">
 									{activeTab === 'inbox' ? (
 										<InboxPage
@@ -279,6 +281,7 @@ export function AiEmployeesApp() {
 											variant="my"
 											agents={c.agents}
 											members={c.workspaceMembers}
+											projects={c.projects}
 											workspaceDisplayName={activeWorkspaceName}
 											openCreateSignal={c.createIssueSignal}
 											onPatchIssue={c.patchWorkspaceIssue}
@@ -294,11 +297,30 @@ export function AiEmployeesApp() {
 											variant="workspace"
 											agents={c.agents}
 											members={c.workspaceMembers}
+											projects={c.projects}
 											workspaceDisplayName={activeWorkspaceName}
 											openCreateSignal={c.createIssueSignal}
 											onPatchIssue={c.patchWorkspaceIssue}
 											onCreateIssue={c.createWorkspaceIssue}
 											onDeleteIssue={c.deleteWorkspaceIssue}
+										/>
+									) : null}
+
+									{activeTab === 'projects' ? (
+										<ProjectsPage
+											t={t}
+											conn={c.conn}
+											workspaceId={c.workspaceId}
+											projects={c.projects}
+											issues={c.issues}
+											agents={c.agents}
+											members={c.workspaceMembers}
+											workspaceDisplayName={activeWorkspaceName}
+											onRefreshProjects={() => void c.refreshProjectsOnly()}
+											createProject={c.createWorkspaceProject}
+											updateProject={c.updateWorkspaceProject}
+											deleteProject={c.deleteWorkspaceProject}
+											onGoToIssues={() => c.setTab('issues')}
 										/>
 									) : null}
 

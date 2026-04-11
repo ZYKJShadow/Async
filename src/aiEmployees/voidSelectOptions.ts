@@ -1,6 +1,6 @@
 import type { TFunction } from '../i18n';
 import type { VoidSelectOption } from '../VoidSelect';
-import type { AgentJson, IssueJson, WorkspaceMemberJson } from './api/types';
+import type { AgentJson, IssueJson, ProjectJson, WorkspaceMemberJson } from './api/types';
 
 /** 与 IssueStatusChip / 看板列文案一致 */
 export function issueStatusVoidOptions(t: TFunction, statuses: readonly string[]): VoidSelectOption[] {
@@ -21,6 +21,15 @@ export function priorityFieldVoidOptions(t: TFunction): VoidSelectOption[] {
 		urgent: 'aiEmployees.issuesHub.priorityUrgent',
 	};
 	return order.map((p) => ({ value: p, label: t(keys[p]) }));
+}
+
+export function issueProjectVoidOptions(t: TFunction, projects: ProjectJson[]): VoidSelectOption[] {
+	const rows: VoidSelectOption[] = [{ value: '', label: t('aiEmployees.issueDetail.projectNone') }];
+	for (const p of projects) {
+		const label = p.icon ? `${p.icon} ${p.title}` : p.title;
+		rows.push({ value: p.id, label });
+	}
+	return rows;
 }
 
 export function assigneeVoidOptions(t: TFunction, members: WorkspaceMemberJson[], agents: AgentJson[]): VoidSelectOption[] {

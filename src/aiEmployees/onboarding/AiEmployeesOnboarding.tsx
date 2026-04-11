@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import { VoidSelect } from '../../VoidSelect';
 import type { AiEmployeesOnboardingStep } from '../domain/bootstrap';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import type { AiEmployeesConnection } from '../api/client';
 import {
 	apiCreateOrgEmployee,
@@ -205,7 +206,7 @@ export function AiEmployeesOnboarding({
 			setCeoEditDraft(null);
 			await onSync();
 		} catch (error) {
-			setTeamErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setTeamBusy(false);
 		}
@@ -233,6 +234,8 @@ export function AiEmployeesOnboarding({
 			});
 			onBindEmployeeLocalModel(employee.id, ceoDraft.localModelId);
 			await onSync();
+		} catch (error) {
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setBusy(false);
 		}
@@ -301,7 +304,7 @@ export function AiEmployeesOnboarding({
 			setCandidateDrafts([]);
 			await onSync();
 		} catch (error) {
-			setTeamErr(error instanceof Error ? error.message : String(error));
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setTeamBusy(false);
 		}
@@ -315,6 +318,8 @@ export function AiEmployeesOnboarding({
 		try {
 			await apiPostBootstrapComplete(conn, workspaceId);
 			await onSync();
+		} catch (error) {
+			notifyAiEmployeesRequestFailed(error);
 		} finally {
 			setBusy(false);
 		}

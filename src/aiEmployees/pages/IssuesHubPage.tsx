@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import { VoidSelect } from '../../VoidSelect';
-import type { AgentJson, CreateIssuePayload, IssueJson, WorkspaceMemberJson } from '../api/types';
+import type { AgentJson, CreateIssuePayload, IssueJson, ProjectJson, WorkspaceMemberJson } from '../api/types';
 import { BoardPage } from './BoardPage';
 import { IssueDetailPanel } from './IssueDetailPanel';
 import { CreateIssueDialog } from '../components/CreateIssueDialog';
@@ -56,6 +56,7 @@ export function IssuesHubPage({
 	variant,
 	agents,
 	members,
+	projects = [],
 	workspaceDisplayName,
 	onPatchIssue,
 	onCreateIssue,
@@ -68,6 +69,7 @@ export function IssuesHubPage({
 	variant: IssuesHubVariant;
 	agents: AgentJson[];
 	members: WorkspaceMemberJson[];
+	projects?: ProjectJson[];
 	/** 顶栏工作区名，传入新建任务弹窗面包屑 */
 	workspaceDisplayName?: string;
 	openCreateSignal?: number;
@@ -212,6 +214,7 @@ export function IssuesHubPage({
 				t={t}
 				agents={agents}
 				members={members}
+				projects={projects}
 				issues={lookupList}
 				workspaceDisplayName={workspaceDisplayName}
 				issuesHubVariant={variant}
@@ -318,6 +321,7 @@ export function IssuesHubPage({
 						issue={selected}
 						agents={agents}
 						members={members}
+						projects={projects}
 						parentIssue={parentIssue}
 						onClose={() => setSelectedId(null)}
 						onPatch={onPatchIssue}

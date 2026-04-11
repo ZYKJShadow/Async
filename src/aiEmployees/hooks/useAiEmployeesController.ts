@@ -49,8 +49,11 @@ import {
 	apiGetMe,
 	apiListAgents,
 	apiCreateIssue,
+	apiCreateProject,
 	apiDeleteIssue,
+	apiDeleteProject,
 	apiListIssues,
+	apiListProjects,
 	apiListMembers,
 	apiListRuntimes,
 	apiListSkills,
@@ -58,6 +61,7 @@ import {
 	apiListTasks,
 	apiListWorkspaces,
 	apiPatchIssue,
+	apiUpdateProject,
 	apiPostImReply,
 	type ListIssuesQueryOptions,
 } from '../api/client';
@@ -69,7 +73,17 @@ import {
 } from '../api/orgClient';
 import type { OrgBootstrapStatus, OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
 import { AiEmployeesWsClient } from '../api/ws';
-import type { AgentJson, CreateIssuePayload, IssueJson, RuntimeJson, SkillJson, WorkspaceMemberJson } from '../api/types';
+import type {
+	AgentJson,
+	CreateIssuePayload,
+	CreateProjectPayload,
+	IssueJson,
+	ProjectJson,
+	RuntimeJson,
+	SkillJson,
+	UpdateProjectPayload,
+	WorkspaceMemberJson,
+} from '../api/types';
 import { onboardingBlocksDashboard, resolveOnboardingStep, type AiEmployeesOnboardingStep } from '../domain/bootstrap';
 import {
 	normalizeTaskEvent,
@@ -81,6 +95,7 @@ import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
 import { resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
 import { buildCollabHistoryForEmployee } from '../domain/employeeChatHistory';
 import type { EmployeeChatInput, TeamMemberSummary } from '../../../shared/aiEmployeesPersona';
+import { publishAiEmployeesNetworkError } from '../AiEmployeesNetworkToast';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
@@ -121,7 +136,7 @@ function myIssuesListQuery(meUserId: string | undefined, orgEmps: OrgEmployee[] 
 	return q;
 }
 
-export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'skills' | 'activity' | 'connection';
+export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'projects' | 'agents' | 'skills' | 'activity' | 'connection';
 
 export function useAiEmployeesController() {
 	const shell = window.asyncShell as Shell | undefined;
@@ -140,6 +155,7 @@ export function useAiEmployeesController() {
 	const [workspaceId, setWorkspaceId] = useState<string>('');
 	const [workspaces, setWorkspaces] = useState<{ id: string; name?: string }[]>([]);
 	const [issues, setIssues] = useState<IssueJson[]>([]);
+	const [projects, setProjects] = useState<ProjectJson[]>([]);
 	const [myIssues, setMyIssues] = useState<IssueJson[]>([]);
 	const [agents, setAgents] = useState<AgentJson[]>([]);
 	const [skills, setSkills] = useState<SkillJson[]>([]);
@@ -153,7 +169,9 @@ export function useAiEmployeesController() {
 		enabledIds: string[];
 		defaultModelId?: string;
 	}>({ entries: [], enabledIds: [] });
-	const [loadErr, setLoadErr] = useState<string | null>(null);
+	/** 最近一次「保存并连接」刷新失败，用于引导页按钮文案（错误详情走 toast） */
+	const [connectRefreshFailed, setConnectRefreshFailed] = useState(false);
+	const clearConnectRefreshFailed = useCallback(() => setConnectRefreshFailed(false), []);
 	const [wsLog, setWsLog] = useState<string[]>([]);
 	const [bootstrapStatus, setBootstrapStatus] = useState<OrgBootstrapStatus | null>(null);
 	const [onboardingStep, setOnboardingStep] = useState<AiEmployeesOnboardingStep>('company');
@@ -318,17 +336,19 @@ export function useAiEmployeesController() {
 	const fetchWorkspacePayload = useCallback(
 		async (c: AiEmployeesConnection, wid: string, opts?: { meUserIdOverride?: string }) => {
 			const meUid = opts?.meUserIdOverride ?? meProfile.id;
-			const [iss, ag, sk, rt, mem, orgEmps] = await Promise.all([
+			const [iss, ag, sk, rt, mem, orgEmps, proj] = await Promise.all([
 				apiListIssues(c, wid),
 				apiListAgents(c, wid),
 				apiListSkills(c, wid),
 				apiListRuntimes(c, wid),
 				apiListMembers(c, wid).catch(() => []),
 				apiListOrgEmployees(c, wid).catch(() => [] as OrgEmployee[]),
+				apiListProjects(c, wid).catch(() => [] as ProjectJson[]),
 			]);
 			const myQ = myIssuesListQuery(meUid, orgEmps);
 			const myIss = myQ ? await apiListIssues(c, wid, myQ).catch(() => [] as IssueJson[]) : [];
 			setIssues(iss);
+			setProjects(proj);
 			setMyIssues(myIss);
 			setAgents(ag);
 			setSkills(sk);
@@ -372,7 +392,7 @@ export function useAiEmployeesController() {
 				return;
 			}
 			const msg = e instanceof Error ? e.message : String(e);
-			setLoadErr((prev) => prev ?? msg);
+			publishAiEmployeesNetworkError(msg);
 			setSessionPhase('ready');
 		}
 	}, []);
@@ -444,7 +464,7 @@ export function useAiEmployeesController() {
 			setIssues(list);
 			setMyIssues(myList);
 		} catch (e) {
-			setLoadErr(e instanceof Error ? e.message : String(e));
+			publishAiEmployeesNetworkError(e instanceof Error ? e.message : String(e));
 		}
 	}, [aiSettings, meProfile.id, sessionPhase, workspaceId]);
 
@@ -457,7 +477,7 @@ export function useAiEmployeesController() {
 			const list = await apiListAgents(normConn(aiSettings), wid);
 			setAgents(list);
 		} catch (e) {
-			setLoadErr(e instanceof Error ? e.message : String(e));
+			publishAiEmployeesNetworkError(e instanceof Error ? e.message : String(e));
 		}
 	}, [aiSettings, sessionPhase, workspaceId]);
 
@@ -470,7 +490,20 @@ export function useAiEmployeesController() {
 			const list = await apiListSkills(normConn(aiSettings), wid);
 			setSkills(list);
 		} catch (e) {
-			setLoadErr(e instanceof Error ? e.message : String(e));
+			publishAiEmployeesNetworkError(e instanceof Error ? e.message : String(e));
+		}
+	}, [aiSettings, sessionPhase, workspaceId]);
+
+	const refreshProjectsOnly = useCallback(async () => {
+		const wid = workspaceId;
+		if (!wid || sessionPhase !== 'ready') {
+			return;
+		}
+		try {
+			const list = await apiListProjects(normConn(aiSettings), wid).catch(() => [] as ProjectJson[]);
+			setProjects(list);
+		} catch (e) {
+			publishAiEmployeesNetworkError(e instanceof Error ? e.message : String(e));
 		}
 	}, [aiSettings, sessionPhase, workspaceId]);
 
@@ -483,7 +516,7 @@ export function useAiEmployeesController() {
 			const list = await apiListRuntimes(normConn(aiSettings), wid);
 			setRuntimes(list);
 		} catch (e) {
-			setLoadErr(e instanceof Error ? e.message : String(e));
+			publishAiEmployeesNetworkError(e instanceof Error ? e.message : String(e));
 		}
 	}, [aiSettings, sessionPhase, workspaceId]);
 
@@ -491,7 +524,7 @@ export function useAiEmployeesController() {
 		async (connOverride?: AiEmployeesConnection, settingsOverride?: AiEmployeesSettings) => {
 			const c = connOverride ?? normConn(aiSettings);
 			const s = settingsOverride ?? aiSettings;
-			setLoadErr(null);
+			setConnectRefreshFailed(false);
 			setSessionPhase('bootstrapping');
 			try {
 				const me = await apiGetMe(c);
@@ -511,6 +544,7 @@ export function useAiEmployeesController() {
 				if (mapped.length === 0) {
 					setWorkspaceId('');
 					setIssues([]);
+					setProjects([]);
 					setMyIssues([]);
 					setAgents([]);
 					setSkills([]);
@@ -528,10 +562,12 @@ export function useAiEmployeesController() {
 				await applyWorkspaceBootstrap(c, wid, mapped.length);
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
-				setLoadErr(msg);
+				publishAiEmployeesNetworkError(msg);
+				setConnectRefreshFailed(true);
 				setWorkspaces([]);
 				setWorkspaceId('');
 				setIssues([]);
+				setProjects([]);
 				setMyIssues([]);
 				setAgents([]);
 				setSkills([]);
@@ -550,9 +586,8 @@ export function useAiEmployeesController() {
 		}
 		try {
 			await fetchWorkspacePayload(normConn(aiSettings), wid);
-			setLoadErr(null);
 		} catch (e) {
-			setLoadErr(e instanceof Error ? e.message : String(e));
+			publishAiEmployeesNetworkError(e instanceof Error ? e.message : String(e));
 		}
 	}, [aiSettings, fetchWorkspacePayload, sessionPhase, workspaceId]);
 
@@ -603,11 +638,16 @@ export function useAiEmployeesController() {
 				void refreshRuntimesOnly();
 				return;
 			}
-			if (eventType.startsWith('workspace:') || eventType.startsWith('member:') || eventType.startsWith('project:')) {
+			if (eventType.startsWith('project:')) {
+				void refreshProjectsOnly();
+				void refreshIssuesOnly();
+				return;
+			}
+			if (eventType.startsWith('workspace:') || eventType.startsWith('member:')) {
 				void softRefreshPayload();
 			}
 		},
-		[refreshAgentsOnly, refreshIssuesOnly, refreshRuntimesOnly, refreshSkillsOnly, softRefreshPayload]
+		[refreshAgentsOnly, refreshIssuesOnly, refreshProjectsOnly, refreshRuntimesOnly, refreshSkillsOnly, softRefreshPayload]
 	);
 
 	const orchestration = useMemo(
@@ -1372,10 +1412,6 @@ export function useAiEmployeesController() {
 		await syncOnboardingAfterMutation();
 	}, [aiSettings, workspaceId, orgEmployees, clearEmployeeLocalModel, syncOnboardingAfterMutation]);
 
-	const clearLoadErr = useCallback(() => {
-		setLoadErr(null);
-	}, []);
-
 	const saveConnectionAndReconnect = useCallback(() => {
 		const next: AiEmployeesSettings = {
 			...aiSettings,
@@ -1393,6 +1429,7 @@ export function useAiEmployeesController() {
 	const backToWorkspacePicker = useCallback(() => {
 		setWorkspaceId('');
 		setIssues([]);
+		setProjects([]);
 		setMyIssues([]);
 		setAgents([]);
 		setSkills([]);
@@ -1402,7 +1439,7 @@ export function useAiEmployeesController() {
 		setOrgEmployees([]);
 		setOnboardingStep('pick_workspace');
 		setOnboardingErr(null);
-		setLoadErr(null);
+		setConnectRefreshFailed(false);
 	}, []);
 
 	const pickWorkspaceAndRefresh = useCallback(
@@ -1410,6 +1447,7 @@ export function useAiEmployeesController() {
 			setWorkspaceId(id);
 			if (!id) {
 				setIssues([]);
+				setProjects([]);
 				setMyIssues([]);
 				setAgents([]);
 				setSkills([]);
@@ -1420,7 +1458,7 @@ export function useAiEmployeesController() {
 			const c = normConn(aiSettings);
 			await fetchWorkspacePayload(c, id);
 			await applyWorkspaceBootstrap(c, id, workspaces.length);
-			setLoadErr(null);
+			setConnectRefreshFailed(false);
 		},
 		[aiSettings, applyWorkspaceBootstrap, fetchWorkspacePayload, workspaces.length]
 	);
@@ -1438,6 +1476,7 @@ export function useAiEmployeesController() {
 			if (!id) {
 				setWorkspaceId('');
 				setIssues([]);
+				setProjects([]);
 				setMyIssues([]);
 				setAgents([]);
 				setSkills([]);
@@ -1447,7 +1486,7 @@ export function useAiEmployeesController() {
 			}
 			if (sessionPhase === 'ready' || sessionPhase === 'onboarding') {
 				void pickWorkspaceAndRefresh(id).catch((e) => {
-					setLoadErr(e instanceof Error ? e.message : String(e));
+					publishAiEmployeesNetworkError(e instanceof Error ? e.message : String(e));
 				});
 			} else {
 				setWorkspaceId(id);
@@ -1826,9 +1865,9 @@ export function useAiEmployeesController() {
 				throw new Error('No workspace selected');
 			}
 			await apiPatchIssue(normConn(aiSettings), wid, issueId, patch);
-			await refreshIssuesOnly();
+			await Promise.all([refreshIssuesOnly(), refreshProjectsOnly()]);
 		},
-		[aiSettings, refreshIssuesOnly, workspaceId]
+		[aiSettings, refreshIssuesOnly, refreshProjectsOnly, workspaceId]
 	);
 
 	const createWorkspaceIssue = useCallback(
@@ -1838,10 +1877,10 @@ export function useAiEmployeesController() {
 				throw new Error('No workspace selected');
 			}
 			const issue = await apiCreateIssue(normConn(aiSettings), wid, payload);
-			await refreshIssuesOnly();
+			await Promise.all([refreshIssuesOnly(), refreshProjectsOnly()]);
 			return issue;
 		},
-		[aiSettings, refreshIssuesOnly, workspaceId]
+		[aiSettings, refreshIssuesOnly, refreshProjectsOnly, workspaceId]
 	);
 
 	const deleteWorkspaceIssue = useCallback(
@@ -1851,9 +1890,47 @@ export function useAiEmployeesController() {
 				throw new Error('No workspace selected');
 			}
 			await apiDeleteIssue(normConn(aiSettings), wid, issueId);
-			await refreshIssuesOnly();
+			await Promise.all([refreshIssuesOnly(), refreshProjectsOnly()]);
 		},
-		[aiSettings, refreshIssuesOnly, workspaceId]
+		[aiSettings, refreshIssuesOnly, refreshProjectsOnly, workspaceId]
+	);
+
+	const createWorkspaceProject = useCallback(
+		async (body: CreateProjectPayload): Promise<ProjectJson> => {
+			const wid = workspaceId;
+			if (!wid) {
+				throw new Error('No workspace selected');
+			}
+			const p = await apiCreateProject(normConn(aiSettings), wid, body);
+			await refreshProjectsOnly();
+			return p;
+		},
+		[aiSettings, refreshProjectsOnly, workspaceId]
+	);
+
+	const updateWorkspaceProject = useCallback(
+		async (projectId: string, body: UpdateProjectPayload): Promise<ProjectJson> => {
+			const wid = workspaceId;
+			if (!wid) {
+				throw new Error('No workspace selected');
+			}
+			const p = await apiUpdateProject(normConn(aiSettings), wid, projectId, body);
+			await refreshProjectsOnly();
+			return p;
+		},
+		[aiSettings, refreshProjectsOnly, workspaceId]
+	);
+
+	const deleteWorkspaceProject = useCallback(
+		async (projectId: string) => {
+			const wid = workspaceId;
+			if (!wid) {
+				throw new Error('No workspace selected');
+			}
+			await apiDeleteProject(normConn(aiSettings), wid, projectId);
+			await Promise.all([refreshProjectsOnly(), refreshIssuesOnly()]);
+		},
+		[aiSettings, refreshIssuesOnly, refreshProjectsOnly, workspaceId]
 	);
 
 	return {
@@ -1872,6 +1949,7 @@ export function useAiEmployeesController() {
 		workspaceId,
 		workspaces,
 		issues,
+		projects,
 		myIssues,
 		agents,
 		skills,
@@ -1882,8 +1960,8 @@ export function useAiEmployeesController() {
 		sessionPhase,
 		holdSetupDuringBootstrap,
 		localModels,
-		loadErr,
-		clearLoadErr,
+		connectRefreshFailed,
+		clearConnectRefreshFailed,
 		wsLog,
 		taskEvents,
 		timelineEvents: orchestration.timelineEvents,
@@ -1918,6 +1996,10 @@ export function useAiEmployeesController() {
 		patchWorkspaceIssue,
 		createWorkspaceIssue,
 		deleteWorkspaceIssue,
+		createWorkspaceProject,
+		updateWorkspaceProject,
+		deleteWorkspaceProject,
+		refreshProjectsOnly,
 		refreshSkillsOnly,
 		employeeCatalog: aiSettings.employeeCatalog ?? [],
 		inboxVersion,

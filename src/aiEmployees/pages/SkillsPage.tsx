@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
 import { IconPlus, IconSparkles, IconTrash } from '../../icons';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import type { AiEmployeesConnection } from '../api/client';
 import { apiCreateSkill, apiDeleteSkill, apiGetSkill, apiImportSkillFromUrl, apiUpdateSkill } from '../api/client';
 import type { SkillFileJson, SkillJson } from '../api/types';
@@ -154,7 +155,7 @@ export function SkillsPage({
 					filesKey: filesKey(nextFiles),
 				});
 			} catch (e) {
-				setErr(e instanceof Error ? e.message : String(e));
+				notifyAiEmployeesRequestFailed(e);
 			} finally {
 				setDetailLoading(false);
 			}
@@ -208,7 +209,7 @@ export function SkillsPage({
 			await onRefreshSkills();
 			await loadDetail(selectedId);
 		} catch (e) {
-			setErr(e instanceof Error ? e.message : String(e));
+			notifyAiEmployeesRequestFailed(e);
 		} finally {
 			setBusy(false);
 		}
@@ -250,7 +251,7 @@ export function SkillsPage({
 			setBaseline(null);
 			await onRefreshSkills();
 		} catch (e) {
-			setErr(e instanceof Error ? e.message : String(e));
+			notifyAiEmployeesRequestFailed(e);
 		} finally {
 			setBusy(false);
 		}

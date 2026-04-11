@@ -7,6 +7,9 @@ import type {
 	ChatMessageJson,
 	ChatSessionJson,
 	CreateIssuePayload,
+	CreateProjectPayload,
+	ProjectJson,
+	UpdateProjectPayload,
 	CreateSkillPayload,
 	InboxItemJson,
 	IssueJson,
@@ -224,6 +227,76 @@ export async function apiReorderIssues(
 
 export async function apiDeleteIssue(conn: AiEmployeesConnection, workspaceId: string, issueId: string): Promise<void> {
 	const r = await apiFetch(conn, `/api/issues/${issueId}`, {
+		method: 'DELETE',
+		workspaceId,
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+}
+
+export async function apiListProjects(conn: AiEmployeesConnection, workspaceId: string): Promise<ProjectJson[]> {
+	const r = await apiFetch(conn, '/api/projects/', { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { projects?: ProjectJson[] } | ProjectJson[];
+	return Array.isArray(j) ? j : (j.projects ?? []);
+}
+
+export async function apiGetProject(conn: AiEmployeesConnection, workspaceId: string, projectId: string): Promise<ProjectJson> {
+	const r = await apiFetch(conn, `/api/projects/${projectId}`, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { project?: ProjectJson };
+	if (!j.project) {
+		throw new AiEmployeesApiError(r.status, 'missing project in response');
+	}
+	return j.project;
+}
+
+export async function apiCreateProject(conn: AiEmployeesConnection, workspaceId: string, body: CreateProjectPayload): Promise<ProjectJson> {
+	const r = await apiFetch(conn, '/api/projects/', {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { project?: ProjectJson };
+	if (!j.project) {
+		throw new AiEmployeesApiError(r.status, 'missing project in response');
+	}
+	return j.project;
+}
+
+export async function apiUpdateProject(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	projectId: string,
+	body: UpdateProjectPayload
+): Promise<ProjectJson> {
+	const r = await apiFetch(conn, `/api/projects/${projectId}`, {
+		method: 'PATCH',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { project?: ProjectJson };
+	if (!j.project) {
+		throw new AiEmployeesApiError(r.status, 'missing project in response');
+	}
+	return j.project;
+}
+
+export async function apiDeleteProject(conn: AiEmployeesConnection, workspaceId: string, projectId: string): Promise<void> {
+	const r = await apiFetch(conn, `/api/projects/${projectId}`, {
 		method: 'DELETE',
 		workspaceId,
 	});
