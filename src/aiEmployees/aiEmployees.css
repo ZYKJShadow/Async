@@ -373,42 +373,6 @@
 	background: transparent;
 }
 
-.ref-ai-employees-sidebar-new-issue {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 8px;
-	width: 100%;
-	min-height: 34px;
-	padding: 0 10px;
-	border-radius: 8px;
-	border: 1px solid color-mix(in srgb, var(--void-border-1, rgba(255, 255, 255, 0.08)) 70%, transparent);
-	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
-	color: var(--void-fg-1, #9aa4b2);
-	font: inherit;
-	font-size: 12px;
-	font-weight: 600;
-	cursor: pointer;
-	transition:
-		background 0.12s ease,
-		border-color 0.12s ease,
-		color 0.12s ease;
-}
-
-.ref-ai-employees-sidebar-new-issue:hover:not(:disabled) {
-	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
-	color: var(--void-fg-0, #e6edf3);
-}
-
-.ref-ai-employees-sidebar-new-issue:disabled {
-	opacity: 0.45;
-	cursor: not-allowed;
-}
-
-.ref-ai-employees-sidebar-new-issue-icon {
-	flex-shrink: 0;
-}
-
 /* 外观与设置页 select.ref-settings-native-select 一致；此处仅布局与 option 列表配色 */
 .ref-ai-employees-workspace-select {
 	width: 100%;
@@ -879,6 +843,261 @@
 	background: color-mix(in srgb, var(--void-fg-2, #8b949e) 22%, transparent);
 	color: var(--void-fg-1, #9aa4b2);
 	border-color: color-mix(in srgb, var(--void-fg-2) 30%, transparent);
+}
+
+/* 优先级：下拉内彩色 pill（对齐 multica PriorityPicker 选项） */
+.ref-ai-employees-priority-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 100%;
+	box-sizing: border-box;
+	padding: 3px 10px 3px 6px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.25;
+	white-space: nowrap;
+	border: 1px solid transparent;
+}
+
+.ref-ai-employees-priority-pill-mark {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 4px;
+	border-radius: 5px;
+	font-size: 10px;
+	font-weight: 800;
+	line-height: 1;
+}
+
+.ref-ai-employees-priority-pill--none {
+	background: color-mix(in srgb, var(--void-fg-2, #8b949e) 18%, transparent);
+	color: var(--void-fg-1, #9aa4b2);
+	border-color: color-mix(in srgb, var(--void-fg-2) 28%, transparent);
+}
+
+.ref-ai-employees-priority-pill--none .ref-ai-employees-priority-pill-mark {
+	background: color-mix(in srgb, var(--void-fg-2) 25%, transparent);
+	color: var(--void-fg-1, #9aa4b2);
+}
+
+.ref-ai-employees-priority-pill--low {
+	background: color-mix(in srgb, var(--void-fg-1, #9aa4b2) 14%, transparent);
+	color: var(--void-fg-0, #e6edf3);
+	border-color: color-mix(in srgb, var(--void-fg-2) 25%, transparent);
+}
+
+.ref-ai-employees-priority-pill--low .ref-ai-employees-priority-pill-mark {
+	background: rgba(139, 148, 158, 0.22);
+	color: var(--void-fg-1, #9aa4b2);
+}
+
+.ref-ai-employees-priority-pill--medium {
+	background: rgba(88, 166, 255, 0.14);
+	color: var(--void-fg-0, #e6edf3);
+	border-color: color-mix(in srgb, #58a6ff 32%, transparent);
+}
+
+.ref-ai-employees-priority-pill--medium .ref-ai-employees-priority-pill-mark {
+	background: rgba(88, 166, 255, 0.28);
+	color: #58a6ff;
+}
+
+.ref-ai-employees-priority-pill--high {
+	background: rgba(210, 153, 34, 0.16);
+	color: #e3b341;
+	border-color: color-mix(in srgb, #d29922 35%, transparent);
+}
+
+.ref-ai-employees-priority-pill--high .ref-ai-employees-priority-pill-mark {
+	background: rgba(210, 153, 34, 0.28);
+	color: #d29922;
+}
+
+.ref-ai-employees-priority-pill--urgent {
+	background: rgba(248, 81, 73, 0.14);
+	color: #f85149;
+	border-color: color-mix(in srgb, #f85149 35%, transparent);
+}
+
+.ref-ai-employees-priority-pill--urgent .ref-ai-employees-priority-pill-mark {
+	background: rgba(248, 81, 73, 0.22);
+	color: #f85149;
+}
+
+/* VoidSelect listbox：选项内嵌状态/优先级等标签时的行高与分区标题（新建任务等） */
+.ref-ai-employees-void-select-menu--tagged .ref-void-select-option {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	min-height: 38px;
+	padding-top: 6px;
+	padding-bottom: 6px;
+}
+
+.ref-ai-employees-void-select-menu--tagged .ref-void-select-option:disabled {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--void-fg-2, #8b949e);
+	opacity: 0.75;
+	cursor: default;
+	background: transparent !important;
+}
+
+.ref-ai-employees-void-opt-hdr {
+	display: block;
+	width: 100%;
+}
+
+.ref-ai-employees-assignee-opt {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.ref-ai-employees-assignee-opt-badge {
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 22px;
+	height: 20px;
+	padding: 0 5px;
+	border-radius: 6px;
+	font-size: 10px;
+	font-weight: 800;
+	letter-spacing: 0.02em;
+}
+
+.ref-ai-employees-assignee-opt-badge.is-member {
+	background: color-mix(in srgb, #58a6ff 18%, transparent);
+	color: #79b8ff;
+	border: 1px solid color-mix(in srgb, #58a6ff 35%, transparent);
+}
+
+.ref-ai-employees-assignee-opt-badge.is-agent {
+	background: color-mix(in srgb, var(--void-accent, #8b93ff) 16%, transparent);
+	color: var(--void-accent, #8b93ff);
+	border: 1px solid color-mix(in srgb, var(--void-accent) 30%, transparent);
+}
+
+.ref-ai-employees-assignee-opt-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-assignee-opt-none {
+	font-size: 13px;
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-parent-opt-none {
+	font-size: 13px;
+	color: var(--void-fg-2, #8b949e);
+}
+
+/* VoidSelect 行：色点/优先级字母标 + 文案（对齐 multica，避免「大 pill 里再套彩色 pill」） */
+.ref-ai-employees-void-line {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.ref-ai-employees-void-line-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-void-line-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	box-shadow: 0 0 0 1px color-mix(in srgb, #000 35%, transparent);
+}
+
+.ref-ai-employees-void-line-dot--backlog,
+.ref-ai-employees-void-line-dot--todo {
+	background: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-void-line-dot--in_progress {
+	background: #d29922;
+}
+
+.ref-ai-employees-void-line-dot--in_review {
+	background: #3fb950;
+}
+
+.ref-ai-employees-void-line-dot--done {
+	background: #58a6ff;
+}
+
+.ref-ai-employees-void-line-dot--blocked {
+	background: #f85149;
+}
+
+.ref-ai-employees-void-line-dot--cancelled {
+	background: var(--void-fg-3, #6e7681);
+}
+
+.ref-ai-employees-void-line-mark {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 4px;
+	border-radius: 5px;
+	font-size: 10px;
+	font-weight: 800;
+	line-height: 1;
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-void-line-mark--none {
+	background: color-mix(in srgb, var(--void-fg-2, #8b949e) 25%, transparent);
+	color: var(--void-fg-1, #9aa4b2);
+}
+
+.ref-ai-employees-void-line-mark--low {
+	background: color-mix(in srgb, var(--void-fg-1, #9aa4b2) 22%, transparent);
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-void-line-mark--medium {
+	background: rgba(88, 166, 255, 0.28);
+	color: #58a6ff;
+}
+
+.ref-ai-employees-void-line-mark--high {
+	background: rgba(210, 153, 34, 0.28);
+	color: #d29922;
+}
+
+.ref-ai-employees-void-line-mark--urgent {
+	background: rgba(248, 81, 73, 0.22);
+	color: #f85149;
 }
 
 /* 看板列弱色底，与状态语义一致 */
@@ -4190,37 +4409,20 @@
 	flex-shrink: 0;
 }
 
+/* 壳层与全局 .ref-void-select-menu（VoidSelect listbox）一致，由 TSX 叠加 ref-void-select-menu */
 .ref-ai-employees-inbox-dropdown {
 	position: absolute;
 	top: calc(100% + 4px);
 	right: 0;
 	z-index: 50;
 	min-width: 200px;
-	padding: 6px;
-	border-radius: 10px;
-	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.1));
-	background: var(--surface-panel-bg, rgba(20, 24, 32, 0.98));
-	box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
 }
 
-.ref-ai-employees-inbox-dropdown-item {
+.ref-ai-employees-inbox-dropdown-item.ref-void-select-option {
 	display: flex;
 	width: 100%;
 	align-items: center;
 	gap: 8px;
-	padding: 8px 10px;
-	border: none;
-	border-radius: 8px;
-	background: transparent;
-	color: var(--void-fg-0, #e6edf3);
-	font: inherit;
-	font-size: 13px;
-	text-align: left;
-	cursor: pointer;
-}
-
-.ref-ai-employees-inbox-dropdown-item:hover {
-	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 }
 
 .ref-ai-employees-inbox-list-scroll {
@@ -4584,6 +4786,7 @@
 	pointer-events: none;
 }
 
+/* 与 .ref-void-select-menu 叠用：仅布局与分区，边框/底色/阴影由 VoidSelect 全局样式承担 */
 .ref-ai-employees-issues-menu-panel {
 	position: absolute;
 	top: calc(100% + 4px);
@@ -4594,11 +4797,8 @@
 	max-height: min(72vh, 520px);
 	display: flex;
 	flex-direction: column;
-	border-radius: 10px;
-	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.12));
-	background: var(--void-bg-2, #161b22);
-	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 	overflow: hidden;
+	box-sizing: border-box;
 }
 
 .ref-ai-employees-issues-menu-panel--narrow {
@@ -4607,8 +4807,8 @@
 }
 
 .ref-ai-employees-issues-menu-section {
-	padding: 8px 0;
-	border-bottom: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.06));
+	padding: 6px 0 4px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border, rgba(255, 255, 255, 0.12)) 55%, transparent);
 }
 
 .ref-ai-employees-issues-menu-section:last-of-type {
@@ -4616,7 +4816,7 @@
 }
 
 .ref-ai-employees-issues-menu-section-label {
-	padding: 0 12px 6px;
+	padding: 0 4px 6px;
 	font-size: 11px;
 	font-weight: 600;
 	text-transform: uppercase;
@@ -4631,29 +4831,25 @@
 .ref-ai-employees-issues-menu-scroll {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: 0;
 	max-height: 160px;
 	overflow-y: auto;
-	padding: 0 6px 4px;
+	padding: 0 0 2px;
 }
 
 .ref-ai-employees-issues-menu-scroll--tall {
 	max-height: 220px;
 }
 
-.ref-ai-employees-issues-menu-check-row {
+.ref-ai-employees-issues-menu-check-row.ref-void-select-option {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 6px 8px;
-	margin: 0 4px;
-	border-radius: 6px;
-	font-size: 12px;
+	width: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	text-align: left;
 	cursor: pointer;
-}
-
-.ref-ai-employees-issues-menu-check-row:hover {
-	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 }
 
 .ref-ai-employees-issues-menu-check-row input {
@@ -4661,8 +4857,9 @@
 }
 
 .ref-ai-employees-issues-menu-footer {
-	padding: 8px 10px 10px;
-	border-top: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.06));
+	padding: 6px 0 2px;
+	margin-top: 2px;
+	border-top: 1px solid color-mix(in srgb, var(--void-border, rgba(255, 255, 255, 0.12)) 55%, transparent);
 }
 
 .ref-ai-employees-issues-menu-footer-btn {
@@ -4683,30 +4880,20 @@
 	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 10%, transparent);
 }
 
-.ref-ai-employees-issues-menu-item {
+.ref-ai-employees-issues-menu-item.ref-void-select-option {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	width: calc(100% - 8px);
-	margin: 2px 4px;
-	padding: 8px 10px;
-	border: none;
-	border-radius: 8px;
-	background: transparent;
-	color: inherit;
-	font: inherit;
-	font-size: 13px;
-	text-align: left;
-	cursor: pointer;
+	width: 100%;
+	margin: 0;
+	box-sizing: border-box;
 }
 
-.ref-ai-employees-issues-menu-item:hover {
-	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
-}
-
-.ref-ai-employees-issues-menu-item.is-active {
-	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 12%, transparent);
-	color: var(--void-fg-0, #e6edf3);
+.ref-ai-employees-issues-menu-item.ref-void-select-option svg {
+	flex-shrink: 0;
+	width: 16px;
+	height: 16px;
+	opacity: 0.9;
 }
 
 .ref-ai-employees-issues-menu-sort-row {
@@ -4714,7 +4901,7 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
-	padding: 0 10px 8px;
+	padding: 0 4px 8px;
 }
 
 .ref-ai-employees-issues-menu-sort-label {
@@ -4736,14 +4923,20 @@
 	flex-shrink: 0;
 	padding: 0;
 	border-radius: 8px;
-	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.12));
-	background: transparent;
-	color: inherit;
+	border: 1px solid var(--void-border, rgba(255, 255, 255, 0.12));
+	background: var(--void-bg-1, #0d1117);
+	color: var(--void-fg-1, #9aa4b2);
 	cursor: pointer;
+	transition:
+		background 0.12s ease,
+		border-color 0.12s ease,
+		color 0.12s ease;
 }
 
 .ref-ai-employees-issues-menu-icon-btn:hover {
-	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
+	background: var(--void-bg-2, #161b22);
+	border-color: var(--void-border-soft, var(--void-border));
+	color: var(--void-fg-0, #e6edf3);
 }
 
 .ref-ai-employees-issues-menu-icon-btn svg {
@@ -6347,6 +6540,16 @@
 	margin-top: 12px;
 }
 
+.ref-ai-employees-runs-handoff-add-select.ref-void-select {
+	min-width: 0;
+	width: 100%;
+}
+
+.ref-ai-employees-orchestrator-handoff-status-void.ref-void-select {
+	min-width: 110px;
+	max-width: 200px;
+}
+
 .ref-ai-employees-runs-message-summary,
 .ref-ai-employees-runs-timeline-label {
 	font-weight: 650;
@@ -6524,17 +6727,11 @@
 	position: relative;
 }
 
-.ref-ai-employees-filter-dd-trigger {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	padding: 6px 10px;
-	border-radius: 8px;
-	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.12));
-	background: var(--void-bg-1, #0d1117);
-	color: inherit;
-	font-size: 12px;
-	cursor: pointer;
+/* 触发器与 .ref-void-select-trigger.ref-void-select--compact 叠用；侧栏/工具条里不要拉满整行 */
+.ref-ai-employees-filter-dd .ref-ai-employees-filter-dd-trigger.ref-void-select-trigger {
+	width: auto;
+	max-width: 100%;
+	justify-content: flex-start;
 }
 
 .ref-ai-employees-filter-dd-badge {
@@ -6558,20 +6755,29 @@
 	min-width: 200px;
 	max-height: 280px;
 	overflow: auto;
-	padding: 8px;
-	border-radius: 10px;
-	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.12));
-	background: var(--void-bg-2, #161b22);
-	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+	box-sizing: border-box;
 }
 
-.ref-ai-employees-filter-dd-row {
+.ref-ai-employees-filter-dd-empty {
+	margin: 0;
+	padding: 8px 10px;
+	font-size: 13px;
+}
+
+.ref-ai-employees-filter-dd-row.ref-void-select-option {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 4px 2px;
-	font-size: 12px;
+	width: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	text-align: left;
 	cursor: pointer;
+}
+
+.ref-ai-employees-filter-dd-row:has(input:checked):not(:hover) {
+	background: color-mix(in srgb, var(--void-accent) 14%, transparent);
+	color: var(--void-fg-0, #e6edf3);
 }
 
 .ref-ai-employees-filter-sort {
@@ -6687,6 +6893,23 @@
 	font-weight: 600;
 }
 
+.ref-ai-employees-batch-void-select.ref-void-select {
+	flex: 1 1 140px;
+	min-width: 120px;
+	max-width: min(220px, 100%);
+}
+
+.ref-ai-employees-sidebar-workspace-void-select.ref-void-select {
+	width: 100%;
+}
+
+.ref-ai-employees-runtime-owner-void-select.ref-void-select {
+	flex: 1 1 140px;
+	min-width: 120px;
+	max-width: 280px;
+}
+
+/* 新建任务弹窗：布局参考 multica CreateIssueModal（顶栏面包屑、大标题、描述区、底部 pill 属性条、底栏） */
 .ref-ai-employees-create-dialog-overlay {
 	position: fixed;
 	inset: 0;
@@ -6695,19 +6918,338 @@
 	align-items: center;
 	justify-content: center;
 	padding: 24px;
-	background: rgba(0, 0, 0, 0.55);
+	background: color-mix(in srgb, #000 58%, transparent);
+	backdrop-filter: blur(4px);
+	opacity: 0;
+	transition: opacity 0.22s ease;
 }
 
-.ref-ai-employees-create-dialog {
-	width: min(520px, 100%);
-	max-height: 90vh;
-	overflow: auto;
-	padding: 20px 22px;
+.ref-ai-employees-create-dialog-overlay.is-visible {
+	opacity: 1;
+}
+
+.ref-ai-employees-create-dialog.ref-ai-employees-create-dialog--sheet {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	width: min(42rem, calc(100vw - 32px));
+	height: 24rem;
+	max-height: min(90vh, 720px);
+	padding: 0;
+	gap: 0;
 	border-radius: 12px;
 	background: var(--void-bg-2, #161b22);
-	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.12));
+	border: 1px solid var(--void-border, rgba(255, 255, 255, 0.12));
+	box-shadow:
+		0 1px 0 color-mix(in srgb, #fff 5%, transparent),
+		0 24px 64px -12px rgba(0, 0, 0, 0.55);
+	opacity: 0;
+	transform: translateY(10px);
+	transition:
+		opacity 0.22s ease,
+		transform 0.22s ease,
+		width 0.28s ease,
+		height 0.28s ease,
+		max-height 0.28s ease;
 }
 
+.ref-ai-employees-create-dialog-overlay.is-visible .ref-ai-employees-create-dialog--sheet {
+	opacity: 1;
+	transform: translateY(0);
+}
+
+.ref-ai-employees-create-dialog.ref-ai-employees-create-dialog--sheet.is-expanded {
+	width: min(56rem, calc(100vw - 32px));
+	height: min(83vh, 52rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-ai-employees-create-dialog-overlay,
+	.ref-ai-employees-create-dialog.ref-ai-employees-create-dialog--sheet {
+		transition-duration: 0.01ms !important;
+	}
+}
+
+.ref-ai-employees-create-dialog-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-shrink: 0;
+	padding: 10px 18px 6px;
+	gap: 12px;
+}
+
+.ref-ai-employees-create-dialog-breadcrumb {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	font-size: 11px;
+	line-height: 1.3;
+}
+
+.ref-ai-employees-create-dialog-breadcrumb-muted {
+	color: var(--void-fg-2, #8b949e);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-ai-employees-create-dialog-breadcrumb-chev {
+	width: 12px;
+	height: 12px;
+	flex-shrink: 0;
+	opacity: 0.45;
+	transform: rotate(-90deg);
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-create-dialog-breadcrumb-current {
+	font-weight: 600;
+	color: var(--void-fg-0, #e6edf3);
+	white-space: nowrap;
+}
+
+.ref-ai-employees-create-dialog-head-actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-create-dialog-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--void-fg-1, #9aa4b2);
+	cursor: pointer;
+	opacity: 0.85;
+	transition:
+		background 0.12s ease,
+		opacity 0.12s ease,
+		color 0.12s ease;
+}
+
+.ref-ai-employees-create-dialog-icon-btn:hover {
+	opacity: 1;
+	background: color-mix(in srgb, var(--void-fg-0) 7%, transparent);
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-create-dialog-head-ico {
+	width: 16px;
+	height: 16px;
+}
+
+.ref-ai-employees-create-dialog-err {
+	flex-shrink: 0;
+	margin: 0 18px 6px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	font-size: 12px;
+	background: rgba(248, 81, 73, 0.12);
+	border: 1px solid rgba(248, 81, 73, 0.35);
+	color: #f85149;
+}
+
+.ref-ai-employees-create-dialog-title-slot {
+	flex-shrink: 0;
+	padding: 0 18px 8px;
+}
+
+.ref-ai-employees-create-dialog-title-input {
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 4px 0 6px;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	color: var(--void-fg-0, #e6edf3);
+	font-size: 1.125rem;
+	font-weight: 600;
+	line-height: 1.35;
+	font-family: inherit;
+	outline: none;
+	box-shadow: none;
+}
+
+.ref-ai-employees-create-dialog-title-input::placeholder {
+	color: var(--void-fg-3, #6e7681);
+	font-weight: 500;
+}
+
+.ref-ai-employees-create-dialog-body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 0 18px 10px;
+	scrollbar-gutter: stable;
+}
+
+.ref-ai-employees-create-dialog-desc {
+	display: block;
+	width: 100%;
+	min-height: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	color: var(--void-fg-0, #e6edf3);
+	font-size: 14px;
+	line-height: 1.55;
+	font-family: inherit;
+	resize: none;
+	outline: none;
+}
+
+.ref-ai-employees-create-dialog-desc::placeholder {
+	color: var(--void-fg-3, #6e7681);
+}
+
+/* 属性条：与标题区同左右边距；chip 同高、同圆角、同字号，避免 VoidSelect 默认 width:100% 把 pill 拉满一行 */
+.ref-ai-employees-create-dialog-toolbar {
+	--ref-ai-employees-create-chip-h: 30px;
+	--ref-ai-employees-create-chip-pad-x: 12px;
+	--ref-ai-employees-create-chip-fs: 12px;
+	--ref-ai-employees-create-chip-max: 220px;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+	padding: 8px 18px 10px;
+	border-top: 1px solid color-mix(in srgb, var(--void-border, rgba(255, 255, 255, 0.12)) 70%, transparent);
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-pill.ref-void-select {
+	width: auto;
+	min-width: 0;
+	max-width: var(--ref-ai-employees-create-chip-max);
+	flex: 0 1 auto;
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-pill .ref-void-select-trigger {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	height: var(--ref-ai-employees-create-chip-h);
+	min-height: var(--ref-ai-employees-create-chip-h) !important;
+	padding: 0 var(--ref-ai-employees-create-chip-pad-x);
+	gap: 6px;
+	border-radius: 9999px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 85%, transparent);
+	background: color-mix(in srgb, var(--void-fg-0) 5%, transparent);
+	font-size: var(--ref-ai-employees-create-chip-fs);
+	font-weight: 500;
+	line-height: 1.2;
+	justify-content: flex-start;
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-pill .ref-void-select-trigger:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--void-accent) 10%, var(--void-bg-2));
+	border-color: color-mix(in srgb, var(--void-border) 60%, var(--void-accent) 40%);
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-pill .ref-void-select-value {
+	flex: 1 1 auto;
+	min-width: 0;
+	text-align: left;
+	overflow: hidden;
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-pill .ref-void-select-value .ref-ai-employees-void-line,
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-pill .ref-void-select-value .ref-ai-employees-assignee-opt {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-pill .ref-void-select-value .ref-ai-employees-assignee-opt-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-pill .ref-void-select-chev {
+	width: 12px;
+	height: 12px;
+	flex-shrink: 0;
+	opacity: 0.72;
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-pill {
+	display: inline-flex;
+	align-items: center;
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: var(--ref-ai-employees-create-chip-max);
+	height: var(--ref-ai-employees-create-chip-h);
+	min-height: var(--ref-ai-employees-create-chip-h);
+	padding: 0 var(--ref-ai-employees-create-chip-pad-x);
+	border-radius: 9999px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 85%, transparent);
+	background: color-mix(in srgb, var(--void-fg-0) 5%, transparent);
+	box-sizing: border-box;
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-input {
+	border: none;
+	background: transparent;
+	color: var(--void-fg-0, #e6edf3);
+	font: inherit;
+	font-size: var(--ref-ai-employees-create-chip-fs);
+	font-weight: 500;
+	line-height: 1.2;
+	padding: 0;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+	outline: none;
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-input::-webkit-calendar-picker-indicator {
+	opacity: 0.65;
+	cursor: pointer;
+}
+
+.ref-ai-employees-create-dialog-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-shrink: 0;
+	padding: 10px 18px 12px;
+	border-top: 1px solid color-mix(in srgb, var(--void-border, rgba(255, 255, 255, 0.12)) 70%, transparent);
+}
+
+.ref-ai-employees-create-dialog-footer-hint {
+	font-size: 11px;
+	color: var(--void-fg-3, #6e7681);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-ai-employees-create-dialog-submit {
+	min-height: 32px;
+	padding: 0 16px;
+	font-size: 13px;
+	font-weight: 600;
+	flex-shrink: 0;
+}
+
+/* 兼容旧类名：技能等若复用 create-dialog-title */
 .ref-ai-employees-create-dialog-title {
 	margin: 0 0 14px;
 	font-size: 16px;

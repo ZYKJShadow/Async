@@ -188,12 +188,12 @@ export function IssuesHubIconMenus({
 					<IconFilter />
 				</MenuTrigger>
 				{menu === 'filter' ? (
-					<div className="ref-ai-employees-issues-menu-panel" role="menu">
+					<div className="ref-void-select-menu ref-ai-employees-issues-menu-panel" role="menu">
 						<div className="ref-ai-employees-issues-menu-section">
 							<div className="ref-ai-employees-issues-menu-section-label">{t('aiEmployees.issuesHub.filterStatus')}</div>
 							<div className="ref-ai-employees-issues-menu-scroll">
 								{statusOptions.map((opt) => (
-									<label key={opt.value} className="ref-ai-employees-issues-menu-check-row">
+									<label key={opt.value} className="ref-void-select-option ref-ai-employees-issues-menu-check-row">
 										<input type="checkbox" checked={statusSel.has(opt.value)} onChange={() => toggleStatus(opt.value)} />
 										<span>{opt.label}</span>
 									</label>
@@ -204,7 +204,7 @@ export function IssuesHubIconMenus({
 							<div className="ref-ai-employees-issues-menu-section-label">{t('aiEmployees.issuesHub.filterPriority')}</div>
 							<div className="ref-ai-employees-issues-menu-scroll">
 								{priorityOptions.map((opt) => (
-									<label key={opt.value} className="ref-ai-employees-issues-menu-check-row">
+									<label key={opt.value} className="ref-void-select-option ref-ai-employees-issues-menu-check-row">
 										<input type="checkbox" checked={prioritySel.has(opt.value)} onChange={() => togglePriority(opt.value)} />
 										<span>{opt.label}</span>
 									</label>
@@ -215,7 +215,7 @@ export function IssuesHubIconMenus({
 							<div className="ref-ai-employees-issues-menu-section-label">{t('aiEmployees.issuesHub.filterAssignee')}</div>
 							<div className="ref-ai-employees-issues-menu-scroll ref-ai-employees-issues-menu-scroll--tall">
 								{assigneeOptions.map((opt) => (
-									<label key={opt.value} className="ref-ai-employees-issues-menu-check-row">
+									<label key={opt.value} className="ref-void-select-option ref-ai-employees-issues-menu-check-row">
 										<input type="checkbox" checked={assigneeSel.has(opt.value)} onChange={() => toggleAssignee(opt.value)} />
 										<span>{opt.label}</span>
 									</label>
@@ -238,7 +238,7 @@ export function IssuesHubIconMenus({
 					<IconSlidersHorizontal />
 				</MenuTrigger>
 				{menu === 'display' ? (
-					<div className="ref-ai-employees-issues-menu-panel ref-ai-employees-issues-menu-panel--narrow" role="menu">
+					<div className="ref-void-select-menu ref-ai-employees-issues-menu-panel ref-ai-employees-issues-menu-panel--narrow" role="menu">
 						<div className="ref-ai-employees-issues-menu-section">
 							<div className="ref-ai-employees-issues-menu-section-label">{t('aiEmployees.issuesHub.sortLabel')}</div>
 							<div className="ref-ai-employees-issues-menu-sort-row">
@@ -252,7 +252,7 @@ export function IssuesHubIconMenus({
 									<button
 										key={row.value}
 										type="button"
-										className={`ref-ai-employees-issues-menu-item${boardState.sortBy === row.value ? ' is-active' : ''}`}
+										className={`ref-void-select-option ref-ai-employees-issues-menu-item${boardState.sortBy === row.value ? ' is-selected' : ''}`}
 										onClick={() => setSortBy(row.value)}
 									>
 										{row.label}
@@ -273,11 +273,11 @@ export function IssuesHubIconMenus({
 					{boardState.viewMode === 'board' ? <IconLayoutColumns /> : <IconLayoutList />}
 				</MenuTrigger>
 				{menu === 'view' ? (
-					<div className="ref-ai-employees-issues-menu-panel ref-ai-employees-issues-menu-panel--narrow" role="menu">
+					<div className="ref-void-select-menu ref-ai-employees-issues-menu-panel ref-ai-employees-issues-menu-panel--narrow" role="menu">
 						<div className="ref-ai-employees-issues-menu-section-label ref-ai-employees-issues-menu-pad">{t('aiEmployees.issuesHub.menuView')}</div>
 						<button
 							type="button"
-							className={`ref-ai-employees-issues-menu-item${boardState.viewMode === 'board' ? ' is-active' : ''}`}
+							className={`ref-void-select-option ref-ai-employees-issues-menu-item${boardState.viewMode === 'board' ? ' is-selected' : ''}`}
 							onClick={() => {
 								setBoardState((s) => ({ ...s, viewMode: 'board' }));
 								close();
@@ -288,7 +288,7 @@ export function IssuesHubIconMenus({
 						</button>
 						<button
 							type="button"
-							className={`ref-ai-employees-issues-menu-item${boardState.viewMode === 'list' ? ' is-active' : ''}`}
+							className={`ref-void-select-option ref-ai-employees-issues-menu-item${boardState.viewMode === 'list' ? ' is-selected' : ''}`}
 							onClick={() => {
 								setBoardState((s) => ({ ...s, viewMode: 'list' }));
 								close();

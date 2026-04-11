@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
+import { VoidSelect } from '../../VoidSelect';
 import type { AgentJson, IssueJson, WorkspaceMemberJson } from '../api/types';
 import { IconCloseSmall } from '../../icons';
+import { assigneeVoidOptions, issueStatusVoidOptions, priorityFieldVoidOptions } from '../voidSelectOptions';
 
 const ISSUE_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled'] as const;
-const PRIORITIES = ['none', 'low', 'medium', 'high', 'urgent'] as const;
 
 function assigneeSelectValue(issue: IssueJson): string {
 	if (!issue.assignee_type || !issue.assignee_id) return '';
@@ -48,6 +49,16 @@ export function IssueDetailPanel({
 	}, [issue.id, issue.title, issue.description]);
 
 	const assigneeValue = useMemo(() => assigneeSelectValue(issue), [issue]);
+	const statusOpts = useMemo(() => {
+		const base = issueStatusVoidOptions(t, ISSUE_STATUSES);
+		if (ISSUE_STATUSES.includes(issue.status as (typeof ISSUE_STATUSES)[number])) {
+			return base;
+		}
+		return [{ value: issue.status, label: issue.status }, ...base];
+	}, [issue.status, t]);
+	const priorityOpts = useMemo(() => priorityFieldVoidOptions(t), [t]);
+	const assigneeOpts = useMemo(() => assigneeVoidOptions(t, members, agents), [t, members, agents]);
+	const childAssigneeOpts = useMemo(() => assigneeVoidOptions(t, members, agents), [t, members, agents]);
 
 	const runPatch = useCallback(
 		async (patch: Record<string, unknown>) => {
@@ -114,37 +125,24 @@ export function IssueDetailPanel({
 
 				<label className="ref-ai-employees-issue-field">
 					<span>{t('aiEmployees.issueDetail.status')}</span>
-					<select
-						className="ref-settings-native-select ref-ai-employees-issue-select"
+					<VoidSelect
+						ariaLabel={t('aiEmployees.issueDetail.status')}
 						value={issue.status}
 						disabled={saving}
-						onChange={(e) => void runPatch({ status: e.target.value })}
-					>
-						{ISSUE_STATUSES.includes(issue.status as (typeof ISSUE_STATUSES)[number]) ? null : (
-							<option value={issue.status}>{issue.status}</option>
-						)}
-						{ISSUE_STATUSES.map((s) => (
-							<option key={s} value={s}>
-								{s.replace(/_/g, ' ')}
-							</option>
-						))}
-					</select>
+						options={statusOpts}
+						onChange={(v) => void runPatch({ status: v })}
+					/>
 				</label>
 
 				<label className="ref-ai-employees-issue-field">
 					<span>{t('aiEmployees.issueDetail.priority')}</span>
-					<select
-						className="ref-settings-native-select ref-ai-employees-issue-select"
+					<VoidSelect
+						ariaLabel={t('aiEmployees.issueDetail.priority')}
 						value={issue.priority ?? 'none'}
 						disabled={saving}
-						onChange={(e) => void runPatch({ priority: e.target.value })}
-					>
-						{PRIORITIES.map((p) => (
-							<option key={p} value={p}>
-								{p}
-							</option>
-						))}
-					</select>
+						options={priorityOpts}
+						onChange={(v) => void runPatch({ priority: v })}
+					/>
 				</label>
 
 				<label className="ref-ai-employees-issue-field">
@@ -171,14 +169,14 @@ export function IssueDetailPanel({
 
 				<label className="ref-ai-employees-issue-field">
 					<span>{t('aiEmployees.issueDetail.assignee')}</span>
-					<select
-						className="ref-settings-native-select ref-ai-employees-issue-select"
+					<VoidSelect
+						ariaLabel={t('aiEmployees.issueDetail.assignee')}
 						value={assigneeValue}
 						disabled={saving}
-						onChange={(e) => {
-							const v = e.target.value;
+						options={assigneeOpts}
+						onChange={(v) => {
 							if (!v) {
-								void runPatch({ assignee_type: null });
+								void runPatch({ assignee_type: null, assignee_id: null });
 								return;
 							}
 							const [typ, id] = v.split(':');
@@ -186,23 +184,7 @@ export function IssueDetailPanel({
 								void runPatch({ assignee_type: typ, assignee_id: id });
 							}
 						}}
-					>
-						<option value="">{t('aiEmployees.issueDetail.assigneeNone')}</option>
-						<optgroup label={t('aiEmployees.issueDetail.assigneeMembers')}>
-							{members.map((m) => (
-								<option key={m.user_id} value={`member:${m.user_id}`}>
-									{m.name}
-								</option>
-							))}
-						</optgroup>
-						<optgroup label={t('aiEmployees.issueDetail.assigneeAgents')}>
-							{agents.map((a) => (
-								<option key={a.id} value={`agent:${a.id}`}>
-									{a.name}
-								</option>
-							))}
-						</optgroup>
-					</select>
+					/>
 				</label>
 
 				{issue.parent_issue_id ? (
@@ -230,27 +212,15 @@ export function IssueDetailPanel({
 						onChange={(e) => setChildTitle(e.target.value)}
 						placeholder={t('aiEmployees.issueDetail.childTitlePh')}
 					/>
-					<select
-						className="ref-settings-native-select ref-ai-employees-issue-select"
+					<VoidSelect
+						ariaLabel={t('aiEmployees.issueDetail.childAssigneeOptional')}
 						value={childAssignee}
-						onChange={(e) => setChildAssignee(e.target.value)}
-					>
-						<option value="">{t('aiEmployees.issueDetail.childAssigneeOptional')}</option>
-						<optgroup label={t('aiEmployees.issueDetail.assigneeMembers')}>
-							{members.map((m) => (
-								<option key={m.user_id} value={`member:${m.user_id}`}>
-									{m.name}
-								</option>
-							))}
-						</optgroup>
-						<optgroup label={t('aiEmployees.issueDetail.assigneeAgents')}>
-							{agents.map((a) => (
-								<option key={a.id} value={`agent:${a.id}`}>
-									{a.name}
-								</option>
-							))}
-						</optgroup>
-					</select>
+						onChange={setChildAssignee}
+						options={[
+							{ value: '', label: t('aiEmployees.issueDetail.childAssigneeOptional') },
+							...childAssigneeOpts.filter((o) => o.value !== ''),
+						]}
+					/>
 					<button
 						type="button"
 						className="ref-ai-employees-btn ref-ai-employees-btn--primary"

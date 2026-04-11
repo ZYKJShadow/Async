@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
+import { VoidSelect } from '../../VoidSelect';
 import type {
 	AiCollabMessage,
 	AiEmployeeCatalogEntry,
@@ -16,6 +17,7 @@ import {
 	hasEmployeeCollaborationContract,
 	HANDOFF_REPORT_TEMPLATE,
 } from '../domain/collaborationRules';
+import { handoffStatusVoidOptions } from '../voidSelectOptions';
 
 function personName(catalog: AiEmployeeCatalogEntry[], employees: OrgEmployee[], id?: string): string {
 	if (!id) {
@@ -115,6 +117,14 @@ export function OrchestratorPage({
 				collaborationLabels(t)
 			),
 		[handoffContract, handoffNote, selectedRun?.goal, t]
+	);
+	const handoffStatusOpts = useMemo(() => handoffStatusVoidOptions(t), [t]);
+	const handoffMemberOpts = useMemo(
+		() => [
+			{ value: '', label: t('aiEmployees.handoffPickMember') },
+			...orgEmployees.map((employee) => ({ value: employee.id, label: employee.displayName })),
+		],
+		[t, orgEmployees],
 	);
 
 	useEffect(() => {
@@ -231,16 +241,16 @@ export function OrchestratorPage({
 											<div className="ref-ai-employees-runs-handoff-foot">
 												<span>{handoff.taskId || '?'}</span>
 												{showHandoffs ? (
-													<select
-														className="ref-settings-native-select ref-ai-employees-orchestrator-handoff-status"
+													<VoidSelect
+														className="ref-ai-employees-orchestrator-handoff-status-void"
+														variant="compact"
+														ariaLabel={t('aiEmployees.handoffStatusAria')}
 														value={handoff.status}
-														onChange={(event) => onSetHandoffStatus?.(selectedRun.id, handoff.id, event.target.value as AiOrchestrationHandoffStatus)}
-													>
-														<option value="pending">{t('aiEmployees.handoffStatus.pending')}</option>
-														<option value="in_progress">{t('aiEmployees.handoffStatus.in_progress')}</option>
-														<option value="blocked">{t('aiEmployees.handoffStatus.blocked')}</option>
-														<option value="done">{t('aiEmployees.handoffStatus.done')}</option>
-													</select>
+														options={handoffStatusOpts}
+														onChange={(v) =>
+															onSetHandoffStatus?.(selectedRun.id, handoff.id, v as AiOrchestrationHandoffStatus)
+														}
+													/>
 												) : null}
 											</div>
 										</li>
@@ -249,12 +259,14 @@ export function OrchestratorPage({
 								{showHandoffs ? (
 									<>
 										<div className="ref-ai-employees-runs-handoff-add">
-											<select className="ref-settings-native-select" value={handoffToId} onChange={(event) => setHandoffToId(event.target.value)}>
-												<option value="">{t('aiEmployees.handoffPickMember')}</option>
-												{orgEmployees.map((employee) => (
-													<option key={employee.id} value={employee.id}>{employee.displayName}</option>
-												))}
-											</select>
+											<VoidSelect
+												className="ref-ai-employees-runs-handoff-add-select"
+												variant="compact"
+												ariaLabel={t('aiEmployees.handoffPickMember')}
+												value={handoffToId}
+												options={handoffMemberOpts}
+												onChange={setHandoffToId}
+											/>
 											<input className="ref-ai-employees-input" value={handoffNote} onChange={(event) => setHandoffNote(event.target.value)} placeholder={t('aiEmployees.handoffNotePh')} />
 											<button
 												type="button"

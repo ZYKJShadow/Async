@@ -17,11 +17,20 @@ type Props = {
 	ariaLabel?: string;
 	id?: string;
 	className?: string;
+	/** 追加到 listbox 容器，用于选项内含标签等场景的局部样式 */
+	menuClassName?: string;
+	/** listbox 最小宽度（不小于触发器宽度），便于选项内标签不被裁切 */
+	menuMinWidth?: number;
+	/** 触发器内展示（与 options[].label 解耦，避免「大按钮套彩色 pill」） */
+	getTriggerDisplay?: (value: string, selected: VoidSelectOption | undefined) => ReactNode;
 	/** 编辑器工具栏等较扁场景 */
 	variant?: 'default' | 'compact';
 };
 
 const MENU_Z = 6000;
+
+/** 任意时刻只保留一个打开的 VoidSelect listbox（对齐 multica Popover 互斥） */
+const voidSelectOpenClosers = new Set<() => void>();
 
 function IconChevDown({ className }: { className?: string }) {
 	return (
@@ -39,6 +48,9 @@ export function VoidSelect({
 	ariaLabel,
 	id: idProp,
 	className,
+	menuClassName,
+	menuMinWidth,
+	getTriggerDisplay,
 	variant = 'default',
 }: Props) {
 	const genId = useId();
@@ -47,6 +59,7 @@ export function VoidSelect({
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const menuRef = useRef<HTMLDivElement>(null);
 	const [open, setOpen] = useState(false);
+	const closeSelf = useCallback(() => setOpen(false), []);
 	const [layout, setLayout] = useState<ClampedPopoverLayout>({
 		placement: 'below',
 		left: 0,
@@ -58,6 +71,22 @@ export function VoidSelect({
 
 	const selected = useMemo(() => options.find((o) => o.value === value), [options, value]);
 	const displayLabel = selected?.label ?? value;
+	const triggerInner = getTriggerDisplay ? getTriggerDisplay(value, selected) : displayLabel;
+
+	useLayoutEffect(() => {
+		if (!open) {
+			voidSelectOpenClosers.delete(closeSelf);
+			return;
+		}
+		for (const fn of voidSelectOpenClosers) {
+			fn();
+		}
+		voidSelectOpenClosers.clear();
+		voidSelectOpenClosers.add(closeSelf);
+		return () => {
+			voidSelectOpenClosers.delete(closeSelf);
+		};
+	}, [open, closeSelf]);
 
 	const recompute = useCallback(() => {
 		const tr = triggerRef.current;
@@ -68,7 +97,7 @@ export function VoidSelect({
 		const r = tr.getBoundingClientRect();
 		const vw = window.innerWidth;
 		const vh = window.innerHeight;
-		const menuWidth = Math.ceil(r.width);
+		const menuWidth = Math.ceil(Math.max(r.width, menuMinWidth ?? 0));
 		const natural = Math.min(480, Math.max(menu.scrollHeight, options.length * 36 + 8));
 		setLayout(
 			computeClampedPopoverLayout(r, {
@@ -78,7 +107,7 @@ export function VoidSelect({
 				contentHeight: natural,
 			})
 		);
-	}, [options.length]);
+	}, [options.length, menuMinWidth]);
 
 	useLayoutEffect(() => {
 		if (!open) {
@@ -87,7 +116,7 @@ export function VoidSelect({
 		recompute();
 		const t = requestAnimationFrame(() => recompute());
 		return () => cancelAnimationFrame(t);
-	}, [open, recompute, value, options.length]);
+	}, [open, recompute, value, options.length, menuMinWidth]);
 
 	useEffect(() => {
 		if (!open) {
@@ -162,7 +191,7 @@ export function VoidSelect({
 		<div
 			ref={menuRef}
 			id={listId}
-			className="ref-void-select-menu"
+			className={`ref-void-select-menu${menuClassName ? ` ${menuClassName}` : ''}`.trim()}
 			role="listbox"
 			aria-labelledby={triggerId}
 			style={menuStyle}
@@ -223,7 +252,7 @@ export function VoidSelect({
 					}
 				}}
 			>
-				<span className="ref-void-select-value">{displayLabel}</span>
+				<span className="ref-void-select-value">{triggerInner}</span>
 				<IconChevDown className="ref-void-select-chev" />
 			</button>
 			{typeof document !== 'undefined' && menu ? createPortal(menu, document.body) : null}

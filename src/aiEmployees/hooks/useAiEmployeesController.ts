@@ -131,7 +131,7 @@ export function useAiEmployeesController() {
 	const [localRoot, setLocalRoot] = useState<string | null>(null);
 	const [aiSettings, setAiSettings] = useState<AiEmployeesSettings>({});
 	const [tab, setTab] = useState<AiEmployeesTabId>('inbox');
-	/** 侧栏「新建事务」等触发：递增后由 IssuesHubPage 打开弹窗 */
+	/** 侧栏「新建任务」等触发：递增后由 IssuesHubPage 打开弹窗 */
 	const [createIssueSignal, setCreateIssueSignal] = useState(0);
 	const requestCreateIssue = useCallback(() => {
 		setTab((prev) => (prev === 'myIssues' ? 'myIssues' : 'issues'));

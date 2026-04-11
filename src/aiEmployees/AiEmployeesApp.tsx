@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { useI18n } from '../i18n';
+import { VoidSelect } from '../VoidSelect';
 import { AiEmployeesTitlebar } from './AiEmployeesTitlebar';
 import {
 	IconBookOpen,
@@ -22,6 +23,7 @@ import { ActivityFeedPage } from './pages/ActivityFeedPage';
 import { SkillsPage } from './pages/SkillsPage';
 import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
 import { AiEmployeesLaunchOverlay } from './AiEmployeesLaunchOverlay';
+import { workspacePickVoidOptions } from './voidSelectOptions';
 import './aiEmployees.css';
 
 function workspaceInitial(name: string): string {
@@ -37,6 +39,8 @@ export function AiEmployeesApp() {
 		const w = c.workspaces.find((x) => x.id === c.workspaceId);
 		return w?.name ?? (c.workspaceId ? c.workspaceId.slice(0, 8) : '');
 	}, [c.workspaces, c.workspaceId]);
+
+	const workspaceOpts = useMemo(() => workspacePickVoidOptions(t, c.workspaces), [t, c.workspaces]);
 
 	const tabPageTitle = (id: AiEmployeesTabId): string => {
 		switch (id) {
@@ -134,28 +138,25 @@ export function AiEmployeesApp() {
 				<div className="ref-ai-employees-sidebar-outer" aria-label={t('aiEmployees.sideNavAria')}>
 					<div className="ref-ai-employees-sidebar-inner">
 						<header className="ref-ai-employees-sidebar-header">
-							<select
-								className="ref-settings-native-select ref-ai-employees-workspace-select"
+							<VoidSelect
+								className="ref-ai-employees-sidebar-workspace-void-select"
+								variant="compact"
+								ariaLabel={t('aiEmployees.remoteWorkspace')}
 								value={c.workspaceId}
 								disabled={c.sessionPhase === 'bootstrapping'}
-								onChange={(e) => c.onWorkspaceSelectChange(e.target.value)}
-								aria-label={t('aiEmployees.remoteWorkspace')}
-							>
-								<option value="">{t('aiEmployees.pickWorkspace')}</option>
-								{c.workspaces.map((w) => (
-									<option key={w.id} value={w.id}>
-										{w.name ?? w.id.slice(0, 8)}
-									</option>
-								))}
-							</select>
+								options={workspaceOpts}
+								onChange={(id) => c.onWorkspaceSelectChange(id)}
+							/>
 							<button
 								type="button"
-								className="ref-ai-employees-sidebar-new-issue"
+								className="ref-ai-employees-nav-item"
 								disabled={c.sessionPhase === 'bootstrapping' || !c.workspaceId}
 								onClick={() => c.requestCreateIssue()}
 							>
-								<IconPlus className="ref-ai-employees-sidebar-new-issue-icon" />
-								<span>{t('aiEmployees.sidebarNewIssue')}</span>
+								<span className="ref-ai-employees-nav-icon-wrap" aria-hidden>
+									<IconPlus className="ref-ai-employees-nav-icon" />
+								</span>
+								<span className="ref-ai-employees-nav-label">{t('aiEmployees.sidebarNewIssue')}</span>
 							</button>
 						</header>
 							<nav className="ref-ai-employees-sidebar-scroll">
@@ -278,6 +279,7 @@ export function AiEmployeesApp() {
 											variant="my"
 											agents={c.agents}
 											members={c.workspaceMembers}
+											workspaceDisplayName={activeWorkspaceName}
 											openCreateSignal={c.createIssueSignal}
 											onPatchIssue={c.patchWorkspaceIssue}
 											onCreateIssue={c.createWorkspaceIssue}
@@ -292,6 +294,7 @@ export function AiEmployeesApp() {
 											variant="workspace"
 											agents={c.agents}
 											members={c.workspaceMembers}
+											workspaceDisplayName={activeWorkspaceName}
 											openCreateSignal={c.createIssueSignal}
 											onPatchIssue={c.patchWorkspaceIssue}
 											onCreateIssue={c.createWorkspaceIssue}

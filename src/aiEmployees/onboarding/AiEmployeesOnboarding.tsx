@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
+import { VoidSelect } from '../../VoidSelect';
 import type { AiEmployeesOnboardingStep } from '../domain/bootstrap';
 import type { AiEmployeesConnection } from '../api/client';
 import {
@@ -15,6 +16,7 @@ import { emptyPromptDraft } from '../domain/persona';
 import { createEmptyRoleProfileDraft, createRoleDraftFromOrgEmployee, toPersonaSeed, type RoleProfileDraft } from '../domain/roleDraft';
 import type { LocalModelEntry } from '../sessionTypes';
 import type { RolePromptDraft } from '../../../shared/aiEmployeesPersona';
+import { managerPickVoidOptions, workspacePickVoidOptions } from '../voidSelectOptions';
 
 function buildPromptDraftFromTemplate(template: OrgPromptTemplate): RolePromptDraft {
 	return {
@@ -132,6 +134,8 @@ export function AiEmployeesOnboarding({
 		});
 		return list;
 	}, [orgEmployees]);
+	const workspaceOptsOnboarding = useMemo(() => workspacePickVoidOptions(t, workspaces), [t, workspaces]);
+	const managerOptsOnboarding = useMemo(() => managerPickVoidOptions(t, sortedEmployees), [t, sortedEmployees]);
 	const ceoEmployee = sortedEmployees.find((employee) => employee.isCeo) ?? null;
 
 	useEffect(() => {
@@ -347,14 +351,12 @@ export function AiEmployeesOnboarding({
 					<p className="ref-ai-employees-onboarding-desc">{t('aiEmployees.onboarding.pickWorkspaceDesc')}</p>
 					<label className="ref-ai-employees-onboarding-field">
 						<span>{t('aiEmployees.remoteWorkspace')}</span>
-						<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={localWs} onChange={(e) => setLocalWs(e.target.value)}>
-							<option value="">{t('aiEmployees.pickWorkspace')}</option>
-							{workspaces.map((workspace) => (
-								<option key={workspace.id} value={workspace.id}>
-									{workspace.name ?? workspace.id.slice(0, 8)}
-								</option>
-							))}
-						</select>
+						<VoidSelect
+							ariaLabel={t('aiEmployees.remoteWorkspace')}
+							value={localWs}
+							onChange={setLocalWs}
+							options={workspaceOptsOnboarding}
+						/>
 					</label>
 					<p className="ref-ai-employees-muted ref-ai-employees-onboarding-hint">{t('aiEmployees.onboarding.pickWorkspaceHint')}</p>
 					<div className="ref-ai-employees-form-actions ref-ai-employees-onboarding-card-actions">
@@ -550,14 +552,12 @@ export function AiEmployeesOnboarding({
 								</div>
 								<label className="ref-ai-employees-catalog-field">
 									<span>{t('aiEmployees.managerEmployee')}</span>
-									<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={candidate.managerEmployeeId ?? ''} onChange={(e) => updateCandidate(candidate.id ?? '', { managerEmployeeId: e.target.value || undefined })}>
-										<option value="">{t('aiEmployees.managerNone')}</option>
-										{sortedEmployees.map((employee) => (
-											<option key={employee.id} value={employee.id}>
-												{employee.displayName}
-											</option>
-										))}
-									</select>
+									<VoidSelect
+										ariaLabel={t('aiEmployees.managerEmployee')}
+										value={candidate.managerEmployeeId ?? ''}
+										onChange={(v) => updateCandidate(candidate.id ?? '', { managerEmployeeId: v || undefined })}
+										options={managerOptsOnboarding}
+									/>
 								</label>
 								<RoleProfileEditor
 									t={t}

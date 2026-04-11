@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
+import { VoidSelect } from '../../VoidSelect';
 import type { AgentJson, CreateIssuePayload, IssueJson, WorkspaceMemberJson } from '../api/types';
 import { BoardPage } from './BoardPage';
 import { IssueDetailPanel } from './IssueDetailPanel';
@@ -15,10 +16,13 @@ import {
 	sortIssues,
 	DEFAULT_ISSUE_BOARD_STATE,
 } from '../domain/issueBoard';
+import { batchAssigneeVoidOptions, issueStatusVoidOptions, priorityFieldVoidOptions } from '../voidSelectOptions';
 
 export type IssuesHubVariant = 'workspace' | 'my';
 
 type AssigneeScopeFilter = 'all' | 'members' | 'agents';
+
+const BATCH_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked'] as const;
 
 function isDoneLike(status: string): boolean {
 	const s = (status || '').toLowerCase();
@@ -52,6 +56,7 @@ export function IssuesHubPage({
 	variant,
 	agents,
 	members,
+	workspaceDisplayName,
 	onPatchIssue,
 	onCreateIssue,
 	onDeleteIssue,
@@ -63,6 +68,8 @@ export function IssuesHubPage({
 	variant: IssuesHubVariant;
 	agents: AgentJson[];
 	members: WorkspaceMemberJson[];
+	/** 顶栏工作区名，传入新建任务弹窗面包屑 */
+	workspaceDisplayName?: string;
 	openCreateSignal?: number;
 	onPatchIssue: (issueId: string, patch: Record<string, unknown>) => Promise<void>;
 	onCreateIssue: (payload: CreateIssuePayload) => Promise<void | IssueJson>;
@@ -75,6 +82,9 @@ export function IssuesHubPage({
 	const [createOpen, setCreateOpen] = useState(false);
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 	const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+	const [batchStatusV, setBatchStatusV] = useState('__ph');
+	const [batchPriorityV, setBatchPriorityV] = useState('__ph');
+	const [batchAssigneeV, setBatchAssigneeV] = useState('__ph');
 
 	const lookupList = issuesLookup ?? issues;
 
@@ -120,6 +130,22 @@ export function IssuesHubPage({
 			}),
 		[t]
 	);
+
+	const batchStatusOpts = useMemo(
+		() => [
+			{ value: '__ph', label: t('aiEmployees.issuesHub.batchChangeStatus'), disabled: true },
+			...issueStatusVoidOptions(t, BATCH_STATUSES),
+		],
+		[t],
+	);
+	const batchPriorityOpts = useMemo(
+		() => [
+			{ value: '__ph', label: t('aiEmployees.issuesHub.batchChangePriority'), disabled: true },
+			...priorityFieldVoidOptions(t),
+		],
+		[t],
+	);
+	const batchAssigneeOpts = useMemo(() => batchAssigneeVoidOptions(t, members, agents), [t, members, agents]);
 
 	const groupedList = useMemo(() => {
 		const m = new Map<string, IssueJson[]>();
@@ -187,6 +213,8 @@ export function IssuesHubPage({
 				agents={agents}
 				members={members}
 				issues={lookupList}
+				workspaceDisplayName={workspaceDisplayName}
+				issuesHubVariant={variant}
 				onClose={() => setCreateOpen(false)}
 				onCreate={onCreateIssue}
 			/>
@@ -310,55 +338,47 @@ export function IssuesHubPage({
 			{selectedIds.size > 0 && boardState.viewMode === 'list' ? (
 				<div className="ref-ai-employees-batch-bar" role="toolbar">
 					<span className="ref-ai-employees-batch-count">{selectedIds.size}</span>
-					<select
-						className="ref-settings-native-select ref-ai-employees-workspace-select"
-						defaultValue=""
-						onChange={(e) => {
-							const v = e.target.value;
-							e.target.value = '';
-							if (!v) {
+					<VoidSelect
+						className="ref-ai-employees-batch-void-select"
+						variant="compact"
+						ariaLabel={t('aiEmployees.issuesHub.batchChangeStatus')}
+						value={batchStatusV}
+						options={batchStatusOpts}
+						onChange={(v) => {
+							if (v === '__ph') {
 								return;
 							}
+							setBatchStatusV('__ph');
 							void batchPatch({ status: v });
 						}}
-					>
-						<option value="">{t('aiEmployees.issuesHub.batchChangeStatus')}</option>
-						{['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked'].map((s) => (
-							<option key={s} value={s}>
-								{s}
-							</option>
-						))}
-					</select>
-					<select
-						className="ref-settings-native-select ref-ai-employees-workspace-select"
-						defaultValue=""
-						onChange={(e) => {
-							const v = e.target.value;
-							e.target.value = '';
-							if (!v) {
+					/>
+					<VoidSelect
+						className="ref-ai-employees-batch-void-select"
+						variant="compact"
+						ariaLabel={t('aiEmployees.issuesHub.batchChangePriority')}
+						value={batchPriorityV}
+						options={batchPriorityOpts}
+						onChange={(v) => {
+							if (v === '__ph') {
 								return;
 							}
+							setBatchPriorityV('__ph');
 							void batchPatch({ priority: v });
 						}}
-					>
-						<option value="">{t('aiEmployees.issuesHub.batchChangePriority')}</option>
-						{['none', 'low', 'medium', 'high', 'urgent'].map((p) => (
-							<option key={p} value={p}>
-								{p}
-							</option>
-						))}
-					</select>
-					<select
-						className="ref-settings-native-select ref-ai-employees-workspace-select"
-						defaultValue=""
-						onChange={(e) => {
-							const v = e.target.value;
-							e.target.value = '';
-							if (!v) {
+					/>
+					<VoidSelect
+						className="ref-ai-employees-batch-void-select"
+						variant="compact"
+						ariaLabel={t('aiEmployees.issuesHub.batchChangeAssignee')}
+						value={batchAssigneeV}
+						options={batchAssigneeOpts}
+						onChange={(v) => {
+							if (v === '__ph') {
 								return;
 							}
+							setBatchAssigneeV('__ph');
 							if (v === '__clear') {
-								void batchPatch({ assignee_type: null });
+								void batchPatch({ assignee_type: null, assignee_id: null });
 								return;
 							}
 							const [typ, id] = v.split(':');
@@ -366,20 +386,7 @@ export function IssuesHubPage({
 								void batchPatch({ assignee_type: typ, assignee_id: id });
 							}
 						}}
-					>
-						<option value="">{t('aiEmployees.issuesHub.batchChangeAssignee')}</option>
-						<option value="__clear">{t('aiEmployees.issueDetail.assigneeNone')}</option>
-						{members.map((m) => (
-							<option key={m.user_id} value={`member:${m.user_id}`}>
-								{m.name}
-							</option>
-						))}
-						{agents.map((a) => (
-							<option key={a.id} value={`agent:${a.id}`}>
-								{a.name}
-							</option>
-						))}
-					</select>
+					/>
 				</div>
 			) : null}
 		</div>

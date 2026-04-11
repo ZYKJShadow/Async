@@ -43,17 +43,22 @@ export function FilterDropdown({
 
 	return (
 		<div className="ref-ai-employees-filter-dd" ref={rootRef}>
-			<button type="button" className="ref-ai-employees-filter-dd-trigger" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+			<button
+				type="button"
+				className="ref-void-select-trigger ref-void-select--compact ref-ai-employees-filter-dd-trigger"
+				onClick={() => setOpen((o) => !o)}
+				aria-expanded={open}
+			>
 				<span>{label}</span>
 				{(badgeCount ?? selected.size) > 0 ? <span className="ref-ai-employees-filter-dd-badge">{badgeCount ?? selected.size}</span> : null}
 			</button>
 			{open ? (
-				<div className="ref-ai-employees-filter-dd-panel" role="listbox">
+				<div className="ref-void-select-menu ref-ai-employees-filter-dd-panel" role="listbox">
 					{options.length === 0 ? (
 						<p className="ref-ai-employees-muted ref-ai-employees-filter-dd-empty">—</p>
 					) : (
 						options.map((opt) => (
-							<label key={opt.value} className="ref-ai-employees-filter-dd-row">
+							<label key={opt.value} className="ref-void-select-option ref-ai-employees-filter-dd-row">
 								<input type="checkbox" checked={selected.has(opt.value)} onChange={() => toggle(opt.value)} />
 								<span>{opt.label}</span>
 							</label>

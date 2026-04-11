@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { TFunction } from '../../i18n';
+import { VoidSelect } from '../../VoidSelect';
 import type { AiEmployeesSettings } from '../../../shared/aiEmployeesSettings';
 import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
 import type { AiEmployeesConnection } from '../api/client';
@@ -402,6 +403,19 @@ export function AiEmployeesSetupFlow({
 			return modelOptions.find((m) => modelOptionIdSet.has(m.id))?.id ?? '';
 		});
 	}, [defaultModelId, modelOptions, modelOptionIdSet]);
+
+	const configureModelOpts = useMemo(
+		() => [
+			{ value: '', label: t('aiEmployees.role.modelRequired') },
+			...modelOptions
+				.filter((m) => modelOptionIdSet.has(m.id))
+				.map((m) => ({
+					value: m.id,
+					label: formatLocalModelPickLabel(m),
+				})),
+		],
+		[t, modelOptions, modelOptionIdSet],
+	);
 
 	useEffect(() => {
 		const inferred = inferStage(sessionPhase, workspaceId, bootstrapStatus);
@@ -925,20 +939,12 @@ export function AiEmployeesSetupFlow({
 						</div>
 						<label className="ref-ai-employees-catalog-field">
 							<span>{t('aiEmployees.role.localModel')}</span>
-							<select
-								className="ref-settings-native-select ref-ai-employees-workspace-select"
+							<VoidSelect
+								ariaLabel={t('aiEmployees.role.localModel')}
 								value={selectedModelId}
-								onChange={(e) => setSelectedModelId(e.target.value)}
-							>
-								<option value="">{t('aiEmployees.role.modelRequired')}</option>
-								{modelOptions
-									.filter((m) => modelOptionIdSet.has(m.id))
-									.map((m) => (
-										<option key={m.id} value={m.id}>
-											{formatLocalModelPickLabel(m)}
-										</option>
-									))}
-							</select>
+								onChange={setSelectedModelId}
+								options={configureModelOpts}
+							/>
 						</label>
 						{modelOptions.filter((m) => modelOptionIdSet.has(m.id)).length === 0 ? (
 							<p className="ref-ai-employees-setup-muted">{t('aiEmployees.setup.configModelNoModels')}</p>

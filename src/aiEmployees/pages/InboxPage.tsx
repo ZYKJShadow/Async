@@ -299,10 +299,10 @@ export function InboxPage({
 								<IconDotsHorizontal />
 							</button>
 							{moreOpen ? (
-								<div className="ref-ai-employees-inbox-dropdown" role="menu">
+								<div className="ref-void-select-menu ref-ai-employees-inbox-dropdown" role="menu">
 									<button
 										type="button"
-										className="ref-ai-employees-inbox-dropdown-item"
+										className="ref-void-select-option ref-ai-employees-inbox-dropdown-item"
 										role="menuitem"
 										onClick={() => {
 											void markAllRemoteRead();

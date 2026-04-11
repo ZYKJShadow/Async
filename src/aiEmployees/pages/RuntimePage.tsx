@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
+import { VoidSelect } from '../../VoidSelect';
 import type { RuntimeJson } from '../api/types';
 import { IconServerOutline } from '../../icons';
 
@@ -28,6 +29,17 @@ export function RuntimePage({ t, runtimes, meUserId }: { t: TFunction; runtimes:
 		const ids = [...new Set(runtimes.map((r) => r.owner_id).filter(Boolean) as string[])];
 		return ids;
 	}, [filter, runtimes]);
+
+	const ownerFilterOpts = useMemo(
+		() => [
+			{ value: '', label: t('aiEmployees.runtimeAllOwners') },
+			...uniqueOwners.map((oid) => ({
+				value: oid,
+				label: oid.length > 12 ? `${oid.slice(0, 10)}…` : oid,
+			})),
+		],
+		[t, uniqueOwners],
+	);
 
 	const filteredRuntimes = useMemo(() => {
 		let list = runtimes;
@@ -80,19 +92,14 @@ export function RuntimePage({ t, runtimes, meUserId }: { t: TFunction; runtimes:
 							</button>
 						</div>
 						{filter === 'all' && uniqueOwners.length > 1 ? (
-							<select
-								className="ref-settings-native-select ref-ai-employees-runtime-owner-select"
+							<VoidSelect
+								className="ref-ai-employees-runtime-owner-void-select"
+								variant="compact"
+								ariaLabel={t('aiEmployees.runtimeOwnerFilter')}
 								value={ownerFilter ?? ''}
-								onChange={(e) => setOwnerFilter(e.target.value || null)}
-								aria-label={t('aiEmployees.runtimeOwnerFilter')}
-							>
-								<option value="">{t('aiEmployees.runtimeAllOwners')}</option>
-								{uniqueOwners.map((oid) => (
-									<option key={oid} value={oid}>
-										{oid.length > 12 ? `${oid.slice(0, 10)}…` : oid}
-									</option>
-								))}
-							</select>
+								options={ownerFilterOpts}
+								onChange={(v) => setOwnerFilter(v || null)}
+							/>
 						) : null}
 					</div>
 					{filteredRuntimes.length === 0 ? (

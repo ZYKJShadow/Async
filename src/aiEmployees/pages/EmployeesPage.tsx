@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
+import { VoidSelect } from '../../VoidSelect';
 import { IconBookOpen, IconDoc, IconListTodo, IconSettings, IconBot } from '../../icons';
 import type { AiEmployeesConnection } from '../api/client';
 import type { SkillJson } from '../api/types';
@@ -24,6 +25,7 @@ import type { LocalModelEntry } from '../sessionTypes';
 import type { AiEmployeesOrchestrationState } from '../../../shared/aiEmployeesSettings';
 import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
 import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
+import { managerPickVoidOptions } from '../voidSelectOptions';
 
 function EmployeeBadgeFace({
 	conn,
@@ -128,6 +130,11 @@ export function EmployeesPage({
 		() => (selectedId ? sortedOrg.find((employee) => employee.id === selectedId) ?? null : null),
 		[selectedId, sortedOrg]
 	);
+	const managerOptsSettings = useMemo(
+		() => (selected ? managerPickVoidOptions(t, sortedOrg, selected.id) : managerPickVoidOptions(t, sortedOrg)),
+		[t, sortedOrg, selected],
+	);
+	const managerOptsHire = useMemo(() => managerPickVoidOptions(t, sortedOrg), [t, sortedOrg]);
 	const ceoEmployee = sortedOrg.find((employee) => employee.isCeo) ?? null;
 
 	const modelRouteParams = useMemo(
@@ -590,20 +597,12 @@ export function EmployeesPage({
 									</div>
 									<label className="ref-ai-employees-catalog-field">
 										<span>{t('aiEmployees.managerEmployee')}</span>
-										<select
-											className="ref-settings-native-select ref-ai-employees-workspace-select"
+										<VoidSelect
+											ariaLabel={t('aiEmployees.managerEmployee')}
 											value={selectedDraft.managerEmployeeId ?? ''}
-											onChange={(e) => setSelectedDraft((prev) => (prev ? { ...prev, managerEmployeeId: e.target.value || undefined } : prev))}
-										>
-											<option value="">{t('aiEmployees.managerNone')}</option>
-											{sortedOrg
-												.filter((employee) => employee.id !== selected.id)
-												.map((employee) => (
-													<option key={employee.id} value={employee.id}>
-														{employee.displayName}
-													</option>
-												))}
-										</select>
+											onChange={(v) => setSelectedDraft((prev) => (prev ? { ...prev, managerEmployeeId: v || undefined } : prev))}
+											options={managerOptsSettings}
+										/>
 									</label>
 									<RoleProfileEditor
 										t={t}
@@ -674,12 +673,16 @@ export function EmployeesPage({
 										</div>
 										<label className="ref-ai-employees-catalog-field">
 											<span>{t('aiEmployees.managerEmployee')}</span>
-											<select className="ref-settings-native-select ref-ai-employees-workspace-select" value={draft.managerEmployeeId ?? ''} onChange={(e) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, managerEmployeeId: e.target.value || undefined } : item)))}>
-												<option value="">{t('aiEmployees.managerNone')}</option>
-												{sortedOrg.map((employee) => (
-													<option key={employee.id} value={employee.id}>{employee.displayName}</option>
-												))}
-											</select>
+											<VoidSelect
+												ariaLabel={t('aiEmployees.managerEmployee')}
+												value={draft.managerEmployeeId ?? ''}
+												onChange={(v) =>
+													setHireDrafts((prev) =>
+														prev.map((item) => (item.id === draft.id ? { ...item, managerEmployeeId: v || undefined } : item)),
+													)
+												}
+												options={managerOptsHire}
+											/>
 										</label>
 										<RoleProfileEditor t={t} draft={draft} modelOptions={modelOptions} onChange={(patch) => setHireDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, ...patch } : item)))} />
 										<RoleCustomSystemPromptField
