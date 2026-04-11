@@ -1216,7 +1216,7 @@ export function AiEmployeesSetupFlow({
 								}
 							/>
 						</div>
-						<div className="ref-ai-employees-form-actions ref-ai-employees-org-modal-actions">
+						<div className="ref-ai-employees-org-modal-footer">
 							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setPreviewEditDraft(null)}>
 								{t('common.cancel')}
 							</button>

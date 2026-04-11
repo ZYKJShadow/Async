@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiEmployeesConnection } from '../api/client';
 import { apiCreateOrgEmployee, apiPatchOrgEmployee, apiUploadOrgEmployeeAvatar } from '../api/orgClient';
@@ -70,6 +70,8 @@ export function EmployeesPage({
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [detailModalOpen, setDetailModalOpen] = useState(false);
+	/** 为渐出动画保留挂载，直至 overlay 的 exit 动画结束 */
+	const [detailModalExiting, setDetailModalExiting] = useState(false);
 	const modalBodyRef = useRef<HTMLDivElement>(null);
 	const [saveErr, setSaveErr] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
@@ -152,31 +154,66 @@ export function EmployeesPage({
 		return modelOptions.find((m) => modelOptionIdSet.has(m.id))?.id ?? '';
 	}, [ceoEmployee, employeeLocalModelMap, defaultModelId, modelOptionIdSet, modelOptions]);
 
+	const beginCloseDetailModal = useCallback(() => {
+		if (detailModalExiting) {
+			return;
+		}
+		if (!detailModalOpen) {
+			return;
+		}
+		if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+			setDetailModalOpen(false);
+			setDetailModalExiting(false);
+			return;
+		}
+		setDetailModalOpen(false);
+		setDetailModalExiting(true);
+	}, [detailModalOpen, detailModalExiting]);
+
+	const onDetailModalOverlayAnimationEnd = useCallback((e: AnimationEvent<HTMLDivElement>) => {
+		if (e.target !== e.currentTarget) {
+			return;
+		}
+		if (e.animationName !== 'ref-ai-employees-org-modal-overlay-out') {
+			return;
+		}
+		setDetailModalExiting(false);
+	}, []);
+
 	useEffect(() => {
 		if (selectedId && !sortedOrg.some((employee) => employee.id === selectedId)) {
 			setSelectedId(null);
 			setDetailModalOpen(false);
+			setDetailModalExiting(false);
 		}
 	}, [selectedId, sortedOrg]);
 
 	useEffect(() => {
-		if (!detailModalOpen) {
+		if (!detailModalOpen && !detailModalExiting) {
 			return;
 		}
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === 'Escape') {
-				setDetailModalOpen(false);
+				beginCloseDetailModal();
 			}
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [detailModalOpen]);
+	}, [detailModalOpen, detailModalExiting, beginCloseDetailModal]);
 
 	useEffect(() => {
-		if (detailModalOpen) {
+		if (detailModalOpen && !detailModalExiting) {
 			modalBodyRef.current?.focus();
 		}
-	}, [detailModalOpen, selectedId]);
+	}, [detailModalOpen, detailModalExiting, selectedId]);
+
+	useEffect(() => {
+		if (!detailModalExiting) {
+			return;
+		}
+		const id = window.setTimeout(() => setDetailModalExiting(false), 500);
+		return () => window.clearTimeout(id);
+	}, [detailModalExiting]);
 
 	useEffect(() => {
 		if (!workspaceId) {
@@ -607,7 +644,7 @@ export function EmployeesPage({
 						{sortedOrg.map((employee) => {
 							const title = (employee.customRoleTitle || employee.roleKey).trim() || '—';
 							const modelLine = employeeModelLine(employee);
-							const isActive = detailModalOpen && selectedId === employee.id;
+							const isActive = (detailModalOpen || detailModalExiting) && selectedId === employee.id;
 							return (
 								<button
 									key={employee.id}
@@ -616,6 +653,7 @@ export function EmployeesPage({
 									className={`ref-ai-employees-org-badge-card ${isActive ? 'is-active' : ''}`}
 									onClick={() => {
 										setSelectedId(employee.id);
+										setDetailModalExiting(false);
 										setDetailModalOpen(true);
 									}}
 								>
@@ -661,11 +699,12 @@ export function EmployeesPage({
 				)}
 			</div>
 
-			{detailModalOpen && selected && selectedDraft ? (
+			{(detailModalOpen || detailModalExiting) && selected && selectedDraft ? (
 				<div
-					className="ref-ai-employees-org-modal-overlay"
+					className={`ref-ai-employees-org-modal-overlay${detailModalExiting ? ' ref-ai-employees-org-modal-overlay--exiting' : ''}`}
 					role="presentation"
-					onClick={() => setDetailModalOpen(false)}
+					onClick={() => beginCloseDetailModal()}
+					onAnimationEnd={onDetailModalOverlayAnimationEnd}
 				>
 					<div
 						className="ref-ai-employees-org-modal"
@@ -681,7 +720,7 @@ export function EmployeesPage({
 							<button
 								type="button"
 								className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-org-modal-close"
-								onClick={() => setDetailModalOpen(false)}
+								onClick={() => beginCloseDetailModal()}
 								aria-label={t('common.close')}
 							>
 								×
@@ -741,19 +780,19 @@ export function EmployeesPage({
 								onChange={(value) => setSelectedDraft((prev) => (prev ? { ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } } : prev))}
 							/>
 							<ImBindingsSection t={t} conn={conn} workspaceId={workspaceId} employeeId={selected.id} />
-							<div className="ref-ai-employees-form-actions ref-ai-employees-org-modal-actions">
-								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setDetailModalOpen(false)}>
-									{t('common.close')}
-								</button>
-								<button
-									type="button"
-									className="ref-ai-employees-btn ref-ai-employees-btn--primary"
-									disabled={saving || !selectedDraft.localModelId || !modelOptionIdSet.has(selectedDraft.localModelId)}
-									onClick={() => void saveDetail()}
-								>
-									{t('aiEmployees.orgSaveProfile')}
-								</button>
-							</div>
+						</div>
+						<div className="ref-ai-employees-org-modal-footer">
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => beginCloseDetailModal()}>
+								{t('common.close')}
+							</button>
+							<button
+								type="button"
+								className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+								disabled={saving || !selectedDraft.localModelId || !modelOptionIdSet.has(selectedDraft.localModelId)}
+								onClick={() => void saveDetail()}
+							>
+								{t('aiEmployees.orgSaveProfile')}
+							</button>
 						</div>
 					</div>
 				</div>

@@ -220,97 +220,99 @@ export function AiEmployeesApp() {
 									</div>
 								) : null}
 
-								{activeTab === 'inbox' ? (
-									<InboxPage
-										t={t}
-										orgEmployees={c.orgEmployees}
-										orchestration={c.orchestration}
-										conn={c.conn}
-										workspaceId={c.workspaceId}
-										inboxVersion={c.inboxVersion}
-										agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
-										employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
-										defaultModelId={c.localModels.defaultModelId}
-										modelOptions={c.modelOptions}
-										modelOptionIdSet={c.modelOptionIdSet}
-										onCreateRun={c.createEmployeeRun}
-										onSendMessage={c.sendCollabMessage}
-										onMarkMessageRead={c.markCollabMessageRead}
-										listMessagesByEmployee={c.listMessagesByEmployee}
-										findActiveRunByEmployee={c.findActiveRunByEmployee}
-										employeeChatStreaming={c.employeeChatStreaming}
-										employeeChatError={c.employeeChatError}
-									/>
-								) : null}
+								<div key={activeTab} className="ref-ai-employees-tab-panel">
+									{activeTab === 'inbox' ? (
+										<InboxPage
+											t={t}
+											orgEmployees={c.orgEmployees}
+											orchestration={c.orchestration}
+											conn={c.conn}
+											workspaceId={c.workspaceId}
+											inboxVersion={c.inboxVersion}
+											agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
+											employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
+											defaultModelId={c.localModels.defaultModelId}
+											modelOptions={c.modelOptions}
+											modelOptionIdSet={c.modelOptionIdSet}
+											onCreateRun={c.createEmployeeRun}
+											onSendMessage={c.sendCollabMessage}
+											onMarkMessageRead={c.markCollabMessageRead}
+											listMessagesByEmployee={c.listMessagesByEmployee}
+											findActiveRunByEmployee={c.findActiveRunByEmployee}
+											employeeChatStreaming={c.employeeChatStreaming}
+											employeeChatError={c.employeeChatError}
+										/>
+									) : null}
 
-								{activeTab === 'myIssues' ? (
-									<IssuesHubPage
-										t={t}
-										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
-										issues={c.myIssues}
-										issuesLookup={c.issues}
-										variant="my"
-										agents={c.agents}
-										members={c.workspaceMembers}
-										onPatchIssue={c.patchWorkspaceIssue}
-										onCreateIssue={c.createWorkspaceIssue}
-									/>
-								) : null}
+									{activeTab === 'myIssues' ? (
+										<IssuesHubPage
+											t={t}
+											workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
+											issues={c.myIssues}
+											issuesLookup={c.issues}
+											variant="my"
+											agents={c.agents}
+											members={c.workspaceMembers}
+											onPatchIssue={c.patchWorkspaceIssue}
+											onCreateIssue={c.createWorkspaceIssue}
+										/>
+									) : null}
 
-								{activeTab === 'issues' ? (
-									<IssuesHubPage
-										t={t}
-										workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
-										issues={c.issues}
-										variant="workspace"
-										agents={c.agents}
-										members={c.workspaceMembers}
-										onPatchIssue={c.patchWorkspaceIssue}
-										onCreateIssue={c.createWorkspaceIssue}
-									/>
-								) : null}
+									{activeTab === 'issues' ? (
+										<IssuesHubPage
+											t={t}
+											workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
+											issues={c.issues}
+											variant="workspace"
+											agents={c.agents}
+											members={c.workspaceMembers}
+											onPatchIssue={c.patchWorkspaceIssue}
+											onCreateIssue={c.createWorkspaceIssue}
+										/>
+									) : null}
 
-								{activeTab === 'agents' ? (
-								<EmployeesPage
-									t={t}
-									conn={c.conn}
-									workspaceId={c.workspaceId}
-									companyName={c.bootstrapStatus?.companyName ?? ''}
-									orgEmployees={c.orgEmployees}
-									onRefreshOrg={c.refreshOrgEmployeesList}
-									agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
-									employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
-									modelOptions={c.modelOptions}
-									modelOptionIdSet={c.modelOptionIdSet}
-									onBindEmployeeLocalModel={c.bindEmployeeLocalModel}
-									defaultModelId={c.localModels.defaultModelId}
-									orchestration={c.orchestration}
-								/>
-								) : null}
+									{activeTab === 'agents' ? (
+										<EmployeesPage
+											t={t}
+											conn={c.conn}
+											workspaceId={c.workspaceId}
+											companyName={c.bootstrapStatus?.companyName ?? ''}
+											orgEmployees={c.orgEmployees}
+											onRefreshOrg={c.refreshOrgEmployeesList}
+											agentLocalModelMap={c.aiSettings.agentLocalModelIdByRemoteAgentId}
+											employeeLocalModelMap={c.aiSettings.employeeLocalModelIdByEmployeeId}
+											modelOptions={c.modelOptions}
+											modelOptionIdSet={c.modelOptionIdSet}
+											onBindEmployeeLocalModel={c.bindEmployeeLocalModel}
+											defaultModelId={c.localModels.defaultModelId}
+											orchestration={c.orchestration}
+										/>
+									) : null}
 
-								{activeTab === 'activity' ? (
-									<ActivityFeedPage
-										t={t}
-										orchestration={c.orchestration}
-										orgEmployees={c.orgEmployees}
-									/>
-								) : null}
+									{activeTab === 'activity' ? (
+										<ActivityFeedPage
+											t={t}
+											orchestration={c.orchestration}
+											orgEmployees={c.orgEmployees}
+										/>
+									) : null}
 
-								{activeTab === 'connection' ? (
-									<ConnectionPage
-										t={t}
-										DEFAULT_API={c.DEFAULT_API}
-										DEFAULT_WS={c.DEFAULT_WS}
-										aiSettings={c.aiSettings}
-										setAiSettings={c.setAiSettings}
-										wsLog={c.wsLog}
-										onSave={() => void c.saveConnectionAndReconnect()}
-										workspaceId={c.workspaceId}
-										sessionPhase={c.sessionPhase}
-										onRebuildTeam={() => c.resetWorkspaceTeamBootstrap()}
-										runtimes={c.runtimes}
-									/>
-								) : null}
+									{activeTab === 'connection' ? (
+										<ConnectionPage
+											t={t}
+											DEFAULT_API={c.DEFAULT_API}
+											DEFAULT_WS={c.DEFAULT_WS}
+											aiSettings={c.aiSettings}
+											setAiSettings={c.setAiSettings}
+											wsLog={c.wsLog}
+											onSave={() => void c.saveConnectionAndReconnect()}
+											workspaceId={c.workspaceId}
+											sessionPhase={c.sessionPhase}
+											onRebuildTeam={() => c.resetWorkspaceTeamBootstrap()}
+											runtimes={c.runtimes}
+										/>
+									) : null}
+								</div>
 							</>
 						)}
 					</div>

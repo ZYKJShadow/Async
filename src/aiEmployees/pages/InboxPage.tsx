@@ -141,6 +141,7 @@ export function InboxPage({
 	const [draft, setDraft] = useState('');
 	const [moreOpen, setMoreOpen] = useState(false);
 	const moreRef = useRef<HTMLDivElement>(null);
+	const threadRef = useRef<HTMLDivElement>(null);
 
 	const selectedEmployeeId = selection?.kind === 'employee' ? selection.employeeId : null;
 
@@ -226,6 +227,13 @@ export function InboxPage({
 			}
 		}
 	}, [onMarkMessageRead, selectedEmployeeId, thread]);
+
+	// Auto-scroll to bottom when: switching employee, new messages arrive, streaming updates
+	useEffect(() => {
+		const el = threadRef.current;
+		if (!el) return;
+		el.scrollTop = el.scrollHeight;
+	}, [selectedEmployeeId, thread.length, streamDraft]);
 
 	const unreadCountByEmployee = useMemo(() => {
 		const map = new Map<string, number>();
@@ -451,7 +459,7 @@ export function InboxPage({
 									</div>
 								</div>
 							</div>
-							<div className="ref-ai-employees-comm-thread ref-ai-employees-inbox-chat-thread" role="log" aria-live="polite">
+							<div ref={threadRef} className="ref-ai-employees-comm-thread ref-ai-employees-inbox-chat-thread" role="log" aria-live="polite">
 								{streamErr ? (
 									<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
 										{streamErr}
