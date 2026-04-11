@@ -3635,6 +3635,13 @@
 	color: var(--void-fg-0, #e6edf3);
 }
 
+.ref-ai-employees-inbox-chat-avatar-ph--user {
+	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 22%, transparent);
+	color: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 90%, var(--void-fg-0));
+	font-size: 11px;
+	font-weight: 700;
+}
+
 .ref-ai-employees-inbox-chat-row .ref-ai-employees-inbox-chat-msg.is-user,
 .ref-ai-employees-inbox-chat-row .ref-ai-employees-inbox-chat-msg.is-peer {
 	align-self: stretch;
@@ -4149,6 +4156,11 @@
 	font-size: 10px;
 	font-weight: 700;
 	background: var(--surface-control-bg-active, rgba(255, 255, 255, 0.12));
+}
+
+.ref-ai-employees-activity-item-avatar.is-user {
+	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 22%, transparent);
+	color: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 90%, var(--void-fg-0));
 }
 
 .ref-ai-employees-activity-item-arrow {

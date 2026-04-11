@@ -527,6 +527,7 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.activity.filterAssignments': 'Assignments',
 	'aiEmployees.activity.filterResults': 'Results',
 	'aiEmployees.activity.filterApprovals': 'Approvals',
+	'aiEmployees.activity.you': 'You',
 	'aiEmployees.collab.taskAssignment': 'Task assigned',
 	'aiEmployees.collab.handoffRequest': 'Handoff request',
 	'aiEmployees.collab.approvalRequest': 'Approval requested',

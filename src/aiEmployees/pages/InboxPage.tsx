@@ -136,7 +136,6 @@ export function InboxPage({
 	);
 
 	const orgById = useMemo(() => new Map(sorted.map((employee) => [employee.id, employee])), [sorted]);
-	const leadEmployee = useMemo(() => sorted.find((employee) => employee.isCeo) ?? sorted[0] ?? null, [sorted]);
 
 	const [selection, setSelection] = useState<SidebarSelection | null>(null);
 	const [draft, setDraft] = useState('');
@@ -525,7 +524,9 @@ export function InboxPage({
 														</time>
 													</div>
 													{isUser ? (
-														<InboxChatAvatarSlot conn={conn} workspaceId={workspaceId} employee={leadEmployee} />
+														<div className="ref-ai-employees-inbox-chat-avatar" aria-hidden>
+															<span className="ref-ai-employees-inbox-chat-avatar-ph ref-ai-employees-inbox-chat-avatar-ph--user">Me</span>
+														</div>
 													) : null}
 												</div>
 											</Fragment>

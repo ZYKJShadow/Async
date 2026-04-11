@@ -3,7 +3,7 @@ import type { AiCollabMessage, AiCollabCardStatus } from '../../../shared/aiEmpl
 import type { OrgEmployee } from '../api/orgTypes';
 
 function employeeName(employees: Map<string, OrgEmployee>, id?: string): string {
-	if (!id) return '?';
+	if (!id) return 'You';
 	return employees.get(id)?.displayName ?? id.slice(0, 8);
 }
 

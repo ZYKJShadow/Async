@@ -521,6 +521,7 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.activity.filterAssignments': '指派',
 	'aiEmployees.activity.filterResults': '交付',
 	'aiEmployees.activity.filterApprovals': '审批',
+	'aiEmployees.activity.you': '我',
 	'aiEmployees.collab.taskAssignment': '任务指派',
 	'aiEmployees.collab.handoffRequest': '交接请求',
 	'aiEmployees.collab.approvalRequest': '请求审批',

@@ -15,13 +15,18 @@ const FILTER_TYPES: Record<FilterKey, AiCollabMessageType[] | null> = {
 	approvals: ['approval_request', 'approval_response'],
 };
 
-function employeeName(map: Map<string, OrgEmployee>, id?: string): string {
-	if (!id) return '?';
+function isUser(id?: string): boolean {
+	return !id;
+}
+
+function employeeName(map: Map<string, OrgEmployee>, id?: string, t?: TFunction): string {
+	if (!id) return t?.('aiEmployees.activity.you') ?? 'You';
 	return map.get(id)?.displayName ?? id.slice(0, 8);
 }
 
 function employeeInitial(map: Map<string, OrgEmployee>, id?: string): string {
-	const name = employeeName(map, id);
+	if (!id) return 'Me';
+	const name = map.get(id)?.displayName ?? '';
 	return name.trim().slice(0, 1).toUpperCase() || '?';
 }
 
@@ -163,15 +168,15 @@ export function ActivityFeedPage({
 									</div>
 									<div className="ref-ai-employees-activity-item-body">
 										<div className="ref-ai-employees-activity-item-route">
-											<span className="ref-ai-employees-activity-item-avatar" aria-hidden>
+											<span className={`ref-ai-employees-activity-item-avatar${isUser(msg.fromEmployeeId) ? ' is-user' : ''}`} aria-hidden>
 												{employeeInitial(empMap, msg.fromEmployeeId)}
 											</span>
-											<strong>{employeeName(empMap, msg.fromEmployeeId)}</strong>
+											<strong>{employeeName(empMap, msg.fromEmployeeId, t)}</strong>
 											<span className="ref-ai-employees-activity-item-arrow">→</span>
-											<span className="ref-ai-employees-activity-item-avatar" aria-hidden>
+											<span className={`ref-ai-employees-activity-item-avatar${isUser(msg.toEmployeeId) ? ' is-user' : ''}`} aria-hidden>
 												{employeeInitial(empMap, msg.toEmployeeId)}
 											</span>
-											<strong>{employeeName(empMap, msg.toEmployeeId)}</strong>
+											<strong>{employeeName(empMap, msg.toEmployeeId, t)}</strong>
 										</div>
 										<div className="ref-ai-employees-activity-item-label">
 											{typeLabel(t, msg.type)}
