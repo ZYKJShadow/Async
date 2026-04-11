@@ -22,6 +22,7 @@
 :root[data-color-scheme='dark'] {
 	color-scheme: dark;
 	--void-bg-0: #08080a;
+	--void-bg-root: var(--void-bg-0);
 	--void-bg-1: #0e0e11;
 	--void-bg-2: #16161a;
 	--void-bg-3: #1c1c22;
@@ -77,6 +78,7 @@
 :root[data-color-scheme='light'] {
 	color-scheme: light;
 	--void-bg-0: #f5f5f7;
+	--void-bg-root: var(--void-bg-0);
 	--void-bg-1: #ffffff;
 	--void-bg-2: #ffffff;
 	--void-bg-3: #e8e8ed;

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AgentJson, CreateIssuePayload, IssueJson, WorkspaceMemberJson } from '../api/types';
-import { IconChevron, IconListTodo } from '../../icons';
+import { IconListTodo } from '../../icons';
 import { BoardPage } from './BoardPage';
 import { IssueDetailPanel } from './IssueDetailPanel';
 
@@ -14,7 +14,6 @@ function isDoneLike(status: string): boolean {
 
 export function IssuesHubPage({
 	t,
-	workspaceName,
 	issues,
 	issuesLookup,
 	variant,
@@ -24,7 +23,6 @@ export function IssuesHubPage({
 	onCreateIssue,
 }: {
 	t: TFunction;
-	workspaceName: string;
 	/** 当前 Tab 展示的事务列表（「我的」为服务端筛选后的子集） */
 	issues: IssueJson[];
 	/** 解析父事务等用；「我的」Tab 应传工作区全量列表 */
@@ -56,7 +54,6 @@ export function IssuesHubPage({
 	const openIssue = useCallback((issue: IssueJson) => setSelectedId(issue.id), []);
 
 	const title = variant === 'my' ? t('aiEmployees.tab.myIssues') : t('aiEmployees.tab.issues');
-	const wsInitial = workspaceName.trim() ? workspaceName.trim().charAt(0).toUpperCase() : 'W';
 
 	const emptyPrimary =
 		variant === 'my'
@@ -73,19 +70,11 @@ export function IssuesHubPage({
 
 	return (
 		<div className="ref-ai-employees-issues-hub">
-			<div className="ref-ai-employees-issues-hub-crumb">
-				<div className="ref-ai-employees-issues-hub-ws-avatar" aria-hidden>
-					{wsInitial}
-				</div>
-				<span className="ref-ai-employees-issues-hub-ws-name ref-ai-employees-muted">{workspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}</span>
-				<IconChevron className="ref-ai-employees-issues-hub-chev" />
-				<span className="ref-ai-employees-issues-hub-page-title">{title}</span>
-			</div>
-
 			<div className="ref-ai-employees-issues-hub-toolbar">
 				<div className="ref-ai-employees-issues-hub-toolbar-left">
+					<span className="ref-ai-employees-issues-hub-toolbar-title">{title}</span>
 					{variant === 'my' ? (
-						<>
+						<div className="ref-ai-employees-issues-hub-toolbar-filters">
 							<button
 								type="button"
 								className={`ref-ai-employees-issues-hub-pill ${scope === 'active' ? 'is-active' : ''}`}
@@ -96,7 +85,7 @@ export function IssuesHubPage({
 							<button type="button" className={`ref-ai-employees-issues-hub-pill ${scope === 'all' ? 'is-active' : ''}`} onClick={() => setScope('all')}>
 								{t('aiEmployees.issuesHub.scopeAll')}
 							</button>
-						</>
+						</div>
 					) : null}
 				</div>
 				<div className="ref-ai-employees-issues-hub-toolbar-right">

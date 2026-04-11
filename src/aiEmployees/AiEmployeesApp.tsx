@@ -253,7 +253,6 @@ export function AiEmployeesApp() {
 									{activeTab === 'myIssues' ? (
 										<IssuesHubPage
 											t={t}
-											workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
 											issues={c.myIssues}
 											issuesLookup={c.issues}
 											variant="my"
@@ -267,7 +266,6 @@ export function AiEmployeesApp() {
 									{activeTab === 'issues' ? (
 										<IssuesHubPage
 											t={t}
-											workspaceName={activeWorkspaceName || t('aiEmployees.breadcrumbWorkspaceFallback')}
 											issues={c.issues}
 											variant="workspace"
 											agents={c.agents}

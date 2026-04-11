@@ -2,6 +2,8 @@
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] {
 	color-scheme: dark;
 	--void-bg-0: #11171c;
+	/* 页面最底层背景（与 void-bg-0 一致；供 AI 团队等使用 var(--void-bg-root) 的区域） */
+	--void-bg-root: var(--void-bg-0);
 	--void-bg-1: #151c22;
 	--void-bg-2: #1e2831;
 	--void-bg-3: #293743;
