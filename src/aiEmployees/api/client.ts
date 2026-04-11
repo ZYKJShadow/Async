@@ -444,6 +444,28 @@ export async function apiDeleteChatBinding(
 	}
 }
 
+export async function apiPostImReply(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	employeeId: string,
+	body: {
+		im_provider: string;
+		im_chat_id: string;
+		content: string;
+		session_id?: string;
+	}
+): Promise<void> {
+	const r = await apiFetch(conn, `/api/employees/${employeeId}/im-reply`, {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+}
+
 // Phase 10: Task queue observability
 
 export async function apiListWorkspaceTasks(

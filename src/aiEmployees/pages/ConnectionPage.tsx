@@ -110,6 +110,18 @@ export function ConnectionPage({
 				</section>
 			) : null}
 
+			<section className="ref-ai-employees-settings-team-reset" aria-labelledby="ref-ai-employees-integrations-title">
+				<h3 id="ref-ai-employees-integrations-title" className="ref-ai-employees-settings-subtitle">
+					{t('aiEmployees.settings.integrationsTitle')}
+				</h3>
+				<p className="ref-ai-employees-muted ref-ai-employees-settings-team-reset-desc">
+					{t('aiEmployees.settings.integrationsDesc')}
+				</p>
+				<p className="ref-ai-employees-muted" style={{ marginTop: 4 }}>
+					{t('aiEmployees.settings.integrationsBindHint')}
+				</p>
+			</section>
+
 			{runtimes.length > 0 ? (
 				<section className="ref-ai-employees-settings-team-reset" aria-labelledby="ref-ai-employees-runtimes-title">
 					<h3 id="ref-ai-employees-runtimes-title" className="ref-ai-employees-settings-subtitle">

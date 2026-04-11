@@ -4372,6 +4372,89 @@
 	white-space: nowrap;
 }
 
+/* IM Bot Bindings — card-per-platform layout */
+.ref-ai-employees-im-bindings {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-top: 8px;
+}
+
+.ref-ai-employees-im-bindings-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.ref-ai-employees-im-bindings-title {
+	font-size: 13px;
+	font-weight: 650;
+}
+
+.ref-ai-employees-im-channel-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-ai-employees-im-channel-card {
+	padding: 12px 14px;
+	border-radius: 12px;
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
+	background: var(--surface-panel-bg-soft, rgba(255, 255, 255, 0.03));
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	transition: border-color 0.15s ease;
+}
+
+.ref-ai-employees-im-channel-card.is-active {
+	border-color: color-mix(in srgb, var(--void-success, #3fb950) 40%, var(--void-border-1));
+}
+
+.ref-ai-employees-im-channel-card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.ref-ai-employees-im-channel-card-name {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.ref-ai-employees-im-channel-card-body {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.ref-ai-employees-im-channel-card-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.ref-ai-employees-im-channel-card-form {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.ref-ai-employees-pill--ok {
+	background: rgba(63, 185, 80, 0.14);
+	color: color-mix(in srgb, var(--void-success, #3fb950) 90%, var(--void-fg-0));
+}
+
+.ref-ai-employees-btn--sm {
+	min-height: 28px;
+	padding: 0 10px;
+	font-size: 12px;
+	border-radius: 6px;
+}
+
 .ref-ai-employees-runs-root {
 	flex: 1;
 	min-height: 0;

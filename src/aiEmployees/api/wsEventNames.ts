@@ -49,6 +49,8 @@ export const AI_EMPLOYEES_WS_EVENT_NAMES = [
 	'project:deleted',
 	'daemon:heartbeat',
 	'daemon:register',
+	'im:message',
+	'im:reply',
 ] as const;
 
 export type AiEmployeesWsEventName = (typeof AI_EMPLOYEES_WS_EVENT_NAMES)[number];

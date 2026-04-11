@@ -180,6 +180,9 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.settings.rebuildTeamDesc':
 		'Clears org members and onboarding state for the current remote workspace, then re-opens the setup wizard (same as “Start over” in the wizard). Connection settings are unchanged.',
 	'aiEmployees.settings.rebuildTeamAction': 'Rebuild team',
+	'aiEmployees.settings.integrationsTitle': 'IM Bot Integrations',
+	'aiEmployees.settings.integrationsDesc': 'Each AI employee can have their own IM bot (Telegram, Feishu, or Discord). Only one platform can be active per employee at a time.',
+	'aiEmployees.settings.integrationsBindHint': 'To bind a bot, open an employee profile in the Team tab and configure the IM Bot section.',
 	'aiEmployees.settings.rebuildTeamConfirm':
 		'This will delete team data for this workspace and restart onboarding. This cannot be undone. Continue?',
 	'aiEmployees.managerEmployee': 'Reports to',
@@ -1567,14 +1570,19 @@ export const messagesEn: Record<string, string> = {
 	'mcp.connectionError': 'Connection error',
 
 	// IM bindings
-	'aiEmployees.imBindings.title': 'IM Accounts',
-	'aiEmployees.imBindings.add': '+ Add',
-	'aiEmployees.imBindings.providerLabel': 'Platform',
-	'aiEmployees.imBindings.externalUserIdLabel': 'External User ID',
-	'aiEmployees.imBindings.externalUserIdPh': 'e.g. 123456789',
-	'aiEmployees.imBindings.handleLabel': 'Handle / Username (optional)',
-	'aiEmployees.imBindings.handlePh': '@username',
-	'aiEmployees.imBindings.none': 'No IM accounts linked yet.',
+	'aiEmployees.imBindings.title': 'IM Bot',
+	'aiEmployees.imBindings.desc': 'Bind an IM bot to this employee. They will use that bot identity to interact with external users. Only one platform can be active at a time.',
+	'aiEmployees.imBindings.telegramTokenHint': 'Create a bot via @BotFather on Telegram, then paste the token here.',
+	'aiEmployees.imBindings.feishuTokenHint': 'Create an app in Feishu Open Platform, then paste the App ID here.',
+	'aiEmployees.imBindings.discordTokenHint': 'Create a bot in Discord Developer Portal, then paste the token here.',
+	'aiEmployees.imBindings.bind': 'Bind',
+	'aiEmployees.imBindings.edit': 'Edit',
+	'aiEmployees.imBindings.unbind': 'Unbind',
+	'aiEmployees.imBindings.activate': 'Activate',
+	'aiEmployees.imBindings.tokenRequired': 'Please enter the bot token.',
+	'aiEmployees.imBindings.statusActive': 'Active',
+	'aiEmployees.imBindings.statusDisabled': 'Inactive',
+	'aiEmployees.imBindings.statusUnbound': 'Not bound',
 
 	// common additions
 	'common.yes': 'Yes',

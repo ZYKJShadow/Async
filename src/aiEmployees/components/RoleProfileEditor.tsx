@@ -118,17 +118,45 @@ export function RoleProfileEditor({
 	);
 }
 
-// ── IM 账号绑定 UI ─────────────────────────────────────────────────────────────
+// ── IM 机器人绑定 UI ────────────────────────────────────────────────────────────
 
-const IM_PROVIDERS: { value: ChatBindingProvider; label: string }[] = [
-	{ value: 'telegram', label: 'Telegram' },
-	{ value: 'feishu', label: '飞书 (Feishu)' },
-	{ value: 'discord', label: 'Discord' },
+type ProviderMeta = {
+	value: ChatBindingProvider;
+	label: string;
+	tokenLabel: string;
+	tokenPlaceholder: string;
+	tokenHint: string;
+};
+
+const IM_PROVIDERS: ProviderMeta[] = [
+	{
+		value: 'telegram',
+		label: 'Telegram',
+		tokenLabel: 'Bot Token',
+		tokenPlaceholder: '110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw',
+		tokenHint: 'aiEmployees.imBindings.telegramTokenHint',
+	},
+	{
+		value: 'feishu',
+		label: '飞书 (Feishu)',
+		tokenLabel: 'App ID',
+		tokenPlaceholder: 'cli_xxxxxxxxxx',
+		tokenHint: 'aiEmployees.imBindings.feishuTokenHint',
+	},
+	{
+		value: 'discord',
+		label: 'Discord',
+		tokenLabel: 'Bot Token',
+		tokenPlaceholder: 'MTAxNjE...',
+		tokenHint: 'aiEmployees.imBindings.discordTokenHint',
+	},
 ];
 
 /**
- * IM 联系方式绑定面板 — 显示员工已绑定的 IM 账号，并支持添加/删除。
- * 放置于角色编辑器旁侧，或嵌入详情抽屉。
+ * IM 机器人绑定面板。
+ *
+ * 每个 AI 员工可以绑定最多 3 个平台的机器人，但同时只能启用 1 个。
+ * 绑定后，该员工即拥有自己的 IM 机器人身份，可以在对应平台上与外部用户互动。
  */
 export function ImBindingsSection({
 	t,
@@ -143,12 +171,11 @@ export function ImBindingsSection({
 }) {
 	const [bindings, setBindings] = useState<ChatBindingJson[]>([]);
 	const [loading, setLoading] = useState(false);
-	const [addOpen, setAddOpen] = useState(false);
-	const [addProvider, setAddProvider] = useState<ChatBindingProvider>('telegram');
-	const [addUserId, setAddUserId] = useState('');
-	const [addHandle, setAddHandle] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [err, setErr] = useState<string | null>(null);
+	// Editing state for a specific provider
+	const [editProvider, setEditProvider] = useState<ChatBindingProvider | null>(null);
+	const [editToken, setEditToken] = useState('');
 
 	const fetchBindings = useCallback(async () => {
 		if (!workspaceId || !employeeId) return;
@@ -157,7 +184,7 @@ export function ImBindingsSection({
 			const list = await apiListChatBindings(conn, workspaceId, employeeId);
 			setBindings(list);
 		} catch {
-			// ignore transient errors
+			// ignore
 		} finally {
 			setLoading(false);
 		}
@@ -167,23 +194,29 @@ export function ImBindingsSection({
 		void fetchBindings();
 	}, [fetchBindings]);
 
-	const handleAdd = async () => {
-		if (!addUserId.trim()) {
-			setErr('external_user_id required');
+	const bindingByProvider = useMemo(() => {
+		const map = new Map<ChatBindingProvider, ChatBindingJson>();
+		for (const b of bindings) map.set(b.provider, b);
+		return map;
+	}, [bindings]);
+
+	const handleSaveBinding = async (provider: ChatBindingProvider, token: string) => {
+		if (!token.trim()) {
+			setErr(t('aiEmployees.imBindings.tokenRequired'));
 			return;
 		}
 		setSaving(true);
 		setErr(null);
 		try {
+			// Upsert: backend does ON CONFLICT per (workspace, employee, provider)
 			const binding = await apiCreateChatBinding(conn, workspaceId, employeeId, {
-				provider: addProvider,
-				external_user_id: addUserId.trim(),
-				external_handle: addHandle.trim() || undefined,
+				provider,
+				external_user_id: token.trim(),
+				config: { bot_token: token.trim() },
 			});
-			setBindings((prev) => [...prev.filter((b) => b.provider !== addProvider), binding]);
-			setAddOpen(false);
-			setAddUserId('');
-			setAddHandle('');
+			setBindings((prev) => [...prev.filter((b) => b.provider !== provider), binding]);
+			setEditProvider(null);
+			setEditToken('');
 		} catch (e) {
 			setErr(e instanceof Error ? e.message : 'save failed');
 		} finally {
@@ -191,10 +224,39 @@ export function ImBindingsSection({
 		}
 	};
 
-	const handleDelete = async (bindingId: string) => {
+	const handleActivate = async (provider: ChatBindingProvider) => {
+		const binding = bindingByProvider.get(provider);
+		if (!binding) return;
+		// Re-save with same data — the backend activates the most recent upsert.
+		// To properly toggle, we'd need a PATCH endpoint; for now re-create triggers upsert.
+		setSaving(true);
 		try {
-			await apiDeleteChatBinding(conn, workspaceId, employeeId, bindingId);
-			setBindings((prev) => prev.filter((b) => b.id !== bindingId));
+			const updated = await apiCreateChatBinding(conn, workspaceId, employeeId, {
+				provider,
+				external_user_id: binding.external_user_id,
+				config: binding.config,
+			});
+			// Deactivate others client-side (server enforces via status logic)
+			setBindings((prev) =>
+				prev.map((b) =>
+					b.provider === provider
+						? updated
+						: { ...b, status: 'disabled' as const }
+				)
+			);
+		} catch {
+			// ignore
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const handleDelete = async (provider: ChatBindingProvider) => {
+		const binding = bindingByProvider.get(provider);
+		if (!binding) return;
+		try {
+			await apiDeleteChatBinding(conn, workspaceId, employeeId, binding.id);
+			setBindings((prev) => prev.filter((b) => b.provider !== provider));
 		} catch {
 			// ignore
 		}
@@ -204,95 +266,136 @@ export function ImBindingsSection({
 		<div className="ref-ai-employees-im-bindings">
 			<div className="ref-ai-employees-im-bindings-head">
 				<span className="ref-ai-employees-im-bindings-title">{t('aiEmployees.imBindings.title')}</span>
-				<button
-					type="button"
-					className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-btn--sm"
-					onClick={() => setAddOpen((v) => !v)}
-				>
-					{addOpen ? t('common.cancel') : t('aiEmployees.imBindings.add')}
-				</button>
 			</div>
-
-			{addOpen ? (
-				<div className="ref-ai-employees-im-bindings-form">
-					<label className="ref-ai-employees-catalog-field">
-						<span>{t('aiEmployees.imBindings.providerLabel')}</span>
-						<select
-							className="ref-ai-employees-input"
-							value={addProvider}
-							onChange={(e) => setAddProvider(e.target.value as ChatBindingProvider)}
-						>
-							{IM_PROVIDERS.map((p) => (
-								<option key={p.value} value={p.value}>
-									{p.label}
-								</option>
-							))}
-						</select>
-					</label>
-					<label className="ref-ai-employees-catalog-field">
-						<span>{t('aiEmployees.imBindings.externalUserIdLabel')}</span>
-						<input
-							className="ref-ai-employees-input"
-							placeholder={t('aiEmployees.imBindings.externalUserIdPh')}
-							value={addUserId}
-							onChange={(e) => setAddUserId(e.target.value)}
-						/>
-					</label>
-					<label className="ref-ai-employees-catalog-field">
-						<span>{t('aiEmployees.imBindings.handleLabel')}</span>
-						<input
-							className="ref-ai-employees-input"
-							placeholder={t('aiEmployees.imBindings.handlePh')}
-							value={addHandle}
-							onChange={(e) => setAddHandle(e.target.value)}
-						/>
-					</label>
-					{err ? <p className="ref-ai-employees-error">{err}</p> : null}
-					<div className="ref-ai-employees-form-actions">
-						<button
-							type="button"
-							className="ref-ai-employees-btn ref-ai-employees-btn--primary"
-							disabled={saving || !addUserId.trim()}
-							onClick={() => void handleAdd()}
-						>
-							{saving ? t('common.saving') : t('common.save')}
-						</button>
-					</div>
-				</div>
-			) : null}
+			<p className="ref-ai-employees-muted" style={{ margin: '4px 0 10px' }}>
+				{t('aiEmployees.imBindings.desc')}
+			</p>
 
 			{loading ? (
-				<p className="ref-ai-employees-muted ref-ai-employees-im-bindings-loading">
-					{t('common.loading')}
-				</p>
-			) : bindings.length === 0 ? (
-				<p className="ref-ai-employees-muted ref-ai-employees-im-bindings-empty">
-					{t('aiEmployees.imBindings.none')}
-				</p>
+				<p className="ref-ai-employees-muted">{t('common.loading')}</p>
 			) : (
-				<ul className="ref-ai-employees-im-bindings-list">
-					{bindings.map((b) => (
-						<li key={b.id} className="ref-ai-employees-im-bindings-item">
-							<span className="ref-ai-employees-im-bindings-provider">{b.provider}</span>
-							<span className="ref-ai-employees-im-bindings-uid">
-								{b.external_handle ? `@${b.external_handle}` : b.external_user_id}
-							</span>
-							<span
-								className={`ref-ai-employees-pill ref-ai-employees-pill--${b.status === 'active' ? 'ok' : 'warn'}`}
+				<div className="ref-ai-employees-im-channel-list">
+					{IM_PROVIDERS.map((pm) => {
+						const existing = bindingByProvider.get(pm.value);
+						const isActive = existing?.status === 'active';
+						const isEditing = editProvider === pm.value;
+
+						return (
+							<div
+								key={pm.value}
+								className={`ref-ai-employees-im-channel-card ${isActive ? 'is-active' : ''}`}
 							>
-								{b.status}
-							</span>
-							<button
-								type="button"
-								className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-btn--sm"
-								onClick={() => void handleDelete(b.id)}
-								aria-label={t('common.delete')}
-							>
-								×
-							</button>
-						</li>
-					))}
-				</ul>
+								<div className="ref-ai-employees-im-channel-card-head">
+									<span className="ref-ai-employees-im-channel-card-name">{pm.label}</span>
+									{existing ? (
+										<span className={`ref-ai-employees-pill ref-ai-employees-pill--${isActive ? 'ok' : 'muted'}`}>
+											{isActive ? t('aiEmployees.imBindings.statusActive') : t('aiEmployees.imBindings.statusDisabled')}
+										</span>
+									) : (
+										<span className="ref-ai-employees-pill ref-ai-employees-pill--muted">
+											{t('aiEmployees.imBindings.statusUnbound')}
+										</span>
+									)}
+								</div>
+
+								{existing && !isEditing ? (
+									<div className="ref-ai-employees-im-channel-card-body">
+										<span className="ref-ai-employees-muted" style={{ fontSize: 12 }}>
+											{pm.tokenLabel}: {existing.external_user_id.slice(0, 12)}{'…'}
+										</span>
+										<div className="ref-ai-employees-im-channel-card-actions">
+											{!isActive ? (
+												<button
+													type="button"
+													className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-btn--sm"
+													disabled={saving}
+													onClick={() => void handleActivate(pm.value)}
+												>
+													{t('aiEmployees.imBindings.activate')}
+												</button>
+											) : null}
+											<button
+												type="button"
+												className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-btn--sm"
+												onClick={() => {
+													setEditProvider(pm.value);
+													setEditToken(existing.external_user_id);
+													setErr(null);
+												}}
+											>
+												{t('aiEmployees.imBindings.edit')}
+											</button>
+											<button
+												type="button"
+												className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-btn--sm"
+												style={{ color: '#f85149' }}
+												onClick={() => void handleDelete(pm.value)}
+											>
+												{t('aiEmployees.imBindings.unbind')}
+											</button>
+										</div>
+									</div>
+								) : null}
+
+								{isEditing || !existing ? (
+									<div className="ref-ai-employees-im-channel-card-form">
+										<label className="ref-ai-employees-catalog-field" style={{ marginTop: 6 }}>
+											<span>{pm.tokenLabel}</span>
+											<input
+												className="ref-ai-employees-input"
+												type="password"
+												autoComplete="off"
+												placeholder={pm.tokenPlaceholder}
+												value={isEditing ? editToken : ''}
+												onChange={(e) => {
+													if (!isEditing) {
+														setEditProvider(pm.value);
+													}
+													setEditToken(e.target.value);
+												}}
+												onFocus={() => {
+													if (!isEditing) {
+														setEditProvider(pm.value);
+														setEditToken('');
+													}
+												}}
+											/>
+											<span className="ref-ai-employees-field-hint ref-ai-employees-muted">
+												{t(pm.tokenHint)}
+											</span>
+										</label>
+										{err && editProvider === pm.value ? (
+											<p className="ref-ai-employees-error">{err}</p>
+										) : null}
+										{isEditing ? (
+											<div className="ref-ai-employees-form-actions" style={{ marginTop: 4 }}>
+												<button
+													type="button"
+													className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-btn--sm"
+													disabled={saving || !editToken.trim()}
+													onClick={() => void handleSaveBinding(pm.value, editToken)}
+												>
+													{saving ? t('common.saving') : t('aiEmployees.imBindings.bind')}
+												</button>
+												<button
+													type="button"
+													className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-btn--sm"
+													onClick={() => {
+														setEditProvider(null);
+														setEditToken('');
+														setErr(null);
+													}}
+												>
+													{t('common.cancel')}
+												</button>
+											</div>
+										) : null}
+									</div>
+								) : null}
+							</div>
+						);
+					})}
+				</div>
 			)}
 		</div>
 	);

@@ -179,6 +179,9 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.settings.rebuildTeamDesc':
 		'清空当前远端工作区的组织成员与引导状态，并重新进入搭建向导（与向导顶栏「重新开始」效果一致）。不会修改连接配置。',
 	'aiEmployees.settings.rebuildTeamAction': '重建团队',
+	'aiEmployees.settings.integrationsTitle': 'IM 机器人集成',
+	'aiEmployees.settings.integrationsDesc': '每个 AI 员工可以拥有自己的 IM 机器人（Telegram、飞书或 Discord）。每个员工同时只能启用一个平台。',
+	'aiEmployees.settings.integrationsBindHint': '要绑定机器人，请在「团队」页面打开员工资料，配置「IM 机器人」部分。',
 	'aiEmployees.settings.rebuildTeamConfirm': '确定要清空该工作区的团队数据并重新开始引导吗？此操作不可撤销。',
 	'aiEmployees.managerEmployee': '直属上级',
 	'aiEmployees.managerNone': '无',
@@ -1556,14 +1559,19 @@ export const messagesZhCN: Record<string, string> = {
 	'mcp.connectionError': '连接错误',
 
 	// IM 绑定
-	'aiEmployees.imBindings.title': 'IM 账号',
-	'aiEmployees.imBindings.add': '+ 添加',
-	'aiEmployees.imBindings.providerLabel': '平台',
-	'aiEmployees.imBindings.externalUserIdLabel': '外部用户 ID',
-	'aiEmployees.imBindings.externalUserIdPh': '如 123456789',
-	'aiEmployees.imBindings.handleLabel': '用户名 / Handle（可选）',
-	'aiEmployees.imBindings.handlePh': '@用户名',
-	'aiEmployees.imBindings.none': '暂无绑定的 IM 账号。',
+	'aiEmployees.imBindings.title': 'IM 机器人',
+	'aiEmployees.imBindings.desc': '为此员工绑定 IM 机器人，绑定后该员工将以机器人身份在对应平台与外部用户互动。同时只能启用一个平台。',
+	'aiEmployees.imBindings.telegramTokenHint': '在 Telegram 中通过 @BotFather 创建机器人，将获得的 Token 粘贴到此处。',
+	'aiEmployees.imBindings.feishuTokenHint': '在飞书开放平台创建应用，将 App ID 粘贴到此处。',
+	'aiEmployees.imBindings.discordTokenHint': '在 Discord Developer Portal 创建机器人，将 Token 粘贴到此处。',
+	'aiEmployees.imBindings.bind': '绑定',
+	'aiEmployees.imBindings.edit': '编辑',
+	'aiEmployees.imBindings.unbind': '解绑',
+	'aiEmployees.imBindings.activate': '启用',
+	'aiEmployees.imBindings.tokenRequired': '请输入机器人 Token。',
+	'aiEmployees.imBindings.statusActive': '已启用',
+	'aiEmployees.imBindings.statusDisabled': '未启用',
+	'aiEmployees.imBindings.statusUnbound': '未绑定',
 
 	// common additions
 	'common.yes': '是',

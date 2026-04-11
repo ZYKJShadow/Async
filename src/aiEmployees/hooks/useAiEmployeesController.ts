@@ -50,6 +50,7 @@ import {
 	apiListTasks,
 	apiListWorkspaces,
 	apiPatchIssue,
+	apiPostImReply,
 	type ListIssuesQueryOptions,
 } from '../api/client';
 import {
@@ -131,6 +132,7 @@ export function useAiEmployeesController() {
 	const [employeeChatError, setEmployeeChatError] = useState<Record<string, string | undefined>>({});
 	const pendingEmployeeChatRef = useRef(new Map<string, { employeeId: string; runId: string }>());
 	const employeeReplyGuardRef = useRef(new Set<string>());
+	const requestEmployeeReplyRef = useRef<((employeeId: string, runId: string) => Promise<void>) | null>(null);
 	const wsRef = useRef<AiEmployeesWsClient | null>(null);
 
 	useEffect(() => {
@@ -993,6 +995,82 @@ export function useAiEmployeesController() {
 			client.on('task:rejected', () => {
 				setInboxVersion((v) => v + 1);
 			}),
+			// IM bridge: backend received a message on an employee's bot — generate reply with local model
+			client.on('im:message', (p) => {
+				const payload = p as {
+					employeeId?: string;
+					imProvider?: string;
+					imChatId?: string;
+					sessionId?: string;
+					content?: string;
+					sender?: string;
+				};
+				if (!payload.employeeId || !payload.content || !payload.imProvider || !payload.imChatId) {
+					return;
+				}
+				const empId = payload.employeeId;
+				const imProvider = payload.imProvider;
+				const imChatId = payload.imChatId;
+				const sessionId = payload.sessionId;
+				const userMessage = payload.content;
+				const senderName = payload.sender ?? 'User';
+
+				// Inject user message into orchestration so the local model has context
+				const nowIso = new Date().toISOString();
+				const runId = `im:${empId}:${imChatId}`;
+				persistOrchestration((state) => {
+					// Ensure a run exists for this IM conversation
+					let next = state;
+					if (!next.runs.find((r) => r.id === runId)) {
+						next = upsertRun(next, {
+							...createDraftRun(`IM: ${senderName}`, undefined, nowIso, runId, {
+								status: 'running',
+								ownerEmployeeId: empId,
+								currentAssigneeEmployeeId: empId,
+								lastEventAtIso: nowIso,
+							}),
+							handoffs: [],
+						});
+					}
+					next = appendCollabMessage(next, {
+						id: crypto.randomUUID(),
+						runId,
+						type: 'text',
+						toEmployeeId: empId,
+						summary: userMessage.slice(0, 80),
+						body: userMessage,
+						createdAtIso: nowIso,
+					});
+					return next;
+				});
+
+				// Use the local model to generate a reply, then send it back
+				(async () => {
+					// Wait a tick for orchestration state to settle
+					await new Promise((r) => setTimeout(r, 50));
+					await requestEmployeeReplyRef.current?.(empId, runId);
+
+					// After reply is generated (persisted in orchestration), find it and send to backend
+					// The reply will be the last message from this employee
+					await new Promise((r) => setTimeout(r, 500));
+					const msgs = orchestrationRef.current.collabMessages
+						.filter((m) => m.fromEmployeeId === empId && m.runId === runId)
+						.sort((a, b) => Date.parse(b.createdAtIso) - Date.parse(a.createdAtIso));
+					const lastReply = msgs[0];
+					if (lastReply?.body) {
+						try {
+							await apiPostImReply(normConn(aiSettings), workspaceId, empId, {
+								im_provider: imProvider,
+								im_chat_id: imChatId,
+								content: lastReply.body,
+								session_id: sessionId,
+							});
+						} catch (e) {
+							console.error('Failed to send IM reply:', e);
+						}
+					}
+				})();
+			}),
 		];
 		void syncOrchestrationHistory();
 		client.connect();
@@ -1003,7 +1081,7 @@ export function useAiEmployeesController() {
 			client.disconnect();
 			wsRef.current = null;
 		};
-	}, [conn, sessionPhase, workspaceId, routeWsEventToRefresh, softRefreshPayload, refreshAgentsOnly, recordTaskEvent, syncOrchestrationHistory]);
+	}, [conn, sessionPhase, workspaceId, routeWsEventToRefresh, softRefreshPayload, refreshAgentsOnly, recordTaskEvent, syncOrchestrationHistory, persistOrchestration, appendCollabMessage, aiSettings]);
 
 	const modelOptions = useMemo(() => buildModelOptions(localModels), [localModels]);
 	const modelOptionIdSet = useMemo(() => new Set(modelOptions.map((m) => m.id)), [modelOptions]);
@@ -1175,6 +1253,7 @@ export function useAiEmployeesController() {
 			appendTimelineEvent,
 		]
 	);
+	requestEmployeeReplyRef.current = requestEmployeeReply;
 
 	const bindAgentLocalModel = useCallback(
 		(agentId: string, modelEntryId: string) => {
