@@ -6014,6 +6014,50 @@
 	vertical-align: middle;
 }
 
+/* Run status bar — shows inside chat detail when a run has active handoffs */
+.ref-ai-employees-inbox-run-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 8px 18px;
+	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 8%, transparent);
+	border-bottom: 1px solid color-mix(in srgb, var(--void-accent-cool, #58a6ff) 15%, transparent);
+	font-size: 12px;
+}
+
+.ref-ai-employees-inbox-run-bar-info {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.ref-ai-employees-inbox-run-bar-label {
+	font-weight: 650;
+	color: var(--void-accent-cool, #58a6ff);
+	white-space: nowrap;
+}
+
+.ref-ai-employees-inbox-run-bar-status {
+	color: var(--void-fg-1, #9aa4b2);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-ai-employees-inbox-run-bar-counts {
+	white-space: nowrap;
+	color: var(--void-fg-2, #6b7380);
+	font-variant-numeric: tabular-nums;
+}
+
+.ref-ai-employees-inbox-run-bar-link {
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+
 .ref-ai-employees-inbox-detail-headbar {
 	padding: 14px 18px;
 	border-bottom: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));

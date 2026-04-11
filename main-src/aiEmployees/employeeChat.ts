@@ -101,34 +101,43 @@ export function buildEmployeeSystemPrompt(input: EmployeeChatInput): string {
 		parts.push(`== Current workspace state ==\n${lines.join('\n')}\n== End of workspace state ==`);
 	}
 
-	// Collaboration tool guidance
-	if (input.teamMembers && input.teamMembers.length > 0) {
-		parts.push(
-			'== Collaboration tools ==\n' +
-			'You have access to collaboration tools for team coordination:\n' +
-			'• delegate_task — Assign a task to a teammate when it requires their expertise.\n' +
-			'• send_colleague_message — Send a message to a teammate to ask questions or share context.\n' +
-			'• submit_result — Report that your current task is complete with a summary.\n' +
-			'• report_blocker — Report when you are blocked and need help.\n\n' +
-			'Use these tools proactively: delegate when work falls outside your scope, ' +
-			'submit results when done, and report blockers promptly.'
-		);
-	}
-
-	// CEO/Coordinator-specific instructions
+	// CEO/Coordinator-specific instructions — CEO does NOT execute code, only coordinates
 	if (input.isCeo) {
 		parts.push(
 			'== CEO / Coordinator role ==\n' +
-			'You are the team coordinator. Your primary responsibilities:\n' +
-			'1. **Analyze incoming tasks** from the boss and break them into actionable sub-tasks.\n' +
-			'2. **Delegate work** to the right team members using `delegate_task` based on their roles and expertise.\n' +
-			'3. **Monitor progress** and coordinate handoffs between team members.\n' +
-			'4. **Report status** to the boss with clear summaries of team progress.\n\n' +
-			'When you receive a task:\n' +
-			'- First, analyze what needs to be done and which skills are required.\n' +
-			'- Then, delegate sub-tasks to appropriate team members using `delegate_task`.\n' +
-			'- If you can handle it yourself, do so directly.\n' +
-			'- Always acknowledge the task and explain your delegation plan to the boss.'
+			'You are the team coordinator (CEO). You do NOT write code or modify files yourself.\n' +
+			'Your job is to analyze, plan, delegate, and report.\n\n' +
+			'Your tools:\n' +
+			'• delegate_task — Assign a sub-task to a teammate. This is your PRIMARY tool.\n' +
+			'• send_colleague_message — Ask a teammate a question or share context.\n' +
+			'• submit_result — Report overall status back to the boss.\n' +
+			'• report_blocker — Escalate when the team is stuck.\n\n' +
+			'When you receive a request from the boss:\n' +
+			'1. Briefly acknowledge the request.\n' +
+			'2. Analyze what needs to be done.\n' +
+			'3. Break it into sub-tasks and delegate each to the right teammate using `delegate_task`.\n' +
+			'4. Explain your plan to the boss in plain language: who will do what and why.\n' +
+			'5. You may delegate to multiple teammates in one response.\n\n' +
+			'IMPORTANT:\n' +
+			'- Do NOT read, write, or edit files yourself. Delegate all technical work.\n' +
+			'- Your chat responses should be short verbal summaries only.\n' +
+			'- When delegating, match the task to the teammate whose role fits best.\n' +
+			'- If no teammate fits, explain to the boss and suggest hiring.'
+		);
+	} else if (input.teamMembers && input.teamMembers.length > 0) {
+		// Non-CEO employees with teammates: can do real work + collaborate
+		parts.push(
+			'== Collaboration tools ==\n' +
+			'Besides your normal work tools, you have collaboration tools:\n' +
+			'• delegate_task — Pass a sub-task to a teammate if it requires their expertise.\n' +
+			'• send_colleague_message — Message a teammate to ask questions or share context.\n' +
+			'• submit_result — Report task completion. ALWAYS call this when you finish a task.\n' +
+			'• report_blocker — Report when you are stuck and need help.\n\n' +
+			'Workflow:\n' +
+			'1. When you receive a task, do the work using your normal tools (Read, Write, Edit, etc.).\n' +
+			'2. When done, call `submit_result` with a summary of what you did.\n' +
+			'3. If you hit a blocker, call `report_blocker`.\n' +
+			'4. If part of the task needs another teammate, call `delegate_task`.'
 		);
 	}
 
@@ -177,20 +186,30 @@ export async function runEmployeeChat(
 	}));
 	const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, ...history];
 
-	const useAgentMode =
+	const hasTeammates = input.teamMembers && input.teamMembers.length > 0;
+	const hasBoundary =
 		input.boundaryLocalPaths &&
-		input.boundaryLocalPaths.length > 0 &&
-		resolved.paradigm !== 'gemini'; // Gemini doesn't support tool use
+		input.boundaryLocalPaths.length > 0;
+	const canUseTools = resolved.paradigm !== 'gemini'; // Gemini doesn't support tool use
+
+	// CEO only gets collaboration tools — never file tools.
+	// Regular employees get file tools + collaboration tools when they have a workspace boundary.
+	const useAgentMode = canUseTools && (input.isCeo ? hasTeammates : hasBoundary);
 
 	if (useAgentMode) {
-		const workspaceRoot = input.boundaryLocalPaths![0];
+		const workspaceRoot = hasBoundary ? input.boundaryLocalPaths![0] : null;
 
-		// Build tool pool: standard agent tools + collaboration tools
-		const baseTools = assembleAgentToolPool('agent', {
-			mcpToolDenyPrefixes: settings.mcpToolDenyPrefixes,
-		});
-		const hasTeammates = input.teamMembers && input.teamMembers.length > 0;
-		const toolPool = hasTeammates ? [...baseTools, ...COLLAB_TOOL_DEFS] : baseTools;
+		let toolPool;
+		if (input.isCeo) {
+			// CEO: collaboration tools only — force delegation, no file operations
+			toolPool = [...COLLAB_TOOL_DEFS];
+		} else {
+			// Regular employee: file tools + collaboration tools
+			const baseTools = assembleAgentToolPool('agent', {
+				mcpToolDenyPrefixes: settings.mcpToolDenyPrefixes,
+			});
+			toolPool = hasTeammates ? [...baseTools, ...COLLAB_TOOL_DEFS] : baseTools;
+		}
 
 		const agentHandlers: AgentLoopHandlers = {
 			onTextDelta: (text) => handlers.onDelta(text),
@@ -211,14 +230,18 @@ export async function runEmployeeChat(
 			onError: (msg) => handlers.onError(msg),
 		};
 
+		// CEO gets shorter timeout (coordination is fast) vs workers who need time for file ops
+		const timeout = input.isCeo ? 120_000 : 300_000;
+		const maxTokens = input.isCeo ? 4096 : 16384;
+
 		const agentOptions: AgentLoopOptions = {
 			requestModelId: resolved.requestModelId,
 			paradigm: resolved.paradigm,
 			requestApiKey: resolved.apiKey,
 			requestBaseURL: resolved.baseURL,
 			requestProxyUrl: resolved.proxyUrl,
-			maxOutputTokens: Math.min(resolved.maxOutputTokens, 16384),
-			signal: AbortSignal.timeout(300_000), // 5 minutes for agent tasks
+			maxOutputTokens: Math.min(resolved.maxOutputTokens, maxTokens),
+			signal: AbortSignal.timeout(timeout),
 			composerMode: 'agent',
 			toolPoolOverride: toolPool,
 			workspaceRoot,

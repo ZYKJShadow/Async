@@ -979,7 +979,12 @@ export function useAiEmployeesController() {
 			return;
 		}
 		return shell.subscribeAiEmployeesChat((raw) => {
-			const p = raw as { requestId?: string; kind?: string; delta?: string; text?: string; error?: string; toolName?: string; toolSuccess?: boolean; action?: Record<string, unknown> };
+			const p = raw as {
+				requestId?: string; kind?: string; delta?: string; text?: string;
+				error?: string; toolName?: string; toolSuccess?: boolean;
+				isCollabTool?: boolean; toolArgs?: Record<string, unknown>;
+				action?: Record<string, unknown>;
+			};
 			const rid = p.requestId;
 			if (!rid) {
 				return;
@@ -994,19 +999,38 @@ export function useAiEmployeesController() {
 				return;
 			}
 			if (p.kind === 'tool_call' && p.toolName) {
-				// Show tool activity as a status prefix in the streaming state
+				if (p.isCollabTool) {
+					// Collab tool calls are handled via collab_action event — skip chat display
+					return;
+				}
+				// File tool activity → record in run timeline, NOT in chat bubbles.
+				// Only show a brief working indicator in the chat streaming area.
+				const empName = employeeById.get(employeeId)?.displayName ?? employeeId.slice(0, 8);
+				const nowIso = new Date().toISOString();
+				persistOrchestration((state) =>
+					appendTimelineEvent(state, {
+						id: `tool:${employeeId}:${p.toolName}:${nowIso}`,
+						runId,
+						type: 'task_event',
+						label: `${empName}: ${p.toolName}`,
+						description: p.toolArgs ? JSON.stringify(p.toolArgs).slice(0, 200) : undefined,
+						createdAtIso: nowIso,
+						employeeId,
+						source: 'local',
+					})
+				);
+				// Show a minimal working indicator (no tool name detail in chat)
 				setEmployeeChatStreaming((prev) => {
 					const current = prev[employeeId] ?? '';
-					// Only show tool status if no text has been streamed yet, or append after existing text
 					if (!current) {
-						return { ...prev, [employeeId]: `\u{1F527} ${p.toolName}...\n` };
+						return { ...prev, [employeeId]: '' };
 					}
 					return prev;
 				});
 				return;
 			}
 			if (p.kind === 'tool_result') {
-				// Tool finished, clear the tool status line — the next delta will overwrite
+				// Tool finished — no action needed; timeline already recorded the call
 				return;
 			}
 			if (p.kind === 'collab_action' && p.action) {
@@ -1075,7 +1099,7 @@ export function useAiEmployeesController() {
 				);
 			}
 		});
-	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, handleCollabAction]);
+	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, handleCollabAction, employeeById]);
 
 	const matchRunForTaskEvent = useCallback(
 		(state: ReturnType<typeof emptyOrchestrationState>, event: NormalizedTaskEvent) => {

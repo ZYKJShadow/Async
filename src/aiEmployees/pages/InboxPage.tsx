@@ -91,6 +91,7 @@ export function InboxPage({
 	findActiveRunByEmployee,
 	employeeChatStreaming,
 	employeeChatError,
+	onNavigateToActivity,
 }: {
 	t: TFunction;
 	orgEmployees: OrgEmployee[];
@@ -116,6 +117,8 @@ export function InboxPage({
 	onMarkMessageRead: (messageId: string) => void;
 	listMessagesByEmployee: (employeeId: string) => AiCollabMessage[];
 	findActiveRunByEmployee: (employeeId: string) => AiOrchestrationRun | undefined;
+	/** Navigate to activity tab to show run details. */
+	onNavigateToActivity?: (runId?: string) => void;
 }) {
 	const sorted = useMemo(
 		() =>
@@ -490,6 +493,27 @@ export function InboxPage({
 									</div>
 								</div>
 							</div>
+							{/* Active run status bar — shows handoff activity and link to details */}
+							{activeRun && activeRun.handoffs.length > 0 ? (
+								<div className="ref-ai-employees-inbox-run-bar">
+									<div className="ref-ai-employees-inbox-run-bar-info">
+										<span className="ref-ai-employees-inbox-run-bar-label">{t('aiEmployees.inbox.activeRun')}</span>
+										<span className="ref-ai-employees-inbox-run-bar-status">{activeRun.statusSummary || activeRun.goal}</span>
+										<span className="ref-ai-employees-inbox-run-bar-counts">
+											{activeRun.handoffs.filter(h => h.status === 'done').length}/{activeRun.handoffs.length} {t('aiEmployees.inbox.handoffsDone')}
+										</span>
+									</div>
+									{onNavigateToActivity ? (
+										<button
+											type="button"
+											className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-inbox-run-bar-link"
+											onClick={() => onNavigateToActivity(activeRun.id)}
+										>
+											{t('aiEmployees.inbox.viewDetails')}
+										</button>
+									) : null}
+								</div>
+							) : null}
 							<div ref={threadRef} className="ref-ai-employees-comm-thread ref-ai-employees-inbox-chat-thread" role="log" aria-live="polite">
 								{streamErr ? (
 									<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">

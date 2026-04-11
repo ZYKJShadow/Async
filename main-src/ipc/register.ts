@@ -163,6 +163,7 @@ import { buildMemoryEntrypoint, queueExtractMemories } from '../services/extract
 import { getWorkspaceIndexDir } from '../workspaceIndexPaths.js';
 import { generateHiringPlan, generateRolePromptDraft } from '../aiEmployees/roleGeneration.js';
 import { runEmployeeChat } from '../aiEmployees/employeeChat.js';
+import { isCollabTool } from '../aiEmployees/collaborationTools.js';
 import type { EmployeeChatInput } from '../../shared/aiEmployeesPersona.js';
 
 const execFileAsync = promisify(execFile);
@@ -2845,10 +2846,10 @@ ipcMain.handle(
 					send('error', { error: message });
 				},
 				onToolCall(name, args) {
-					send('tool_call', { toolName: name, toolArgs: args });
+					send('tool_call', { toolName: name, toolArgs: args, isCollabTool: isCollabTool(name) });
 				},
 				onToolResult(name, success) {
-					send('tool_result', { toolName: name, toolSuccess: success });
+					send('tool_result', { toolName: name, toolSuccess: success, isCollabTool: isCollabTool(name) });
 				},
 				onCollabAction(action) {
 					send('collab_action', { action });

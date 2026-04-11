@@ -270,6 +270,7 @@ export function AiEmployeesApp() {
 											findActiveRunByEmployee={c.findActiveRunByEmployee}
 											employeeChatStreaming={c.employeeChatStreaming}
 											employeeChatError={c.employeeChatError}
+											onNavigateToActivity={() => c.setTab('activity')}
 										/>
 									) : null}
 

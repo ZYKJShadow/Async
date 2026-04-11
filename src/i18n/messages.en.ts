@@ -543,6 +543,8 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.inbox.approveAction': 'Approve',
 	'aiEmployees.inbox.rejectAction': 'Reject',
 	'aiEmployees.inbox.ceoCoordinator': 'Coordinator',
+	'aiEmployees.inbox.handoffsDone': 'done',
+	'aiEmployees.inbox.viewDetails': 'View details',
 	'aiEmployees.tab.activity': 'Activity',
 	'aiEmployees.activity.title': 'Team Activity',
 	'aiEmployees.activity.empty': 'No activity yet. Start a conversation to see your team collaborate.',
