@@ -18,6 +18,7 @@ import { InboxPage } from './pages/InboxPage';
 import { IssuesHubPage } from './pages/IssuesHubPage';
 import { ActivityFeedPage } from './pages/ActivityFeedPage';
 import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
+import { AiEmployeesLaunchOverlay } from './AiEmployeesLaunchOverlay';
 import './aiEmployees.css';
 
 function workspaceInitial(name: string): string {
@@ -84,7 +85,9 @@ export function AiEmployeesApp() {
 
 	if (showAiEmployeesSetupFlow) {
 		return (
-			<div className="ref-shell ref-shell--agent-layout ref-ai-employees-root">
+			<>
+				<AiEmployeesLaunchOverlay sessionPhase={c.sessionPhase} t={t} />
+				<div className="ref-shell ref-shell--agent-layout ref-ai-employees-root">
 				<AiEmployeesTitlebar t={t} />
 				<AiEmployeesSetupFlow
 					t={t}
@@ -112,12 +115,15 @@ export function AiEmployeesApp() {
 					onClearEmployeeLocalModel={c.clearEmployeeLocalModel}
 					modelOptions={c.modelOptions}
 				/>
-			</div>
+				</div>
+			</>
 		);
 	}
 
 	return (
-		<div className="ref-shell ref-shell--agent-layout ref-ai-employees-root">
+		<>
+			<AiEmployeesLaunchOverlay sessionPhase={c.sessionPhase} t={t} />
+			<div className="ref-shell ref-shell--agent-layout ref-ai-employees-root">
 			<AiEmployeesTitlebar t={t} />
 			<div className="ref-ai-employees-dashboard">
 				<div className="ref-ai-employees-sidebar-outer" aria-label={t('aiEmployees.sideNavAria')}>
@@ -319,5 +325,6 @@ export function AiEmployeesApp() {
 				</main>
 			</div>
 		</div>
+		</>
 	);
 }

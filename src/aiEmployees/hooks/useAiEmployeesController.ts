@@ -6,7 +6,6 @@ import {
 	type AppAppearanceSettings,
 } from '../../appearanceSettings';
 import { readPrefersDark, readStoredColorMode, resolveEffectiveScheme } from '../../colorMode';
-import { hideBootSplash } from '../../bootSplash';
 import type {
 	AiCollabMessage,
 	AiCollabMessageType,
@@ -134,10 +133,6 @@ export function useAiEmployeesController() {
 	const employeeReplyGuardRef = useRef(new Set<string>());
 	const requestEmployeeReplyRef = useRef<((employeeId: string, runId: string) => Promise<void>) | null>(null);
 	const wsRef = useRef<AiEmployeesWsClient | null>(null);
-
-	useEffect(() => {
-		hideBootSplash();
-	}, []);
 
 	const prefersDark = useSyncExternalStore(
 		(onStoreChange) => {

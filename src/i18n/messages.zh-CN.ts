@@ -262,6 +262,8 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.onboarding.revisitCeoTitle': '返回编辑 CEO',
 	'aiEmployees.onboarding.revisitCeoDesc': '保存后将继续添加团队成员。',
 	'aiEmployees.onboarding.kicker': 'AI 团队搭建',
+	'aiEmployees.launch.title': 'AI 团队',
+	'aiEmployees.launch.subtitle': '正在连接工作台…',
 	'aiEmployees.onboarding.progressAria': '引导步骤进度',
 	'aiEmployees.onboarding.stepShort.pick_workspace': '工作区',
 	'aiEmployees.onboarding.stepShort.company': '公司',

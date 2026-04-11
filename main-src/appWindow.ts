@@ -81,6 +81,10 @@ export function createAppWindow(opts?: {
 					}
 				: {};
 
+	const surface: AppWindowSurface = opts?.surface ?? 'agent';
+	const isAiEmployeesSurface = surface === 'aiEmployees';
+
+	/** AI 员工窗口：立即显示（用 backgroundColor + index.html 的 boot-splash 承接首屏），避免等 ready-to-show 才出现窗口。 */
 	const win = new BrowserWindow({
 		x,
 		y,
@@ -97,11 +101,8 @@ export function createAppWindow(opts?: {
 			nodeIntegration: false,
 			sandbox: false,
 		},
-		show: false,
+		show: isAiEmployeesSurface,
 	});
-
-	const surface: AppWindowSurface = opts?.surface ?? 'agent';
-	const isAiEmployeesSurface = surface === 'aiEmployees';
 	const initial = opts?.initialWorkspace?.trim();
 	if (initial) {
 		const resolvedInitial = path.resolve(initial);
@@ -123,7 +124,13 @@ export function createAppWindow(opts?: {
 	win.on('resize', notifyLayout);
 	win.on('move', notifyLayout);
 
-	win.once('ready-to-show', () => win.show());
+	if (!isAiEmployeesSurface) {
+		win.once('ready-to-show', () => {
+			if (!win.isDestroyed()) {
+				win.show();
+			}
+		});
+	}
 
 	const htmlPath = path.join(__dirname, '..', 'dist', 'index.html');
 	const useViteDevServer = isDev && !loadDistFlag;
@@ -151,6 +158,9 @@ export function createAppWindow(opts?: {
 			win.setTitle('AI Employees');
 		} catch {
 			/* ignore */
+		}
+		if (!win.isDestroyed()) {
+			win.focus();
 		}
 	}
 

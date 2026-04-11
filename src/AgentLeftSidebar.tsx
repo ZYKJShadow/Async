@@ -4,11 +4,11 @@ import type { ThreadInfo } from './threadTypes';
 import {
 	IconChevron,
 	IconDotsHorizontal,
+	IconBot,
 	IconExplorer,
 	IconPlus,
 	IconPlugin,
 	IconSearch,
-	IconServerOutline,
 	IconSettings,
 } from './icons';
 
@@ -78,7 +78,7 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 							<span>{t('app.newAgent')}</span>
 						</button>
 						<button type="button" className="ref-agent-nav-item" onClick={onOpenAiEmployees}>
-							<IconServerOutline className="ref-agent-nav-item-icon" />
+							<IconBot className="ref-agent-nav-item-icon" />
 							<span>{t('app.aiEmployees')}</span>
 						</button>
 						<button type="button" className="ref-agent-nav-item" onClick={openPluginSettings}>

@@ -20,3 +20,4 @@ electron/main.bundle.cjs.map
 .env
 .env.*
 REFACTOR_PLAN.md
+/.vscode/settings.json

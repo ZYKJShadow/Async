@@ -44,6 +44,266 @@
 	color-scheme: dark;
 }
 
+/* —— AI 员工独立窗口：首屏启动动画（承接 #boot-splash 淡出后的品牌过渡） */
+.ref-ai-employees-launch {
+	position: fixed;
+	inset: 0;
+	z-index: 1300;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	pointer-events: none;
+	animation: ref-ai-employees-launch-root-in 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ref-ai-employees-launch--exiting {
+	animation: ref-ai-employees-launch-root-out 0.48s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+
+.ref-ai-employees-launch-bg {
+	position: absolute;
+	inset: 0;
+	background:
+		radial-gradient(ellipse 120% 70% at 50% -15%, color-mix(in srgb, var(--void-accent-cool, #37d6d4) 26%, transparent), transparent 52%),
+		radial-gradient(circle at 86% 12%, color-mix(in srgb, var(--void-accent-warm, #ff9d59) 18%, transparent), transparent 26%),
+		radial-gradient(circle at 10% 88%, color-mix(in srgb, var(--void-accent-assist, #8aa8ff) 14%, transparent), transparent 30%),
+		var(--void-bg-root, #0d1117);
+	animation: ref-ai-employees-launch-bg-shift 14s ease-in-out infinite alternate;
+}
+
+.ref-ai-employees-launch-card {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 20px;
+	padding: 36px 44px 32px;
+	border-radius: 22px;
+	border: 1px solid color-mix(in srgb, var(--void-fg-0) 10%, transparent);
+	background: linear-gradient(
+		165deg,
+		color-mix(in srgb, var(--void-bg-1, #161b22) 92%, transparent) 0%,
+		color-mix(in srgb, var(--void-bg-root, #0d1117) 88%, transparent) 100%
+	);
+	box-shadow:
+		0 32px 96px color-mix(in srgb, #000 45%, transparent),
+		inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 6%, transparent);
+	animation: ref-ai-employees-launch-card-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+.ref-ai-employees-launch-orbit {
+	position: relative;
+	width: 104px;
+	height: 104px;
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-launch-orbit-ring {
+	position: absolute;
+	inset: 4px;
+	border-radius: 50%;
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool, #37d6d4) 38%, transparent);
+	opacity: 0.85;
+	animation: ref-ai-employees-launch-spin 10s linear infinite;
+}
+
+.ref-ai-employees-launch-orbit-dot {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 7px;
+	height: 7px;
+	margin: -3.5px 0 0 -3.5px;
+	border-radius: 50%;
+	animation: ref-ai-employees-launch-twinkle 2.2s ease-in-out infinite;
+}
+
+.ref-ai-employees-launch-orbit-dot--a {
+	transform: rotate(0deg) translateX(46px);
+	background: color-mix(in srgb, var(--void-accent-cool, #37d6d4) 85%, #fff);
+	box-shadow: 0 0 14px color-mix(in srgb, var(--void-accent-cool, #37d6d4) 55%, transparent);
+}
+
+.ref-ai-employees-launch-orbit-dot--b {
+	transform: rotate(127deg) translateX(46px);
+	animation-delay: 0.45s;
+	background: color-mix(in srgb, var(--void-accent-warm, #ff9d59) 80%, #fff);
+	box-shadow: 0 0 12px color-mix(in srgb, var(--void-accent-warm, #ff9d59) 45%, transparent);
+}
+
+.ref-ai-employees-launch-orbit-dot--c {
+	transform: rotate(254deg) translateX(46px);
+	animation-delay: 0.9s;
+	background: color-mix(in srgb, var(--void-accent-assist, #8aa8ff) 82%, #fff);
+	box-shadow: 0 0 12px color-mix(in srgb, var(--void-accent-assist, #8aa8ff) 40%, transparent);
+}
+
+.ref-ai-employees-launch-icon-wrap {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	pointer-events: none;
+	z-index: 1;
+}
+
+.ref-ai-employees-launch-icon {
+	width: 40px;
+	height: 40px;
+	color: var(--void-fg-0, #e6edf3);
+	filter: drop-shadow(0 6px 20px color-mix(in srgb, var(--void-accent-cool, #37d6d4) 35%, transparent));
+	animation: ref-ai-employees-launch-icon-pulse 2.2s ease-in-out infinite;
+}
+
+.ref-ai-employees-launch-copy {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	text-align: center;
+	min-width: 0;
+	max-width: 280px;
+}
+
+.ref-ai-employees-launch-title {
+	font-size: 20px;
+	font-weight: 700;
+	letter-spacing: -0.04em;
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-launch-sub {
+	font-size: 12.5px;
+	font-weight: 500;
+	line-height: 1.45;
+	color: color-mix(in srgb, var(--void-fg-0) 58%, transparent);
+}
+
+.ref-ai-employees-launch-dots {
+	display: flex;
+	gap: 7px;
+	align-items: center;
+	justify-content: center;
+	padding-top: 4px;
+}
+
+.ref-ai-employees-launch-dots span {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: color-mix(in srgb, var(--void-fg-0) 28%, transparent);
+	animation: ref-ai-employees-launch-dot 1.1s ease-in-out infinite;
+}
+
+.ref-ai-employees-launch-dots span:nth-child(2) {
+	animation-delay: 0.16s;
+}
+
+.ref-ai-employees-launch-dots span:nth-child(3) {
+	animation-delay: 0.32s;
+}
+
+@keyframes ref-ai-employees-launch-root-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes ref-ai-employees-launch-root-out {
+	from {
+		opacity: 1;
+		filter: blur(0);
+	}
+	to {
+		opacity: 0;
+		filter: blur(6px);
+	}
+}
+
+@keyframes ref-ai-employees-launch-card-in {
+	from {
+		opacity: 0;
+		transform: translateY(10px) scale(0.97);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes ref-ai-employees-launch-bg-shift {
+	0% {
+		filter: hue-rotate(0deg) saturate(1);
+	}
+	100% {
+		filter: hue-rotate(12deg) saturate(1.08);
+	}
+}
+
+@keyframes ref-ai-employees-launch-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes ref-ai-employees-launch-twinkle {
+	0%,
+	100% {
+		opacity: 0.38;
+		filter: brightness(0.92);
+	}
+	50% {
+		opacity: 1;
+		filter: brightness(1.12);
+	}
+}
+
+@keyframes ref-ai-employees-launch-icon-pulse {
+	0%,
+	100% {
+		transform: translateY(0);
+		opacity: 0.92;
+	}
+	50% {
+		transform: translateY(-2px);
+		opacity: 1;
+	}
+}
+
+@keyframes ref-ai-employees-launch-dot {
+	0%,
+	80%,
+	100% {
+		transform: translateY(0);
+		opacity: 0.35;
+	}
+	40% {
+		transform: translateY(-3px);
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-ai-employees-launch,
+	.ref-ai-employees-launch--exiting,
+	.ref-ai-employees-launch-card,
+	.ref-ai-employees-launch-bg,
+	.ref-ai-employees-launch-orbit-ring,
+	.ref-ai-employees-launch-orbit-dot,
+	.ref-ai-employees-launch-icon,
+	.ref-ai-employees-launch-dots span {
+		animation: none !important;
+	}
+
+	.ref-ai-employees-launch-orbit-dot {
+		opacity: 0.85;
+	}
+}
+
 /* menubar 下方：侧栏与主区同级 flex 行 */
 .ref-ai-employees-dashboard {
 	display: flex;

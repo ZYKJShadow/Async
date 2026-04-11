@@ -265,6 +265,8 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.onboarding.revisitCeoTitle': 'Edit CEO',
 	'aiEmployees.onboarding.revisitCeoDesc': 'Save to continue adding team roles.',
 	'aiEmployees.onboarding.kicker': 'AI team setup',
+	'aiEmployees.launch.title': 'AI team',
+	'aiEmployees.launch.subtitle': 'Connecting your workspace…',
 	'aiEmployees.onboarding.progressAria': 'Onboarding progress',
 	'aiEmployees.onboarding.stepShort.pick_workspace': 'Workspace',
 	'aiEmployees.onboarding.stepShort.company': 'Company',
