@@ -14,7 +14,33 @@ import {
 } from '../api/client';
 import type { InboxItemJson } from '../api/types';
 import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
+import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 import type { LocalModelEntry } from '../sessionTypes';
+
+function InboxChatAvatarSlot({
+	conn,
+	workspaceId,
+	employee,
+}: {
+	conn: AiEmployeesConnection;
+	workspaceId: string;
+	employee: OrgEmployee | null;
+}) {
+	const id = employee?.id ?? null;
+	const hasAsset = Boolean(employee?.avatarAssetId);
+	const preview = useOrgEmployeeAvatarPreview(conn, workspaceId, id, hasAsset);
+	const initial = employee?.displayName?.trim().slice(0, 1).toUpperCase() || '?';
+	return (
+		<div className="ref-ai-employees-inbox-chat-avatar" aria-hidden>
+			{preview ? (
+				<img src={preview} alt="" className="ref-ai-employees-inbox-chat-avatar-img" />
+			) : (
+				<span className="ref-ai-employees-inbox-chat-avatar-ph">{initial}</span>
+			)}
+		</div>
+	);
+}
+
 function calendarDayKey(iso: string): string {
 	const d = new Date(iso);
 	if (Number.isNaN(d.getTime())) {
@@ -105,6 +131,9 @@ export function InboxPage({
 			formatEmployeeResolvedModelLabel({ employee, ...modelRouteParams }) ?? t('aiEmployees.modelDisplayNone'),
 		[modelRouteParams, t]
 	);
+
+	const orgById = useMemo(() => new Map(sorted.map((employee) => [employee.id, employee])), [sorted]);
+	const leadEmployee = useMemo(() => sorted.find((employee) => employee.isCeo) ?? sorted[0] ?? null, [sorted]);
 
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [draft, setDraft] = useState('');
@@ -330,6 +359,12 @@ export function InboxPage({
 										const showDay =
 											!prev || calendarDayKey(prev.createdAtIso) !== calendarDayKey(message.createdAtIso);
 										const isUser = message.toEmployeeId === selected.id;
+										const peerFace =
+											!isUser && message.fromEmployeeId
+												? orgById.get(message.fromEmployeeId) ?? selected
+												: !isUser
+													? selected
+													: null;
 										return (
 											<Fragment key={message.id}>
 												{showDay ? (
@@ -337,41 +372,52 @@ export function InboxPage({
 														{formatChatDayDivider(message.createdAtIso)}
 													</div>
 												) : null}
-												<div className={`ref-ai-employees-inbox-chat-msg ${isUser ? 'is-user' : 'is-peer'}`}>
-													<time className="ref-ai-employees-inbox-chat-time" dateTime={message.createdAtIso}>
-														{formatChatMessageTime(message.createdAtIso)}
-													</time>
-													<div
-														className={`ref-ai-employees-comm-bubble ${
-															isUser ? 'ref-ai-employees-comm-bubble--user' : 'ref-ai-employees-comm-bubble--system'
-														}`}
-													>
-														{message.body}
+												<div className={`ref-ai-employees-inbox-chat-row ${isUser ? 'is-user' : 'is-peer'}`}>
+													{!isUser ? (
+														<InboxChatAvatarSlot conn={conn} workspaceId={workspaceId} employee={peerFace} />
+													) : null}
+													<div className={`ref-ai-employees-inbox-chat-msg ${isUser ? 'is-user' : 'is-peer'}`}>
+														<div
+															className={`ref-ai-employees-comm-bubble ${
+																isUser ? 'ref-ai-employees-comm-bubble--user' : 'ref-ai-employees-comm-bubble--system'
+															}`}
+														>
+															{message.body}
+														</div>
+														<time className="ref-ai-employees-inbox-chat-time" dateTime={message.createdAtIso}>
+															{formatChatMessageTime(message.createdAtIso)}
+														</time>
 													</div>
+													{isUser ? (
+														<InboxChatAvatarSlot conn={conn} workspaceId={workspaceId} employee={leadEmployee} />
+													) : null}
 												</div>
 											</Fragment>
 										);
 									})
 								)}
 								{streamDraft !== undefined ? (
-									<div className="ref-ai-employees-inbox-chat-msg is-peer ref-ai-employees-inbox-chat-msg--streaming">
-										<time className="ref-ai-employees-inbox-chat-time" dateTime={new Date().toISOString()}>
-											{t('aiEmployees.inbox.justNow')}
-										</time>
-										<div
-											className="ref-ai-employees-comm-bubble ref-ai-employees-comm-bubble--system ref-ai-employees-inbox-streaming"
-											aria-busy={!streamDraft}
-											aria-label={streamDraft ? t('aiEmployees.inbox.streamingLabel') : t('aiEmployees.inbox.typing')}
-										>
-											{streamDraft ? (
-												<div className="ref-ai-employees-inbox-stream-body">{streamDraft}</div>
-											) : (
-												<span className="ref-ai-employees-typing-dots" aria-hidden>
-													<span />
-													<span />
-													<span />
-												</span>
-											)}
+									<div className="ref-ai-employees-inbox-chat-row is-peer">
+										<InboxChatAvatarSlot conn={conn} workspaceId={workspaceId} employee={selected} />
+										<div className="ref-ai-employees-inbox-chat-msg is-peer ref-ai-employees-inbox-chat-msg--streaming">
+											<div
+												className="ref-ai-employees-comm-bubble ref-ai-employees-comm-bubble--system ref-ai-employees-inbox-streaming"
+												aria-busy={!streamDraft}
+												aria-label={streamDraft ? t('aiEmployees.inbox.streamingLabel') : t('aiEmployees.inbox.typing')}
+											>
+												{streamDraft ? (
+													<div className="ref-ai-employees-inbox-stream-body">{streamDraft}</div>
+												) : (
+													<span className="ref-ai-employees-typing-dots" aria-hidden>
+														<span />
+														<span />
+														<span />
+													</span>
+												)}
+											</div>
+											<time className="ref-ai-employees-inbox-chat-time" dateTime={new Date().toISOString()}>
+												{t('aiEmployees.inbox.justNow')}
+											</time>
 										</div>
 									</div>
 								) : null}

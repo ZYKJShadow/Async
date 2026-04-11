@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiEmployeesConnection } from '../api/client';
-import { apiCreateOrgEmployee, apiPatchOrgEmployee, apiUploadOrgEmployeeAvatar, orgEmployeeAvatarSrc } from '../api/orgClient';
+import { apiCreateOrgEmployee, apiPatchOrgEmployee, apiUploadOrgEmployeeAvatar } from '../api/orgClient';
 import type { OrgEmployee } from '../api/orgTypes';
 import { ImBindingsSection, RoleCustomSystemPromptField, RoleProfileEditor } from '../components/RoleProfileEditor';
 import { emptyPromptDraft } from '../domain/persona';
@@ -16,55 +16,7 @@ import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
 import type { LocalModelEntry } from '../sessionTypes';
 import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
 import { invokeGenerateHiringPlanForOrg, mapHiringCandidatesToMemberDrafts } from '../domain/ceoHiringPlan';
-
-function useAuthedAvatarPreview(
-	conn: AiEmployeesConnection,
-	workspaceId: string,
-	employeeId: string | null,
-	enabled: boolean
-): string | null {
-	const [url, setUrl] = useState<string | null>(null);
-	useEffect(() => {
-		if (!enabled || !employeeId || !workspaceId) {
-			setUrl((prev) => {
-				if (prev) {
-					URL.revokeObjectURL(prev);
-				}
-				return null;
-			});
-			return;
-		}
-		let blobUrl: string | null = null;
-		let cancelled = false;
-		void (async () => {
-			try {
-				const r = await fetch(orgEmployeeAvatarSrc(conn, employeeId), {
-					headers: {
-						Authorization: `Bearer ${conn.token.trim()}`,
-						'X-Workspace-ID': workspaceId,
-					},
-				});
-				if (!r.ok || cancelled) {
-					return;
-				}
-				const b = await r.blob();
-				blobUrl = URL.createObjectURL(b);
-				if (!cancelled) {
-					setUrl(blobUrl);
-				}
-			} catch {
-				/* ignore */
-			}
-		})();
-		return () => {
-			cancelled = true;
-			if (blobUrl) {
-				URL.revokeObjectURL(blobUrl);
-			}
-		};
-	}, [conn, employeeId, enabled, workspaceId]);
-	return url;
-}
+import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 
 function EmployeeBadgeFace({
 	conn,
@@ -75,7 +27,7 @@ function EmployeeBadgeFace({
 	workspaceId: string;
 	employee: OrgEmployee;
 }) {
-	const preview = useAuthedAvatarPreview(conn, workspaceId, employee.id, Boolean(employee.avatarAssetId));
+	const preview = useOrgEmployeeAvatarPreview(conn, workspaceId, employee.id, Boolean(employee.avatarAssetId));
 	if (preview) {
 		return <img src={preview} alt="" className="ref-ai-employees-org-badge-face-img" />;
 	}
@@ -218,7 +170,7 @@ export function EmployeesPage({
 		setSaveErr(null);
 	}, [selected, employeeLocalModelMap, modelOptionIdSet]);
 
-	const avatarPreview = useAuthedAvatarPreview(conn, workspaceId, selected?.id ?? null, Boolean(selected?.avatarAssetId));
+	const avatarPreview = useOrgEmployeeAvatarPreview(conn, workspaceId, selected?.id ?? null, Boolean(selected?.avatarAssetId));
 
 	const managerSummaryLine = useMemo(
 		() =>

@@ -3569,25 +3569,81 @@
 }
 
 .ref-ai-employees-inbox-chat-thread {
-	gap: 12px;
+	gap: 14px;
 }
 
 .ref-ai-employees-inbox-chat-day {
 	align-self: center;
-	margin: 4px 0;
-	padding: 5px 14px;
+	margin: 6px 0 2px;
+	padding: 4px 12px;
 	border-radius: 999px;
-	font-size: 11px;
-	font-weight: 650;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
 	color: var(--void-fg-2, #6e7681);
-	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
+	background: color-mix(in srgb, var(--void-fg-0) 5%, transparent);
 	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
+}
+
+.ref-ai-employees-inbox-chat-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	max-width: min(100%, 680px);
+	min-width: 0;
+}
+
+.ref-ai-employees-inbox-chat-row.is-peer {
+	align-self: flex-start;
+	flex-direction: row;
+}
+
+/* 发送方：从左到右应为 [气泡][头像]，头像在最外侧（靠右）；勿用 row-reverse，否则会变成 [头像][气泡] */
+.ref-ai-employees-inbox-chat-row.is-user {
+	align-self: flex-end;
+	flex-direction: row;
+}
+
+.ref-ai-employees-inbox-chat-avatar {
+	flex-shrink: 0;
+	width: 32px;
+	height: 32px;
+	border-radius: 10px;
+	overflow: hidden;
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.1));
+	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
+	box-sizing: border-box;
+	margin-top: 1px;
+}
+
+.ref-ai-employees-inbox-chat-avatar-img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	object-position: center top;
+}
+
+.ref-ai-employees-inbox-chat-avatar-ph {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+	font-size: 13px;
+	font-weight: 700;
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-inbox-chat-row .ref-ai-employees-inbox-chat-msg.is-user,
+.ref-ai-employees-inbox-chat-row .ref-ai-employees-inbox-chat-msg.is-peer {
+	align-self: stretch;
 }
 
 .ref-ai-employees-inbox-chat-msg {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: 6px;
 	max-width: min(100%, 560px);
 }
 
@@ -3603,14 +3659,15 @@
 
 .ref-ai-employees-inbox-chat-msg .ref-ai-employees-comm-bubble {
 	align-self: stretch;
-	max-width: min(100%, 520px);
+	max-width: min(100%, 540px);
 }
 
 .ref-ai-employees-inbox-chat-time {
-	font-size: 11px;
+	font-size: 10px;
 	line-height: 1.25;
 	color: var(--void-fg-2, #6e7681);
-	padding: 0 4px;
+	opacity: 0.92;
+	padding: 0 6px;
 }
 
 .ref-ai-employees-inbox-chat-msg.is-user .ref-ai-employees-inbox-chat-time {
@@ -3620,25 +3677,28 @@
 .ref-ai-employees-comm-bubble {
 	max-width: min(100%, 560px);
 	padding: 10px 14px;
-	border-radius: 14px;
+	border-radius: 16px;
 	font-size: 13px;
 	line-height: 1.5;
 	white-space: pre-wrap;
 	word-break: break-word;
+	box-shadow: 0 6px 18px color-mix(in srgb, #000 10%, transparent);
 }
 
 .ref-ai-employees-comm-bubble--system {
 	align-self: flex-start;
-	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
+	background: color-mix(in srgb, var(--void-fg-0) 7%, transparent);
 	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
 	color: var(--void-fg-1, #9aa4b2);
+	border-top-left-radius: 8px;
 }
 
 .ref-ai-employees-comm-bubble--user {
 	align-self: flex-end;
-	background: color-mix(in srgb, var(--void-accent-cool) 22%, transparent);
-	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 35%, transparent);
+	background: color-mix(in srgb, var(--void-accent-cool) 20%, transparent);
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 32%, transparent);
 	color: var(--void-fg-0, #e6edf3);
+	border-top-right-radius: 8px;
 }
 
 .ref-ai-employees-inbox-streaming {
@@ -3716,6 +3776,26 @@
 
 .ref-ai-employees-inbox-composer-inner {
 	position: relative;
+	-webkit-tap-highlight-color: transparent;
+}
+
+/* 沟通输入：去掉系统/主题在聚焦时的白色描边与外层光晕（含 Electron 默认 ring） */
+.ref-ai-employees-inbox-composer-input:focus,
+.ref-ai-employees-inbox-composer-input:focus-visible {
+	outline: none;
+	box-shadow: none;
+	border-color: var(--void-border-1, rgba(255, 255, 255, 0.12));
+}
+
+.ref-ai-employees-inbox-composer-send:focus,
+.ref-ai-employees-inbox-composer-send:focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+
+.ref-ai-employees-inbox-composer:focus-within {
+	outline: none;
+	box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
 }
 
 .ref-ai-employees-inbox-composer-input {
@@ -3723,22 +3803,36 @@
 	width: 100%;
 	box-sizing: border-box;
 	min-height: 52px;
-	padding: 12px 52px 12px 14px;
+	padding: 12px 48px 12px 14px;
 	border-radius: 12px !important;
 }
 
+/* 覆盖 .ref-ai-employees-btn 的 min-height: 34px 与横向 padding，否则会变成竖长条 */
 .ref-ai-employees-inbox-composer-send {
 	position: absolute;
-	right: 8px;
-	bottom: 8px;
-	width: 38px;
-	height: 38px;
-	min-width: 38px;
+	right: 6px;
+	bottom: 6px;
+	box-sizing: border-box;
+	width: 32px;
+	height: 32px;
+	min-width: 32px;
+	max-width: 32px;
+	min-height: 32px;
+	max-height: 32px;
 	padding: 0;
+	margin: 0;
+	aspect-ratio: 1 / 1;
+	line-height: 0;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	border-radius: 10px;
+	gap: 0;
+	border-radius: 6px;
+}
+
+.ref-ai-employees-inbox-composer-send .ref-ai-employees-comm-send-ico {
+	width: 14px;
+	height: 14px;
 }
 
 .ref-ai-employees-inbox-composer-send:disabled {
