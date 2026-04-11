@@ -10,6 +10,7 @@ import type { AgentJson, CreateIssuePayload, IssueJson, ProjectJson, WorkspaceMe
 import { normalizeIssueStatus } from './IssueStatusChip';
 import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import { assigneeVoidOptions, issueProjectVoidOptions, parentIssueVoidOptions } from '../voidSelectOptions';
+import { CreateIssueDueDatePicker, dueLocalStringToIso } from './CreateIssueDueDatePicker';
 
 const STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked'] as const;
 const PRIORITIES = ['none', 'low', 'medium', 'high', 'urgent'] as const;
@@ -319,7 +320,7 @@ export function CreateIssueDialog({
 				priority,
 			};
 			if (dueDate.trim()) {
-				payload.due_date = new Date(dueDate).toISOString();
+				payload.due_date = dueLocalStringToIso(dueDate);
 			}
 			if (parentId) {
 				payload.parent_issue_id = parentId;
@@ -493,15 +494,7 @@ export function CreateIssueDialog({
 							)}
 						/>
 					) : null}
-					<label className="ref-ai-employees-create-dialog-due-pill">
-						<span className="ref-ai-employees-sr-only">{t('aiEmployees.createIssue.dueDateField')}</span>
-						<input
-							className="ref-ai-employees-create-dialog-due-input"
-							type="datetime-local"
-							value={dueDate}
-							onChange={(e) => setDueDate(e.target.value)}
-						/>
-					</label>
+					<CreateIssueDueDatePicker t={t} value={dueDate} onChange={setDueDate} disabled={busy} />
 					<VoidSelect
 						className={pillClass}
 						variant="compact"

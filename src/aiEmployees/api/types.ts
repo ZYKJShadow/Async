@@ -20,7 +20,7 @@ export type IssueJson = {
 	description?: string | null;
 	status: string;
 	priority?: string;
-	assignee_type?: IssueAssigneeType | string | null;
+	assignee_type?: IssueAssigneeType | null;
 	assignee_id?: string | null;
 	creator_type?: string;
 	creator_id?: string;
@@ -61,9 +61,9 @@ export type ProjectJson = {
 	icon?: string | null;
 	status?: string;
 	priority?: string;
-	lead_type?: IssueAssigneeType | string | null;
+	lead_type?: IssueAssigneeType | null;
 	lead_id?: string | null;
-	boundary_kind?: ProjectBoundaryKind | string;
+	boundary_kind?: ProjectBoundaryKind;
 	boundary_local_path?: string | null;
 	boundary_git_url?: string | null;
 	created_at?: string;
@@ -87,9 +87,9 @@ export type UpdateProjectPayload = {
 	title?: string;
 	description?: string | null;
 	icon?: string | null;
-	lead_type?: IssueAssigneeType | string | null;
+	lead_type?: IssueAssigneeType | null;
 	lead_id?: string | null;
-	boundary_kind?: ProjectBoundaryKind | string | null;
+	boundary_kind?: ProjectBoundaryKind | null;
 	boundary_local_path?: string | null;
 	boundary_git_url?: string | null;
 };

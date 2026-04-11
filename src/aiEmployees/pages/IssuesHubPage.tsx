@@ -9,6 +9,7 @@ import { IssueStatusChip } from '../components/IssueStatusChip';
 import { IssuesHubIconMenus } from '../components/IssuesHubIconMenus';
 import type { FilterOption } from '../components/FilterDropdown';
 import { PriorityBadge } from '../components/PriorityBadge';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import {
 	applyFilters,
 	type IssueBoardState,
@@ -187,10 +188,14 @@ export function IssuesHubPage({
 	const batchPatch = useCallback(
 		async (patch: Record<string, unknown>) => {
 			const ids = [...selectedIds];
-			for (const id of ids) {
-				await onPatchIssue(id, patch);
+			try {
+				for (const id of ids) {
+					await onPatchIssue(id, patch);
+				}
+				setSelectedIds(new Set());
+			} catch (e) {
+				notifyAiEmployeesRequestFailed(e);
 			}
-			setSelectedIds(new Set());
 		},
 		[onPatchIssue, selectedIds]
 	);

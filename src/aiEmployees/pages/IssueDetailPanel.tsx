@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import { VoidSelect } from '../../VoidSelect';
 import type { AgentJson, IssueJson, ProjectJson, WorkspaceMemberJson } from '../api/types';
-import { IconCloseSmall } from '../../icons';
+import { IconCloseSmall, IconExplorer, IconGitSCM } from '../../icons';
 import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import { assigneeVoidOptions, issueProjectVoidOptions, issueStatusVoidOptions, priorityFieldVoidOptions } from '../voidSelectOptions';
+import { normalizeBoundaryLocalPath, normalizeProjectBoundaryKind } from '../components/ProjectBoundaryFields';
 
 const ISSUE_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled'] as const;
 
@@ -63,6 +64,19 @@ export function IssueDetailPanel({
 	const assigneeOpts = useMemo(() => assigneeVoidOptions(t, members, agents), [t, members, agents]);
 	const childAssigneeOpts = useMemo(() => assigneeVoidOptions(t, members, agents), [t, members, agents]);
 	const projectOpts = useMemo(() => issueProjectVoidOptions(t, projects), [t, projects]);
+	const linkedProject = useMemo(() => {
+		if (!issue.project_id) {
+			return null;
+		}
+		return projects.find((p) => p.id === issue.project_id) ?? null;
+	}, [issue.project_id, projects]);
+	const boundaryKind = normalizeProjectBoundaryKind(linkedProject?.boundary_kind);
+	const boundaryText =
+		boundaryKind === 'local_folder'
+			? normalizeBoundaryLocalPath(linkedProject?.boundary_local_path ?? '')
+			: boundaryKind === 'git_repo'
+				? (linkedProject?.boundary_git_url ?? '').trim()
+				: '';
 
 	const runPatch = useCallback(
 		async (patch: Record<string, unknown>) => {
@@ -202,6 +216,22 @@ export function IssueDetailPanel({
 							onChange={(v) => void runPatch({ project_id: v ? v : null })}
 						/>
 					</label>
+				) : null}
+				{linkedProject && boundaryKind !== 'none' && boundaryText ? (
+					<div className="ref-ai-employees-issue-field ref-ai-employees-issue-project-boundary">
+						<span>{t('aiEmployees.issueDetail.projectBoundary')}</span>
+						<div className={`ref-ai-employees-issue-project-boundary-pill is-${boundaryKind}`} title={boundaryText}>
+							{boundaryKind === 'local_folder' ? (
+								<IconExplorer className="ref-ai-employees-issue-project-boundary-ico" />
+							) : (
+								<IconGitSCM className="ref-ai-employees-issue-project-boundary-ico" />
+							)}
+							<span className="ref-ai-employees-issue-project-boundary-label">
+								{boundaryKind === 'local_folder' ? t('aiEmployees.projects.boundaryLocal') : t('aiEmployees.projects.boundaryGit')}
+							</span>
+							<span className="ref-ai-employees-issue-project-boundary-value">{boundaryText}</span>
+						</div>
+					</div>
 				) : null}
 
 				{issue.parent_issue_id ? (

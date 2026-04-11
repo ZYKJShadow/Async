@@ -1459,6 +1459,63 @@ export function registerIpc(): void {
 		return { ok: true as const, path: r.filePaths[0] };
 	});
 
+ipcMain.handle('projectBoundary:checkLocalPath', async (_event, rawPath: string) => {
+	const candidate = String(rawPath ?? '').trim();
+	if (!candidate) {
+		return { ok: false as const, exists: false as const, isDirectory: false as const };
+	}
+	try {
+		const resolved = path.resolve(candidate);
+		if (!fs.existsSync(resolved)) {
+			return { ok: true as const, exists: false as const, isDirectory: false as const, resolvedPath: resolved };
+		}
+		const st = fs.statSync(resolved);
+		return { ok: true as const, exists: true as const, isDirectory: st.isDirectory(), resolvedPath: resolved };
+	} catch (e) {
+		return { ok: false as const, error: e instanceof Error ? e.message : String(e), exists: false as const, isDirectory: false as const };
+	}
+});
+
+ipcMain.handle('projectBoundary:testGitRemote', async (_event, rawRemote: string) => {
+	const remote = String(rawRemote ?? '').trim();
+	if (!remote) {
+		return { ok: false as const, reachable: false as const, code: 'empty' as const };
+	}
+	const isLikelyRemote =
+		remote.startsWith('https://') ||
+		remote.startsWith('http://') ||
+		remote.startsWith('git@') ||
+		remote.startsWith('ssh://');
+	if (!isLikelyRemote) {
+		return { ok: false as const, reachable: false as const, code: 'invalid' as const };
+	}
+	try {
+		const { stderr } = await execFileAsync('git', ['ls-remote', '--heads', remote], {
+			timeout: 10_000,
+			windowsHide: true,
+			maxBuffer: 1024 * 1024,
+		});
+		return { ok: true as const, reachable: true as const, stderr: String(stderr ?? '') };
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		const lower = msg.toLowerCase();
+		let code: 'auth' | 'not_found' | 'network' | 'failed' = 'failed';
+		if (lower.includes('authentication') || lower.includes('permission denied') || lower.includes('access denied')) {
+			code = 'auth';
+		} else if (lower.includes('not found') || lower.includes('repository') || lower.includes('does not appear')) {
+			code = 'not_found';
+		} else if (
+			lower.includes('could not resolve host') ||
+			lower.includes('connection timed out') ||
+			lower.includes('unable to access') ||
+			lower.includes('network')
+		) {
+			code = 'network';
+		}
+		return { ok: true as const, reachable: false as const, code, error: msg };
+	}
+});
+
 	ipcMain.handle('threads:messages', (_e, threadId: string) => {
 		const t = getThread(threadId);
 		if (!t) {

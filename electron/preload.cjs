@@ -24,6 +24,8 @@ const INVOKE_CHANNELS = new Set([
 	'settings:set',
 	'usageStats:get',
 	'usageStats:pickDirectory',
+	'projectBoundary:checkLocalPath',
+	'projectBoundary:testGitRemote',
 	'theme:applyChrome',
 	'threads:list',
 	'threads:listAgentSidebar',

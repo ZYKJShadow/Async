@@ -6,10 +6,17 @@ import remarkGfm from 'remark-gfm';
 import type { TFunction } from '../../i18n';
 import { IconChevron, IconCloseSmall, IconEye, IconPencil, IconWindowMaximize, IconWindowMinimize } from '../../icons';
 import { VoidSelect } from '../../VoidSelect';
+import { AiEmployeesApiError } from '../api/client';
 import type { AgentJson, CreateProjectPayload, ProjectBoundaryKind, WorkspaceMemberJson } from '../api/types';
 import { assigneeVoidOptions } from '../voidSelectOptions';
 import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
-import { isPlausibleGitRemote, ProjectBoundaryFields, projectBoundaryApiFields } from './ProjectBoundaryFields';
+import {
+	isPlausibleGitRemote,
+	ProjectBoundaryFields,
+	projectBoundaryApiFields,
+	testGitBoundaryRemote,
+	validateLocalBoundaryPath,
+} from './ProjectBoundaryFields';
 
 type Frontmatter = Record<string, string>;
 
@@ -41,6 +48,27 @@ function parseDescriptionFrontmatter(raw: string): { frontmatter: Frontmatter | 
 		frontmatter: Object.keys(frontmatter).length > 0 ? frontmatter : null,
 		body,
 	};
+}
+
+function parseApiErrorMessage(body: string): string | null {
+	const raw = body.trim();
+	if (!raw) {
+		return null;
+	}
+	try {
+		const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown; detail?: unknown };
+		const msg =
+			typeof parsed.error === 'string'
+				? parsed.error
+				: typeof parsed.message === 'string'
+					? parsed.message
+					: typeof parsed.detail === 'string'
+						? parsed.detail
+						: null;
+		return msg?.trim() || null;
+	} catch {
+		return raw;
+	}
 }
 
 function DescriptionFrontmatterCard({ data }: { data: Frontmatter }) {
@@ -83,6 +111,8 @@ export function CreateProjectDialog({
 	const [boundaryMode, setBoundaryMode] = useState<ProjectBoundaryKind>('none');
 	const [boundaryLocalPath, setBoundaryLocalPath] = useState('');
 	const [boundaryGitUrl, setBoundaryGitUrl] = useState('');
+	const [boundaryLocalValidation, setBoundaryLocalValidation] = useState<'idle' | 'checking' | 'ok' | 'missing' | 'not_directory' | 'unknown'>('idle');
+	const [boundaryGitTestState, setBoundaryGitTestState] = useState<'idle' | 'testing' | 'ok' | 'auth' | 'not_found' | 'network' | 'failed'>('idle');
 	const [expanded, setExpanded] = useState(false);
 	const [descPreview, setDescPreview] = useState(false);
 	const [busy, setBusy] = useState(false);
@@ -146,6 +176,8 @@ export function CreateProjectDialog({
 			setBoundaryMode('none');
 			setBoundaryLocalPath('');
 			setBoundaryGitUrl('');
+			setBoundaryLocalValidation('idle');
+			setBoundaryGitTestState('idle');
 			setExpanded(false);
 			setDescPreview(false);
 			setBusy(false);
@@ -198,6 +230,56 @@ export function CreateProjectDialog({
 		return w || t('aiEmployees.pickWorkspace');
 	}, [t, workspaceDisplayName]);
 
+	useEffect(() => {
+		if (!open || boundaryMode !== 'local_folder') {
+			setBoundaryLocalValidation('idle');
+			return;
+		}
+		const val = boundaryLocalPath.trim();
+		if (!val) {
+			setBoundaryLocalValidation('idle');
+			return;
+		}
+		setBoundaryLocalValidation('checking');
+		let cancelled = false;
+		const timer = setTimeout(() => {
+			void validateLocalBoundaryPath(val).then((res) => {
+				if (cancelled) {
+					return;
+				}
+				setBoundaryLocalValidation(res === 'ok' ? 'ok' : res === 'missing' ? 'missing' : res === 'not_directory' ? 'not_directory' : 'unknown');
+			});
+		}, 220);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	}, [boundaryLocalPath, boundaryMode, open]);
+
+	useEffect(() => {
+		setBoundaryGitTestState('idle');
+	}, [boundaryGitUrl, boundaryMode]);
+
+	const handleGitConnectionTest = useCallback(async () => {
+		const remote = boundaryGitUrl.trim();
+		if (!remote || !isPlausibleGitRemote(remote)) {
+			return;
+		}
+		setBoundaryGitTestState('testing');
+		const result = await testGitBoundaryRemote(remote);
+		setBoundaryGitTestState(
+			result === 'ok'
+				? 'ok'
+				: result === 'auth'
+					? 'auth'
+					: result === 'not_found'
+						? 'not_found'
+						: result === 'network'
+							? 'network'
+							: 'failed'
+		);
+	}, [boundaryGitUrl]);
+
 	const submit = useCallback(async () => {
 		const tit = title.trim();
 		if (!tit) {
@@ -234,7 +316,12 @@ export function CreateProjectDialog({
 			await onCreate(payload);
 			onClose();
 		} catch (e) {
-			notifyAiEmployeesRequestFailed(e);
+			if (e instanceof AiEmployeesApiError && e.status >= 400 && e.status < 500) {
+				setErr(parseApiErrorMessage(e.body) ?? t('aiEmployees.projects.createValidationFailed'));
+			} else {
+				notifyAiEmployeesRequestFailed(e);
+				setErr(t('aiEmployees.projects.createNetworkFailed'));
+			}
 		} finally {
 			setBusy(false);
 		}
@@ -360,6 +447,9 @@ export function CreateProjectDialog({
 						onModeChange={setBoundaryMode}
 						onLocalPathChange={setBoundaryLocalPath}
 						onGitUrlChange={setBoundaryGitUrl}
+						localValidationState={boundaryLocalValidation}
+						onGitConnectionTest={() => void handleGitConnectionTest()}
+						gitConnectionTestState={boundaryGitTestState}
 					/>
 				</div>
 

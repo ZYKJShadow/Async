@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
-import { IconChevron, IconFolderKanban, IconPlus } from '../../icons';
+import { IconChevron, IconExplorer, IconFolderKanban, IconGitSCM, IconPlus } from '../../icons';
 import { VoidSelect } from '../../VoidSelect';
 import type { AiEmployeesConnection } from '../api/client';
 import { apiGetProject } from '../api/client';
@@ -9,9 +9,12 @@ import { CreateProjectDialog } from '../components/CreateProjectDialog';
 import { IssueStatusChip } from '../components/IssueStatusChip';
 import {
 	isPlausibleGitRemote,
+	normalizeBoundaryLocalPath,
 	normalizeProjectBoundaryKind,
 	ProjectBoundaryFields,
 	projectBoundaryApiFields,
+	testGitBoundaryRemote,
+	validateLocalBoundaryPath,
 } from '../components/ProjectBoundaryFields';
 import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import { assigneeVoidOptions } from '../voidSelectOptions';
@@ -61,7 +64,7 @@ function projectBoundaryFingerprint(p: ProjectJson): string {
 		return 'none';
 	}
 	if (k === 'local_folder') {
-		return `L:${(p.boundary_local_path ?? '').trim()}`;
+		return `L:${normalizeBoundaryLocalPath(p.boundary_local_path ?? '')}`;
 	}
 	return `G:${(p.boundary_git_url ?? '').trim()}`;
 }
@@ -72,7 +75,7 @@ function formBoundaryFingerprint(mode: ProjectBoundaryKind, localPath: string, g
 		return 'none';
 	}
 	if (k === 'local_folder') {
-		return `L:${localPath.trim()}`;
+		return `L:${normalizeBoundaryLocalPath(localPath)}`;
 	}
 	return `G:${gitUrl.trim()}`;
 }
@@ -118,6 +121,8 @@ export function ProjectsPage({
 	const [detailBoundaryMode, setDetailBoundaryMode] = useState<ProjectBoundaryKind>('none');
 	const [detailBoundaryLocal, setDetailBoundaryLocal] = useState('');
 	const [detailBoundaryGit, setDetailBoundaryGit] = useState('');
+	const [detailBoundaryLocalValidation, setDetailBoundaryLocalValidation] = useState<'idle' | 'checking' | 'ok' | 'missing' | 'not_directory' | 'unknown'>('idle');
+	const [detailBoundaryGitTestState, setDetailBoundaryGitTestState] = useState<'idle' | 'testing' | 'ok' | 'auth' | 'not_found' | 'network' | 'failed'>('idle');
 	const [saving, setSaving] = useState(false);
 	const [err, setErr] = useState<string | null>(null);
 
@@ -168,7 +173,7 @@ export function ProjectsPage({
 					setDetailLead(leadSelectValue(p));
 					const bk = normalizeProjectBoundaryKind(p.boundary_kind);
 					setDetailBoundaryMode(bk);
-					setDetailBoundaryLocal(bk === 'local_folder' ? (p.boundary_local_path ?? '').trim() : '');
+					setDetailBoundaryLocal(bk === 'local_folder' ? normalizeBoundaryLocalPath(p.boundary_local_path ?? '') : '');
 					setDetailBoundaryGit(bk === 'git_repo' ? (p.boundary_git_url ?? '').trim() : '');
 				}
 			})
@@ -187,6 +192,56 @@ export function ProjectsPage({
 			cancelled = true;
 		};
 	}, [conn, selectedId, view, workspaceId]);
+
+	useEffect(() => {
+		if (view !== 'detail' || detailBoundaryMode !== 'local_folder') {
+			setDetailBoundaryLocalValidation('idle');
+			return;
+		}
+		const val = detailBoundaryLocal.trim();
+		if (!val) {
+			setDetailBoundaryLocalValidation('idle');
+			return;
+		}
+		setDetailBoundaryLocalValidation('checking');
+		let cancelled = false;
+		const timer = setTimeout(() => {
+			void validateLocalBoundaryPath(val).then((res) => {
+				if (cancelled) {
+					return;
+				}
+				setDetailBoundaryLocalValidation(res === 'ok' ? 'ok' : res === 'missing' ? 'missing' : res === 'not_directory' ? 'not_directory' : 'unknown');
+			});
+		}, 220);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	}, [detailBoundaryLocal, detailBoundaryMode, view]);
+
+	useEffect(() => {
+		setDetailBoundaryGitTestState('idle');
+	}, [detailBoundaryGit, detailBoundaryMode]);
+
+	const handleDetailGitConnectionTest = useCallback(async () => {
+		const remote = detailBoundaryGit.trim();
+		if (!remote || !isPlausibleGitRemote(remote)) {
+			return;
+		}
+		setDetailBoundaryGitTestState('testing');
+		const result = await testGitBoundaryRemote(remote);
+		setDetailBoundaryGitTestState(
+			result === 'ok'
+				? 'ok'
+				: result === 'auth'
+					? 'auth'
+					: result === 'not_found'
+						? 'not_found'
+						: result === 'network'
+							? 'network'
+							: 'failed'
+		);
+	}, [detailBoundaryGit]);
 
 	const isDirty = useMemo(() => {
 		if (!detail) {
@@ -293,7 +348,7 @@ export function ProjectsPage({
 			setDetailLead(leadSelectValue(p));
 			const bk = normalizeProjectBoundaryKind(p.boundary_kind);
 			setDetailBoundaryMode(bk);
-			setDetailBoundaryLocal(bk === 'local_folder' ? (p.boundary_local_path ?? '').trim() : '');
+			setDetailBoundaryLocal(bk === 'local_folder' ? normalizeBoundaryLocalPath(p.boundary_local_path ?? '') : '');
 			setDetailBoundaryGit(bk === 'git_repo' ? (p.boundary_git_url ?? '').trim() : '');
 		} catch (e) {
 			notifyAiEmployeesRequestFailed(e);
@@ -429,6 +484,9 @@ export function ProjectsPage({
 										onModeChange={setDetailBoundaryMode}
 										onLocalPathChange={setDetailBoundaryLocal}
 										onGitUrlChange={setDetailBoundaryGit}
+										localValidationState={detailBoundaryLocalValidation}
+										onGitConnectionTest={() => void handleDetailGitConnectionTest()}
+										gitConnectionTestState={detailBoundaryGitTestState}
 									/>
 								</div>
 								<label className="ref-ai-employees-projects-side-field">
@@ -489,10 +547,29 @@ export function ProjectsPage({
 								const done = p.done_count ?? 0;
 								const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 								const lead = leadLabel(p, members, agents);
+								const boundaryKind = normalizeProjectBoundaryKind(p.boundary_kind);
+								const boundaryLabel =
+									boundaryKind === 'local_folder'
+										? t('aiEmployees.projects.boundaryLocal')
+										: boundaryKind === 'git_repo'
+											? t('aiEmployees.projects.boundaryGit')
+											: '';
 								return (
 									<button key={p.id} type="button" className="ref-ai-employees-projects-row" onClick={() => openDetail(p.id)}>
 										<span className="ref-ai-employees-projects-col-icon">{p.icon || '📁'}</span>
-										<span className="ref-ai-employees-projects-col-name">{p.title}</span>
+										<span className="ref-ai-employees-projects-col-name">
+											<span className="ref-ai-employees-projects-col-name-text">{p.title}</span>
+											{boundaryKind !== 'none' ? (
+												<span className={`ref-ai-employees-projects-boundary-badge is-${boundaryKind}`} title={boundaryLabel}>
+													{boundaryKind === 'local_folder' ? (
+														<IconExplorer className="ref-ai-employees-projects-boundary-ico" />
+													) : (
+														<IconGitSCM className="ref-ai-employees-projects-boundary-ico" />
+													)}
+													<span>{boundaryLabel}</span>
+												</span>
+											) : null}
+										</span>
 										<span className="ref-ai-employees-projects-col-progress">
 											{total > 0 ? (
 												<>

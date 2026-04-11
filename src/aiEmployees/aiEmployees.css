@@ -5401,6 +5401,47 @@
 	font-size: 11px;
 }
 
+.ref-ai-employees-issue-project-boundary-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.12));
+	font-size: 11px;
+	min-width: 0;
+}
+
+.ref-ai-employees-issue-project-boundary-pill.is-local_folder {
+	border-color: color-mix(in srgb, var(--void-accent, #58a6ff) 35%, transparent);
+	background: color-mix(in srgb, var(--void-accent, #58a6ff) 10%, transparent);
+}
+
+.ref-ai-employees-issue-project-boundary-pill.is-git_repo {
+	border-color: color-mix(in srgb, var(--void-warning, #f2cc60) 40%, transparent);
+	background: color-mix(in srgb, var(--void-warning, #f2cc60) 10%, transparent);
+}
+
+.ref-ai-employees-issue-project-boundary-ico {
+	width: 12px;
+	height: 12px;
+	flex: 0 0 auto;
+}
+
+.ref-ai-employees-issue-project-boundary-label {
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.ref-ai-employees-issue-project-boundary-value {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	color: var(--void-fg-1, #c9d1d9);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .ref-ai-employees-comm-rail {
 	width: 260px;
 	flex-shrink: 0;
@@ -7422,6 +7463,42 @@
 	color: var(--void-fg-3, #6e7681);
 }
 
+.ref-ai-employees-create-project-boundary-validation {
+	margin: 0;
+	font-size: 11px;
+	line-height: 1.4;
+}
+
+.ref-ai-employees-create-project-boundary-validation.is-valid {
+	color: color-mix(in srgb, var(--void-success, #3fb950) 82%, var(--void-fg-1, #9aa4b2));
+}
+
+.ref-ai-employees-create-project-boundary-validation.is-invalid {
+	color: color-mix(in srgb, var(--void-danger, #f85149) 82%, var(--void-fg-1, #9aa4b2));
+}
+
+.ref-ai-employees-create-project-boundary-validation.is-muted {
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-create-project-boundary-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.ref-ai-employees-create-project-boundary-test-result {
+	font-size: 11px;
+}
+
+.ref-ai-employees-create-project-boundary-test-result.is-valid {
+	color: color-mix(in srgb, var(--void-success, #3fb950) 82%, var(--void-fg-1, #9aa4b2));
+}
+
+.ref-ai-employees-create-project-boundary-test-result.is-invalid {
+	color: color-mix(in srgb, var(--void-danger, #f85149) 82%, var(--void-fg-1, #9aa4b2));
+}
+
 .ref-ai-employees-create-project-boundary-git .ref-ai-employees-input {
 	width: 100%;
 	box-sizing: border-box;
@@ -7502,10 +7579,18 @@
 	opacity: 0.72;
 }
 
-.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-pill {
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-due-pop-wrap {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: var(--ref-ai-employees-create-chip-max);
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-trigger {
 	display: inline-flex;
 	align-items: center;
-	flex: 0 1 auto;
+	justify-content: flex-start;
+	gap: 6px;
+	width: 100%;
 	min-width: 0;
 	max-width: var(--ref-ai-employees-create-chip-max);
 	height: var(--ref-ai-employees-create-chip-h);
@@ -7515,26 +7600,260 @@
 	border: 1px solid color-mix(in srgb, var(--void-border) 85%, transparent);
 	background: color-mix(in srgb, var(--void-fg-0) 5%, transparent);
 	box-sizing: border-box;
-}
-
-.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-input {
-	border: none;
-	background: transparent;
-	color: var(--void-fg-0, #e6edf3);
-	font: inherit;
 	font-size: var(--ref-ai-employees-create-chip-fs);
 	font-weight: 500;
-	line-height: 1.2;
-	padding: 0;
-	min-width: 0;
-	width: 100%;
-	max-width: 100%;
-	outline: none;
+	line-height: 1;
+	color: var(--void-fg-0, #e6edf3);
+	cursor: pointer;
+	text-align: left;
+	-webkit-appearance: none;
+	appearance: none;
 }
 
-.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-input::-webkit-calendar-picker-indicator {
-	opacity: 0.65;
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-trigger:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--void-accent) 10%, var(--void-bg-2));
+	border-color: color-mix(in srgb, var(--void-border) 60%, var(--void-accent) 40%);
+}
+
+.ref-ai-employees-create-dialog-toolbar .ref-ai-employees-create-dialog-due-trigger:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.ref-ai-employees-create-dialog-due-trigger-ico {
+	flex-shrink: 0;
+	display: block;
+	opacity: 0.85;
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-create-dialog-due-trigger-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	min-height: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	line-height: 1.15;
+}
+
+.ref-ai-employees-create-dialog-due-trigger-text.is-overdue {
+	color: color-mix(in srgb, var(--void-danger, #f87171) 88%, var(--void-fg-2));
+}
+
+.ref-ai-employees-create-dialog-due-trigger-chev {
+	display: block;
+	width: 12px;
+	height: 12px;
+	flex-shrink: 0;
+	opacity: 0.72;
+}
+
+/* Multica 式截止日期浮层（portal 到 body，避免 sheet overflow 裁切）
+ * 对齐 multica `DueDatePicker` + `Calendar`：PopoverContent `p-0`，Calendar `p-2`，
+ * 日格 `--cell-size` = Tailwind `--spacing(7)` = 1.75rem（见 multica calendar.tsx） */
+.ref-ai-employees-due-pop-panel {
+	position: fixed;
+	z-index: 130000;
+	color-scheme: dark;
+	padding: 0;
+	border-radius: 10px;
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.1));
+	background: var(--void-bg-2, #161b22);
+	box-shadow:
+		0 1px 0 color-mix(in srgb, #fff 4%, transparent),
+		0 18px 48px -10px rgba(0, 0, 0, 0.55);
+}
+
+.ref-ai-employees-due-pop-cal-wrap {
+	min-width: 0;
+	padding: 8px;
+	box-sizing: border-box;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp {
+	min-width: 0;
+}
+
+/*
+ * 必须写在 `.rdp-root` 上：库在 `react-day-picker/style.css` 里给 `.rdp-root` 写了
+ * `--rdp-day_button-border-radius: 100%`、`--rdp-accent-color: blue` 等，会盖掉外层 wrapper 的变量。
+ */
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-root {
+	--ref-multica-due-cell: 1.75rem;
+	--rdp-day-height: var(--ref-multica-due-cell);
+	--rdp-day-width: var(--ref-multica-due-cell);
+	--rdp-day_button-height: var(--ref-multica-due-cell);
+	--rdp-day_button-width: var(--ref-multica-due-cell);
+	--rdp-day_button-border: 1px solid transparent;
+	/* multica `[--cell-radius:var(--radius-md)]`：圆角块，不是库默认正圆 */
+	--rdp-day_button-border-radius: min(0.5rem, 10px);
+	--rdp-nav_button-height: var(--ref-multica-due-cell);
+	--rdp-nav_button-width: var(--ref-multica-due-cell);
+	--rdp-nav-height: var(--ref-multica-due-cell);
+	--rdp-week_number-height: var(--ref-multica-due-cell);
+	--rdp-week_number-width: var(--ref-multica-due-cell);
+	--rdp-weekday-padding: 0;
+	--rdp-selected-border: 1px solid transparent;
+	--rdp-accent-color: var(--void-accent-cool, #58a6ff);
+	--rdp-accent-background-color: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 22%, transparent);
+	--rdp-today-color: var(--void-accent-cool, #58a6ff);
+	--rdp-outside-opacity: 0.42;
+	--rdp-weekday-opacity: 0.78;
+	width: fit-content;
+	max-width: none;
+	color: var(--void-fg-1, #c9d1d9);
+	font-size: 14px;
+	line-height: 1.2;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp table.rdp-month_grid {
+	width: calc(7 * var(--ref-multica-due-cell));
+	border-collapse: collapse;
+}
+
+/* multica：`weekdays: flex` + `week: mt-2 flex w-full` + `weekday: flex-1` */
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-cal-weekdays-row {
+	display: flex !important;
+	width: 100%;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-cal-weekday-cell {
+	flex: 1 1 0;
+	min-width: 0;
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 0.25rem 0;
+	font-size: 0.8rem;
+	font-weight: 400;
+	opacity: var(--rdp-weekday-opacity);
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-cal-week-row {
+	display: flex !important;
+	width: 100%;
+	margin-top: 8px;
+	box-sizing: border-box;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-cal-day-cell {
+	flex: 1 1 0;
+	min-width: 0;
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-month {
+	position: relative;
+	width: calc(7 * var(--ref-multica-due-cell));
+	max-width: calc(7 * var(--ref-multica-due-cell));
+}
+
+/* navLayout="around"：标题居中，左右箭头（与 multica Calendar nav + month_caption 一致） */
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-root[data-nav-layout='around'] .rdp-month_caption {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-button_previous,
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-button_next {
+	border-radius: min(0.5rem, 10px);
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--void-accent-cool, #58a6ff);
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-button_previous:hover:not([aria-disabled='true']):not(:disabled),
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-button_next:hover:not([aria-disabled='true']):not(:disabled) {
+	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 14%, transparent);
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-chevron {
+	fill: currentColor;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-button_previous[aria-disabled='true'],
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-button_next[aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-day_button {
+	font-size: 0.875rem;
+	font-weight: 400;
+	line-height: 1;
+}
+
+/* 库默认 caption / 选中态为 font-size: large */
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-month_caption {
+	font-size: 0.875rem;
+	font-weight: 600;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-caption_label {
+	font-weight: 500;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-selected {
+	font-size: inherit;
+	font-weight: 600;
+}
+
+/* Multica `data-[selected-single=true]:bg-primary text-primary-foreground` */
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-selected .rdp-day_button {
+	background-color: color-mix(in srgb, var(--void-fg-0, #e6edf3) 88%, var(--void-accent-cool, #58a6ff) 12%) !important;
+	color: var(--void-bg-2, #0d1117) !important;
+	border-color: transparent !important;
+	font-weight: 600;
+}
+
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-selected .rdp-day_button:hover:not(:disabled) {
+	filter: brightness(1.05);
+}
+
+/* Multica today：`bg-muted`（未选中时） */
+.ref-ai-employees-due-pop-panel .ref-ai-employees-due-rdp .rdp-today:not(.rdp-selected):not(.rdp-outside) .rdp-day_button {
+	background-color: color-mix(in srgb, var(--void-fg-0) 9%, transparent);
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-due-pop-foot {
+	display: block;
+	padding: 8px 12px;
+	margin-top: 0;
+	border-top: 1px solid color-mix(in srgb, var(--void-border, rgba(255, 255, 255, 0.12)) 65%, transparent);
+}
+
+/* multica: `Button variant="ghost" size="xs"` + `text-muted-foreground hover:text-foreground` */
+.ref-ai-employees-due-pop-clear-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 24px;
+	padding: 0 8px;
+	margin: 0;
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.2;
+	color: var(--void-fg-2, #8b949e);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 6px;
 	cursor: pointer;
+}
+
+.ref-ai-employees-due-pop-clear-btn:hover {
+	color: var(--void-fg-0, #e6edf3);
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 }
 
 .ref-ai-employees-create-dialog-footer {
@@ -8819,12 +9138,49 @@
 }
 
 .ref-ai-employees-projects-col-name {
+	display: flex;
+	align-items: center;
+	gap: 8px;
 	font-weight: 600;
 	font-size: 13px;
+	min-width: 0;
+}
+
+.ref-ai-employees-projects-col-name-text {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.ref-ai-employees-projects-boundary-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 7px;
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.12));
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--void-fg-1, #9aa4b2);
+	white-space: nowrap;
+	flex: 0 0 auto;
+}
+
+.ref-ai-employees-projects-boundary-badge.is-local_folder {
+	border-color: color-mix(in srgb, var(--void-accent, #58a6ff) 35%, transparent);
+	background: color-mix(in srgb, var(--void-accent, #58a6ff) 10%, transparent);
+}
+
+.ref-ai-employees-projects-boundary-badge.is-git_repo {
+	border-color: color-mix(in srgb, var(--void-warning, #f2cc60) 40%, transparent);
+	background: color-mix(in srgb, var(--void-warning, #f2cc60) 10%, transparent);
+}
+
+.ref-ai-employees-projects-boundary-ico {
+	width: 12px;
+	height: 12px;
+	opacity: 0.9;
 }
 
 .ref-ai-employees-projects-col-progress {

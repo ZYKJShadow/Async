@@ -14,6 +14,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import type { TFunction } from '../../i18n';
 import type { AgentJson, IssueJson, WorkspaceMemberJson } from '../api/types';
+import { notifyAiEmployeesRequestFailed } from '../AiEmployeesNetworkToast';
 import { IssueStatusChip, normalizeIssueStatus } from '../components/IssueStatusChip';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { computeNewPosition } from '../domain/issueBoard';
@@ -199,8 +200,8 @@ export function BoardPage({
 			const position = computeNewPosition(columnSorted, insertAt);
 			try {
 				await onPatchIssue(activeId, { status: targetStatus, position });
-			} catch {
-				/* 错误由上层刷新覆盖 */
+			} catch (e) {
+				notifyAiEmployeesRequestFailed(e);
 			}
 		},
 		[issues, onPatchIssue]

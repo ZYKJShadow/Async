@@ -136,15 +136,33 @@ export function VoidSelect({
 		if (!open) {
 			return;
 		}
-		const onDoc = (e: MouseEvent) => {
-			const t = e.target as Node;
-			if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) {
+		const isInside = (n: EventTarget | null): boolean => {
+			if (!n || !(n instanceof Node)) {
+				return false;
+			}
+			return Boolean(triggerRef.current?.contains(n) || menuRef.current?.contains(n));
+		};
+		/** 捕获阶段：与日期浮层等并存时，避免他处 stopPropagation 导致 listbox 关不掉 */
+		const onOutsidePress = (e: Event) => {
+			if (isInside(e.target)) {
 				return;
 			}
 			setOpen(false);
 		};
-		document.addEventListener('mousedown', onDoc);
-		return () => document.removeEventListener('mousedown', onDoc);
+		const onFocusIn = (e: FocusEvent) => {
+			if (isInside(e.target)) {
+				return;
+			}
+			setOpen(false);
+		};
+		document.addEventListener('pointerdown', onOutsidePress, true);
+		document.addEventListener('mousedown', onOutsidePress, true);
+		document.addEventListener('focusin', onFocusIn, true);
+		return () => {
+			document.removeEventListener('pointerdown', onOutsidePress, true);
+			document.removeEventListener('mousedown', onOutsidePress, true);
+			document.removeEventListener('focusin', onFocusIn, true);
+		};
 	}, [open]);
 
 	useEffect(() => {
