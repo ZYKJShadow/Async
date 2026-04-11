@@ -165,6 +165,7 @@ export function AiEmployeesApp() {
 					</div>
 				</div>
 				<main className="ref-ai-employees-inset">
+					<div className="ref-ai-employees-inset-surface">
 					<div className="ref-ai-employees-breadcrumb">
 						<div className="ref-ai-employees-breadcrumb-path">
 							<div className="ref-ai-employees-ws-avatar" aria-hidden>
@@ -320,6 +321,8 @@ export function AiEmployeesApp() {
 							</>
 						)}
 					</div>
+					</div>
+					<div id="ref-ai-employees-inset-modal-host" className="ref-ai-employees-inset-modal-host" />
 				</main>
 			</div>
 		</div>

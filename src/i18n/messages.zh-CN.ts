@@ -122,6 +122,7 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.windowTitle': 'AI 团队',
 	'aiEmployees.menubarNavAria': '菜单',
 	'aiEmployees.titlebarAria': 'AI 团队窗口标题栏',
+	'aiEmployees.titlebarBrand': 'AI 团队',
 	'aiEmployees.sideNavAria': 'AI 员工分区',
 	'aiEmployees.tab.board': '看板',
 	'aiEmployees.tab.issues': '事务',

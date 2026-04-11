@@ -38,38 +38,56 @@ export function ConnectionPage({
 	const [rebuildBusy, setRebuildBusy] = useState(false);
 
 	return (
-		<div className="ref-ai-employees-form ref-ai-employees-settings-page">
-			<label>
-				<span>{t('aiEmployees.apiBaseUrl')}</span>
-				<input
-					className="ref-ai-employees-input"
-					value={aiSettings.apiBaseUrl ?? DEFAULT_API}
-					onChange={(e) => setAiSettings((s) => ({ ...s, apiBaseUrl: e.target.value }))}
-				/>
-			</label>
-			<label>
-				<span>{t('aiEmployees.wsBaseUrl')}</span>
-				<input
-					className="ref-ai-employees-input"
-					value={aiSettings.wsBaseUrl ?? DEFAULT_WS}
-					onChange={(e) => setAiSettings((s) => ({ ...s, wsBaseUrl: e.target.value }))}
-				/>
-			</label>
-			<label>
-				<span>{t('aiEmployees.token')}</span>
-				<input
-					className="ref-ai-employees-input"
-					type="password"
-					autoComplete="off"
-					value={aiSettings.token ?? 'dev'}
-					onChange={(e) => setAiSettings((s) => ({ ...s, token: e.target.value }))}
-				/>
-			</label>
-			<div className="ref-ai-employees-form-actions">
-				<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={() => void onSave()}>
-					{t('aiEmployees.saveConnection')}
-				</button>
-			</div>
+		<div className="ref-ai-employees-settings-page">
+			<section className="ref-ai-employees-settings-section" aria-labelledby="ref-ai-employees-conn-title">
+				<h3 id="ref-ai-employees-conn-title" className="ref-ai-employees-settings-subtitle">
+					{t('aiEmployees.tab.settings')}
+				</h3>
+				<div className="ref-ai-employees-settings-item">
+					<div className="ref-ai-employees-settings-info">
+						<span className="ref-ai-employees-settings-name">{t('aiEmployees.apiBaseUrl')}</span>
+					</div>
+					<div className="ref-ai-employees-settings-control">
+						<input
+							className="ref-ai-employees-input"
+							value={aiSettings.apiBaseUrl ?? DEFAULT_API}
+							onChange={(e) => setAiSettings((s) => ({ ...s, apiBaseUrl: e.target.value }))}
+						/>
+					</div>
+				</div>
+				<div className="ref-ai-employees-settings-item">
+					<div className="ref-ai-employees-settings-info">
+						<span className="ref-ai-employees-settings-name">{t('aiEmployees.wsBaseUrl')}</span>
+					</div>
+					<div className="ref-ai-employees-settings-control">
+						<input
+							className="ref-ai-employees-input"
+							value={aiSettings.wsBaseUrl ?? DEFAULT_WS}
+							onChange={(e) => setAiSettings((s) => ({ ...s, wsBaseUrl: e.target.value }))}
+						/>
+					</div>
+				</div>
+				<div className="ref-ai-employees-settings-item">
+					<div className="ref-ai-employees-settings-info">
+						<span className="ref-ai-employees-settings-name">{t('aiEmployees.token')}</span>
+					</div>
+					<div className="ref-ai-employees-settings-control">
+						<input
+							className="ref-ai-employees-input"
+							type="password"
+							autoComplete="off"
+							value={aiSettings.token ?? 'dev'}
+							onChange={(e) => setAiSettings((s) => ({ ...s, token: e.target.value }))}
+						/>
+					</div>
+				</div>
+				<div className="ref-ai-employees-settings-item" style={{ borderBottom: 'none' }}>
+					<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={() => void onSave()}>
+						{t('aiEmployees.saveConnection')}
+					</button>
+				</div>
+			</section>
+
 			{wsLog.length > 0 ? (
 				<details className="ref-ai-employees-settings-diagnostics">
 					<summary>{t('aiEmployees.wsLogHint')}</summary>
@@ -82,70 +100,78 @@ export function ConnectionPage({
 			) : null}
 
 			{workspaceId && sessionPhase === 'ready' ? (
-				<section className="ref-ai-employees-settings-team-reset" aria-labelledby="ref-ai-employees-team-reset-title">
+				<section className="ref-ai-employees-settings-section" aria-labelledby="ref-ai-employees-team-reset-title">
 					<h3 id="ref-ai-employees-team-reset-title" className="ref-ai-employees-settings-subtitle">
 						{t('aiEmployees.settings.rebuildTeamTitle')}
 					</h3>
-					<p className="ref-ai-employees-muted ref-ai-employees-settings-team-reset-desc">{t('aiEmployees.settings.rebuildTeamDesc')}</p>
-					<button
-						type="button"
-						className="ref-ai-employees-btn ref-ai-employees-btn--danger"
-						disabled={rebuildBusy}
-						onClick={() => {
-							if (!window.confirm(t('aiEmployees.settings.rebuildTeamConfirm'))) {
-								return;
-							}
-							setRebuildBusy(true);
-							void (async () => {
-								try {
-									await onRebuildTeam();
-								} finally {
-									setRebuildBusy(false);
-								}
-							})();
-						}}
-					>
-						{rebuildBusy ? t('common.loading') : t('aiEmployees.settings.rebuildTeamAction')}
-					</button>
+					<div className="ref-ai-employees-settings-item">
+						<div className="ref-ai-employees-settings-info">
+							<span className="ref-ai-employees-settings-desc">{t('aiEmployees.settings.rebuildTeamDesc')}</span>
+						</div>
+						<div className="ref-ai-employees-settings-control">
+							<button
+								type="button"
+								className="ref-ai-employees-btn ref-ai-employees-btn--danger"
+								disabled={rebuildBusy}
+								onClick={() => {
+									if (!window.confirm(t('aiEmployees.settings.rebuildTeamConfirm'))) {
+										return;
+									}
+									setRebuildBusy(true);
+									void (async () => {
+										try {
+											await onRebuildTeam();
+										} finally {
+											setRebuildBusy(false);
+										}
+									})();
+								}}
+							>
+								{rebuildBusy ? t('common.loading') : t('aiEmployees.settings.rebuildTeamAction')}
+							</button>
+						</div>
+					</div>
 				</section>
 			) : null}
 
-			<section className="ref-ai-employees-settings-team-reset" aria-labelledby="ref-ai-employees-integrations-title">
+			<section className="ref-ai-employees-settings-section" aria-labelledby="ref-ai-employees-integrations-title">
 				<h3 id="ref-ai-employees-integrations-title" className="ref-ai-employees-settings-subtitle">
 					{t('aiEmployees.settings.integrationsTitle')}
 				</h3>
-				<p className="ref-ai-employees-muted ref-ai-employees-settings-team-reset-desc">
-					{t('aiEmployees.settings.integrationsDesc')}
-				</p>
-				<p className="ref-ai-employees-muted" style={{ marginTop: 4 }}>
-					{t('aiEmployees.settings.integrationsBindHint')}
-				</p>
+				<div className="ref-ai-employees-settings-item">
+					<div className="ref-ai-employees-settings-info">
+						<span className="ref-ai-employees-settings-desc">{t('aiEmployees.settings.integrationsDesc')}</span>
+						<span className="ref-ai-employees-settings-desc">{t('aiEmployees.settings.integrationsBindHint')}</span>
+					</div>
+				</div>
 			</section>
 
 			{runtimes.length > 0 ? (
-				<section className="ref-ai-employees-settings-team-reset" aria-labelledby="ref-ai-employees-runtimes-title">
+				<section className="ref-ai-employees-settings-section" aria-labelledby="ref-ai-employees-runtimes-title">
 					<h3 id="ref-ai-employees-runtimes-title" className="ref-ai-employees-settings-subtitle">
 						{t('aiEmployees.tab.runtimes')}
 					</h3>
-					<p className="ref-ai-employees-muted">
-						{t('aiEmployees.runtimeOnlineCount', {
-							online: String(runtimes.filter((r) => isOnlineStatus(r.status)).length),
-							total: String(runtimes.length),
-						})}
-					</p>
-					<div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-						{runtimes.map((r) => (
-							<div key={r.id} className="ref-ai-employees-list-row" style={{ gap: 10 }}>
-								<span
-									className={`ref-ai-employees-runtime-status-dot ${isOnlineStatus(r.status) ? 'is-online' : ''}`}
-									style={{ flexShrink: 0 }}
-								/>
-								<span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-									{r.name ?? r.id.slice(0, 8)}
-								</span>
-								<span className="ref-ai-employees-muted">{r.runtime_mode ?? r.provider ?? '—'}</span>
-							</div>
-						))}
+					<div className="ref-ai-employees-settings-item" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+						<span className="ref-ai-employees-settings-desc">
+							{t('aiEmployees.runtimeOnlineCount', {
+								online: String(runtimes.filter((r) => isOnlineStatus(r.status)).length),
+								total: String(runtimes.length),
+							})}
+						</span>
+						<div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+							{runtimes.map((r) => (
+								<div key={r.id} className="ref-ai-employees-list-row" style={{ gap: 10 }}>
+									<span
+										className={`ref-ai-employees-runtime-status-dot ${isOnlineStatus(r.status) ? 'is-online' : ''}`}
+										style={{ flexShrink: 0 }}
+									/>
+									<span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+										{r.name ?? r.id.slice(0, 8)}
+									</span>
+									<span className="ref-ai-employees-muted">{r.runtime_mode ?? r.provider ?? '—'}</span>
+								</div>
+							))}
+						</div>
 					</div>
 				</section>
 			) : null}

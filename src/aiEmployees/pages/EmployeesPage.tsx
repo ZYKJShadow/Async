@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent } from 'react';
+import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
 import type { AiEmployeesConnection } from '../api/client';
 import { apiCreateOrgEmployee, apiPatchOrgEmployee, apiUploadOrgEmployeeAvatar } from '../api/orgClient';
@@ -569,7 +570,12 @@ export function EmployeesPage({
 				)}
 			</div>
 
-			{(detailModalOpen || detailModalExiting) && selected && selectedDraft ? (
+			{(() => {
+				const host = typeof document !== 'undefined' ? document.getElementById('ref-ai-employees-inset-modal-host') : null;
+				if (!(detailModalOpen || detailModalExiting) || !selected || !selectedDraft) {
+					return null;
+				}
+				const node = (
 				<div
 					className={`ref-ai-employees-org-modal-overlay${detailModalExiting ? ' ref-ai-employees-org-modal-overlay--exiting' : ''}`}
 					role="presentation"
@@ -666,9 +672,16 @@ export function EmployeesPage({
 						</div>
 					</div>
 				</div>
-			) : null}
+				);
+				return host ? createPortal(node, host) : node;
+			})()}
 
-			{(hireModalOpen || hireModalExiting) ? (
+			{(() => {
+				const host = typeof document !== 'undefined' ? document.getElementById('ref-ai-employees-inset-modal-host') : null;
+				if (!(hireModalOpen || hireModalExiting)) {
+					return null;
+				}
+				const node = (
 				<div
 					className={`ref-ai-employees-org-modal-overlay ref-ai-employees-role-hire-modal-overlay${hireModalExiting ? ' ref-ai-employees-org-modal-overlay--exiting' : ''}`}
 					role="presentation"
@@ -760,7 +773,9 @@ export function EmployeesPage({
 						</div>
 					</div>
 				</div>
-			) : null}
+				);
+				return host ? createPortal(node, host) : node;
+			})()}
 		</div>
 	);
 }

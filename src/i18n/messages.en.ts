@@ -120,6 +120,7 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.windowTitle': 'AI Team',
 	'aiEmployees.menubarNavAria': 'Menu',
 	'aiEmployees.titlebarAria': 'AI Team window title bar',
+	'aiEmployees.titlebarBrand': 'AI Team',
 	'aiEmployees.sideNavAria': 'AI Employees sections',
 	'aiEmployees.tab.board': 'Board',
 	'aiEmployees.tab.issues': 'Issues',

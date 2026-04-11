@@ -2720,6 +2720,34 @@ function AppMainWorkspaceInner() {
 		[shell, setTransitionOrigin]
 	);
 
+	const onChangeAppearanceSettings = useCallback(
+		(next: AppAppearanceSettings) => {
+			setAppearanceSettings(next);
+			if (!shell) {
+				return;
+			}
+			void shell.invoke('settings:set', {
+				ui: {
+					colorMode,
+					fontPreset: next.uiFontPreset,
+					uiFontPreset: next.uiFontPreset,
+					codeFontPreset: next.codeFontPreset,
+					themePresetId: next.themePresetId,
+					accentColor: next.accentColor,
+					backgroundColor: next.backgroundColor,
+					foregroundColor: next.foregroundColor,
+					translucentSidebar: next.translucentSidebar,
+					contrast: next.contrast,
+					usePointerCursors: next.usePointerCursors,
+					uiFontSize: next.uiFontSize,
+					codeFontSize: next.codeFontSize,
+					...(layoutPinnedBySurface ? {} : { layoutMode }),
+				},
+			});
+		},
+		[shell, colorMode, layoutPinnedBySurface, layoutMode]
+	);
+
 	useEffect(() => {
 		if (!layoutSwitchPending) {
 			setLayoutSwitchTarget(null);
@@ -5751,7 +5779,7 @@ function AppMainWorkspaceInner() {
 			onChangeColorMode: (m, origin) => void onChangeColorMode(m, origin),
 			effectiveColorScheme: effectiveScheme,
 			appearanceSettings,
-			onChangeAppearanceSettings: setAppearanceSettings,
+			onChangeAppearanceSettings,
 		}),
 		[
 			settingsInitialNav,
@@ -5786,7 +5814,7 @@ function AppMainWorkspaceInner() {
 			onChangeColorMode,
 			effectiveScheme,
 			appearanceSettings,
-			setAppearanceSettings,
+			onChangeAppearanceSettings,
 		]
 	);
 
