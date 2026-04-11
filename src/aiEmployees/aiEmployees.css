@@ -5737,6 +5737,17 @@
 	border-top-left-radius: 8px;
 }
 
+/* Markdown inside AI bubbles — override pre-wrap so md renders properly */
+.ref-ai-employees-comm-bubble-md {
+	white-space: normal;
+}
+.ref-ai-employees-comm-bubble-md > :first-child {
+	margin-top: 0;
+}
+.ref-ai-employees-comm-bubble-md > :last-child {
+	margin-bottom: 0;
+}
+
 .ref-ai-employees-comm-bubble--user {
 	align-self: flex-end;
 	background: color-mix(in srgb, var(--void-accent-cool) 20%, transparent);

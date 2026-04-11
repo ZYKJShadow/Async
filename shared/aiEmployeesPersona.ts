@@ -83,6 +83,40 @@ export type TeamMemberSummary = {
 	jobMission?: string;
 };
 
+export type WorkspaceProjectSnapshot = {
+	id: string;
+	title: string;
+	icon?: string;
+	description?: string;
+	boundaryKind: string;
+	boundaryPath?: string;
+	issueCount: number;
+	doneCount: number;
+	leadName?: string;
+};
+
+export type WorkspaceIssueSnapshot = {
+	identifier?: string;
+	title: string;
+	status: string;
+	priority?: string;
+	assigneeName?: string;
+	projectTitle?: string;
+};
+
+export type WorkspaceSkillSnapshot = {
+	name: string;
+	description?: string;
+};
+
+/** Live workspace state injected into the employee system prompt. */
+export type WorkspaceContextSnapshot = {
+	companyName?: string;
+	projects: WorkspaceProjectSnapshot[];
+	recentIssues: WorkspaceIssueSnapshot[];
+	skills: WorkspaceSkillSnapshot[];
+};
+
 export type EmployeeChatInput = {
 	requestId: string;
 	modelId: string;
@@ -98,4 +132,8 @@ export type EmployeeChatInput = {
 	history: EmployeeChatHistoryTurn[];
 	/** Team members the employee can collaborate with. */
 	teamMembers?: TeamMemberSummary[];
+	/** Live workspace state so the employee is aware of projects, issues, and skills. */
+	workspaceContext?: WorkspaceContextSnapshot;
+	/** Local folder paths from project boundaries — enables agent mode with file tools. */
+	boundaryLocalPaths?: string[];
 };

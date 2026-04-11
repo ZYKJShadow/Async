@@ -2822,7 +2822,7 @@ ipcMain.handle(
 		if (!requestId) {
 			return { ok: false as const, error: 'missing requestId' };
 		}
-		const send = (kind: 'delta' | 'done' | 'error', data: Record<string, unknown>) => {
+		const send = (kind: string, data: Record<string, unknown>) => {
 			try {
 				event.sender.send('async-shell:aiEmployeesChat', { requestId, kind, ...data });
 			} catch {
@@ -2843,6 +2843,12 @@ ipcMain.handle(
 				onError(message) {
 					lastError = message;
 					send('error', { error: message });
+				},
+				onToolCall(name, args) {
+					send('tool_call', { toolName: name, toolArgs: args });
+				},
+				onToolResult(name, success) {
+					send('tool_result', { toolName: name, toolSuccess: success });
 				},
 			});
 			if (lastError) {

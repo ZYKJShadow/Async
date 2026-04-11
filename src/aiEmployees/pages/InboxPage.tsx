@@ -1,4 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { TFunction } from '../../i18n';
 import { IconDotsHorizontal, IconMessageCircle, IconSend } from '../../icons';
 import type {
@@ -538,7 +540,13 @@ export function InboxPage({
 																isUser ? 'ref-ai-employees-comm-bubble--user' : 'ref-ai-employees-comm-bubble--system'
 															}`}
 														>
-															{message.body}
+															{!isUser ? (
+																<div className="ref-ai-employees-skill-md-preview ref-ai-employees-comm-bubble-md">
+																	<ReactMarkdown remarkPlugins={[remarkGfm]}>{message.body ?? ''}</ReactMarkdown>
+																</div>
+															) : (
+																message.body
+															)}
 														</div>
 														<time className="ref-ai-employees-inbox-chat-time" dateTime={message.createdAtIso}>
 															{formatChatMessageTime(message.createdAtIso)}
@@ -564,7 +572,9 @@ export function InboxPage({
 												aria-label={streamDraft ? t('aiEmployees.inbox.streamingLabel') : t('aiEmployees.inbox.typing')}
 											>
 												{streamDraft ? (
-													<div className="ref-ai-employees-inbox-stream-body">{streamDraft}</div>
+													<div className="ref-ai-employees-inbox-stream-body ref-ai-employees-skill-md-preview ref-ai-employees-comm-bubble-md">
+														<ReactMarkdown remarkPlugins={[remarkGfm]}>{streamDraft}</ReactMarkdown>
+													</div>
 												) : (
 													<span className="ref-ai-employees-typing-dots" aria-hidden>
 														<span />

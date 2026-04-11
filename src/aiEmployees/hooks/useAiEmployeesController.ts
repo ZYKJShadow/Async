@@ -719,7 +719,7 @@ export function useAiEmployeesController() {
 			return;
 		}
 		return shell.subscribeAiEmployeesChat((raw) => {
-			const p = raw as { requestId?: string; kind?: string; delta?: string; text?: string; error?: string };
+			const p = raw as { requestId?: string; kind?: string; delta?: string; text?: string; error?: string; toolName?: string; toolSuccess?: boolean };
 			const rid = p.requestId;
 			if (!rid) {
 				return;
@@ -731,6 +731,22 @@ export function useAiEmployeesController() {
 			const { employeeId, runId } = meta;
 			if (p.kind === 'delta' && p.delta) {
 				setEmployeeChatStreaming((prev) => ({ ...prev, [employeeId]: (prev[employeeId] ?? '') + p.delta }));
+				return;
+			}
+			if (p.kind === 'tool_call' && p.toolName) {
+				// Show tool activity as a status prefix in the streaming state
+				setEmployeeChatStreaming((prev) => {
+					const current = prev[employeeId] ?? '';
+					// Only show tool status if no text has been streamed yet, or append after existing text
+					if (!current) {
+						return { ...prev, [employeeId]: `\u{1F527} ${p.toolName}...\n` };
+					}
+					return prev;
+				});
+				return;
+			}
+			if (p.kind === 'tool_result') {
+				// Tool finished, clear the tool status line — the next delta will overwrite
 				return;
 			}
 			if (p.kind === 'done') {
@@ -1255,20 +1271,107 @@ export function useAiEmployeesController() {
 					jobMission: e.personaSeed?.jobMission,
 				}));
 
+			// Build workspace context string and inject it directly into customSystemPrompt.
+			// This path goes through the existing main-process handler without needing a rebuild.
+			const wsLines: string[] = [];
+			if (bootstrapStatus?.companyName) {
+				wsLines.push(`Company: ${bootstrapStatus.companyName}`);
+			}
+			if (projects.length > 0) {
+				wsLines.push('Projects in this workspace (you can see and reference these):');
+				for (const p of projects) {
+					let leadName: string | undefined;
+					if (p.lead_type === 'member' && p.lead_id) {
+						leadName = workspaceMembers.find((m) => m.user_id === p.lead_id)?.name;
+					} else if (p.lead_type === 'agent' && p.lead_id) {
+						leadName = agents.find((a) => a.id === p.lead_id)?.name
+							?? orgEmployees.find((e) => e.linkedRemoteAgentId === p.lead_id)?.displayName;
+					}
+					const total = p.issue_count ?? 0;
+					const done = p.done_count ?? 0;
+					const progress = total > 0 ? ` [${done}/${total} issues done]` : ' [no issues yet]';
+					const lead = leadName ? `, lead: ${leadName}` : '';
+					const bk = p.boundary_kind ?? 'none';
+					const bPath = bk === 'local_folder' ? p.boundary_local_path : bk === 'git_repo' ? p.boundary_git_url : null;
+					const boundary = bPath ? `, ${bk}: ${bPath}` : '';
+					wsLines.push(`  • ${p.icon ?? '📁'} ${p.title}${progress}${lead}${boundary}`);
+					if (p.description) {
+						wsLines.push(`    ${p.description.slice(0, 120).replace(/\n/g, ' ')}`);
+					}
+				}
+			} else {
+				wsLines.push('Projects: none created yet.');
+			}
+			if (issues.length > 0) {
+				wsLines.push('Issues/tasks in this workspace:');
+				for (const i of issues.slice(0, 25)) {
+					let assigneeName: string | undefined;
+					if (i.assignee_type === 'member' && i.assignee_id) {
+						assigneeName = workspaceMembers.find((m) => m.user_id === i.assignee_id)?.name;
+					} else if (i.assignee_type === 'agent' && i.assignee_id) {
+						assigneeName = agents.find((a) => a.id === i.assignee_id)?.name
+							?? orgEmployees.find((e) => e.linkedRemoteAgentId === i.assignee_id)?.displayName;
+					}
+					const id = i.identifier ? `${i.identifier} ` : '';
+					const proj = projects.find((p) => p.id === i.project_id);
+					const projLabel = proj ? ` [${proj.title}]` : '';
+					const assigneeLabel = assigneeName ? ` → ${assigneeName}` : '';
+					const priority = i.priority && i.priority !== 'none' ? ` (${i.priority})` : '';
+					wsLines.push(`  • ${id}${i.title} · ${i.status}${priority}${projLabel}${assigneeLabel}`);
+				}
+			}
+			if (skills.length > 0) {
+				wsLines.push(`Available skills: ${skills.map((s) => s.name).join(', ')}`);
+			}
+			const wsContextSection = wsLines.length > 0
+				? `IMPORTANT — Workspace context (live data provided by the system):\n` +
+				  `You CAN see this data. It is injected into your context by the system.\n` +
+				  `If you previously said you could not see workspace data, that was before this update — disregard that.\n` +
+				  `Always refer to the information below when asked about projects, issues, tasks, or team status.\n\n` +
+				  wsLines.join('\n')
+				: '';
+
+			// Compose the effective system prompt: preserve the employee's custom prompt (or build a default),
+			// then append the workspace context.
+			const roleTitle = employee.customRoleTitle?.trim() || employee.roleKey || 'team member';
+			const basePrompt = employee.customSystemPrompt?.trim()
+				|| `You are ${employee.displayName || 'AI employee'}, ${roleTitle}.`;
+			const injectedSystemPrompt = wsContextSection
+				? `${basePrompt}\n\n${wsContextSection}`
+				: basePrompt;
+
+			// Prepend a synthetic context-reset exchange to override stale history where
+			// the model previously claimed it couldn't see workspace data.
+			// These messages are only sent to the LLM — they do NOT appear in the UI.
+			const hasWorkspaceData = projects.length > 0 || issues.length > 0;
+			const effectiveHistory = hasWorkspaceData
+				? [
+					{ role: 'user' as const, content: '[System context update] Your workspace data has been synced. Check your system prompt for the latest projects and issues.' },
+					{ role: 'assistant' as const, content: 'Understood. I now have access to the current workspace data including projects, issues, and skills. I will refer to this information going forward.' },
+					...history,
+				]
+				: history;
+
+			// Collect local_folder boundary paths from all workspace projects for agent file access
+			const boundaryLocalPaths = projects
+				.filter((p) => p.boundary_kind === 'local_folder' && p.boundary_local_path?.trim())
+				.map((p) => p.boundary_local_path!.trim());
+
 			const payload: EmployeeChatInput = {
 				requestId,
 				modelId,
 				displayName: employee.displayName,
 				roleKey: employee.roleKey,
 				customRoleTitle: employee.customRoleTitle,
-				customSystemPrompt: employee.customSystemPrompt,
+				customSystemPrompt: injectedSystemPrompt,
 				jobMission: employee.personaSeed?.jobMission,
 				domainContext: employee.personaSeed?.domainContext,
 				communicationNotes: employee.personaSeed?.communicationNotes,
 				collaborationRules: employee.personaSeed?.collaborationRules,
 				handoffRules: employee.personaSeed?.handoffRules,
-				history,
+				history: effectiveHistory,
 				teamMembers,
+				boundaryLocalPaths: boundaryLocalPaths.length > 0 ? boundaryLocalPaths : undefined,
 			};
 
 			try {
@@ -1361,6 +1464,13 @@ export function useAiEmployeesController() {
 			persistOrchestration,
 			appendCollabMessage,
 			appendTimelineEvent,
+			bootstrapStatus,
+			projects,
+			issues,
+			skills,
+			workspaceMembers,
+			agents,
+			orgEmployees,
 		]
 	);
 	requestEmployeeReplyRef.current = requestEmployeeReply;
