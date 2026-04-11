@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import { IconDotsHorizontal, IconInbox, IconSend } from '../../icons';
 import type { AiCollabMessage, AiEmployeesOrchestrationState, AiOrchestrationRun } from '../../../shared/aiEmployeesSettings';
 import type { OrgEmployee } from '../api/orgTypes';
+import {
+	apiBatchInbox,
+	apiListInboxItems,
+	type AiEmployeesConnection,
+} from '../api/client';
+import type { InboxItemJson } from '../api/types';
 import {
 	describeCollaborationContract,
 	formatRuleDrivenMessageBody,
@@ -30,15 +36,25 @@ export function InboxPage({
 	t,
 	orgEmployees,
 	orchestration: _orchestration,
+	conn,
+	workspaceId,
+	inboxVersion,
 	onCreateRun,
 	onSendMessage,
 	onMarkMessageRead,
 	listMessagesByEmployee,
 	findActiveRunByEmployee,
+	employeeChatStreaming,
+	employeeChatError,
 }: {
 	t: TFunction;
 	orgEmployees: OrgEmployee[];
 	orchestration: AiEmployeesOrchestrationState;
+	conn: AiEmployeesConnection;
+	workspaceId: string;
+	inboxVersion: number;
+	employeeChatStreaming: Record<string, string>;
+	employeeChatError: Record<string, string | undefined>;
 	onCreateRun: (
 		employeeId: string,
 		title: string,
@@ -71,6 +87,40 @@ export function InboxPage({
 	const [moreOpen, setMoreOpen] = useState(false);
 	const moreRef = useRef<HTMLDivElement>(null);
 
+	// Remote inbox items from server API (server-side notifications / IM-routed messages)
+	const [remoteItems, setRemoteItems] = useState<InboxItemJson[]>([]);
+
+	const fetchRemoteInbox = useCallback(async () => {
+		if (!workspaceId) return;
+		try {
+			const items = await apiListInboxItems(conn, workspaceId, { archived: false });
+			setRemoteItems(items);
+		} catch {
+			// Remote inbox is optional — silently ignore when server is unreachable
+		}
+	}, [conn, workspaceId]);
+
+	// Initial fetch + re-fetch whenever inboxVersion bumps (WS event) or workspace changes
+	useEffect(() => {
+		void fetchRemoteInbox();
+	}, [fetchRemoteInbox, inboxVersion]);
+
+	const unreadRemoteCount = useMemo(
+		() => remoteItems.filter((item) => !item.read).length,
+		[remoteItems]
+	);
+
+	const markAllRemoteRead = useCallback(async () => {
+		const unreadIds = remoteItems.filter((item) => !item.read).map((item) => item.id);
+		if (!unreadIds.length || !workspaceId) return;
+		try {
+			await apiBatchInbox(conn, workspaceId, unreadIds, 'read');
+			setRemoteItems((prev) => prev.map((item) => ({ ...item, read: true })));
+		} catch {
+			// ignore
+		}
+	}, [conn, remoteItems, workspaceId]);
+
 	useEffect(() => {
 		if (!selectedId && sorted[0]?.id) {
 			setSelectedId(sorted[0].id);
@@ -94,7 +144,16 @@ export function InboxPage({
 	}, [moreOpen]);
 
 	const selected = selectedId ? sorted.find((employee) => employee.id === selectedId) : undefined;
-	const thread = useMemo(() => (selectedId ? listMessagesByEmployee(selectedId) : []), [listMessagesByEmployee, selectedId]);
+	const thread = useMemo(() => {
+		if (!selectedId) {
+			return [];
+		}
+		return [...listMessagesByEmployee(selectedId)].sort(
+			(a, b) => Date.parse(a.createdAtIso) - Date.parse(b.createdAtIso)
+		);
+	}, [listMessagesByEmployee, selectedId]);
+	const streamDraft = selectedId ? employeeChatStreaming[selectedId] : undefined;
+	const streamErr = selectedId ? employeeChatError[selectedId] : undefined;
 	const activeRun = selectedId ? findActiveRunByEmployee(selectedId) : undefined;
 	const blocker = latestBlockedReason(activeRun);
 	const contract = useMemo(() => getEmployeeCollaborationContract(selected), [selected]);
@@ -184,8 +243,17 @@ export function InboxPage({
 							</button>
 							{moreOpen ? (
 								<div className="ref-ai-employees-inbox-dropdown" role="menu">
-									<button type="button" className="ref-ai-employees-inbox-dropdown-item" role="menuitem" onClick={() => setMoreOpen(false)}>
+									<button
+										type="button"
+										className="ref-ai-employees-inbox-dropdown-item"
+										role="menuitem"
+										onClick={() => {
+											void markAllRemoteRead();
+											setMoreOpen(false);
+										}}
+									>
 										{t('aiEmployees.inbox.menuMarkAllRead')}
+										{unreadRemoteCount > 0 ? ` (${unreadRemoteCount})` : ''}
 									</button>
 								</div>
 							) : null}
@@ -255,7 +323,12 @@ export function InboxPage({
 								</div>
 							</div>
 							<div className="ref-ai-employees-comm-thread" role="log" aria-live="polite">
-								{thread.length === 0 ? (
+								{streamErr ? (
+									<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
+										{streamErr}
+									</div>
+								) : null}
+								{thread.length === 0 && streamDraft === undefined ? (
 									<div className="ref-ai-employees-inbox-thread-empty ref-ai-employees-muted">{t('aiEmployees.inbox.threadEmptyHint')}</div>
 								) : (
 									thread.map((message) => (
@@ -272,6 +345,25 @@ export function InboxPage({
 										</div>
 									))
 								)}
+								{streamDraft !== undefined ? (
+									<div
+										className="ref-ai-employees-comm-bubble ref-ai-employees-comm-bubble--system ref-ai-employees-inbox-streaming"
+										aria-busy={!streamDraft}
+									>
+										<div className="ref-ai-employees-inbox-message-summary">
+											{streamDraft ? t('aiEmployees.inbox.streamingLabel') : t('aiEmployees.inbox.typing')}
+										</div>
+										{streamDraft ? (
+											<div className="ref-ai-employees-inbox-stream-body">{streamDraft}</div>
+										) : (
+											<span className="ref-ai-employees-typing-dots" aria-hidden>
+												<span />
+												<span />
+												<span />
+											</span>
+										)}
+									</div>
+								) : null}
 							</div>
 							<div className="ref-ai-employees-comm-composer-wrap">
 								<div className="ref-ai-employees-comm-composer">

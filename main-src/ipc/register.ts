@@ -162,6 +162,8 @@ import { getAutoMemEntrypoint } from '../memdir/paths.js';
 import { buildMemoryEntrypoint, queueExtractMemories } from '../services/extractMemories/extractMemories.js';
 import { getWorkspaceIndexDir } from '../workspaceIndexPaths.js';
 import { generateHiringPlan, generateRolePromptDraft } from '../aiEmployees/roleGeneration.js';
+import { runEmployeeChat } from '../aiEmployees/employeeChat.js';
+import type { EmployeeChatInput } from '../../shared/aiEmployeesPersona.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -2738,6 +2740,46 @@ ipcMain.handle(
 			return { ok: true as const, candidates };
 		} catch (e) {
 			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
+	});
+
+	ipcMain.handle('aiEmployees:chat', async (event, payload: EmployeeChatInput) => {
+		const settings = getSettings();
+		const requestId = typeof payload?.requestId === 'string' ? payload.requestId : '';
+		if (!requestId) {
+			return { ok: false as const, error: 'missing requestId' };
+		}
+		const send = (kind: 'delta' | 'done' | 'error', data: Record<string, unknown>) => {
+			try {
+				event.sender.send('async-shell:aiEmployeesChat', { requestId, kind, ...data });
+			} catch {
+				/* window may be gone */
+			}
+		};
+		try {
+			let fullText = '';
+			let lastError: string | null = null;
+			await runEmployeeChat(settings, payload, {
+				onDelta(text) {
+					send('delta', { delta: text });
+				},
+				onDone(text) {
+					fullText = text;
+					send('done', { text });
+				},
+				onError(message) {
+					lastError = message;
+					send('error', { error: message });
+				},
+			});
+			if (lastError) {
+				return { ok: false as const, error: lastError };
+			}
+			return { ok: true as const, text: fullText };
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			send('error', { error: msg });
+			return { ok: false as const, error: msg };
 		}
 	});
 

@@ -67,3 +67,24 @@ export type HiringPlanGeneratorInput = {
 		nationalityCode?: NationalityCode | null;
 	}>;
 };
+
+/** Payload for `aiEmployees:chat` — inbox dialogue with a bound local model. */
+export type EmployeeChatHistoryTurn = {
+	role: 'user' | 'assistant';
+	content: string;
+};
+
+export type EmployeeChatInput = {
+	requestId: string;
+	modelId: string;
+	displayName: string;
+	roleKey: string;
+	customRoleTitle?: string | null;
+	customSystemPrompt?: string | null;
+	jobMission?: string;
+	domainContext?: string;
+	communicationNotes?: string;
+	collaborationRules?: string;
+	handoffRules?: string;
+	history: EmployeeChatHistoryTurn[];
+};

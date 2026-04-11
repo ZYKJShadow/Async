@@ -12,6 +12,8 @@ export interface AsyncShellAPI {
 	subscribeWorkspaceFileIndexReady?(callback: (workspaceRootNorm: string) => void): () => void;
 	/** 主窗口再次打开/聚焦 AI 员工窗口时传入当前工作区根路径 */
 	subscribeAiEmployeesWorkspace?(callback: (workspaceRoot: string) => void): () => void;
+	/** AI 团队收件箱对话流式输出（delta/done/error） */
+	subscribeAiEmployeesChat?(callback: (payload: unknown) => void): () => void;
 	/** PTY 终端输出（按 session id 区分） */
 	subscribeTerminalPtyData?(callback: (id: string, data: string) => void): () => void;
 	subscribeTerminalPtyExit?(callback: (id: string, code: unknown) => void): () => void;

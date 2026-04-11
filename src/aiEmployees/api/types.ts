@@ -104,3 +104,80 @@ export type TaskMessageJson = {
 	created_at: string;
 	summary?: string;
 };
+
+export type InboxItemSeverity = 'action_required' | 'attention' | 'info';
+
+export type InboxItemJson = {
+	id: string;
+	workspace_id: string;
+	recipient_type: 'member' | 'agent';
+	recipient_id: string;
+	type: string;
+	severity: InboxItemSeverity;
+	issue_id?: string | null;
+	title: string;
+	body?: string | null;
+	read: boolean;
+	archived: boolean;
+	created_at: string;
+};
+
+export type ChatSessionStatus = 'active' | 'archived';
+
+export type ChatSessionJson = {
+	id: string;
+	workspace_id: string;
+	agent_id: string;
+	creator_id: string;
+	title: string;
+	session_id?: string | null;
+	work_dir?: string | null;
+	status: ChatSessionStatus;
+	created_at: string;
+	updated_at: string;
+};
+
+export type ChatMessageRole = 'user' | 'assistant';
+
+export type ChatMessageJson = {
+	id: string;
+	chat_session_id: string;
+	role: ChatMessageRole;
+	content: string;
+	task_id?: string | null;
+	created_at: string;
+};
+
+export type ChatBindingProvider = 'telegram' | 'feishu' | 'discord';
+export type ChatBindingStatus = 'active' | 'disabled';
+
+export type ChatBindingJson = {
+	id: string;
+	employee_id: string;
+	provider: ChatBindingProvider;
+	external_user_id: string;
+	external_handle?: string | null;
+	channel_id?: string | null;
+	status: ChatBindingStatus;
+	config: Record<string, unknown>;
+	created_at: string;
+};
+
+// Phase 10: Task queue observability
+export type AgentTaskStatus = 'queued' | 'dispatched' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export type AgentTaskJson = {
+	id: string;
+	agent_id: string;
+	issue_id?: string | null;
+	chat_session_id?: string | null;
+	status: AgentTaskStatus;
+	priority: number;
+	error?: string | null;
+	result?: Record<string, unknown> | null;
+	handoff_from_task_id?: string | null;
+	created_at: string;
+	dispatched_at?: string | null;
+	started_at?: string | null;
+	completed_at?: string | null;
+};

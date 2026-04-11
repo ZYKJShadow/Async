@@ -1,6 +1,13 @@
 import type {
 	AgentJson,
+	AgentTaskJson,
+	AgentTaskStatus,
+	ChatBindingJson,
+	ChatBindingProvider,
+	ChatMessageJson,
+	ChatSessionJson,
 	CreateIssuePayload,
+	InboxItemJson,
 	IssueJson,
 	RuntimeJson,
 	SkillJson,
@@ -228,4 +235,243 @@ export async function apiListTaskMessages(
 	}
 	const j = (await r.json()) as { messages?: TaskMessageJson[] } | TaskMessageJson[];
 	return Array.isArray(j) ? j : (j.messages ?? []);
+}
+
+// ── Inbox API ─────────────────────────────────────────────────────────────────
+
+export type ListInboxOptions = {
+	read?: boolean;
+	archived?: boolean;
+};
+
+export async function apiListInboxItems(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	options?: ListInboxOptions
+): Promise<InboxItemJson[]> {
+	const params = new URLSearchParams();
+	if (options?.read !== undefined) {
+		params.set('read', String(options.read));
+	}
+	if (options?.archived !== undefined) {
+		params.set('archived', String(options.archived));
+	}
+	const qs = params.toString();
+	const path = qs ? `/api/inbox/?${qs}` : '/api/inbox/';
+	const r = await apiFetch(conn, path, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { items?: InboxItemJson[] };
+	return j.items ?? [];
+}
+
+export async function apiPatchInboxItem(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	itemId: string,
+	patch: { read?: boolean; archived?: boolean }
+): Promise<void> {
+	const r = await apiFetch(conn, `/api/inbox/${itemId}`, {
+		method: 'PATCH',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(patch),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+}
+
+export async function apiBatchInbox(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	itemIds: string[],
+	action: 'read' | 'archived'
+): Promise<number> {
+	const r = await apiFetch(conn, '/api/inbox/batch', {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ item_ids: itemIds, action }),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { updated?: number };
+	return j.updated ?? 0;
+}
+
+// ── Chat Session API ───────────────────────────────────────────────────────────
+
+export async function apiCreateChatSession(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	body: { agent_id: string; title?: string; session_id?: string; work_dir?: string }
+): Promise<ChatSessionJson> {
+	const r = await apiFetch(conn, '/api/chat/sessions', {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { session?: ChatSessionJson };
+	if (!j.session) {
+		throw new AiEmployeesApiError(r.status, 'missing session in response');
+	}
+	return j.session;
+}
+
+export async function apiListChatSessions(
+	conn: AiEmployeesConnection,
+	workspaceId: string
+): Promise<ChatSessionJson[]> {
+	const r = await apiFetch(conn, '/api/chat/sessions', { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { sessions?: ChatSessionJson[] };
+	return j.sessions ?? [];
+}
+
+export async function apiListChatMessages(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	sessionId: string
+): Promise<ChatMessageJson[]> {
+	const r = await apiFetch(conn, `/api/chat/sessions/${sessionId}/messages`, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { messages?: ChatMessageJson[] };
+	return j.messages ?? [];
+}
+
+export async function apiCreateChatMessage(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	sessionId: string,
+	body: { role: 'user' | 'assistant'; content: string; task_id?: string }
+): Promise<ChatMessageJson> {
+	const r = await apiFetch(conn, `/api/chat/sessions/${sessionId}/messages`, {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { message?: ChatMessageJson };
+	if (!j.message) {
+		throw new AiEmployeesApiError(r.status, 'missing message in response');
+	}
+	return j.message;
+}
+
+export async function apiDoneChatSession(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	sessionId: string
+): Promise<void> {
+	const r = await apiFetch(conn, `/api/chat/sessions/${sessionId}/done`, {
+		method: 'POST',
+		workspaceId,
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+}
+
+// ── Employee Chat Binding API ──────────────────────────────────────────────────
+
+export async function apiListChatBindings(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	employeeId: string
+): Promise<ChatBindingJson[]> {
+	const r = await apiFetch(conn, `/api/employees/${employeeId}/chat-bindings`, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { bindings?: ChatBindingJson[] };
+	return j.bindings ?? [];
+}
+
+export async function apiCreateChatBinding(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	employeeId: string,
+	body: {
+		provider: ChatBindingProvider;
+		external_user_id: string;
+		external_handle?: string;
+		channel_id?: string;
+		config?: Record<string, unknown>;
+	}
+): Promise<ChatBindingJson> {
+	const r = await apiFetch(conn, `/api/employees/${employeeId}/chat-bindings`, {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { binding?: ChatBindingJson };
+	if (!j.binding) {
+		throw new AiEmployeesApiError(r.status, 'missing binding in response');
+	}
+	return j.binding;
+}
+
+export async function apiDeleteChatBinding(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	employeeId: string,
+	bindingId: string
+): Promise<void> {
+	const r = await apiFetch(conn, `/api/employees/${employeeId}/chat-bindings/${bindingId}`, {
+		method: 'DELETE',
+		workspaceId,
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+}
+
+// Phase 10: Task queue observability
+
+export async function apiListWorkspaceTasks(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	options?: { status?: AgentTaskStatus; agentId?: string; limit?: number }
+): Promise<AgentTaskJson[]> {
+	const params = new URLSearchParams();
+	if (options?.status) params.set('status', options.status);
+	if (options?.agentId) params.set('agent_id', options.agentId);
+	if (options?.limit) params.set('limit', String(options.limit));
+	const qs = params.toString();
+	const r = await apiFetch(conn, `/api/workspaces/${workspaceId}/tasks${qs ? `?${qs}` : ''}`, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { items: AgentTaskJson[] };
+	return j.items ?? [];
+}
+
+export async function apiGetTask(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	taskId: string
+): Promise<AgentTaskJson> {
+	const r = await apiFetch(conn, `/api/workspaces/${workspaceId}/tasks/${taskId}`, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	return (await r.json()) as AgentTaskJson;
 }

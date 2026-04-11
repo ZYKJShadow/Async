@@ -1,10 +1,17 @@
 import type { ChangeEvent } from 'react';
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { VoidSelect } from '../../VoidSelect';
 import { formatLocalModelPickLabel } from '../adapters/modelAdapter';
 import type { LocalModelEntry } from '../sessionTypes';
 import type { RoleProfileDraft } from '../domain/roleDraft';
 import type { TFunction } from '../../i18n';
+import {
+	apiCreateChatBinding,
+	apiDeleteChatBinding,
+	apiListChatBindings,
+	type AiEmployeesConnection,
+} from '../api/client';
+import type { ChatBindingJson, ChatBindingProvider } from '../api/types';
 
 export function RoleProfileEditor({
 	t,
@@ -107,6 +114,186 @@ export function RoleProfileEditor({
 					/>
 				</label>
 			</div>
+		</div>
+	);
+}
+
+// ── IM 账号绑定 UI ─────────────────────────────────────────────────────────────
+
+const IM_PROVIDERS: { value: ChatBindingProvider; label: string }[] = [
+	{ value: 'telegram', label: 'Telegram' },
+	{ value: 'feishu', label: '飞书 (Feishu)' },
+	{ value: 'discord', label: 'Discord' },
+];
+
+/**
+ * IM 联系方式绑定面板 — 显示员工已绑定的 IM 账号，并支持添加/删除。
+ * 放置于角色编辑器旁侧，或嵌入详情抽屉。
+ */
+export function ImBindingsSection({
+	t,
+	conn,
+	workspaceId,
+	employeeId,
+}: {
+	t: TFunction;
+	conn: AiEmployeesConnection;
+	workspaceId: string;
+	employeeId: string;
+}) {
+	const [bindings, setBindings] = useState<ChatBindingJson[]>([]);
+	const [loading, setLoading] = useState(false);
+	const [addOpen, setAddOpen] = useState(false);
+	const [addProvider, setAddProvider] = useState<ChatBindingProvider>('telegram');
+	const [addUserId, setAddUserId] = useState('');
+	const [addHandle, setAddHandle] = useState('');
+	const [saving, setSaving] = useState(false);
+	const [err, setErr] = useState<string | null>(null);
+
+	const fetchBindings = useCallback(async () => {
+		if (!workspaceId || !employeeId) return;
+		setLoading(true);
+		try {
+			const list = await apiListChatBindings(conn, workspaceId, employeeId);
+			setBindings(list);
+		} catch {
+			// ignore transient errors
+		} finally {
+			setLoading(false);
+		}
+	}, [conn, workspaceId, employeeId]);
+
+	useEffect(() => {
+		void fetchBindings();
+	}, [fetchBindings]);
+
+	const handleAdd = async () => {
+		if (!addUserId.trim()) {
+			setErr('external_user_id required');
+			return;
+		}
+		setSaving(true);
+		setErr(null);
+		try {
+			const binding = await apiCreateChatBinding(conn, workspaceId, employeeId, {
+				provider: addProvider,
+				external_user_id: addUserId.trim(),
+				external_handle: addHandle.trim() || undefined,
+			});
+			setBindings((prev) => [...prev.filter((b) => b.provider !== addProvider), binding]);
+			setAddOpen(false);
+			setAddUserId('');
+			setAddHandle('');
+		} catch (e) {
+			setErr(e instanceof Error ? e.message : 'save failed');
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const handleDelete = async (bindingId: string) => {
+		try {
+			await apiDeleteChatBinding(conn, workspaceId, employeeId, bindingId);
+			setBindings((prev) => prev.filter((b) => b.id !== bindingId));
+		} catch {
+			// ignore
+		}
+	};
+
+	return (
+		<div className="ref-ai-employees-im-bindings">
+			<div className="ref-ai-employees-im-bindings-head">
+				<span className="ref-ai-employees-im-bindings-title">{t('aiEmployees.imBindings.title')}</span>
+				<button
+					type="button"
+					className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-btn--sm"
+					onClick={() => setAddOpen((v) => !v)}
+				>
+					{addOpen ? t('common.cancel') : t('aiEmployees.imBindings.add')}
+				</button>
+			</div>
+
+			{addOpen ? (
+				<div className="ref-ai-employees-im-bindings-form">
+					<label className="ref-ai-employees-catalog-field">
+						<span>{t('aiEmployees.imBindings.providerLabel')}</span>
+						<select
+							className="ref-ai-employees-input"
+							value={addProvider}
+							onChange={(e) => setAddProvider(e.target.value as ChatBindingProvider)}
+						>
+							{IM_PROVIDERS.map((p) => (
+								<option key={p.value} value={p.value}>
+									{p.label}
+								</option>
+							))}
+						</select>
+					</label>
+					<label className="ref-ai-employees-catalog-field">
+						<span>{t('aiEmployees.imBindings.externalUserIdLabel')}</span>
+						<input
+							className="ref-ai-employees-input"
+							placeholder={t('aiEmployees.imBindings.externalUserIdPh')}
+							value={addUserId}
+							onChange={(e) => setAddUserId(e.target.value)}
+						/>
+					</label>
+					<label className="ref-ai-employees-catalog-field">
+						<span>{t('aiEmployees.imBindings.handleLabel')}</span>
+						<input
+							className="ref-ai-employees-input"
+							placeholder={t('aiEmployees.imBindings.handlePh')}
+							value={addHandle}
+							onChange={(e) => setAddHandle(e.target.value)}
+						/>
+					</label>
+					{err ? <p className="ref-ai-employees-error">{err}</p> : null}
+					<div className="ref-ai-employees-form-actions">
+						<button
+							type="button"
+							className="ref-ai-employees-btn ref-ai-employees-btn--primary"
+							disabled={saving || !addUserId.trim()}
+							onClick={() => void handleAdd()}
+						>
+							{saving ? t('common.saving') : t('common.save')}
+						</button>
+					</div>
+				</div>
+			) : null}
+
+			{loading ? (
+				<p className="ref-ai-employees-muted ref-ai-employees-im-bindings-loading">
+					{t('common.loading')}
+				</p>
+			) : bindings.length === 0 ? (
+				<p className="ref-ai-employees-muted ref-ai-employees-im-bindings-empty">
+					{t('aiEmployees.imBindings.none')}
+				</p>
+			) : (
+				<ul className="ref-ai-employees-im-bindings-list">
+					{bindings.map((b) => (
+						<li key={b.id} className="ref-ai-employees-im-bindings-item">
+							<span className="ref-ai-employees-im-bindings-provider">{b.provider}</span>
+							<span className="ref-ai-employees-im-bindings-uid">
+								{b.external_handle ? `@${b.external_handle}` : b.external_user_id}
+							</span>
+							<span
+								className={`ref-ai-employees-pill ref-ai-employees-pill--${b.status === 'active' ? 'ok' : 'warn'}`}
+							>
+								{b.status}
+							</span>
+							<button
+								type="button"
+								className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-btn--sm"
+								onClick={() => void handleDelete(b.id)}
+								aria-label={t('common.delete')}
+							>
+								×
+							</button>
+						</li>
+					))}
+				</ul>
+			)}
 		</div>
 	);
 }

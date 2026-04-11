@@ -69,6 +69,9 @@ import {
 	type NormalizedTaskEvent,
 } from '../domain/taskEvents';
 import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
+import { resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
+import { buildCollabHistoryForEmployee } from '../domain/employeeChatHistory';
+import type { EmployeeChatInput } from '../../../shared/aiEmployeesPersona';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
@@ -121,6 +124,13 @@ export function useAiEmployeesController() {
 	const [promptTemplates, setPromptTemplates] = useState<OrgPromptTemplate[]>([]);
 	const [onboardingErr, setOnboardingErr] = useState<string | null>(null);
 	const [holdSetupDuringBootstrap, setHoldSetupDuringBootstrap] = useState(false);
+	// Version counters: increment on relevant WS events so consumers can re-fetch.
+	const [inboxVersion, setInboxVersion] = useState(0);
+	const [chatVersion, setChatVersion] = useState(0);
+	const [employeeChatStreaming, setEmployeeChatStreaming] = useState<Record<string, string>>({});
+	const [employeeChatError, setEmployeeChatError] = useState<Record<string, string | undefined>>({});
+	const pendingEmployeeChatRef = useRef(new Map<string, { employeeId: string; runId: string }>());
+	const employeeReplyGuardRef = useRef(new Set<string>());
 	const wsRef = useRef<AiEmployeesWsClient | null>(null);
 
 	useEffect(() => {
@@ -532,6 +542,8 @@ export function useAiEmployeesController() {
 		() => aiSettings.orchestration ?? emptyOrchestrationState(),
 		[aiSettings.orchestration]
 	);
+	const orchestrationRef = useRef(orchestration);
+	orchestrationRef.current = orchestration;
 
 	const employeeById = useMemo(() => new Map(orgEmployees.map((employee) => [employee.id, employee])), [orgEmployees]);
 	const employeeIdByAgentId = useMemo(() => {
@@ -589,6 +601,88 @@ export function useAiEmployeesController() {
 			upsertCollabMessageInState(state, message),
 		[]
 	);
+
+	useEffect(() => {
+		if (!shell?.subscribeAiEmployeesChat) {
+			return;
+		}
+		return shell.subscribeAiEmployeesChat((raw) => {
+			const p = raw as { requestId?: string; kind?: string; delta?: string; text?: string; error?: string };
+			const rid = p.requestId;
+			if (!rid) {
+				return;
+			}
+			const meta = pendingEmployeeChatRef.current.get(rid);
+			if (!meta) {
+				return;
+			}
+			const { employeeId, runId } = meta;
+			if (p.kind === 'delta' && p.delta) {
+				setEmployeeChatStreaming((prev) => ({ ...prev, [employeeId]: (prev[employeeId] ?? '') + p.delta }));
+				return;
+			}
+			if (p.kind === 'done') {
+				const text = (p.text ?? '').trim();
+				pendingEmployeeChatRef.current.delete(rid);
+				employeeReplyGuardRef.current.delete(employeeId);
+				setEmployeeChatStreaming((prev) => {
+					const next = { ...prev };
+					delete next[employeeId];
+					return next;
+				});
+				if (text) {
+					const nowIso = new Date().toISOString();
+					persistOrchestration((state) => {
+						const message: AiCollabMessage = {
+							id: crypto.randomUUID(),
+							runId,
+							type: 'text',
+							fromEmployeeId: employeeId,
+							summary: text.slice(0, 80),
+							body: text,
+							createdAtIso: nowIso,
+						};
+						let next = appendCollabMessage(state, message);
+						next = appendTimelineEvent(next, {
+							id: `message:${message.id}`,
+							runId,
+							type: 'message',
+							label: message.summary,
+							description: message.body,
+							createdAtIso: nowIso,
+							employeeId,
+							source: 'local',
+						});
+						return next;
+					});
+				}
+				return;
+			}
+			if (p.kind === 'error') {
+				const err = p.error ?? 'Unknown error';
+				pendingEmployeeChatRef.current.delete(rid);
+				employeeReplyGuardRef.current.delete(employeeId);
+				setEmployeeChatError((prev) => ({ ...prev, [employeeId]: err }));
+				setEmployeeChatStreaming((prev) => {
+					const next = { ...prev };
+					delete next[employeeId];
+					return next;
+				});
+				const nowIso = new Date().toISOString();
+				persistOrchestration((state) =>
+					appendCollabMessage(state, {
+						id: crypto.randomUUID(),
+						runId,
+						type: 'status_update',
+						fromEmployeeId: employeeId,
+						summary: 'Reply failed',
+						body: err,
+						createdAtIso: nowIso,
+					})
+				);
+			}
+		});
+	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent]);
 
 	const matchRunForTaskEvent = useCallback(
 		(state: ReturnType<typeof emptyOrchestrationState>, event: NormalizedTaskEvent) => {
@@ -866,6 +960,39 @@ export function useAiEmployeesController() {
 			client.on('task:message', (p) => {
 				recordTaskEvent('task:message', p);
 			}),
+			// Inbox events — bump version so subscribers re-fetch
+			client.on('inbox:new', () => {
+				setInboxVersion((v) => v + 1);
+			}),
+			client.on('inbox:read', () => {
+				setInboxVersion((v) => v + 1);
+			}),
+			client.on('inbox:archived', () => {
+				setInboxVersion((v) => v + 1);
+			}),
+			client.on('inbox:batch-read', () => {
+				setInboxVersion((v) => v + 1);
+			}),
+			client.on('inbox:batch-archived', () => {
+				setInboxVersion((v) => v + 1);
+			}),
+			// Chat events — bump version so subscribers re-fetch
+			client.on('chat:message', () => {
+				setChatVersion((v) => v + 1);
+			}),
+			client.on('chat:done', () => {
+				setChatVersion((v) => v + 1);
+			}),
+			// Task approval events — bump inbox so approval requests appear
+			client.on('task:approval-requested', () => {
+				setInboxVersion((v) => v + 1);
+			}),
+			client.on('task:approved', () => {
+				setInboxVersion((v) => v + 1);
+			}),
+			client.on('task:rejected', () => {
+				setInboxVersion((v) => v + 1);
+			}),
 		];
 		void syncOrchestrationHistory();
 		client.connect();
@@ -880,6 +1007,163 @@ export function useAiEmployeesController() {
 
 	const modelOptions = useMemo(() => buildModelOptions(localModels), [localModels]);
 	const modelOptionIdSet = useMemo(() => new Set(modelOptions.map((m) => m.id)), [modelOptions]);
+
+	const requestEmployeeReply = useCallback(
+		async (employeeId: string, runId: string) => {
+			if (!shell) {
+				return;
+			}
+			if (employeeReplyGuardRef.current.has(employeeId)) {
+				return;
+			}
+			const employee = employeeById.get(employeeId);
+			if (!employee) {
+				return;
+			}
+			const modelId = resolveEmployeeLocalModelId({
+				employeeId,
+				remoteAgentId: employee.linkedRemoteAgentId ?? undefined,
+				agentLocalModelMap: aiSettings.agentLocalModelIdByRemoteAgentId,
+				employeeLocalModelMap: aiSettings.employeeLocalModelIdByEmployeeId,
+				defaultModelId: localModels.defaultModelId,
+				modelOptionIds: modelOptionIdSet,
+			});
+			if (!modelId) {
+				setEmployeeChatError((prev) => ({
+					...prev,
+					[employeeId]: 'No local model — bind one in Team tab.',
+				}));
+				const nowIso = new Date().toISOString();
+				persistOrchestration((state) =>
+					appendCollabMessage(state, {
+						id: crypto.randomUUID(),
+						runId,
+						type: 'status_update',
+						fromEmployeeId: employeeId,
+						summary: 'No local model',
+						body: 'Bind a local model for this teammate in the Team tab.',
+						createdAtIso: nowIso,
+					})
+				);
+				return;
+			}
+			const history = buildCollabHistoryForEmployee(orchestrationRef.current.collabMessages, employeeId);
+			if (history.length === 0) {
+				return;
+			}
+			employeeReplyGuardRef.current.add(employeeId);
+			const requestId = crypto.randomUUID();
+			pendingEmployeeChatRef.current.set(requestId, { employeeId, runId });
+			setEmployeeChatStreaming((prev) => ({ ...prev, [employeeId]: '' }));
+			setEmployeeChatError((prev) => ({ ...prev, [employeeId]: undefined }));
+
+			const payload: EmployeeChatInput = {
+				requestId,
+				modelId,
+				displayName: employee.displayName,
+				roleKey: employee.roleKey,
+				customRoleTitle: employee.customRoleTitle,
+				customSystemPrompt: employee.customSystemPrompt,
+				jobMission: employee.personaSeed?.jobMission,
+				domainContext: employee.personaSeed?.domainContext,
+				communicationNotes: employee.personaSeed?.communicationNotes,
+				collaborationRules: employee.personaSeed?.collaborationRules,
+				handoffRules: employee.personaSeed?.handoffRules,
+				history,
+			};
+
+			try {
+				const result = (await shell.invoke('aiEmployees:chat', payload)) as {
+					ok?: boolean;
+					text?: string;
+					error?: string;
+				};
+				if (pendingEmployeeChatRef.current.has(requestId)) {
+					pendingEmployeeChatRef.current.delete(requestId);
+					employeeReplyGuardRef.current.delete(employeeId);
+					setEmployeeChatStreaming((prev) => {
+						const next = { ...prev };
+						delete next[employeeId];
+						return next;
+					});
+					const text = result.text?.trim();
+					if (result.ok && text) {
+						const nowIso = new Date().toISOString();
+						persistOrchestration((state) => {
+							const message: AiCollabMessage = {
+								id: crypto.randomUUID(),
+								runId,
+								type: 'text',
+								fromEmployeeId: employeeId,
+								summary: text.slice(0, 80),
+								body: text,
+								createdAtIso: nowIso,
+							};
+							let next = appendCollabMessage(state, message);
+							next = appendTimelineEvent(next, {
+								id: `message:${message.id}`,
+								runId,
+								type: 'message',
+								label: message.summary,
+								description: message.body,
+								createdAtIso: nowIso,
+								employeeId,
+								source: 'local',
+							});
+							return next;
+						});
+					} else if (!result.ok && result.error) {
+						setEmployeeChatError((prev) => ({ ...prev, [employeeId]: result.error }));
+						const nowIso = new Date().toISOString();
+						persistOrchestration((state) =>
+							appendCollabMessage(state, {
+								id: crypto.randomUUID(),
+								runId,
+								type: 'status_update',
+								fromEmployeeId: employeeId,
+								summary: 'Reply failed',
+								body: result.error ?? '',
+								createdAtIso: nowIso,
+							})
+						);
+					}
+				}
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				pendingEmployeeChatRef.current.delete(requestId);
+				employeeReplyGuardRef.current.delete(employeeId);
+				setEmployeeChatStreaming((prev) => {
+					const next = { ...prev };
+					delete next[employeeId];
+					return next;
+				});
+				setEmployeeChatError((prev) => ({ ...prev, [employeeId]: msg }));
+				const nowIso = new Date().toISOString();
+				persistOrchestration((state) =>
+					appendCollabMessage(state, {
+						id: crypto.randomUUID(),
+						runId,
+						type: 'status_update',
+						fromEmployeeId: employeeId,
+						summary: 'Reply failed',
+						body: msg,
+						createdAtIso: nowIso,
+					})
+				);
+			}
+		},
+		[
+			shell,
+			employeeById,
+			aiSettings.agentLocalModelIdByRemoteAgentId,
+			aiSettings.employeeLocalModelIdByEmployeeId,
+			localModels.defaultModelId,
+			modelOptionIdSet,
+			persistOrchestration,
+			appendCollabMessage,
+			appendTimelineEvent,
+		]
+	);
 
 	const bindAgentLocalModel = useCallback(
 		(agentId: string, modelEntryId: string) => {
@@ -1263,8 +1547,15 @@ export function useAiEmployeesController() {
 				});
 				return next;
 			});
+			if (input.toEmployeeId) {
+				const empId = input.toEmployeeId;
+				const rid = input.runId;
+				window.setTimeout(() => {
+					void requestEmployeeReply(empId, rid);
+				}, 0);
+			}
 		},
-		[appendCollabMessage, appendTimelineEvent, persistOrchestration]
+		[appendCollabMessage, appendTimelineEvent, persistOrchestration, requestEmployeeReply]
 	);
 
 	const markCollabMessageRead = useCallback(
@@ -1313,14 +1604,18 @@ export function useAiEmployeesController() {
 			const cleanDetails = details.trim();
 			const assignmentBody = options?.assignmentBody?.trim();
 			const goal = cleanDetails ? `[${employeeName}] ${cleanTitle} — ${cleanDetails}` : `[${employeeName}] ${cleanTitle}`;
-			return createOrchestrationRun(goal, targetBranch, {
+			const runId = createOrchestrationRun(goal, targetBranch, {
 				initialAssigneeEmployeeId: employeeId,
 				note: cleanTitle,
 				initialMessage: assignmentBody || cleanDetails || cleanTitle,
 				messageType: 'task_assignment',
 			});
+			window.setTimeout(() => {
+				void requestEmployeeReply(employeeId, runId);
+			}, 0);
+			return runId;
 		},
-		[createOrchestrationRun, employeeDisplayName]
+		[createOrchestrationRun, employeeDisplayName, requestEmployeeReply]
 	);
 
 	const patchWorkspaceIssue = useCallback(
@@ -1407,6 +1702,10 @@ export function useAiEmployeesController() {
 		patchWorkspaceIssue,
 		createWorkspaceIssue,
 		employeeCatalog: aiSettings.employeeCatalog ?? [],
+		inboxVersion,
+		chatVersion,
+		employeeChatStreaming,
+		employeeChatError,
 		bootstrapStatus,
 		onboardingStep,
 		setOnboardingStep,

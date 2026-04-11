@@ -3,7 +3,7 @@ import type { TFunction } from '../../i18n';
 import type { AiEmployeesConnection } from '../api/client';
 import { apiCreateOrgEmployee, apiPatchOrgEmployee, apiUploadOrgEmployeeAvatar, orgEmployeeAvatarSrc } from '../api/orgClient';
 import type { OrgEmployee } from '../api/orgTypes';
-import { RoleCustomSystemPromptField, RoleProfileEditor } from '../components/RoleProfileEditor';
+import { ImBindingsSection, RoleCustomSystemPromptField, RoleProfileEditor } from '../components/RoleProfileEditor';
 import { emptyPromptDraft } from '../domain/persona';
 import {
 	applyGeneratedPromptDraft,
@@ -14,6 +14,7 @@ import {
 } from '../domain/roleDraft';
 import type { LocalModelEntry } from '../sessionTypes';
 import type { RolePromptDraft, RolePromptGeneratorInput } from '../../../shared/aiEmployeesPersona';
+import { invokeGenerateHiringPlanForOrg, mapHiringCandidatesToMemberDrafts } from '../domain/ceoHiringPlan';
 
 function useAuthedAvatarPreview(
 	conn: AiEmployeesConnection,
@@ -95,6 +96,7 @@ export function EmployeesPage({
 	modelOptions,
 	modelOptionIdSet,
 	onBindEmployeeLocalModel,
+	defaultModelId,
 }: {
 	t: TFunction;
 	conn: AiEmployeesConnection;
@@ -106,6 +108,8 @@ export function EmployeesPage({
 	modelOptions: LocalModelEntry[];
 	modelOptionIdSet: Set<string>;
 	onBindEmployeeLocalModel: (employeeId: string, modelEntryId: string) => void;
+	/** Async 设置中的默认本地模型（用于 CEO 规划与自动招聘） */
+	defaultModelId?: string;
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -119,6 +123,9 @@ export function EmployeesPage({
 	const [hireErr, setHireErr] = useState<string | null>(null);
 	const [detailPromptBusy, setDetailPromptBusy] = useState(false);
 	const [hirePromptDraftId, setHirePromptDraftId] = useState<string | null>(null);
+	const [ceoReplanBusy, setCeoReplanBusy] = useState(false);
+	const [ceoReplanErr, setCeoReplanErr] = useState<string | null>(null);
+	const [ceoReplanDrafts, setCeoReplanDrafts] = useState<RoleProfileDraft[] | null>(null);
 	const effectiveCompanyName = companyName.trim() || 'Async Company';
 	const sortedOrg = useMemo(() => {
 		const list = [...orgEmployees];
@@ -136,6 +143,19 @@ export function EmployeesPage({
 		[selectedId, sortedOrg]
 	);
 	const ceoEmployee = sortedOrg.find((employee) => employee.isCeo) ?? null;
+
+	const ceoReplanModelId = useMemo(() => {
+		if (ceoEmployee) {
+			const bound = employeeLocalModelMap?.[ceoEmployee.id];
+			if (bound && modelOptionIdSet.has(bound)) {
+				return bound;
+			}
+		}
+		if (defaultModelId && modelOptionIdSet.has(defaultModelId)) {
+			return defaultModelId;
+		}
+		return modelOptions.find((m) => modelOptionIdSet.has(m.id))?.id ?? '';
+	}, [ceoEmployee, employeeLocalModelMap, defaultModelId, modelOptionIdSet, modelOptions]);
 
 	useEffect(() => {
 		if (selectedId && !sortedOrg.some((employee) => employee.id === selectedId)) {
@@ -188,6 +208,43 @@ export function EmployeesPage({
 			ceoEmployee ? `${ceoEmployee.displayName} / ${ceoEmployee.customRoleTitle || ceoEmployee.roleKey}` : '',
 		[ceoEmployee]
 	);
+
+	/** Auto-fill system prompt + collaboration/handoff via local model when hiring (best-effort). */
+	const tryAutoGenerateHireDraft = async (draft: RoleProfileDraft): Promise<RoleProfileDraft> => {
+		if (!window.asyncShell || !draft.localModelId || !modelOptionIdSet.has(draft.localModelId)) {
+			return draft;
+		}
+		try {
+			const teamHint =
+				sortedOrg.length > 0
+					? `Current team: ${sortedOrg.map((e) => `${e.displayName} (${e.customRoleTitle || e.roleKey})`).join('; ')}`
+					: '';
+			const payload: RolePromptGeneratorInput = {
+				modelId: draft.localModelId,
+				roleKey: draft.roleKey,
+				templatePromptKey: draft.templatePromptKey,
+				displayName: draft.displayName,
+				customRoleTitle: draft.customRoleTitle,
+				nationalityCode: draft.nationalityCode ?? null,
+				jobMission: draft.jobMission,
+				domainContext: draft.domainContext,
+				communicationNotes: draft.communicationNotes,
+				collaborationRules: draft.promptDraft.collaborationRules,
+				handoffRules: draft.promptDraft.handoffRules,
+				companyName: effectiveCompanyName,
+				managerSummary: [managerSummaryLine, teamHint].filter(Boolean).join(' · '),
+			};
+			const result = (await window.asyncShell.invoke('aiEmployees:generateRolePrompt', payload)) as
+				| { ok: true; draft: RolePromptDraft }
+				| { ok: false; error?: string };
+			if (result.ok) {
+				return applyGeneratedPromptDraft(draft, result.draft);
+			}
+		} catch {
+			/* keep draft */
+		}
+		return draft;
+	};
 
 	const invokeRolePromptGenerator = async (draft: RoleProfileDraft) => {
 		if (!window.asyncShell) {
@@ -308,16 +365,76 @@ export function EmployeesPage({
 	const startAddMember = () => {
 		setHirePanelOpen(true);
 		setHireErr(null);
+		const defaultHireModel = modelOptions.find((m) => modelOptionIdSet.has(m.id))?.id ?? '';
 		setHireDrafts([
 			createEmptyRoleProfileDraft({
 				id: crypto.randomUUID(),
 				roleKey: 'custom',
 				customRoleTitle: 'New Role',
 				managerEmployeeId: ceoEmployee?.id,
-				localModelId: modelOptions[0]?.id ?? '',
+				localModelId: defaultHireModel,
 				promptDraft: emptyPromptDraft(),
 			}),
 		]);
+	};
+
+	const runCeoReplanTeam = async () => {
+		const shell = window.asyncShell;
+		if (!shell) {
+			setCeoReplanErr(t('aiEmployees.setup.ceoPlanNoShell'));
+			return;
+		}
+		if (!ceoEmployee) {
+			setCeoReplanErr(t('aiEmployees.role.ceoReplanNeedCeo'));
+			return;
+		}
+		if (!ceoReplanModelId) {
+			setCeoReplanErr(t('aiEmployees.setup.ceoPlanNeedModel'));
+			return;
+		}
+		setCeoReplanBusy(true);
+		setCeoReplanErr(null);
+		try {
+			const result = await invokeGenerateHiringPlanForOrg(shell, {
+				modelId: ceoReplanModelId,
+				companyName: effectiveCompanyName,
+				ceoDisplayName: ceoEmployee.displayName,
+				ceoPersonaSeed: ceoEmployee.personaSeed ?? null,
+				ceoSystemPrompt: ceoEmployee.customSystemPrompt ?? '',
+				currentEmployees: orgEmployees,
+			});
+			if (!result.ok) {
+				setCeoReplanErr(result.error ?? t('aiEmployees.setup.ceoPlanFailed'));
+				return;
+			}
+			const drafts = mapHiringCandidatesToMemberDrafts(result.candidates, ceoReplanModelId);
+			if (drafts.length === 0) {
+				setCeoReplanErr(t('aiEmployees.setup.ceoPlanEmpty'));
+				return;
+			}
+			setCeoReplanDrafts(drafts);
+		} catch (error) {
+			setCeoReplanErr(error instanceof Error ? error.message : String(error));
+		} finally {
+			setCeoReplanBusy(false);
+		}
+	};
+
+	const appendCeoSuggestionsToHireQueue = () => {
+		if (!ceoReplanDrafts?.length) {
+			return;
+		}
+		setHireDrafts((prev) => [
+			...prev,
+			...ceoReplanDrafts.map((d) => ({
+				...d,
+				id: crypto.randomUUID(),
+				rejected: false,
+			})),
+		]);
+		setHirePanelOpen(true);
+		setCeoReplanDrafts(null);
+		setCeoReplanErr(null);
 	};
 
 	const createHires = async () => {
@@ -338,19 +455,20 @@ export function EmployeesPage({
 		setHireErr(null);
 		try {
 			for (const draft of accepted) {
+				const enriched = await tryAutoGenerateHireDraft(draft);
 				const created = await apiCreateOrgEmployee(conn, workspaceId, {
-					displayName: draft.displayName.trim(),
-					roleKey: draft.roleKey,
-					customRoleTitle: draft.customRoleTitle.trim() || undefined,
-					managerEmployeeId: draft.managerEmployeeId,
+					displayName: enriched.displayName.trim(),
+					roleKey: enriched.roleKey,
+					customRoleTitle: enriched.customRoleTitle.trim() || undefined,
+					managerEmployeeId: enriched.managerEmployeeId,
 					createdByEmployeeId: undefined,
-					templatePromptKey: draft.templatePromptKey,
-					customSystemPrompt: draft.promptDraft.systemPrompt.trim() || undefined,
-					nationalityCode: draft.nationalityCode ?? null,
-					personaSeed: toPersonaSeed(draft, 'user'),
+					templatePromptKey: enriched.templatePromptKey,
+					customSystemPrompt: enriched.promptDraft.systemPrompt.trim() || undefined,
+					nationalityCode: enriched.nationalityCode ?? null,
+					personaSeed: toPersonaSeed(enriched, 'user'),
 					modelSource: 'local_model',
 				});
-				onBindEmployeeLocalModel(created.id, draft.localModelId);
+				onBindEmployeeLocalModel(created.id, enriched.localModelId);
 			}
 			setHireDrafts([]);
 			setHirePanelOpen(false);
@@ -368,7 +486,57 @@ export function EmployeesPage({
 				<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={startAddMember}>
 					{t('aiEmployees.role.manualHireAction')}
 				</button>
+				<button
+					type="button"
+					className="ref-ai-employees-btn ref-ai-employees-btn--secondary"
+					disabled={ceoReplanBusy || !ceoEmployee}
+					onClick={() => void runCeoReplanTeam()}
+				>
+					{ceoReplanBusy ? t('common.loading') : t('aiEmployees.role.ceoReplanTeam')}
+				</button>
 			</div>
+			<p className="ref-ai-employees-muted ref-ai-employees-ceo-replan-hint">{t('aiEmployees.role.ceoReplanHint')}</p>
+			{ceoReplanErr ? <div className="ref-ai-employees-banner ref-ai-employees-banner--err">{ceoReplanErr}</div> : null}
+			{ceoReplanDrafts && ceoReplanDrafts.length > 0 ? (
+				<div className="ref-ai-employees-panel ref-ai-employees-ceo-replan-panel">
+					<div className="ref-ai-employees-role-review-head">
+						<strong>{t('aiEmployees.role.ceoReplanTeam')}</strong>
+						<div className="ref-ai-employees-form-actions">
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--ghost" onClick={() => setCeoReplanDrafts(null)}>
+								{t('aiEmployees.role.ceoReplanDismiss')}
+							</button>
+							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--primary" onClick={appendCeoSuggestionsToHireQueue}>
+								{t('aiEmployees.role.ceoReplanAddToHire')}
+							</button>
+						</div>
+					</div>
+					<ul className="ref-ai-employees-setup-ceo-plan-list">
+						{ceoReplanDrafts.map((d) => (
+							<li key={d.id ?? d.displayName} className="ref-ai-employees-setup-ceo-plan-card">
+								<div className="ref-ai-employees-setup-ceo-plan-card-head">
+									<strong>{d.displayName}</strong>
+									<span className="ref-ai-employees-muted">{d.customRoleTitle || d.roleKey}</span>
+								</div>
+								{d.reason ? <p className="ref-ai-employees-setup-ceo-plan-reason">{d.reason}</p> : null}
+								{d.promptDraft.collaborationRules ? (
+									<p className="ref-ai-employees-setup-ceo-plan-rules">
+										<span className="ref-ai-employees-setup-ceo-plan-k">{t('aiEmployees.setup.collabShort')}</span>
+										{d.promptDraft.collaborationRules.slice(0, 280)}
+										{d.promptDraft.collaborationRules.length > 280 ? '…' : ''}
+									</p>
+								) : null}
+								{d.promptDraft.handoffRules ? (
+									<p className="ref-ai-employees-setup-ceo-plan-rules ref-ai-employees-setup-ceo-plan-rules--handoff">
+										<span className="ref-ai-employees-setup-ceo-plan-k">{t('aiEmployees.setup.handoffShort')}</span>
+										{d.promptDraft.handoffRules.slice(0, 280)}
+										{d.promptDraft.handoffRules.length > 280 ? '…' : ''}
+									</p>
+								) : null}
+							</li>
+						))}
+					</ul>
+				</div>
+			) : null}
 
 			{hirePanelOpen ? (
 				<div className="ref-ai-employees-panel ref-ai-employees-role-hire-panel">
@@ -549,6 +717,7 @@ export function EmployeesPage({
 								canRestore={Boolean(selectedDraft.lastGeneratedPromptDraft)}
 								onChange={(value) => setSelectedDraft((prev) => (prev ? { ...prev, promptDraft: { ...prev.promptDraft, systemPrompt: value } } : prev))}
 							/>
+							<ImBindingsSection t={t} conn={conn} workspaceId={workspaceId} employeeId={selected.id} />
 							<div className="ref-ai-employees-form-actions ref-ai-employees-org-modal-actions">
 								<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={() => setDetailModalOpen(false)}>
 									{t('common.close')}

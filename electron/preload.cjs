@@ -81,6 +81,7 @@ const INVOKE_CHANNELS = new Set([
 	'threads:getPlan',
 	'aiEmployees:generateRolePrompt',
 	'aiEmployees:generateHiringPlan',
+	'aiEmployees:chat',
 	'workspaceAgent:get',
 	'workspaceAgent:set',
 	'workspace:closeFolder',
@@ -118,6 +119,19 @@ let workspaceFileIndexReadySeq = 0;
 
 const aiEmployeesWorkspaceHandlers = new Map();
 let aiEmployeesWorkspaceSeq = 0;
+
+const aiEmployeesChatHandlers = new Map();
+let aiEmployeesChatSeq = 0;
+
+ipcRenderer.on('async-shell:aiEmployeesChat', (_event, payload) => {
+	for (const fn of aiEmployeesChatHandlers.values()) {
+		try {
+			fn(payload);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
 
 ipcRenderer.on('async-shell:chat', (_event, payload) => {
 	for (const fn of chatHandlers.values()) {
@@ -246,6 +260,11 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++aiEmployeesWorkspaceSeq;
 		aiEmployeesWorkspaceHandlers.set(id, callback);
 		return () => aiEmployeesWorkspaceHandlers.delete(id);
+	},
+	subscribeAiEmployeesChat(callback) {
+		const id = ++aiEmployeesChatSeq;
+		aiEmployeesChatHandlers.set(id, callback);
+		return () => aiEmployeesChatHandlers.delete(id);
 	},
 	subscribeAutoUpdateStatus(callback) {
 		const id = ++autoUpdateStatusSeq;

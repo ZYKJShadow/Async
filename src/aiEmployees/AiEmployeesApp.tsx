@@ -258,11 +258,16 @@ export function AiEmployeesApp() {
 										t={t}
 										orgEmployees={c.orgEmployees}
 										orchestration={c.orchestration}
+										conn={c.conn}
+										workspaceId={c.workspaceId}
+										inboxVersion={c.inboxVersion}
 										onCreateRun={c.createEmployeeRun}
 										onSendMessage={c.sendCollabMessage}
 										onMarkMessageRead={c.markCollabMessageRead}
 										listMessagesByEmployee={c.listMessagesByEmployee}
 										findActiveRunByEmployee={c.findActiveRunByEmployee}
+										employeeChatStreaming={c.employeeChatStreaming}
+										employeeChatError={c.employeeChatError}
 									/>
 								) : null}
 
@@ -305,6 +310,7 @@ export function AiEmployeesApp() {
 									modelOptions={c.modelOptions}
 									modelOptionIdSet={c.modelOptionIdSet}
 									onBindEmployeeLocalModel={c.bindEmployeeLocalModel}
+									defaultModelId={c.localModels.defaultModelId}
 								/>
 								) : null}
 
