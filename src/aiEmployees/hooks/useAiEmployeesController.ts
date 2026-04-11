@@ -49,6 +49,7 @@ import {
 	apiGetMe,
 	apiListAgents,
 	apiCreateIssue,
+	apiDeleteIssue,
 	apiListIssues,
 	apiListMembers,
 	apiListRuntimes,
@@ -120,7 +121,7 @@ function myIssuesListQuery(meUserId: string | undefined, orgEmps: OrgEmployee[] 
 	return q;
 }
 
-export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'activity' | 'connection';
+export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'agents' | 'skills' | 'activity' | 'connection';
 
 export function useAiEmployeesController() {
 	const shell = window.asyncShell as Shell | undefined;
@@ -130,6 +131,12 @@ export function useAiEmployeesController() {
 	const [localRoot, setLocalRoot] = useState<string | null>(null);
 	const [aiSettings, setAiSettings] = useState<AiEmployeesSettings>({});
 	const [tab, setTab] = useState<AiEmployeesTabId>('inbox');
+	/** 侧栏「新建事务」等触发：递增后由 IssuesHubPage 打开弹窗 */
+	const [createIssueSignal, setCreateIssueSignal] = useState(0);
+	const requestCreateIssue = useCallback(() => {
+		setTab((prev) => (prev === 'myIssues' ? 'myIssues' : 'issues'));
+		setCreateIssueSignal((n) => n + 1);
+	}, []);
 	const [workspaceId, setWorkspaceId] = useState<string>('');
 	const [workspaces, setWorkspaces] = useState<{ id: string; name?: string }[]>([]);
 	const [issues, setIssues] = useState<IssueJson[]>([]);
@@ -1490,10 +1497,11 @@ export function useAiEmployeesController() {
 				initialMessage?: string;
 				messageType?: AiCollabMessageType;
 			}
-		) => {
+		): { runId: string; taskAssignmentMessageId?: string } => {
 			const nowIso = new Date().toISOString();
 			const runId = crypto.randomUUID();
 			const ownerEmployeeId = options?.ownerEmployeeId ?? fallbackOwnerEmployeeId;
+			const taskAssignmentMessageId = options?.initialMessage?.trim() ? crypto.randomUUID() : undefined;
 			persistOrchestration((state) => {
 				let next = upsertRun(
 					state,
@@ -1540,7 +1548,7 @@ export function useAiEmployeesController() {
 					});
 					if (options.initialMessage?.trim()) {
 						next = appendCollabMessage(next, {
-							id: crypto.randomUUID(),
+							id: taskAssignmentMessageId!,
 							runId,
 							type: options.messageType ?? 'task_assignment',
 							fromEmployeeId: ownerEmployeeId,
@@ -1553,7 +1561,7 @@ export function useAiEmployeesController() {
 				}
 				return next;
 			});
-			return runId;
+			return { runId, taskAssignmentMessageId };
 		},
 		[appendCollabMessage, appendTimelineEvent, employeeDisplayName, fallbackOwnerEmployeeId, persistOrchestration]
 	);
@@ -1758,18 +1766,57 @@ export function useAiEmployeesController() {
 			const cleanDetails = details.trim();
 			const assignmentBody = options?.assignmentBody?.trim();
 			const goal = cleanDetails ? `[${employeeName}] ${cleanTitle} — ${cleanDetails}` : `[${employeeName}] ${cleanTitle}`;
-			const runId = createOrchestrationRun(goal, targetBranch, {
+			const { runId, taskAssignmentMessageId } = createOrchestrationRun(goal, targetBranch, {
 				initialAssigneeEmployeeId: employeeId,
 				note: cleanTitle,
 				initialMessage: assignmentBody || cleanDetails || cleanTitle,
 				messageType: 'task_assignment',
 			});
+			const wid = workspaceId;
+			const emp = employeeById.get(employeeId);
+			const agentId = emp?.linkedRemoteAgentId;
+			if (wid && agentId && taskAssignmentMessageId) {
+				void (async () => {
+					try {
+						const issue = await apiCreateIssue(normConn(aiSettings), wid, {
+							title: cleanTitle,
+							description: cleanDetails || undefined,
+							assignee_type: 'agent',
+							assignee_id: agentId,
+							status: 'todo',
+						});
+						await refreshIssuesOnly();
+						persistOrchestration((state) => {
+							let next = setRunIssueInState(state, runId, issue.id);
+							const msg = next.collabMessages.find((m) => m.id === taskAssignmentMessageId);
+							if (msg) {
+								next = upsertCollabMessageInState(next, {
+									...msg,
+									cardMeta: { ...msg.cardMeta, issueId: issue.id, issueTitle: issue.title },
+								});
+							}
+							return next;
+						});
+					} catch {
+						/* 离线或权限失败时忽略，协作消息仍保留 */
+					}
+				})();
+			}
 			window.setTimeout(() => {
 				void requestEmployeeReply(employeeId, runId);
 			}, 0);
 			return runId;
 		},
-		[createOrchestrationRun, employeeDisplayName, requestEmployeeReply]
+		[
+			aiSettings,
+			createOrchestrationRun,
+			employeeById,
+			employeeDisplayName,
+			persistOrchestration,
+			refreshIssuesOnly,
+			requestEmployeeReply,
+			workspaceId,
+		]
 	);
 
 	const patchWorkspaceIssue = useCallback(
@@ -1785,12 +1832,25 @@ export function useAiEmployeesController() {
 	);
 
 	const createWorkspaceIssue = useCallback(
-		async (payload: CreateIssuePayload) => {
+		async (payload: CreateIssuePayload): Promise<IssueJson> => {
 			const wid = workspaceId;
 			if (!wid) {
 				throw new Error('No workspace selected');
 			}
-			await apiCreateIssue(normConn(aiSettings), wid, payload);
+			const issue = await apiCreateIssue(normConn(aiSettings), wid, payload);
+			await refreshIssuesOnly();
+			return issue;
+		},
+		[aiSettings, refreshIssuesOnly, workspaceId]
+	);
+
+	const deleteWorkspaceIssue = useCallback(
+		async (issueId: string) => {
+			const wid = workspaceId;
+			if (!wid) {
+				throw new Error('No workspace selected');
+			}
+			await apiDeleteIssue(normConn(aiSettings), wid, issueId);
 			await refreshIssuesOnly();
 		},
 		[aiSettings, refreshIssuesOnly, workspaceId]
@@ -1807,6 +1867,8 @@ export function useAiEmployeesController() {
 		setAiSettings,
 		tab,
 		setTab,
+		createIssueSignal,
+		requestCreateIssue,
 		workspaceId,
 		workspaces,
 		issues,
@@ -1855,6 +1917,8 @@ export function useAiEmployeesController() {
 		findActiveRunByEmployee,
 		patchWorkspaceIssue,
 		createWorkspaceIssue,
+		deleteWorkspaceIssue,
+		refreshSkillsOnly,
 		employeeCatalog: aiSettings.employeeCatalog ?? [],
 		inboxVersion,
 		chatVersion,

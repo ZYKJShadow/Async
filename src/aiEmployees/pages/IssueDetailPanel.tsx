@@ -4,6 +4,7 @@ import type { AgentJson, IssueJson, WorkspaceMemberJson } from '../api/types';
 import { IconCloseSmall } from '../../icons';
 
 const ISSUE_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled'] as const;
+const PRIORITIES = ['none', 'low', 'medium', 'high', 'urgent'] as const;
 
 function assigneeSelectValue(issue: IssueJson): string {
 	if (!issue.assignee_type || !issue.assignee_id) return '';
@@ -20,6 +21,7 @@ export function IssueDetailPanel({
 	onPatch,
 	onCreateChild,
 	onSelectIssue,
+	onDelete,
 }: {
 	t: TFunction;
 	issue: IssueJson;
@@ -30,6 +32,7 @@ export function IssueDetailPanel({
 	onPatch: (issueId: string, patch: Record<string, unknown>) => Promise<void>;
 	onCreateChild: (parentId: string, payload: { title: string; assignee_type?: 'member' | 'agent'; assignee_id?: string }) => Promise<void>;
 	onSelectIssue?: (issueId: string) => void;
+	onDelete?: (issueId: string) => Promise<void>;
 }) {
 	const [title, setTitle] = useState(issue.title);
 	const [description, setDescription] = useState(issue.description ?? '');
@@ -126,6 +129,44 @@ export function IssueDetailPanel({
 							</option>
 						))}
 					</select>
+				</label>
+
+				<label className="ref-ai-employees-issue-field">
+					<span>{t('aiEmployees.issueDetail.priority')}</span>
+					<select
+						className="ref-settings-native-select ref-ai-employees-issue-select"
+						value={issue.priority ?? 'none'}
+						disabled={saving}
+						onChange={(e) => void runPatch({ priority: e.target.value })}
+					>
+						{PRIORITIES.map((p) => (
+							<option key={p} value={p}>
+								{p}
+							</option>
+						))}
+					</select>
+				</label>
+
+				<label className="ref-ai-employees-issue-field">
+					<span>{t('aiEmployees.issueDetail.dueDate')}</span>
+					<input
+						className="ref-ai-employees-input"
+						type="datetime-local"
+						disabled={saving}
+						defaultValue={issue.due_date ? issue.due_date.slice(0, 16) : ''}
+						key={issue.id + (issue.due_date ?? '')}
+						onBlur={(e) => {
+							const v = e.target.value;
+							if (!v) {
+								void runPatch({ due_date: null });
+								return;
+							}
+							const iso = new Date(v).toISOString();
+							if (iso !== issue.due_date) {
+								void runPatch({ due_date: iso });
+							}
+						}}
+					/>
 				</label>
 
 				<label className="ref-ai-employees-issue-field">
@@ -241,6 +282,33 @@ export function IssueDetailPanel({
 						{t('aiEmployees.issueDetail.childSubmit')}
 					</button>
 				</div>
+
+				{onDelete ? (
+					<div className="ref-ai-employees-issue-panel-footer">
+						<button
+							type="button"
+							className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-issue-delete"
+							disabled={saving}
+							onClick={async () => {
+								if (!window.confirm(t('common.confirmDelete'))) {
+									return;
+								}
+								setSaving(true);
+								setErr(null);
+								try {
+									await onDelete(issue.id);
+									onClose();
+								} catch (e) {
+									setErr(e instanceof Error ? e.message : String(e));
+								} finally {
+									setSaving(false);
+								}
+							}}
+						>
+							{t('aiEmployees.issueDetail.delete')}
+						</button>
+					</div>
+				) : null}
 			</div>
 		</div>
 	);

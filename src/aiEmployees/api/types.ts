@@ -46,6 +46,7 @@ export type CreateIssuePayload = {
 	assignee_id?: string;
 	status?: string;
 	priority?: string;
+	due_date?: string | null;
 };
 
 export type AgentJson = {
@@ -55,10 +56,38 @@ export type AgentJson = {
 	workspace_id?: string;
 };
 
+export type SkillFileJson = {
+	id: string;
+	skill_id: string;
+	path: string;
+	content: string;
+	created_at?: string;
+};
+
 export type SkillJson = {
 	id: string;
 	name: string;
 	workspace_id?: string;
+	description?: string;
+	content?: string;
+	config?: Record<string, unknown>;
+	files?: SkillFileJson[];
+	created_at?: string;
+	updated_at?: string;
+};
+
+export type CreateSkillPayload = {
+	name: string;
+	description?: string;
+	content?: string;
+	config?: Record<string, unknown>;
+	files?: { path: string; content: string }[];
+};
+
+export type UpdateSkillPayload = Partial<CreateSkillPayload>;
+
+export type SetAgentSkillsPayload = {
+	skill_ids: string[];
 };
 
 export type RuntimeJson = {

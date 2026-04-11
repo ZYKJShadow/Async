@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { TFunction } from '../../i18n';
 import { IconBookOpen, IconDoc, IconListTodo, IconSettings, IconBot } from '../../icons';
 import type { AiEmployeesConnection } from '../api/client';
+import type { SkillJson } from '../api/types';
 import { apiCreateOrgEmployee, apiPatchOrgEmployee, apiUploadOrgEmployeeAvatar } from '../api/orgClient';
 import type { OrgEmployee } from '../api/orgTypes';
 import { ImBindingsSection, RoleCustomSystemPromptField, RoleProfileEditor } from '../components/RoleProfileEditor';
@@ -14,6 +15,7 @@ import {
 	toPersonaSeed,
 	type RoleProfileDraft,
 } from '../domain/roleDraft';
+import { EmployeeSkillsTab } from '../components/EmployeeSkillsTab';
 import { EmployeeActivityStatusLabel } from '../components/EmployeeActivityStatus';
 import { EmployeeRunOperationsFeed } from '../components/EmployeeRunOperationsFeed';
 import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
@@ -59,10 +61,14 @@ export function EmployeesPage({
 	orchestration,
 	employeeChatStreaming,
 	employeeChatError,
+	skillsCatalog,
+	onRefreshSkills,
 }: {
 	t: TFunction;
 	conn: AiEmployeesConnection;
 	workspaceId: string;
+	skillsCatalog?: SkillJson[];
+	onRefreshSkills?: () => void | Promise<void>;
 	companyName: string;
 	orgEmployees: OrgEmployee[];
 	onRefreshOrg: () => void | Promise<void>;
@@ -530,8 +536,19 @@ export function EmployeesPage({
 							) : null}
 
 							{detailTab === 'skills' ? (
-								<div className="ref-ai-employees-agents-detail-pane ref-ai-employees-agents-placeholder">
-									<p className="ref-ai-employees-muted">{t('aiEmployees.aiDetail.skillsPlaceholder')}</p>
+								<div className="ref-ai-employees-agents-detail-pane">
+									{skillsCatalog && onRefreshSkills ? (
+										<EmployeeSkillsTab
+											t={t}
+											conn={conn}
+											workspaceId={workspaceId}
+											employee={selected}
+											allSkills={skillsCatalog}
+											onRefreshSkills={onRefreshSkills}
+										/>
+									) : (
+										<p className="ref-ai-employees-muted">{t('aiEmployees.aiDetail.skillsPlaceholder')}</p>
+									)}
 								</div>
 							) : null}
 

@@ -3,7 +3,7 @@ import { AI_EMPLOYEES_WS_EVENT_NAMES } from './wsEventNames';
 
 describe('AI_EMPLOYEES_WS_EVENT_NAMES', () => {
 	it('has a stable count for proxy protocol coverage', () => {
-		expect(AI_EMPLOYEES_WS_EVENT_NAMES.length).toBe(43);
+		expect(AI_EMPLOYEES_WS_EVENT_NAMES.length).toBe(48);
 	});
 
 	it('has no duplicate entries', () => {

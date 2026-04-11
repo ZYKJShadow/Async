@@ -7,10 +7,13 @@ import type {
 	ChatMessageJson,
 	ChatSessionJson,
 	CreateIssuePayload,
+	CreateSkillPayload,
 	InboxItemJson,
 	IssueJson,
 	RuntimeJson,
+	SetAgentSkillsPayload,
 	SkillJson,
+	UpdateSkillPayload,
 	TaskJson,
 	TaskMessageJson,
 	WorkspaceMemberJson,
@@ -94,6 +97,13 @@ export type ListIssuesQueryOptions = {
 	assigneeMemberId?: string;
 	assigneeAgentIds?: string[];
 	creatorId?: string;
+	status?: string[];
+	priority?: string[];
+	assigneeIds?: string[];
+	sortBy?: string;
+	sortDir?: 'asc' | 'desc';
+	limit?: number;
+	offset?: number;
 };
 
 export async function apiListIssues(
@@ -110,6 +120,27 @@ export async function apiListIssues(
 	}
 	if (query?.creatorId) {
 		params.set('creator_id', query.creatorId);
+	}
+	if (query?.status?.length) {
+		params.set('status', query.status.join(','));
+	}
+	if (query?.priority?.length) {
+		params.set('priority', query.priority.join(','));
+	}
+	if (query?.assigneeIds?.length) {
+		params.set('assignee_ids', query.assigneeIds.join(','));
+	}
+	if (query?.sortBy) {
+		params.set('sort_by', query.sortBy);
+	}
+	if (query?.sortDir) {
+		params.set('sort_dir', query.sortDir);
+	}
+	if (query?.limit != null) {
+		params.set('limit', String(query.limit));
+	}
+	if (query?.offset != null) {
+		params.set('offset', String(query.offset));
 	}
 	const qs = params.toString();
 	const path = qs ? `/api/issues/?${qs}` : '/api/issues/';
@@ -173,6 +204,34 @@ export async function apiCreateIssue(
 	return j.issue;
 }
 
+export type ReorderIssueUpdate = { id: string; status: string; position: number };
+
+export async function apiReorderIssues(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	updates: ReorderIssueUpdate[]
+): Promise<void> {
+	const r = await apiFetch(conn, '/api/issues/reorder', {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ updates }),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+}
+
+export async function apiDeleteIssue(conn: AiEmployeesConnection, workspaceId: string, issueId: string): Promise<void> {
+	const r = await apiFetch(conn, `/api/issues/${issueId}`, {
+		method: 'DELETE',
+		workspaceId,
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+}
+
 export async function apiListAgents(conn: AiEmployeesConnection, workspaceId: string): Promise<AgentJson[]> {
 	const r = await apiFetch(conn, '/api/agents/', { workspaceId });
 	if (!r.ok) {
@@ -189,6 +248,118 @@ export async function apiListSkills(conn: AiEmployeesConnection, workspaceId: st
 	}
 	const j = (await r.json()) as { skills?: SkillJson[] } | SkillJson[];
 	return Array.isArray(j) ? j : (j.skills ?? []);
+}
+
+export async function apiGetSkill(conn: AiEmployeesConnection, workspaceId: string, skillId: string): Promise<SkillJson> {
+	const r = await apiFetch(conn, `/api/skills/${skillId}`, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { skill?: SkillJson };
+	if (!j.skill) {
+		throw new AiEmployeesApiError(r.status, 'missing skill in response');
+	}
+	return j.skill;
+}
+
+export async function apiCreateSkill(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	body: CreateSkillPayload
+): Promise<SkillJson> {
+	const r = await apiFetch(conn, '/api/skills/', {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { skill?: SkillJson };
+	if (!j.skill) {
+		throw new AiEmployeesApiError(r.status, 'missing skill in response');
+	}
+	return j.skill;
+}
+
+export async function apiUpdateSkill(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	skillId: string,
+	body: UpdateSkillPayload
+): Promise<SkillJson> {
+	const r = await apiFetch(conn, `/api/skills/${skillId}`, {
+		method: 'PATCH',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { skill?: SkillJson };
+	if (!j.skill) {
+		throw new AiEmployeesApiError(r.status, 'missing skill in response');
+	}
+	return j.skill;
+}
+
+export async function apiDeleteSkill(conn: AiEmployeesConnection, workspaceId: string, skillId: string): Promise<void> {
+	const r = await apiFetch(conn, `/api/skills/${skillId}`, {
+		method: 'DELETE',
+		workspaceId,
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+}
+
+export async function apiImportSkillFromUrl(conn: AiEmployeesConnection, workspaceId: string, url: string): Promise<SkillJson> {
+	const r = await apiFetch(conn, '/api/skills/import', {
+		method: 'POST',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ url }),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { skill?: SkillJson };
+	if (!j.skill) {
+		throw new AiEmployeesApiError(r.status, 'missing skill in response');
+	}
+	return j.skill;
+}
+
+export async function apiListAgentSkills(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	agentId: string
+): Promise<SkillJson[]> {
+	const r = await apiFetch(conn, `/api/agents/${agentId}/skills`, { workspaceId });
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
+	const j = (await r.json()) as { skills?: SkillJson[] } | SkillJson[];
+	return Array.isArray(j) ? j : (j.skills ?? []);
+}
+
+export async function apiSetAgentSkills(
+	conn: AiEmployeesConnection,
+	workspaceId: string,
+	agentId: string,
+	body: SetAgentSkillsPayload
+): Promise<void> {
+	const r = await apiFetch(conn, `/api/agents/${agentId}/skills`, {
+		method: 'PUT',
+		workspaceId,
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) {
+		throw new AiEmployeesApiError(r.status, await r.text());
+	}
 }
 
 export async function apiListRuntimes(conn: AiEmployeesConnection, workspaceId: string): Promise<RuntimeJson[]> {

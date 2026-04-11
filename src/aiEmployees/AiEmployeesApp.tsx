@@ -2,11 +2,13 @@ import { useMemo, type ReactNode } from 'react';
 import { useI18n } from '../i18n';
 import { AiEmployeesTitlebar } from './AiEmployeesTitlebar';
 import {
+	IconBookOpen,
 	IconBot,
 	IconChevron,
 	IconCircleUser,
 	IconListTodo,
 	IconMessageCircle,
+	IconPlus,
 	IconRefresh,
 	IconSettings,
 	IconTaskPulse,
@@ -17,6 +19,7 @@ import { EmployeesPage } from './pages/EmployeesPage';
 import { InboxPage } from './pages/InboxPage';
 import { IssuesHubPage } from './pages/IssuesHubPage';
 import { ActivityFeedPage } from './pages/ActivityFeedPage';
+import { SkillsPage } from './pages/SkillsPage';
 import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
 import { AiEmployeesLaunchOverlay } from './AiEmployeesLaunchOverlay';
 import './aiEmployees.css';
@@ -45,6 +48,8 @@ export function AiEmployeesApp() {
 				return t('aiEmployees.tab.issues');
 			case 'agents':
 				return t('aiEmployees.tab.team');
+			case 'skills':
+				return t('aiEmployees.tab.skills');
 			case 'activity':
 				return t('aiEmployees.tab.activity');
 			case 'connection':
@@ -54,7 +59,7 @@ export function AiEmployeesApp() {
 		}
 	};
 
-	const visibleTabs: AiEmployeesTabId[] = ['inbox', 'myIssues', 'issues', 'agents', 'activity', 'connection'];
+	const visibleTabs: AiEmployeesTabId[] = ['inbox', 'myIssues', 'issues', 'agents', 'skills', 'activity', 'connection'];
 	const activeTab = visibleTabs.includes(c.tab) ? c.tab : 'inbox';
 
 	const navBusy = c.sessionPhase === 'bootstrapping';
@@ -143,13 +148,26 @@ export function AiEmployeesApp() {
 									</option>
 								))}
 							</select>
+							<button
+								type="button"
+								className="ref-ai-employees-sidebar-new-issue"
+								disabled={c.sessionPhase === 'bootstrapping' || !c.workspaceId}
+								onClick={() => c.requestCreateIssue()}
+							>
+								<IconPlus className="ref-ai-employees-sidebar-new-issue-icon" />
+								<span>{t('aiEmployees.sidebarNewIssue')}</span>
+							</button>
 						</header>
 							<nav className="ref-ai-employees-sidebar-scroll">
-								<div className="ref-ai-employees-nav-group">
-									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.workspace')}</div>
+								<div className="ref-ai-employees-nav-group ref-ai-employees-nav-group--personal">
 									<div className="ref-ai-employees-nav-group-content">
 										{navBtn('inbox', t('aiEmployees.tab.inbox'), <IconMessageCircle className="ref-ai-employees-nav-icon" />)}
 										{navBtn('myIssues', t('aiEmployees.tab.myIssues'), <IconCircleUser className="ref-ai-employees-nav-icon" />)}
+									</div>
+								</div>
+								<div className="ref-ai-employees-nav-group">
+									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.workspace')}</div>
+									<div className="ref-ai-employees-nav-group-content">
 										{navBtn('issues', t('aiEmployees.tab.issues'), <IconListTodo className="ref-ai-employees-nav-icon" />)}
 										{navBtn('agents', t('aiEmployees.tab.team'), <IconBot className="ref-ai-employees-nav-icon" />)}
 										{navBtn('activity', t('aiEmployees.tab.activity'), <IconTaskPulse className="ref-ai-employees-nav-icon" />)}
@@ -158,6 +176,7 @@ export function AiEmployeesApp() {
 								<div className="ref-ai-employees-nav-group">
 									<div className="ref-ai-employees-nav-group-label">{t('aiEmployees.navGroup.configure')}</div>
 									<div className="ref-ai-employees-nav-group-content">
+										{navBtn('skills', t('aiEmployees.tab.skills'), <IconBookOpen className="ref-ai-employees-nav-icon" />)}
 										{navBtn('connection', t('aiEmployees.tab.settings'), <IconSettings className="ref-ai-employees-nav-icon" />)}
 									</div>
 								</div>
@@ -259,8 +278,10 @@ export function AiEmployeesApp() {
 											variant="my"
 											agents={c.agents}
 											members={c.workspaceMembers}
+											openCreateSignal={c.createIssueSignal}
 											onPatchIssue={c.patchWorkspaceIssue}
 											onCreateIssue={c.createWorkspaceIssue}
+											onDeleteIssue={c.deleteWorkspaceIssue}
 										/>
 									) : null}
 
@@ -271,8 +292,21 @@ export function AiEmployeesApp() {
 											variant="workspace"
 											agents={c.agents}
 											members={c.workspaceMembers}
+											openCreateSignal={c.createIssueSignal}
 											onPatchIssue={c.patchWorkspaceIssue}
 											onCreateIssue={c.createWorkspaceIssue}
+											onDeleteIssue={c.deleteWorkspaceIssue}
+										/>
+									) : null}
+
+									{activeTab === 'skills' ? (
+										<SkillsPage
+											t={t}
+											conn={c.conn}
+											workspaceId={c.workspaceId}
+											skills={c.skills}
+											colorScheme={c.effectiveScheme}
+											onRefreshSkills={() => void c.refreshSkillsOnly()}
 										/>
 									) : null}
 
@@ -281,6 +315,8 @@ export function AiEmployeesApp() {
 											t={t}
 											conn={c.conn}
 											workspaceId={c.workspaceId}
+											skillsCatalog={c.skills}
+											onRefreshSkills={() => void c.refreshSkillsOnly()}
 											companyName={c.bootstrapStatus?.companyName ?? ''}
 											orgEmployees={c.orgEmployees}
 											onRefreshOrg={c.refreshOrgEmployeesList}
