@@ -536,6 +536,7 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.inbox.noTasks': '暂无待处理事项',
 	'aiEmployees.inbox.approveAction': '批准',
 	'aiEmployees.inbox.rejectAction': '驳回',
+	'aiEmployees.inbox.ceoCoordinator': '协调者',
 	'aiEmployees.tab.activity': '动态',
 	'aiEmployees.activity.title': '团队动态',
 	'aiEmployees.activity.empty': '暂无动态。开始一段对话，即可看到团队协作过程。',

@@ -5991,6 +5991,29 @@
 	justify-content: center;
 }
 
+.ref-ai-employees-inbox-peer-ceo-tag {
+	margin-left: 6px;
+	padding: 1px 6px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--void-accent-warm, #f0883e) 18%, transparent);
+	color: var(--void-accent-warm, #f0883e);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.3px;
+	vertical-align: middle;
+}
+
+.ref-ai-employees-inbox-ceo-badge {
+	margin-left: 8px;
+	padding: 2px 8px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--void-accent-warm, #f0883e) 15%, transparent);
+	color: var(--void-accent-warm, #f0883e);
+	font-size: 11px;
+	font-weight: 600;
+	vertical-align: middle;
+}
+
 .ref-ai-employees-inbox-detail-headbar {
 	padding: 14px 18px;
 	border-bottom: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));

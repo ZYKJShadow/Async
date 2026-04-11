@@ -20,6 +20,7 @@ import { appendSubagentTranscript } from '../threadStore.js';
 import { assembleAgentToolPool } from './agentToolPool.js';
 import { executeAskPlanQuestionTool } from './planQuestionTool.js';
 import type { ComposerMode } from '../llm/composerMode.js';
+import { isCollabTool, executeCollabTool } from '../aiEmployees/collaborationTools.js';
 import { buildSubagentSystemAppend, findConfiguredSubagent, resolveSubagentProfile } from './subagentProfile.js';
 import { shouldRunAgentInBackground } from './agentForkPolicy.js';
 import { windowsPowerShellUtf8Command } from '../winUtf8.js';
@@ -300,6 +301,9 @@ export async function executeTool(
 		case 'ask_plan_question':
 			return await executeAskPlanQuestionTool(call);
 		default:
+			if (isCollabTool(call.name)) {
+				return executeCollabTool(call);
+			}
 			if (getMcpManager().isMcpTool(call.name)) {
 				return await executeMcpAgentTool(call);
 			}

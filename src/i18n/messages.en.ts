@@ -542,6 +542,7 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.inbox.noTasks': 'No pending tasks',
 	'aiEmployees.inbox.approveAction': 'Approve',
 	'aiEmployees.inbox.rejectAction': 'Reject',
+	'aiEmployees.inbox.ceoCoordinator': 'Coordinator',
 	'aiEmployees.tab.activity': 'Activity',
 	'aiEmployees.activity.title': 'Team Activity',
 	'aiEmployees.activity.empty': 'No activity yet. Start a conversation to see your team collaborate.',

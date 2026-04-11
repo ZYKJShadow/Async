@@ -714,12 +714,272 @@ export function useAiEmployeesController() {
 		[]
 	);
 
+	/** Resolve an employee by display name (case-insensitive). Used by collab tools. */
+	const resolveEmployeeByName = useCallback(
+		(name: string): OrgEmployee | undefined => {
+			const lower = name.toLowerCase().trim();
+			return orgEmployees.find((e) => e.displayName.toLowerCase().trim() === lower);
+		},
+		[orgEmployees]
+	);
+
+	/**
+	 * Handle a collaboration action from an employee's agent loop.
+	 * These create real orchestration state changes and can trigger follow-up agent runs.
+	 */
+	const handleCollabAction = useCallback(
+		(fromEmployeeId: string, runId: string, action: { tool: string; [key: string]: unknown }) => {
+			const nowIso = new Date().toISOString();
+			const fromName = employeeById.get(fromEmployeeId)?.displayName ?? fromEmployeeId.slice(0, 8);
+
+			switch (action.tool) {
+				case 'delegate_task': {
+					const targetName = String(action.targetEmployeeName ?? '');
+					const taskTitle = String(action.taskTitle ?? '');
+					const taskDesc = String(action.taskDescription ?? '');
+					const delegatePriority = String(action.priority ?? 'medium');
+					const target = resolveEmployeeByName(targetName);
+					if (!target) {
+						// Target not found — log it as a message
+						persistOrchestration((state) =>
+							appendCollabMessage(state, {
+								id: crypto.randomUUID(),
+								runId,
+								type: 'status_update',
+								fromEmployeeId,
+								summary: `Could not find teammate: ${targetName}`,
+								body: `Tried to delegate "${taskTitle}" but no teammate named "${targetName}" was found.`,
+								createdAtIso: nowIso,
+							})
+						);
+						return;
+					}
+					// Create handoff + task assignment message
+					const handoffId = crypto.randomUUID();
+					const messageId = crypto.randomUUID();
+					persistOrchestration((state) => {
+						let next = addHandoffToRunInState(state, runId, {
+							id: handoffId,
+							fromEmployeeId,
+							toEmployeeId: target.id,
+							status: 'in_progress',
+							note: `[${delegatePriority}] ${taskTitle}`,
+							atIso: nowIso,
+						});
+						next = appendTimelineEvent(next, {
+							id: `handoff:${handoffId}:created`,
+							runId,
+							type: 'handoff_added',
+							label: `${fromName} → ${target.displayName}: ${taskTitle}`,
+							description: taskDesc,
+							createdAtIso: nowIso,
+							handoffId,
+							employeeId: target.id,
+							source: 'local',
+						});
+						next = appendCollabMessage(next, {
+							id: messageId,
+							runId,
+							type: 'task_assignment',
+							fromEmployeeId,
+							toEmployeeId: target.id,
+							summary: taskTitle,
+							body: taskDesc,
+							createdAtIso: nowIso,
+							cardMeta: {
+								status: 'in_progress',
+								handoffId,
+							},
+						});
+						return next;
+					});
+					// Auto-trigger the target employee to begin working
+					window.setTimeout(() => {
+						void requestEmployeeReplyRef.current?.(target.id, runId);
+					}, 500);
+					break;
+				}
+
+				case 'send_colleague_message': {
+					const targetName = String(action.targetEmployeeName ?? '');
+					const message = String(action.message ?? '');
+					const target = resolveEmployeeByName(targetName);
+					if (!target || !message) return;
+					const messageId = crypto.randomUUID();
+					persistOrchestration((state) => {
+						let next = appendCollabMessage(state, {
+							id: messageId,
+							runId,
+							type: 'text',
+							fromEmployeeId,
+							toEmployeeId: target.id,
+							summary: `${fromName} → ${target.displayName}: ${message.slice(0, 60)}`,
+							body: message,
+							createdAtIso: nowIso,
+						});
+						next = appendTimelineEvent(next, {
+							id: `message:${messageId}`,
+							runId,
+							type: 'message',
+							label: `${fromName} → ${target.displayName}`,
+							description: message,
+							createdAtIso: nowIso,
+							employeeId: target.id,
+							source: 'local',
+						});
+						return next;
+					});
+					// Auto-trigger the target employee to respond
+					window.setTimeout(() => {
+						void requestEmployeeReplyRef.current?.(target.id, runId);
+					}, 500);
+					break;
+				}
+
+				case 'submit_result': {
+					const summary = String(action.summary ?? '');
+					const modifiedFiles = action.modifiedFiles as string[] | undefined;
+					const nextSteps = action.nextSteps ? String(action.nextSteps) : undefined;
+					// Find the active handoff for this employee in this run and mark it done
+					const orch = orchestrationRef.current;
+					const run = orch.runs.find((r) => r.id === runId);
+					const activeHandoff = run?.handoffs.find(
+						(h) => h.toEmployeeId === fromEmployeeId && h.status === 'in_progress'
+					);
+					const body = [
+						summary,
+						modifiedFiles?.length ? `Modified: ${modifiedFiles.join(', ')}` : '',
+						nextSteps ? `Next steps: ${nextSteps}` : '',
+					].filter(Boolean).join('\n');
+					const messageId = crypto.randomUUID();
+
+					persistOrchestration((state) => {
+						let next = appendCollabMessage(state, {
+							id: messageId,
+							runId,
+							type: 'result',
+							fromEmployeeId,
+							summary: `${fromName} completed: ${summary.slice(0, 60)}`,
+							body,
+							createdAtIso: nowIso,
+							cardMeta: {
+								status: 'done',
+								handoffId: activeHandoff?.id,
+							},
+						});
+						next = appendTimelineEvent(next, {
+							id: `message:${messageId}`,
+							runId,
+							type: 'result',
+							label: `${fromName} completed task`,
+							description: summary,
+							createdAtIso: nowIso,
+							employeeId: fromEmployeeId,
+							source: 'local',
+						});
+						// Mark the handoff as done
+						if (activeHandoff) {
+							next = setHandoffStatusInState(next, runId, activeHandoff.id, 'done', {
+								resultSummary: summary,
+								atIso: nowIso,
+							});
+							next = appendTimelineEvent(next, {
+								id: `handoff:${activeHandoff.id}:done:${nowIso}`,
+								runId,
+								type: 'handoff_status',
+								label: `Handoff completed by ${fromName}`,
+								createdAtIso: nowIso,
+								handoffId: activeHandoff.id,
+								status: 'done',
+								source: 'local',
+							});
+						}
+						return next;
+					});
+					// Auto-trigger next pending handoff in the chain
+					if (run) {
+						const nextPending = run.handoffs.find((h) => h.status === 'pending');
+						if (nextPending) {
+							window.setTimeout(() => {
+								void requestEmployeeReplyRef.current?.(nextPending.toEmployeeId, runId);
+							}, 500);
+						}
+					}
+					break;
+				}
+
+				case 'report_blocker': {
+					const description = String(action.description ?? '');
+					const suggestedHelper = action.suggestedHelperName ? String(action.suggestedHelperName) : undefined;
+					// Find active handoff and mark blocked
+					const orch2 = orchestrationRef.current;
+					const run2 = orch2.runs.find((r) => r.id === runId);
+					const activeHandoff2 = run2?.handoffs.find(
+						(h) => h.toEmployeeId === fromEmployeeId && h.status === 'in_progress'
+					);
+					const messageId2 = crypto.randomUUID();
+					persistOrchestration((state) => {
+						let next = appendCollabMessage(state, {
+							id: messageId2,
+							runId,
+							type: 'blocker',
+							fromEmployeeId,
+							summary: `${fromName} blocked: ${description.slice(0, 60)}`,
+							body: suggestedHelper
+								? `${description}\n\nSuggested helper: ${suggestedHelper}`
+								: description,
+							createdAtIso: nowIso,
+							cardMeta: {
+								status: 'blocked',
+								handoffId: activeHandoff2?.id,
+							},
+						});
+						next = appendTimelineEvent(next, {
+							id: `message:${messageId2}`,
+							runId,
+							type: 'message',
+							label: `${fromName} is blocked`,
+							description,
+							createdAtIso: nowIso,
+							employeeId: fromEmployeeId,
+							source: 'local',
+						});
+						if (activeHandoff2) {
+							next = setHandoffStatusInState(next, runId, activeHandoff2.id, 'blocked', {
+								blockedReason: description,
+								atIso: nowIso,
+							});
+						}
+						return next;
+					});
+					// If a helper was suggested, auto-trigger them
+					if (suggestedHelper) {
+						const helper = resolveEmployeeByName(suggestedHelper);
+						if (helper) {
+							window.setTimeout(() => {
+								void requestEmployeeReplyRef.current?.(helper.id, runId);
+							}, 500);
+						}
+					}
+					break;
+				}
+			}
+		},
+		[
+			appendCollabMessage,
+			appendTimelineEvent,
+			employeeById,
+			persistOrchestration,
+			resolveEmployeeByName,
+		]
+	);
+
 	useEffect(() => {
 		if (!shell?.subscribeAiEmployeesChat) {
 			return;
 		}
 		return shell.subscribeAiEmployeesChat((raw) => {
-			const p = raw as { requestId?: string; kind?: string; delta?: string; text?: string; error?: string; toolName?: string; toolSuccess?: boolean };
+			const p = raw as { requestId?: string; kind?: string; delta?: string; text?: string; error?: string; toolName?: string; toolSuccess?: boolean; action?: Record<string, unknown> };
 			const rid = p.requestId;
 			if (!rid) {
 				return;
@@ -747,6 +1007,11 @@ export function useAiEmployeesController() {
 			}
 			if (p.kind === 'tool_result') {
 				// Tool finished, clear the tool status line — the next delta will overwrite
+				return;
+			}
+			if (p.kind === 'collab_action' && p.action) {
+				// Collaboration tool called — dispatch to orchestration handler
+				handleCollabAction(employeeId, runId, p.action as { tool: string; [key: string]: unknown });
 				return;
 			}
 			if (p.kind === 'done') {
@@ -810,7 +1075,7 @@ export function useAiEmployeesController() {
 				);
 			}
 		});
-	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent]);
+	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, handleCollabAction]);
 
 	const matchRunForTaskEvent = useCallback(
 		(state: ReturnType<typeof emptyOrchestrationState>, event: NormalizedTaskEvent) => {
@@ -1372,6 +1637,7 @@ export function useAiEmployeesController() {
 				history: effectiveHistory,
 				teamMembers,
 				boundaryLocalPaths: boundaryLocalPaths.length > 0 ? boundaryLocalPaths : undefined,
+				isCeo: employee.isCeo || false,
 			};
 
 			try {

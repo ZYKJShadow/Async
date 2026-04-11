@@ -136,4 +136,6 @@ export type EmployeeChatInput = {
 	workspaceContext?: WorkspaceContextSnapshot;
 	/** Local folder paths from project boundaries — enables agent mode with file tools. */
 	boundaryLocalPaths?: string[];
+	/** Whether this employee is the CEO/coordinator — enables delegation-first behavior. */
+	isCeo?: boolean;
 };

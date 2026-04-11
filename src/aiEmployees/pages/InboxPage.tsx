@@ -118,7 +118,13 @@ export function InboxPage({
 	findActiveRunByEmployee: (employeeId: string) => AiOrchestrationRun | undefined;
 }) {
 	const sorted = useMemo(
-		() => [...orgEmployees].sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' })),
+		() =>
+			[...orgEmployees].sort((a, b) => {
+				// CEO/coordinator always first
+				if (a.isCeo && !b.isCeo) return -1;
+				if (!a.isCeo && b.isCeo) return 1;
+				return a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' });
+			}),
 		[orgEmployees]
 	);
 
@@ -381,10 +387,15 @@ export function InboxPage({
 												onClick={() => setSelection({ kind: 'employee', employeeId: employee.id })}
 											>
 												<span className="ref-ai-employees-inbox-peer-avatar" aria-hidden>
-													{initial}
+													{employee.isCeo ? '\u{1F451}' : initial}
 												</span>
 												<span className="ref-ai-employees-inbox-peer-meta">
-													<span className="ref-ai-employees-inbox-peer-name">{employee.displayName}</span>
+													<span className="ref-ai-employees-inbox-peer-name">
+														{employee.displayName}
+														{employee.isCeo ? (
+															<span className="ref-ai-employees-inbox-peer-ceo-tag">CEO</span>
+														) : null}
+													</span>
 													<span className="ref-ai-employees-inbox-peer-role">
 														{run?.statusSummary ?? (employee.customRoleTitle || employee.roleKey)}
 													</span>
@@ -467,7 +478,12 @@ export function InboxPage({
 						<>
 							<div className="ref-ai-employees-inbox-detail-headbar">
 								<div className="ref-ai-employees-inbox-detail-headbar-main">
-									<div className="ref-ai-employees-inbox-detail-title">{selected.displayName}</div>
+									<div className="ref-ai-employees-inbox-detail-title">
+										{selected.displayName}
+										{selected.isCeo ? (
+											<span className="ref-ai-employees-inbox-ceo-badge">{t('aiEmployees.inbox.ceoCoordinator')}</span>
+										) : null}
+									</div>
 									<div className="ref-ai-employees-inbox-detail-subtitle">{selected.customRoleTitle || selected.roleKey}</div>
 									<div className="ref-ai-employees-inbox-detail-model" title={employeeModelLine(selected)}>
 										{employeeModelLine(selected)}

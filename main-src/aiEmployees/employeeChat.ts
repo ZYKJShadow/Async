@@ -4,7 +4,9 @@ import type { ShellSettings } from '../settingsStore.js';
 import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
 import { streamChatUnified } from '../llm/llmRouter.js';
 import { runAgentLoop, type AgentLoopHandlers, type AgentLoopOptions } from '../agent/agentLoop.js';
+import { assembleAgentToolPool } from '../agent/agentToolPool.js';
 import type { StreamHandlers } from '../llm/types.js';
+import { COLLAB_TOOL_DEFS, isCollabTool, parseCollabAction, type CollabAction } from './collaborationTools.js';
 
 function trim(value: unknown): string {
 	return typeof value === 'string' ? value.trim() : '';
@@ -99,6 +101,37 @@ export function buildEmployeeSystemPrompt(input: EmployeeChatInput): string {
 		parts.push(`== Current workspace state ==\n${lines.join('\n')}\n== End of workspace state ==`);
 	}
 
+	// Collaboration tool guidance
+	if (input.teamMembers && input.teamMembers.length > 0) {
+		parts.push(
+			'== Collaboration tools ==\n' +
+			'You have access to collaboration tools for team coordination:\n' +
+			'• delegate_task — Assign a task to a teammate when it requires their expertise.\n' +
+			'• send_colleague_message — Send a message to a teammate to ask questions or share context.\n' +
+			'• submit_result — Report that your current task is complete with a summary.\n' +
+			'• report_blocker — Report when you are blocked and need help.\n\n' +
+			'Use these tools proactively: delegate when work falls outside your scope, ' +
+			'submit results when done, and report blockers promptly.'
+		);
+	}
+
+	// CEO/Coordinator-specific instructions
+	if (input.isCeo) {
+		parts.push(
+			'== CEO / Coordinator role ==\n' +
+			'You are the team coordinator. Your primary responsibilities:\n' +
+			'1. **Analyze incoming tasks** from the boss and break them into actionable sub-tasks.\n' +
+			'2. **Delegate work** to the right team members using `delegate_task` based on their roles and expertise.\n' +
+			'3. **Monitor progress** and coordinate handoffs between team members.\n' +
+			'4. **Report status** to the boss with clear summaries of team progress.\n\n' +
+			'When you receive a task:\n' +
+			'- First, analyze what needs to be done and which skills are required.\n' +
+			'- Then, delegate sub-tasks to appropriate team members using `delegate_task`.\n' +
+			'- If you can handle it yourself, do so directly.\n' +
+			'- Always acknowledge the task and explain your delegation plan to the boss.'
+		);
+	}
+
 	parts.push(
 		'You are communicating with your boss (the company owner / decision-maker) in a work inbox. Treat them with the respect due to a superior — report progress, ask for decisions when needed, and never assign tasks back to them.',
 		'Be concise, professional, and action-oriented.',
@@ -116,6 +149,8 @@ export type EmployeeChatHandlers = StreamHandlers & {
 	onToolCall?: (name: string, args: Record<string, unknown>) => void;
 	/** Called when a tool returns (only in agent mode). */
 	onToolResult?: (name: string, success: boolean) => void;
+	/** Called when the agent invokes a collaboration tool (delegate_task, submit_result, etc.). */
+	onCollabAction?: (action: CollabAction) => void;
 };
 
 /**
@@ -150,10 +185,24 @@ export async function runEmployeeChat(
 	if (useAgentMode) {
 		const workspaceRoot = input.boundaryLocalPaths![0];
 
+		// Build tool pool: standard agent tools + collaboration tools
+		const baseTools = assembleAgentToolPool('agent', {
+			mcpToolDenyPrefixes: settings.mcpToolDenyPrefixes,
+		});
+		const hasTeammates = input.teamMembers && input.teamMembers.length > 0;
+		const toolPool = hasTeammates ? [...baseTools, ...COLLAB_TOOL_DEFS] : baseTools;
+
 		const agentHandlers: AgentLoopHandlers = {
 			onTextDelta: (text) => handlers.onDelta(text),
 			onToolCall: (name, args, _id) => {
 				handlers.onToolCall?.(name, args);
+				// Emit structured collab action when a collaboration tool is called
+				if (isCollabTool(name) && handlers.onCollabAction) {
+					const action = parseCollabAction(name, args);
+					if (action) {
+						handlers.onCollabAction(action);
+					}
+				}
 			},
 			onToolResult: (name, _result, success, _id) => {
 				handlers.onToolResult?.(name, success);
@@ -171,6 +220,7 @@ export async function runEmployeeChat(
 			maxOutputTokens: Math.min(resolved.maxOutputTokens, 16384),
 			signal: AbortSignal.timeout(300_000), // 5 minutes for agent tasks
 			composerMode: 'agent',
+			toolPoolOverride: toolPool,
 			workspaceRoot,
 			thinkingLevel: resolveThinkingLevelForSelection(settings, input.modelId),
 		};

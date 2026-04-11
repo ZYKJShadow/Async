@@ -2850,6 +2850,9 @@ ipcMain.handle(
 				onToolResult(name, success) {
 					send('tool_result', { toolName: name, toolSuccess: success });
 				},
+				onCollabAction(action) {
+					send('collab_action', { action });
+				},
 			});
 			if (lastError) {
 				return { ok: false as const, error: lastError };
