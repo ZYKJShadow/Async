@@ -282,6 +282,7 @@ export function AiEmployeesApp() {
 											}}
 											subAgentToolLiveByJobId={c.subAgentToolLiveByJobId}
 											onStopOrchestrationRun={c.stopOrchestrationRun}
+											onDeleteGroupRun={c.deleteOrchestrationRun}
 											onApproveOrchestrationGit={async (runId) => {
 												const r = await c.approveOrchestrationGit(runId);
 												if (r && typeof r === 'object' && 'ok' in r && r.ok === false && 'error' in r) {

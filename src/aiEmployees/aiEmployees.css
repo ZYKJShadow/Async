@@ -4519,6 +4519,26 @@
 	flex-shrink: 0;
 }
 
+.ref-ai-employees-inbox-list-head-actions-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.ref-ai-employees-inbox-delete-run:disabled {
+	opacity: 0.38;
+	cursor: not-allowed;
+}
+
+.ref-ai-employees-inbox-dropdown-item--danger.ref-void-select-option {
+	color: color-mix(in srgb, var(--void-danger, #f85149) 88%, var(--void-fg-1, #9aa4b2));
+}
+
+.ref-ai-employees-inbox-dropdown-item--danger.ref-void-select-option:disabled {
+	opacity: 0.45;
+	color: var(--void-fg-2, #8b949e);
+}
+
 /* 壳层与全局 .ref-void-select-menu（VoidSelect listbox）一致，由 TSX 叠加 ref-void-select-menu */
 .ref-ai-employees-inbox-dropdown {
 	position: absolute;

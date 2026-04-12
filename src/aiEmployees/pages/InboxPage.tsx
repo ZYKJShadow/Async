@@ -7,6 +7,7 @@ import {
 	IconDotsHorizontal,
 	IconMessageCircle,
 	IconPlus,
+	IconTrash,
 } from '../../icons';
 import type {
 	AiCollabMessage,
@@ -174,6 +175,7 @@ export function InboxPage({
 	onNavigateToActivity,
 	subAgentToolLiveByJobId,
 	onStopOrchestrationRun,
+	onDeleteGroupRun,
 	onApproveOrchestrationGit,
 }: {
 	t: TFunction;
@@ -203,6 +205,7 @@ export function InboxPage({
 	onNavigateToActivity?: (runId?: string) => void;
 	subAgentToolLiveByJobId: Record<string, { runId: string; employeeId: string; label: string }>;
 	onStopOrchestrationRun: (runId: string) => void;
+	onDeleteGroupRun: (runId: string) => void;
 	onApproveOrchestrationGit?: (runId: string) => void | Promise<unknown>;
 }) {
 	const ceo = useMemo(() => orgEmployees.find((e) => e.isCeo), [orgEmployees]);
@@ -341,6 +344,24 @@ export function InboxPage({
 		}
 	}, [conn, remoteItems, workspaceId]);
 
+	const canDeleteSelectedRun = selection?.kind === 'run' && sortedRuns.some((r) => r.id === selection.runId);
+
+	const requestDeleteSelectedRun = useCallback((): boolean => {
+		if (selection?.kind !== 'run') {
+			return false;
+		}
+		const run = orchestration.runs.find((r) => r.id === selection.runId);
+		if (!run) {
+			return false;
+		}
+		const title = run.goal.trim().slice(0, 120) || selection.runId;
+		if (!window.confirm(t('aiEmployees.groupChat.deleteRunConfirm', { title }))) {
+			return false;
+		}
+		onDeleteGroupRun(selection.runId);
+		return true;
+	}, [selection, orchestration.runs, onDeleteGroupRun, t]);
+
 	const sendMessage = () => {
 		const text = draft.trim();
 		if (!text || !ceoEmployeeId) return;
@@ -427,24 +448,38 @@ export function InboxPage({
 							<h2 className="ref-ai-employees-inbox-list-title">{t('aiEmployees.groupChat.sidebarTitle')}</h2>
 						</div>
 						<div className="ref-ai-employees-inbox-list-head-actions" ref={moreRef}>
-							<button
-								type="button"
-								className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-inbox-new-run"
-								onClick={newConversation}
-							>
-								<IconPlus className="ref-ai-employees-comm-send-ico" aria-hidden />
-								{t('aiEmployees.groupChat.newConversation')}
-							</button>
-							<button
-								type="button"
-								className="ref-agent-sidebar-icon-btn"
-								aria-expanded={moreOpen}
-								aria-haspopup="menu"
-								aria-label={t('aiEmployees.inbox.moreActions')}
-								onClick={() => setMoreOpen((open) => !open)}
-							>
-								<IconDotsHorizontal />
-							</button>
+							<div className="ref-ai-employees-inbox-list-head-actions-row">
+								<button
+									type="button"
+									className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-inbox-new-run"
+									onClick={newConversation}
+								>
+									<IconPlus className="ref-ai-employees-comm-send-ico" aria-hidden />
+									{t('aiEmployees.groupChat.newConversation')}
+								</button>
+								<button
+									type="button"
+									className="ref-agent-sidebar-icon-btn ref-ai-employees-inbox-delete-run"
+									disabled={!canDeleteSelectedRun}
+									title={t('aiEmployees.groupChat.deleteRunAria')}
+									aria-label={t('aiEmployees.groupChat.deleteRunAria')}
+									onClick={() => {
+										void requestDeleteSelectedRun();
+									}}
+								>
+									<IconTrash />
+								</button>
+								<button
+									type="button"
+									className="ref-agent-sidebar-icon-btn"
+									aria-expanded={moreOpen}
+									aria-haspopup="menu"
+									aria-label={t('aiEmployees.inbox.moreActions')}
+									onClick={() => setMoreOpen((open) => !open)}
+								>
+									<IconDotsHorizontal />
+								</button>
+							</div>
 							{moreOpen ? (
 								<div className="ref-void-select-menu ref-ai-employees-inbox-dropdown" role="menu">
 									<button
@@ -458,6 +493,19 @@ export function InboxPage({
 									>
 										{t('aiEmployees.inbox.menuMarkAllRead')}
 										{unreadRemoteCount > 0 ? ` (${unreadRemoteCount})` : ''}
+									</button>
+									<button
+										type="button"
+										className="ref-void-select-option ref-ai-employees-inbox-dropdown-item ref-ai-employees-inbox-dropdown-item--danger"
+										role="menuitem"
+										disabled={!canDeleteSelectedRun}
+										onClick={() => {
+											if (requestDeleteSelectedRun()) {
+												setMoreOpen(false);
+											}
+										}}
+									>
+										{t('aiEmployees.groupChat.deleteRunMenu')}
 									</button>
 								</div>
 							) : null}

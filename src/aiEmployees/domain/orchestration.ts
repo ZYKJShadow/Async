@@ -501,3 +501,17 @@ export function appendToolLogToJob(
 		toolLog: [...job.toolLog, entry].slice(-50),
 	}));
 }
+
+/** Removes a run and all collaboration rows tied to it (persisted orchestration slice). */
+export function removeOrchestrationRunFromState(
+	state: AiEmployeesOrchestrationState,
+	runId: string
+): AiEmployeesOrchestrationState {
+	return {
+		...state,
+		activeRunId: state.activeRunId === runId ? undefined : state.activeRunId,
+		runs: state.runs.filter((r) => r.id !== runId),
+		collabMessages: state.collabMessages.filter((m) => m.runId !== runId),
+		timelineEvents: state.timelineEvents.filter((e) => e.runId !== runId),
+	};
+}

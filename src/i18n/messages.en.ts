@@ -578,6 +578,10 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.groupChat.pendingTask': 'Delegated task',
 	'aiEmployees.groupChat.pendingAssignee': 'Pending assignee',
 	'aiEmployees.groupChat.jumpToLatest': 'Latest',
+	'aiEmployees.groupChat.deleteRunAria': 'Delete this conversation',
+	'aiEmployees.groupChat.deleteRunMenu': 'Delete conversation…',
+	'aiEmployees.groupChat.deleteRunConfirm':
+		'Permanently delete the conversation "{{title}}" and all locally stored messages and timeline for this run? This cannot be undone.',
 	'aiEmployees.groupChat.runPlanTitle': 'Plan',
 	'aiEmployees.groupChat.runPlanCoordinator': 'CEO',
 	'aiEmployees.groupChat.runPlanUnassigned': 'Unassigned',

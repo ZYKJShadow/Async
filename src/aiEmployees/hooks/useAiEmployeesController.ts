@@ -38,6 +38,7 @@ import {
 	linkDelegatedJobToPlanInState,
 	linkTaskToHandoffInState,
 	markCollabMessageReadInState,
+	removeOrchestrationRunFromState,
 	setRunIssueInState,
 	setHandoffStatusInState,
 	setRunPlanInState,
@@ -1629,6 +1630,49 @@ export function useAiEmployeesController(t: TFunction) {
 		[shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, t, setSubAgentToolLiveByJobId]
 	);
 
+	const deleteOrchestrationRun = useCallback(
+		(runId: string) => {
+			haltedSubAgentRunIdsRef.current.add(runId);
+			subAgentQueueRef.current = subAgentQueueRef.current.filter((q) => q.runId !== runId);
+			for (const [reqId, meta] of [...pendingEmployeeChatRef.current.entries()]) {
+				if (meta.runId !== runId) {
+					continue;
+				}
+				void shell?.invoke('aiEmployees:abortChat', reqId);
+				pendingEmployeeChatRef.current.delete(reqId);
+				employeeReplyGuardRef.current.delete(meta.employeeId);
+				if (activeStreamOwnerRef.current === reqId) {
+					activeStreamOwnerRef.current = null;
+				}
+				setEmployeeChatStreaming((prev) => {
+					const next = { ...prev };
+					delete next[meta.employeeId];
+					return next;
+				});
+				setEmployeeChatError((prev) => {
+					const next = { ...prev };
+					delete next[meta.employeeId];
+					return next;
+				});
+			}
+			setSubAgentToolLiveByJobId((prev) => {
+				let changed = false;
+				const next = { ...prev };
+				for (const [jid, meta] of Object.entries(prev)) {
+					if (meta.runId === runId) {
+						delete next[jid];
+						changed = true;
+					}
+				}
+				return changed ? next : prev;
+			});
+			setActivityFocus((prev) => (prev?.runId === runId ? null : prev));
+			persistOrchestration((state) => removeOrchestrationRunFromState(state, runId));
+			processSubAgentQueueRef.current();
+		},
+		[shell, persistOrchestration]
+	);
+
 	const matchRunForTaskEvent = useCallback(
 		(state: ReturnType<typeof emptyOrchestrationState>, event: NormalizedTaskEvent) => {
 			if (event.runId) {
@@ -3184,6 +3228,7 @@ export function useAiEmployeesController(t: TFunction) {
 		setOrchestrationHandoffStatus,
 		sendCollabMessage,
 		stopOrchestrationRun,
+		deleteOrchestrationRun,
 		subAgentToolLiveByJobId,
 		markCollabMessageRead,
 		listMessagesByEmployee,

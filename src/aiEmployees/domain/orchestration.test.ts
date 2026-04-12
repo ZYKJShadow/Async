@@ -9,6 +9,7 @@ import {
 	emptyOrchestrationState,
 	linkDelegatedJobToPlanInState,
 	markCollabMessageReadInState,
+	removeOrchestrationRunFromState,
 	setHandoffStatusInState,
 	setRunPlanInState,
 	syncRunPlanAfterSubAgentJobUpdate,
@@ -284,5 +285,37 @@ describe('orchestration', () => {
 		state = markCollabMessageReadInState(state, 'msg1', '2020-01-01T00:00:02.000Z');
 		expect(state.timelineEvents).toHaveLength(1);
 		expect(state.collabMessages[0]?.readAtIso).toBe('2020-01-01T00:00:02.000Z');
+	});
+
+	it('removeOrchestrationRunFromState drops run, messages, events, and activeRunId', () => {
+		const run1 = createDraftRun('a', undefined, 't', 'r1');
+		const run2 = createDraftRun('b', undefined, 't', 'r2');
+		let state: ReturnType<typeof emptyOrchestrationState> = {
+			...emptyOrchestrationState(),
+			activeRunId: 'r1',
+		};
+		state = upsertRun(state, run1);
+		state = upsertRun(state, run2);
+		state = appendTimelineEventToState(state, {
+			id: 'e1',
+			runId: 'r1',
+			type: 'message',
+			label: 'x',
+			createdAtIso: '2020-01-01T00:00:00.000Z',
+			source: 'local',
+		});
+		state = upsertCollabMessageInState(state, {
+			id: 'm1',
+			runId: 'r1',
+			type: 'text',
+			summary: 's',
+			body: 'b',
+			createdAtIso: '2020-01-01T00:00:01.000Z',
+		});
+		state = removeOrchestrationRunFromState(state, 'r1');
+		expect(state.runs.map((r) => r.id)).toEqual(['r2']);
+		expect(state.collabMessages).toHaveLength(0);
+		expect(state.timelineEvents).toHaveLength(0);
+		expect(state.activeRunId).toBeUndefined();
 	});
 });

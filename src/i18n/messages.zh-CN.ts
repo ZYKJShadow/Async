@@ -572,6 +572,10 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.groupChat.pendingTask': '委派任务',
 	'aiEmployees.groupChat.pendingAssignee': '待分配成员',
 	'aiEmployees.groupChat.jumpToLatest': '回到最新',
+	'aiEmployees.groupChat.deleteRunAria': '删除此会话',
+	'aiEmployees.groupChat.deleteRunMenu': '删除会话…',
+	'aiEmployees.groupChat.deleteRunConfirm':
+		'确定永久删除会话「{{title}}」及其在本地的全部消息与时间线记录？该操作无法撤销。',
 	'aiEmployees.groupChat.runPlanTitle': '执行计划',
 	'aiEmployees.groupChat.runPlanCoordinator': 'CEO',
 	'aiEmployees.groupChat.runPlanUnassigned': '待指定',
