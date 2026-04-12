@@ -297,14 +297,6 @@ export function InboxPage({
 	}, [onMarkMessageRead, thread, ceoEmployeeId]);
 
 	useEffect(() => {
-		if (pendingFocusMessageIdRef.current && threadRef.current) {
-			const id = pendingFocusMessageIdRef.current;
-			pendingFocusMessageIdRef.current = null;
-			window.setTimeout(() => focusMessageInThread(id), 100);
-		}
-	}, [selectedRunId, thread.length, focusMessageInThread]);
-
-	useEffect(() => {
 		const el = threadRef.current;
 		if (!el) return;
 		threadStickToBottomRef.current = true;
@@ -404,6 +396,14 @@ export function InboxPage({
 		},
 		[focusMessageInThread, selection?.runId]
 	);
+
+	useEffect(() => {
+		if (pendingFocusMessageIdRef.current && threadRef.current) {
+			const id = pendingFocusMessageIdRef.current;
+			pendingFocusMessageIdRef.current = null;
+			window.setTimeout(() => focusMessageInThread(id), 100);
+		}
+	}, [selectedRunId, thread.length, focusMessageInThread]);
 
 	const deriveRunTitleFromText = (text: string): string => {
 		const firstLine = text.split(/\r?\n/).find((line) => line.trim()) ?? text;
