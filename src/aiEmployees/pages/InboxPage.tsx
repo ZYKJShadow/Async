@@ -179,8 +179,12 @@ export function InboxPage({
 	onNavigateToActivity,
 	subAgentToolLiveByJobId,
 	onStopOrchestrationRun,
+	onInterruptGeneration,
+	onResumeRun,
 	onDeleteGroupRun,
+	onRenameGroupRun,
 	onApproveOrchestrationGit,
+	onRetryLastMessage,
 }: {
 	t: TFunction;
 	orgEmployees: OrgEmployee[];
