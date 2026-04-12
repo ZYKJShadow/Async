@@ -586,6 +586,15 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.groupChat.runHeaderStop': 'Stop',
 	'aiEmployees.groupChat.runHeaderStopHint': 'Stop new work on this run (active sub-tasks finish)',
 	'aiEmployees.groupChat.runHeaderApprove': 'Approve result',
+	'aiEmployees.groupChat.runStoppedSummary': 'Run stopped',
+	'aiEmployees.groupChat.runStoppedTimelineLabel': 'Run stopped',
+	'aiEmployees.groupChat.runStoppedBodyHadEffect':
+		'Stopped new work on this thread. Until you send your next message, no new delegations or CEO streaming replies will start.',
+	'aiEmployees.groupChat.runStoppedBodyNoEffect':
+		'Stop recorded. There was no queued sub-task or pending CEO request to cancel. If the CEO still seems busy, try Stop again or wait briefly.',
+	'aiEmployees.groupChat.runStoppedShellWarning':
+		'Cannot reach the app shell — stop is saved in the thread, but an in-flight CEO request might not be cancelled in the main process.',
+	'aiEmployees.groupChat.approveGitFailedFallback': 'Could not approve',
 	'aiEmployees.groupChat.sidebarLiveFallback': 'In progress',
 	'aiEmployees.tab.activity': 'Activity',
 	'aiEmployees.activity.title': 'Team Activity',
@@ -607,6 +616,8 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.collab.approvalRequest': 'Approval requested',
 	'aiEmployees.collab.approvalResponse': 'Approval response',
 	'aiEmployees.collab.result': 'Result delivered',
+	'aiEmployees.collab.ceoFinalAnswer': 'Final answer',
+	'aiEmployees.collab.copyAnswer': 'Copy',
 	'aiEmployees.collab.blocker': 'Blocker reported',
 	'aiEmployees.collab.statusUpdate': 'Status update',
 	'aiEmployees.collab.assignedTo': 'Assigned to {{name}}',
@@ -752,6 +763,7 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.employee.allSkillsAssigned': 'All workspace skills are already assigned.',
 	'aiEmployees.employee.linkAgentFirst': 'Link this teammate to a remote agent to assign skills.',
 	'aiEmployees.networkToastTitle': 'Request failed',
+	'aiEmployees.noticeToastTitle': 'Notice',
 	'aiEmployees.projects.title': 'Projects',
 	'aiEmployees.projects.new': 'New project',
 	'aiEmployees.projects.empty': 'No projects yet',

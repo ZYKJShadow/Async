@@ -760,6 +760,13 @@
 	animation: ref-ai-employees-network-toast-in 0.22s ease both;
 }
 
+.ref-ai-employees-network-toast.is-notice {
+	border-color: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 42%, var(--void-border-1, rgba(255, 255, 255, 0.1)));
+	box-shadow:
+		0 1px 0 color-mix(in srgb, #fff 4%, transparent),
+		0 12px 32px -10px rgba(0, 0, 0, 0.45);
+}
+
 @keyframes ref-ai-employees-network-toast-in {
 	from {
 		opacity: 0;
@@ -790,6 +797,10 @@
 	font-weight: 600;
 	color: #f85149;
 	letter-spacing: 0.02em;
+}
+
+.ref-ai-employees-network-toast.is-notice .ref-ai-employees-network-toast-title {
+	color: var(--void-accent-cool, #58a6ff);
 }
 
 .ref-ai-employees-network-toast-dismiss {
@@ -5642,7 +5653,7 @@
 .ref-ai-employees-run-header-bar {
 	position: sticky;
 	top: 0;
-	z-index: 3;
+	z-index: 5;
 	align-self: stretch;
 	margin: 0 0 8px;
 	padding: 10px 12px 12px;
@@ -5751,6 +5762,19 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
+	position: relative;
+	z-index: 2;
+}
+
+.ref-ai-employees-run-header-bar-hint {
+	margin: 8px 0 0;
+	padding: 8px 10px;
+	border-radius: 8px;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--void-fg-1, #b1bac4);
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
 }
 
 .ref-ai-employees-run-header-btn {
@@ -6445,11 +6469,47 @@
 	border-left: 3px solid color-mix(in srgb, #a371f7 55%, transparent);
 }
 
+.ref-ai-employees-collab-card[data-ceo-final='true'] {
+	background: color-mix(in srgb, var(--ref-surface-accent, #58a6ff) 12%, var(--void-bg-2, #161b22));
+	border-color: color-mix(in srgb, var(--ref-surface-accent, #58a6ff) 38%, var(--void-border-1, rgba(255, 255, 255, 0.12)));
+	box-shadow:
+		0 1px 0 color-mix(in srgb, #fff 5%, transparent),
+		0 10px 28px color-mix(in srgb, var(--ref-surface-accent, #58a6ff) 14%, transparent);
+}
+
+.ref-ai-employees-collab-card-head-tools {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: auto;
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-collab-card-copy {
+	font-size: 11px;
+	font-weight: 600;
+	padding: 4px 10px;
+	border-radius: 6px;
+	border: 1px solid color-mix(in srgb, var(--void-fg-0) 14%, transparent);
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
+	color: var(--void-fg-0, #e6edf3);
+	cursor: pointer;
+}
+
+.ref-ai-employees-collab-card-copy:hover {
+	background: color-mix(in srgb, var(--void-fg-0) 10%, transparent);
+}
+
+.ref-ai-employees-collab-card[data-ceo-final='true'] .ref-ai-employees-collab-card-body {
+	max-height: min(60vh, 28rem);
+}
+
 .ref-ai-employees-collab-card-head {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	flex-wrap: wrap;
+	width: 100%;
 }
 
 .ref-ai-employees-collab-card-icon {
@@ -10088,9 +10148,20 @@
 	margin-top: 4px;
 }
 
+@keyframes ref-ai-employees-subagent-card-enter {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 .ref-ai-employees-subagent-live-card {
 	width: min(100%, 760px);
-	padding: 12px;
+	padding: 8px 12px;
 	border-radius: 16px;
 	border: 1px solid color-mix(in srgb, var(--void-border-1, rgba(255, 255, 255, 0.08)) 92%, transparent);
 	background:
@@ -10102,7 +10173,14 @@
 	box-shadow: 0 12px 30px color-mix(in srgb, #000 10%, transparent);
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
+	gap: 8px;
+	animation: ref-ai-employees-subagent-card-enter 0.22s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-ai-employees-subagent-live-card {
+		animation: none;
+	}
 }
 
 .ref-ai-employees-subagent-live-card.is-placeholder {
@@ -10172,6 +10250,37 @@
 .ref-ai-employees-subagent-live-card-avatar-icon {
 	width: 16px;
 	height: 16px;
+}
+
+.ref-ai-employees-subagent-live-card-line1 {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.ref-ai-employees-subagent-live-card-line1.is-compact {
+	flex-direction: row;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 4px 6px;
+}
+
+.ref-ai-employees-subagent-live-card-sep {
+	color: var(--void-fg-2, #8b949e);
+	font-weight: 500;
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-subagent-live-task-inline {
+	flex: 1;
+	min-width: 0;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--void-fg-0, #e6edf3);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .ref-ai-employees-subagent-live-card-copy {

@@ -580,6 +580,15 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.groupChat.runHeaderStop': '停止',
 	'aiEmployees.groupChat.runHeaderStopHint': '停止本会话的新工作（已在跑的子任务会跑完）',
 	'aiEmployees.groupChat.runHeaderApprove': '批准结果',
+	'aiEmployees.groupChat.runStoppedSummary': '已停止本会话',
+	'aiEmployees.groupChat.runStoppedTimelineLabel': '会话已停止',
+	'aiEmployees.groupChat.runStoppedBodyHadEffect':
+		'已停止本会话的新工作：在您发送下一条消息之前，不会再发起新的委派或 CEO 流式回复。',
+	'aiEmployees.groupChat.runStoppedBodyNoEffect':
+		'已记录停止。当前没有进行中的 CEO 请求或排队中的子任务；若 CEO 仍在响应，可稍候再试或再次点击停止。',
+	'aiEmployees.groupChat.runStoppedShellWarning':
+		'无法连接应用壳层：停止已记录在会话内，但进行中的 CEO 请求可能无法从主进程取消。',
+	'aiEmployees.groupChat.approveGitFailedFallback': '批准未成功',
 	'aiEmployees.groupChat.sidebarLiveFallback': '进行中',
 	'aiEmployees.tab.activity': '动态',
 	'aiEmployees.activity.title': '团队动态',
@@ -601,6 +610,8 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.collab.approvalRequest': '请求审批',
 	'aiEmployees.collab.approvalResponse': '审批回复',
 	'aiEmployees.collab.result': '成果交付',
+	'aiEmployees.collab.ceoFinalAnswer': '最终答复',
+	'aiEmployees.collab.copyAnswer': '复制正文',
 	'aiEmployees.collab.blocker': '阻塞报告',
 	'aiEmployees.collab.statusUpdate': '状态更新',
 	'aiEmployees.collab.assignedTo': '指派给 {{name}}',
@@ -745,6 +756,7 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.employee.allSkillsAssigned': '工作区技能均已分配。',
 	'aiEmployees.employee.linkAgentFirst': '请先在团队中为此成员关联远端 Agent，再分配技能。',
 	'aiEmployees.networkToastTitle': '请求失败',
+	'aiEmployees.noticeToastTitle': '提示',
 	'aiEmployees.projects.title': '项目',
 	'aiEmployees.projects.new': '新建项目',
 	'aiEmployees.projects.empty': '还没有项目',

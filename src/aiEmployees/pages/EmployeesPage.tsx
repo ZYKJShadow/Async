@@ -589,6 +589,7 @@ export function EmployeesPage({
 												orchestration={orchestration}
 												runs={openRunsForSelected}
 												employeeMap={orgById}
+												ceoEmployeeId={ceoEmployee?.id}
 												streamingSnippet={selectedId ? employeeChatStreaming?.[selectedId] : undefined}
 												streamError={selectedId ? employeeChatError?.[selectedId] : undefined}
 											/>

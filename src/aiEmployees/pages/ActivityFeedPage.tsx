@@ -115,6 +115,8 @@ export function ActivityFeedPage({
 		[orgEmployees]
 	);
 
+	const ceoEmployeeId = useMemo(() => orgEmployees.find((e) => e.isCeo)?.id, [orgEmployees]);
+
 	const allMessages = useMemo(() => {
 		const msgs = orchestration.collabMessages.filter((msg) => !msg.internalOnly);
 		msgs.sort((a, b) => Date.parse(b.createdAtIso) - Date.parse(a.createdAtIso));
@@ -198,6 +200,7 @@ export function ActivityFeedPage({
 					run={focusedRun}
 					items={focusedFeed}
 					employeeMap={empMap}
+					ceoEmployeeId={ceoEmployeeId}
 				/>
 			) : filtered.length === 0 ? (
 				<div className="ref-ai-employees-stub">
@@ -259,11 +262,13 @@ function ActivityFocusedRunView({
 	run,
 	items,
 	employeeMap,
+	ceoEmployeeId,
 }: {
 	t: TFunction;
 	run: AiOrchestrationRun;
 	items: ReturnType<typeof buildRunExecutionFeed>;
 	employeeMap: Map<string, OrgEmployee>;
+	ceoEmployeeId?: string;
 }) {
 	return (
 		<div className="ref-ai-employees-activity-focus-panel">
@@ -308,7 +313,7 @@ function ActivityFocusedRunView({
 									</div>
 								) : (
 									<div className="ref-ai-employees-task-feed-collab-wrap">
-										<CollabCard t={t} message={item.message} employeeMap={employeeMap} />
+										<CollabCard t={t} message={item.message} employeeMap={employeeMap} ceoEmployeeId={ceoEmployeeId} />
 									</div>
 								)}
 							</div>

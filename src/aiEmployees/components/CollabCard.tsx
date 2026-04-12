@@ -102,29 +102,59 @@ export function CollabCard({
 	t,
 	message,
 	employeeMap,
+	ceoEmployeeId,
 	onAction,
 }: {
 	t: TFunction;
 	message: AiCollabMessage;
 	employeeMap: Map<string, OrgEmployee>;
+	ceoEmployeeId?: string;
 	onAction?: (messageId: string, action: string) => void;
 }) {
 	const fromName = employeeName(employeeMap, message.fromEmployeeId);
 	const toName = employeeName(employeeMap, message.toEmployeeId);
 	const status = message.cardMeta?.status;
 	const actions = message.cardMeta?.actions;
+	const isCeoFinalAnswer =
+		Boolean(ceoEmployeeId) &&
+		message.type === 'result' &&
+		message.fromEmployeeId === ceoEmployeeId &&
+		!message.subAgentJobId;
+
+	const copyFinalAnswer = () => {
+		const text = (message.body ?? '').trim();
+		if (!text || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+			return;
+		}
+		void navigator.clipboard.writeText(text).catch(() => {
+			/* ignore */
+		});
+	};
 
 	return (
-		<div className="ref-ai-employees-collab-card" data-card-type={message.type}>
+		<div
+			className="ref-ai-employees-collab-card"
+			data-card-type={message.type}
+			data-ceo-final={isCeoFinalAnswer ? 'true' : undefined}
+		>
 			<div className="ref-ai-employees-collab-card-head">
 				<span className="ref-ai-employees-collab-card-icon" aria-hidden>
 					{cardTypeIcon(message.type)}
 				</span>
-				<span className="ref-ai-employees-collab-card-type">{cardTypeLabel(t, message.type)}</span>
+				<span className="ref-ai-employees-collab-card-type">
+					{isCeoFinalAnswer ? t('aiEmployees.collab.ceoFinalAnswer') : cardTypeLabel(t, message.type)}
+				</span>
 				{status ? (
 					<span className={`ref-ai-employees-run-badge ${statusBadgeClass(status)}`}>
 						{statusLabel(t, status)}
 					</span>
+				) : null}
+				{isCeoFinalAnswer && message.body?.trim() ? (
+					<div className="ref-ai-employees-collab-card-head-tools">
+						<button type="button" className="ref-ai-employees-collab-card-copy" onClick={copyFinalAnswer}>
+							{t('aiEmployees.collab.copyAnswer')}
+						</button>
+					</div>
 				) : null}
 			</div>
 			<div className="ref-ai-employees-collab-card-route">

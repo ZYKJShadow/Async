@@ -123,13 +123,15 @@ export function SubAgentExecutionCard({
 	onOpenDetail: (job: AiSubAgentJob) => void;
 }) {
 	const timeline = useMemo(() => buildSubAgentTimeline(job), [job]);
-	const [open, setOpen] = useState(
+	const [timelineOpen, setTimelineOpen] = useState(
 		job.status === 'running' || job.status === 'blocked' || job.status === 'error'
 	);
 	const hasTimeline = timeline.length > 0;
 	const wallMs = getSubAgentJobWallDurationMs(job);
 	const statusText = jobStatusLabel(t, job.status);
 	const detailText = description?.trim() || job.taskDescription?.trim();
+	const showCompactHead = hasTimeline && !timelineOpen;
+	const showBody = !hasTimeline || timelineOpen;
 
 	return (
 		<article
@@ -143,17 +145,27 @@ export function SubAgentExecutionCard({
 					className={`ref-ai-employees-subagent-live-card-summary ${hasTimeline ? '' : 'is-static'}`}
 					onClick={() => {
 						if (hasTimeline) {
-							setOpen((value) => !value);
+							setTimelineOpen((value) => !value);
 						}
 					}}
-					aria-expanded={hasTimeline ? open : undefined}
+					aria-expanded={hasTimeline ? timelineOpen : undefined}
 				>
 					<span className="ref-ai-employees-subagent-live-card-avatar" aria-hidden>
 						{job.status === 'done' ? <IconCheckCircle className="ref-ai-employees-subagent-live-card-avatar-icon" /> : <IconBot className="ref-ai-employees-subagent-live-card-avatar-icon" />}
 					</span>
 					<span className="ref-ai-employees-subagent-live-card-copy">
-						<span className="ref-ai-employees-subagent-live-card-title">
-							{job.employeeName}
+						<span className={`ref-ai-employees-subagent-live-card-line1 ${showCompactHead ? 'is-compact' : ''}`}>
+							<span className="ref-ai-employees-subagent-live-card-title">{job.employeeName}</span>
+							{showCompactHead ? (
+								<>
+									<span className="ref-ai-employees-subagent-live-card-sep" aria-hidden>
+										·
+									</span>
+									<span className="ref-ai-employees-subagent-live-task-inline" title={job.taskTitle}>
+										{job.taskTitle}
+									</span>
+								</>
+							) : null}
 						</span>
 						<span className="ref-ai-employees-subagent-live-card-meta">
 							<span className={`ref-ai-employees-subagent-live-status is-${job.status}`}>
@@ -168,7 +180,7 @@ export function SubAgentExecutionCard({
 						</span>
 					</span>
 					{hasTimeline ? (
-						<IconChevron className={`ref-ai-employees-subagent-live-card-chevron ${open ? 'is-open' : ''}`} />
+						<IconChevron className={`ref-ai-employees-subagent-live-card-chevron ${timelineOpen ? 'is-open' : ''}`} />
 					) : null}
 				</button>
 				<button
@@ -181,13 +193,15 @@ export function SubAgentExecutionCard({
 					<IconWindowMaximize />
 				</button>
 			</div>
-			<div className="ref-ai-employees-subagent-live-card-body">
-				<div className="ref-ai-employees-subagent-live-task">{job.taskTitle}</div>
-				{detailText ? (
-					<div className="ref-ai-employees-subagent-live-desc">{detailText}</div>
-				) : null}
-			</div>
-			{hasTimeline && open ? (
+			{showBody ? (
+				<div className="ref-ai-employees-subagent-live-card-body">
+					<div className="ref-ai-employees-subagent-live-task">{job.taskTitle}</div>
+					{detailText && (!hasTimeline || timelineOpen) ? (
+						<div className="ref-ai-employees-subagent-live-desc">{detailText}</div>
+					) : null}
+				</div>
+			) : null}
+			{hasTimeline && timelineOpen ? (
 				<div className="ref-ai-employees-subagent-live-timeline-wrap is-open">
 					<div className="ref-ai-employees-subagent-live-timeline-shell">
 						<div className="ref-ai-employees-subagent-live-timeline">

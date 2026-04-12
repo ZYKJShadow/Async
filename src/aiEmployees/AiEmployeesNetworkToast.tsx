@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { TFunction } from '../i18n';
 
-type ToastListener = (message: string) => void;
+export type AiEmployeesToastKind = 'error' | 'notice';
+
+type ToastPayload = { text: string; kind: AiEmployeesToastKind };
+
+type ToastListener = (payload: ToastPayload) => void;
 
 let toastListener: ToastListener | null = null;
 
@@ -18,9 +22,22 @@ export function publishAiEmployeesNetworkError(message: string) {
 		return;
 	}
 	if (toastListener) {
-		toastListener(t);
+		toastListener({ text: t, kind: 'error' });
 	} else {
 		console.warn('[ai-employees]', t);
+	}
+}
+
+/** 非错误类提示（如业务条件不满足），标题与样式更中性。 */
+export function publishAiEmployeesNotice(message: string) {
+	const t = message.trim();
+	if (!t) {
+		return;
+	}
+	if (toastListener) {
+		toastListener({ text: t, kind: 'notice' });
+	} else {
+		console.info('[ai-employees]', t);
 	}
 }
 
@@ -29,7 +46,7 @@ export function notifyAiEmployeesRequestFailed(e: unknown) {
 	publishAiEmployeesNetworkError(msg);
 }
 
-type ToastItem = { id: number; text: string };
+type ToastItem = { id: number; text: string; kind: AiEmployeesToastKind };
 
 const TOAST_TTL_MS = 5600;
 const MAX_VISIBLE = 5;
@@ -53,9 +70,9 @@ export function AiEmployeesNetworkToastHost({ t }: { t: TFunction }) {
 	}, []);
 
 	useEffect(() => {
-		const onMsg = (text: string) => {
+		const onMsg = (payload: ToastPayload) => {
 			const id = ++idRef.current;
-			setItems((prev) => [...prev.slice(-(MAX_VISIBLE - 1)), { id, text }]);
+			setItems((prev) => [...prev.slice(-(MAX_VISIBLE - 1)), { id, text: payload.text, kind: payload.kind }]);
 			const tm = window.setTimeout(() => remove(id), TOAST_TTL_MS);
 			timersRef.current.set(id, tm);
 		};
@@ -76,9 +93,15 @@ export function AiEmployeesNetworkToastHost({ t }: { t: TFunction }) {
 	return createPortal(
 		<div className="ref-ai-employees-network-toast-stack" aria-live="polite" aria-relevant="additions">
 			{items.map((it) => (
-				<div key={it.id} className="ref-ai-employees-network-toast" role="status">
+				<div
+					key={it.id}
+					className={`ref-ai-employees-network-toast ${it.kind === 'notice' ? 'is-notice' : ''}`}
+					role="status"
+				>
 					<div className="ref-ai-employees-network-toast-row">
-						<span className="ref-ai-employees-network-toast-title">{t('aiEmployees.networkToastTitle')}</span>
+						<span className="ref-ai-employees-network-toast-title">
+							{it.kind === 'notice' ? t('aiEmployees.noticeToastTitle') : t('aiEmployees.networkToastTitle')}
+						</span>
 						<button
 							type="button"
 							className="ref-ai-employees-network-toast-dismiss"

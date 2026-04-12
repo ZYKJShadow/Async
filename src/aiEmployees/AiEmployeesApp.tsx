@@ -25,7 +25,7 @@ import { ActivityFeedPage } from './pages/ActivityFeedPage';
 import { SkillsPage } from './pages/SkillsPage';
 import { AiEmployeesSetupFlow } from './onboarding/AiEmployeesSetupFlow';
 import { AiEmployeesLaunchOverlay } from './AiEmployeesLaunchOverlay';
-import { AiEmployeesNetworkToastHost } from './AiEmployeesNetworkToast';
+import { AiEmployeesNetworkToastHost, publishAiEmployeesNotice } from './AiEmployeesNetworkToast';
 import { workspacePickVoidOptions } from './voidSelectOptions';
 import './aiEmployees.css';
 
@@ -36,7 +36,7 @@ function workspaceInitial(name: string): string {
 
 export function AiEmployeesApp() {
 	const { t } = useI18n();
-	const c = useAiEmployeesController();
+	const c = useAiEmployeesController(t);
 
 	const activeWorkspaceName = useMemo(() => {
 		const w = c.workspaces.find((x) => x.id === c.workspaceId);
@@ -282,7 +282,12 @@ export function AiEmployeesApp() {
 											}}
 											subAgentToolLiveByJobId={c.subAgentToolLiveByJobId}
 											onStopOrchestrationRun={c.stopOrchestrationRun}
-											onApproveOrchestrationGit={c.approveOrchestrationGit}
+											onApproveOrchestrationGit={async (runId) => {
+												const r = await c.approveOrchestrationGit(runId);
+												if (r && typeof r === 'object' && 'ok' in r && r.ok === false && 'error' in r) {
+													publishAiEmployeesNotice(String((r as { error?: string }).error ?? t('aiEmployees.groupChat.approveGitFailedFallback')));
+												}
+											}}
 										/>
 									) : null}
 

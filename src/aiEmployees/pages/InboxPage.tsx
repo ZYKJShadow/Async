@@ -694,7 +694,7 @@ export function InboxPage({
 																employee={message.fromEmployeeId ? orgById.get(message.fromEmployeeId) ?? ceo ?? null : ceo ?? null}
 															/>
 														) : null}
-														<CollabCard t={t} message={message} employeeMap={orgById} />
+														<CollabCard t={t} message={message} employeeMap={orgById} ceoEmployeeId={ceoEmployeeId} />
 													</div>
 												</Fragment>
 											);

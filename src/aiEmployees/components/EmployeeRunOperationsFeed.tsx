@@ -20,6 +20,7 @@ export function EmployeeRunOperationsFeed({
 	orchestration,
 	runs,
 	employeeMap,
+	ceoEmployeeId,
 	streamingSnippet,
 	streamError,
 }: {
@@ -27,6 +28,7 @@ export function EmployeeRunOperationsFeed({
 	orchestration: AiEmployeesOrchestrationState;
 	runs: readonly AiOrchestrationRun[];
 	employeeMap: Map<string, OrgEmployee>;
+	ceoEmployeeId?: string;
 	streamingSnippet?: string;
 	streamError?: string;
 }) {
@@ -83,7 +85,7 @@ export function EmployeeRunOperationsFeed({
 										</div>
 									) : (
 										<div className="ref-ai-employees-task-feed-collab-wrap">
-											<CollabCard t={t} message={item.message} employeeMap={employeeMap} />
+											<CollabCard t={t} message={item.message} employeeMap={employeeMap} ceoEmployeeId={ceoEmployeeId} />
 										</div>
 									)}
 								</div>

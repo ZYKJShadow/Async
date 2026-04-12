@@ -105,6 +105,7 @@ import {
 	buildCollabHistoryForEmployeeInRun,
 } from '../domain/employeeChatHistory';
 import type { EmployeeChatHistoryTurn, EmployeeChatInput, TeamMemberSummary } from '../../../shared/aiEmployeesPersona';
+import type { TFunction } from '../../i18n';
 import { publishAiEmployeesNetworkError } from '../AiEmployeesNetworkToast';
 
 type Shell = NonNullable<Window['asyncShell']>;
@@ -243,7 +244,7 @@ export type ActivityFocusState = {
 	employeeId?: string;
 };
 
-export function useAiEmployeesController() {
+export function useAiEmployeesController(t: TFunction) {
 	const shell = window.asyncShell as Shell | undefined;
 
 	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(() => defaultAppearanceSettings());
@@ -1559,14 +1560,69 @@ export function useAiEmployeesController() {
 	const stopOrchestrationRun = useCallback(
 		(runId: string) => {
 			haltedSubAgentRunIdsRef.current.add(runId);
+			const queueLenBefore = subAgentQueueRef.current.length;
 			subAgentQueueRef.current = subAgentQueueRef.current.filter((q) => q.runId !== runId);
+			const removedQueued = queueLenBefore - subAgentQueueRef.current.length;
+
+			const nowIso = new Date().toISOString();
+			let abortedChat = false;
 			for (const [reqId, meta] of [...pendingEmployeeChatRef.current.entries()]) {
-				if (meta.runId === runId) {
-					void shell?.invoke('aiEmployees:abortChat', reqId);
+				if (meta.runId !== runId) {
+					continue;
 				}
+				abortedChat = true;
+				void shell?.invoke('aiEmployees:abortChat', reqId);
+				pendingEmployeeChatRef.current.delete(reqId);
+				employeeReplyGuardRef.current.delete(meta.employeeId);
+				if (activeStreamOwnerRef.current === reqId) {
+					activeStreamOwnerRef.current = null;
+				}
+				setEmployeeChatStreaming((prev) => {
+					const next = { ...prev };
+					delete next[meta.employeeId];
+					return next;
+				});
+				setEmployeeChatError((prev) => {
+					const next = { ...prev };
+					delete next[meta.employeeId];
+					return next;
+				});
 			}
+
+			const hadEffect = abortedChat || removedQueued > 0;
+			const body = hadEffect
+				? t('aiEmployees.groupChat.runStoppedBodyHadEffect')
+				: t('aiEmployees.groupChat.runStoppedBodyNoEffect');
+			const stoppedSummary = t('aiEmployees.groupChat.runStoppedSummary');
+			const stoppedLabel = t('aiEmployees.groupChat.runStoppedTimelineLabel');
+
+			persistOrchestration((state) => {
+				let next = appendCollabMessage(state, {
+					id: crypto.randomUUID(),
+					runId,
+					type: 'status_update',
+					summary: stoppedSummary,
+					body,
+					createdAtIso: nowIso,
+				});
+				next = appendTimelineEvent(next, {
+					id: `run:${runId}:stopped:${nowIso}`,
+					runId,
+					type: 'status_update',
+					label: stoppedLabel,
+					createdAtIso: nowIso,
+					source: 'local',
+				});
+				return next;
+			});
+
+			if (!shell) {
+				publishAiEmployeesNetworkError(t('aiEmployees.groupChat.runStoppedShellWarning'));
+			}
+
+			processSubAgentQueueRef.current();
 		},
-		[shell]
+		[shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, t]
 	);
 
 	const matchRunForTaskEvent = useCallback(
