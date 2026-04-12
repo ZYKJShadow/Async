@@ -2830,18 +2830,37 @@ ipcMain.handle(
 				/* window may be gone */
 			}
 		};
+		// Batch streaming deltas: accumulate in a buffer, flush every ~50ms to avoid IPC flood
+		let deltaBuf = '';
+		let deltaTimer: ReturnType<typeof setTimeout> | null = null;
+		const flushDelta = () => {
+			deltaTimer = null;
+			if (deltaBuf) {
+				const chunk = deltaBuf;
+				deltaBuf = '';
+				send('delta', { delta: chunk });
+			}
+		};
 		try {
 			let fullText = '';
 			let lastError: string | null = null;
 			await runEmployeeChat(settings, payload, {
 				onDelta(text) {
-					send('delta', { delta: text });
+					deltaBuf += text;
+					if (deltaTimer === null) {
+						deltaTimer = setTimeout(flushDelta, 50);
+					}
 				},
 				onDone(text) {
+					// Flush any remaining buffered deltas before signalling completion
+					if (deltaTimer !== null) { clearTimeout(deltaTimer); deltaTimer = null; }
+					if (deltaBuf) { const chunk = deltaBuf; deltaBuf = ''; send('delta', { delta: chunk }); }
 					fullText = text;
 					send('done', { text });
 				},
 				onError(message) {
+					if (deltaTimer !== null) { clearTimeout(deltaTimer); deltaTimer = null; }
+					deltaBuf = '';
 					lastError = message;
 					send('error', { error: message });
 				},

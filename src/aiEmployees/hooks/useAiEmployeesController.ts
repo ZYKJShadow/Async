@@ -145,6 +145,8 @@ export function useAiEmployeesController() {
 	const [colorMode, setColorMode] = useState<AppColorMode>(() => readStoredColorMode());
 	const [localRoot, setLocalRoot] = useState<string | null>(null);
 	const [aiSettings, setAiSettings] = useState<AiEmployeesSettings>({});
+	const aiSettingsRef = useRef(aiSettings);
+	aiSettingsRef.current = aiSettings;
 	const [tab, setTab] = useState<AiEmployeesTabId>('inbox');
 	/** 侧栏「新建任务」等触发：递增后由 IssuesHubPage 打开弹窗 */
 	const [createIssueSignal, setCreateIssueSignal] = useState(0);
@@ -718,12 +720,28 @@ export function useAiEmployeesController() {
 		[employeeById]
 	);
 
+	// Debounced disk-write: React state updates immediately, but the IPC write to disk
+	// is coalesced so rapid-fire persistOrchestration calls (e.g. during multi-agent delegation)
+	// don't create a write storm. The latest state is always persisted within 300ms.
+	const orchestrationDiskWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const orchestrationDirtyRef = useRef(false);
 	const persistOrchestration = useCallback(
 		(updater: (state: ReturnType<typeof emptyOrchestrationState>) => ReturnType<typeof emptyOrchestrationState>) => {
 			setAiSettings((prev) => {
 				const nextOrchestration = updater(prev.orchestration ?? emptyOrchestrationState());
 				const next = { ...prev, orchestration: nextOrchestration };
-				void shell?.invoke('settings:set', { aiEmployees: next });
+				orchestrationDirtyRef.current = true;
+				// Schedule a single debounced disk write
+				if (orchestrationDiskWriteTimerRef.current === null) {
+					orchestrationDiskWriteTimerRef.current = setTimeout(() => {
+						orchestrationDiskWriteTimerRef.current = null;
+						if (orchestrationDirtyRef.current) {
+							orchestrationDirtyRef.current = false;
+							// Read the latest state from the ref (not the stale `next`)
+							void shell?.invoke('settings:set', { aiEmployees: aiSettingsRef.current });
+						}
+					}, 300);
+				}
 				return next;
 			});
 		},
