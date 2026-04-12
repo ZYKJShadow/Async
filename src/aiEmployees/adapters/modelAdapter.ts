@@ -86,3 +86,65 @@ export function describeModelRoute(conn: AiEmployeesConnection, modelId: string)
 	}
 	return `local:${modelId}@${conn.apiBaseUrl}`;
 }
+
+/** Role → recommended model profile (non-binding hint used for UI labels only). */
+export type RoleModelRecommendation = {
+	/** Short profile label — what the role is best served by. */
+	profile: 'fast-reasoning' | 'code-generation' | 'strong-reasoning' | 'system-analysis' | 'code-review';
+	/** i18n key for the hint shown next to the model picker. */
+	hintKey: string;
+	/** Preferred substrings (lowercase) that usually appear in model ids matching the profile. */
+	preferredIdFragments: string[];
+};
+
+export function getModelRecommendation(roleKey: string | undefined): RoleModelRecommendation | null {
+	const key = (roleKey ?? '').trim().toLowerCase();
+	switch (key) {
+		case 'ceo':
+			return {
+				profile: 'fast-reasoning',
+				hintKey: 'aiEmployees.setup.modelRec.fastReasoning',
+				preferredIdFragments: ['haiku', 'mini', 'flash', 'fast', 'nano'],
+			};
+		case 'frontend':
+			return {
+				profile: 'code-generation',
+				hintKey: 'aiEmployees.setup.modelRec.codeGen',
+				preferredIdFragments: ['sonnet', 'coder', 'code', 'gpt-4', 'claude-3-5'],
+			};
+		case 'backend':
+			return {
+				profile: 'strong-reasoning',
+				hintKey: 'aiEmployees.setup.modelRec.strongReasoning',
+				preferredIdFragments: ['opus', 'sonnet', 'gpt-5', 'gpt-4', 'r1', 'deepseek'],
+			};
+		case 'qa':
+			return {
+				profile: 'system-analysis',
+				hintKey: 'aiEmployees.setup.modelRec.systemAnalysis',
+				preferredIdFragments: ['sonnet', 'opus', 'gpt-4', 'deepseek'],
+			};
+		case 'reviewer':
+			return {
+				profile: 'code-review',
+				hintKey: 'aiEmployees.setup.modelRec.codeReview',
+				preferredIdFragments: ['opus', 'sonnet', 'gpt-5', 'gpt-4', 'deepseek', 'r1'],
+			};
+		default:
+			return null;
+	}
+}
+
+/** Heuristic score (0..1): does a model id look like a good fit for this role? */
+export function scoreModelForRole(modelId: string, roleKey: string | undefined): number {
+	const rec = getModelRecommendation(roleKey);
+	if (!rec) {
+		return 0;
+	}
+	const lower = modelId.toLowerCase();
+	const hits = rec.preferredIdFragments.filter((frag) => lower.includes(frag)).length;
+	if (hits === 0) {
+		return 0;
+	}
+	return Math.min(1, hits / Math.max(1, rec.preferredIdFragments.length) + 0.25);
+}

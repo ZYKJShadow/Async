@@ -5,8 +5,16 @@ import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/mo
 import { streamChatUnified } from '../llm/llmRouter.js';
 import { runAgentLoop, type AgentLoopHandlers, type AgentLoopOptions } from '../agent/agentLoop.js';
 import { assembleAgentToolPool } from '../agent/agentToolPool.js';
+import type { AgentToolDef } from '../agent/agentTools.js';
 import type { StreamHandlers } from '../llm/types.js';
-import { CEO_COLLAB_TOOL_DEFS, COLLAB_TOOL_DEFS, isCollabTool, parseCollabAction, type CollabAction } from './collaborationTools.js';
+import {
+	CEO_COLLAB_TOOL_DEFS,
+	COLLAB_TOOL_DEFS,
+	REVIEWER_COLLAB_TOOL_DEFS,
+	isCollabTool,
+	parseCollabAction,
+	type CollabAction,
+} from './collaborationTools.js';
 import { flattenAssistantTextPartsForSearch, isStructuredAssistantMessage } from '../../src/agentStructuredMessage.js';
 
 /** Abort when either the user-controlled signal or the timeout fires. */
@@ -33,6 +41,79 @@ function mergeWithTimeout(timeoutMs: number, user?: AbortSignal): AbortSignal {
 
 function trim(value: unknown): string {
 	return typeof value === 'string' ? value.trim() : '';
+}
+
+/** Normalize a role key to a known profile. Unknown keys fall back to 'generic'. */
+function normalizeRoleKey(roleKey: string | undefined): 'frontend' | 'backend' | 'qa' | 'reviewer' | 'generic' {
+	const key = trim(roleKey).toLowerCase();
+	if (key === 'frontend' || key === 'backend' || key === 'qa' || key === 'reviewer') {
+		return key;
+	}
+	return 'generic';
+}
+
+/**
+ * Build the role-specific tool subset for a non-CEO employee. Reviewers get a read-only
+ * tool surface and must request revisions instead of editing; other roles share the full
+ * agent tool pool. LSP is added for frontend/backend to support refactor-aware work.
+ */
+export function assembleRoleToolPool(
+	roleKey: string | undefined,
+	options?: { mcpToolDenyPrefixes?: string[] }
+): AgentToolDef[] {
+	const role = normalizeRoleKey(roleKey);
+	if (role === 'reviewer') {
+		const base = assembleAgentToolPool('agent', options);
+		// Reviewer: read-only tools (Read/Glob/Grep/LSP and read-only MCP). No Write/Edit/Bash.
+		const writeLike = new Set(['Write', 'Edit', 'Bash']);
+		return base.filter((tool) => !writeLike.has(tool.name));
+	}
+	return assembleAgentToolPool('agent', options);
+}
+
+/** Inject role-specific guard-rails into the system prompt so each specialist stays in lane. */
+export function buildRoleSpecificPromptSection(roleKey: string | undefined, isCeo: boolean): string | null {
+	if (isCeo) {
+		return null;
+	}
+	const role = normalizeRoleKey(roleKey);
+	switch (role) {
+		case 'frontend':
+			return (
+				'== Frontend specialist ==\n' +
+				'• Focus on UI components, styling, interaction logic, and accessibility.\n' +
+				'• Do NOT modify backend APIs, database schemas, or server configuration — delegate those to the backend specialist.\n' +
+				'• When an API contract is unclear, use send_colleague_message to ask the backend teammate before coding against it.\n' +
+				'• Surface design tradeoffs, edge cases, and browser/device concerns in submit_result.'
+			);
+		case 'backend':
+			return (
+				'== Backend specialist ==\n' +
+				'• Focus on API design, data models, business logic, performance, and security.\n' +
+				'• Do NOT modify frontend components or styles — delegate UI changes to the frontend specialist.\n' +
+				'• When adding or changing an endpoint, document the contract in submit_result so the frontend can integrate cleanly.\n' +
+				'• Call out migrations, breaking changes, and rollout risk explicitly.'
+			);
+		case 'qa':
+			return (
+				'== QA specialist ==\n' +
+				'• Focus on test cases, edge conditions, regression checks, and automated coverage.\n' +
+				'• Prefer adding or updating tests over editing production code; if production code must change to be testable, flag it.\n' +
+				'• When you find a bug, use report_blocker with a precise reproduction and expected vs. actual behavior.\n' +
+				'• In submit_result, summarize coverage added, cases run, and known gaps.'
+			);
+		case 'reviewer':
+			return (
+				'== Code reviewer ==\n' +
+				'• You only review code. You MUST NOT modify files — you have no write tools.\n' +
+				'• Check: coding conventions, error handling, security risks, performance, maintainability, and readability.\n' +
+				'• When you find an issue, call `request_revision` with the file path, issue description, and a concrete suggestion; route to the original author.\n' +
+				'• Use submit_result only when the review is complete (either all issues raised or the code passes review).\n' +
+				'• Do not speculate beyond what you can see — read the relevant files first.'
+			);
+		default:
+			return null;
+	}
 }
 
 export function buildEmployeeSystemPrompt(input: EmployeeChatInput): string {
@@ -151,20 +232,40 @@ export function buildEmployeeSystemPrompt(input: EmployeeChatInput): string {
 			'- For quick one-sentence answers with no delegation, you may skip draft_plan and reply or use submit_result.'
 		);
 	} else if (input.teamMembers && input.teamMembers.length > 0) {
-		// Non-CEO employees with teammates: can do real work + collaborate
-		parts.push(
-			'== Collaboration tools ==\n' +
-			'Besides your normal work tools, you have collaboration tools:\n' +
-			'• delegate_task — Pass a sub-task to a teammate if it requires their expertise.\n' +
-			'• send_colleague_message — Message a teammate to ask questions or share context.\n' +
-			'• submit_result — Report task completion. ALWAYS call this when you finish a task.\n' +
-			'• report_blocker — Report when you are stuck and need help.\n\n' +
-			'Workflow:\n' +
-			'1. When you receive a task, do the work using your normal tools (Read, Write, Edit, etc.).\n' +
-			'2. When done, call `submit_result` with a summary of what you did.\n' +
-			'3. If you hit a blocker, call `report_blocker`.\n' +
-			'4. If part of the task needs another teammate, call `delegate_task`.'
-		);
+		const isReviewer = normalizeRoleKey(input.roleKey) === 'reviewer';
+		if (isReviewer) {
+			parts.push(
+				'== Collaboration tools ==\n' +
+				'Your tools (reviewer surface — no write access):\n' +
+				'• request_revision — Ask the original author to fix an issue (target_employee_name, file_path, issue_description, optional suggestion).\n' +
+				'• send_colleague_message — Message a teammate for clarification.\n' +
+				'• submit_result — Report the review outcome with overall verdict and list of open issues.\n' +
+				'• report_blocker — Escalate when you cannot complete the review.\n\n' +
+				'Workflow:\n' +
+				'1. Read the relevant files first (Read/Glob/Grep/LSP).\n' +
+				'2. For each issue, call `request_revision` with file_path + issue_description.\n' +
+				'3. When all issues are raised (or code is clean), call `submit_result` summarizing the review.'
+			);
+		} else {
+			parts.push(
+				'== Collaboration tools ==\n' +
+				'Besides your normal work tools, you have collaboration tools:\n' +
+				'• delegate_task — Pass a sub-task to a teammate if it requires their expertise.\n' +
+				'• send_colleague_message — Message a teammate to ask questions or share context.\n' +
+				'• submit_result — Report task completion. ALWAYS call this when you finish a task.\n' +
+				'• report_blocker — Report when you are stuck and need help.\n\n' +
+				'Workflow:\n' +
+				'1. When you receive a task, do the work using your normal tools (Read, Write, Edit, etc.).\n' +
+				'2. When done, call `submit_result` with a summary of what you did.\n' +
+				'3. If you hit a blocker, call `report_blocker`.\n' +
+				'4. If part of the task needs another teammate, call `delegate_task`.'
+			);
+		}
+	}
+
+	const roleSection = buildRoleSpecificPromptSection(input.roleKey, Boolean(input.isCeo));
+	if (roleSection) {
+		parts.push(roleSection);
 	}
 
 	parts.push(
@@ -225,16 +326,23 @@ export async function runEmployeeChat(
 	if (useAgentMode) {
 		const workspaceRoot = hasBoundary ? input.boundaryLocalPaths![0] : null;
 
-		let toolPool;
+		let toolPool: AgentToolDef[];
 		if (input.isCeo) {
 			// CEO: collaboration tools only — force delegation, no file operations
 			toolPool = [...CEO_COLLAB_TOOL_DEFS];
 		} else {
-			// Regular employee: file tools + collaboration tools
-			const baseTools = assembleAgentToolPool('agent', {
+			// Role-specific pool: reviewer gets read-only + revision requests; others get full tools.
+			const baseTools = assembleRoleToolPool(input.roleKey, {
 				mcpToolDenyPrefixes: settings.mcpToolDenyPrefixes,
 			});
-			toolPool = hasTeammates ? [...baseTools, ...COLLAB_TOOL_DEFS] : baseTools;
+			const isReviewer = normalizeRoleKey(input.roleKey) === 'reviewer';
+			if (hasTeammates) {
+				toolPool = isReviewer
+					? [...baseTools, ...REVIEWER_COLLAB_TOOL_DEFS]
+					: [...baseTools, ...COLLAB_TOOL_DEFS];
+			} else {
+				toolPool = baseTools;
+			}
 		}
 
 		const agentHandlers: AgentLoopHandlers = {

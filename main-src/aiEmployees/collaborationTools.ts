@@ -17,6 +17,7 @@ export const COLLAB_TOOL_NAMES = new Set([
 	'send_colleague_message',
 	'submit_result',
 	'report_blocker',
+	'request_revision',
 ]);
 
 export function isCollabTool(name: string): boolean {
@@ -163,9 +164,47 @@ const reportBlockerTool: AgentToolDef = {
 	},
 };
 
+const requestRevisionTool: AgentToolDef = {
+	name: 'request_revision',
+	description:
+		'Request a teammate to revise their work based on code review feedback. Use this (instead of editing files yourself) ' +
+		'when you are acting as a code reviewer and need the original author to fix issues. ' +
+		'The target employee will receive a revision task with the file path, issue description, and optional suggested fix.',
+	parameters: {
+		type: 'object',
+		properties: {
+			target_employee_name: {
+				type: 'string',
+				description: 'Display name of the author who should revise the code.',
+			},
+			file_path: {
+				type: 'string',
+				description: 'File (relative path) that needs revision.',
+			},
+			issue_description: {
+				type: 'string',
+				description: 'What needs to be fixed and why (reference standards, risks, performance, etc.).',
+			},
+			suggestion: {
+				type: 'string',
+				description: 'Optional: suggested fix or approach.',
+			},
+		},
+		required: ['target_employee_name', 'file_path', 'issue_description'],
+	},
+};
+
 /** Collaboration tools available to non-CEO teammates (and shared tools). */
 export const COLLAB_TOOL_DEFS: AgentToolDef[] = [
 	delegateTaskTool,
+	sendColleagueMessageTool,
+	submitResultTool,
+	reportBlockerTool,
+];
+
+/** Reviewer: read-only collab surface — request revisions instead of editing. */
+export const REVIEWER_COLLAB_TOOL_DEFS: AgentToolDef[] = [
+	requestRevisionTool,
 	sendColleagueMessageTool,
 	submitResultTool,
 	reportBlockerTool,
@@ -205,6 +244,13 @@ export type CollabAction =
 			tool: 'report_blocker';
 			description: string;
 			suggestedHelperName?: string;
+	  }
+	| {
+			tool: 'request_revision';
+			targetEmployeeName: string;
+			filePath: string;
+			issueDescription: string;
+			suggestion?: string;
 	  };
 
 /** Parse raw tool args into a typed CollabAction. */
@@ -272,6 +318,14 @@ export function parseCollabAction(name: string, args: Record<string, unknown>): 
 				tool: 'report_blocker',
 				description: str('description'),
 				suggestedHelperName: str('suggested_helper_name') || undefined,
+			};
+		case 'request_revision':
+			return {
+				tool: 'request_revision',
+				targetEmployeeName: str('target_employee_name'),
+				filePath: str('file_path'),
+				issueDescription: str('issue_description'),
+				suggestion: str('suggestion') || undefined,
 			};
 		default:
 			return null;
@@ -345,6 +399,17 @@ export function executeCollabTool(call: ToolCall): ToolResult {
 						? `Suggested helper: ${action.suggestedHelperName}\n`
 						: '') +
 					`The team has been notified. Someone will help resolve this.`,
+				isError: false,
+			};
+		case 'request_revision':
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content:
+					`Revision requested from ${action.targetEmployeeName} on ${action.filePath}:\n` +
+					`Issue: ${action.issueDescription}\n` +
+					(action.suggestion ? `Suggestion: ${action.suggestion}\n` : '') +
+					`${action.targetEmployeeName} will receive a revision task and update the code.`,
 				isError: false,
 			};
 	}

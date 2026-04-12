@@ -5,6 +5,7 @@ import {
 	executeCollabTool,
 	COLLAB_TOOL_DEFS,
 	COLLAB_TOOL_NAMES,
+	REVIEWER_COLLAB_TOOL_DEFS,
 } from './collaborationTools';
 import type { ToolCall } from '../agent/agentTools';
 
@@ -16,6 +17,7 @@ describe('collaborationTools', () => {
 			expect(isCollabTool('send_colleague_message')).toBe(true);
 			expect(isCollabTool('submit_result')).toBe(true);
 			expect(isCollabTool('report_blocker')).toBe(true);
+			expect(isCollabTool('request_revision')).toBe(true);
 		});
 
 		it('rejects non-collab tool names', () => {
@@ -27,15 +29,21 @@ describe('collaborationTools', () => {
 	});
 
 	describe('COLLAB_TOOL_DEFS', () => {
-		it('worker defs are a subset of tool names (CEO adds draft_plan)', () => {
-			expect(COLLAB_TOOL_NAMES.size).toBe(COLLAB_TOOL_DEFS.length + 1);
+		it('worker defs are a subset of tool names (CEO adds draft_plan, reviewer adds request_revision)', () => {
+			// Worker pool excludes draft_plan (CEO-only) and request_revision (reviewer-only).
+			expect(COLLAB_TOOL_NAMES.size).toBe(COLLAB_TOOL_DEFS.length + 2);
 			expect(COLLAB_TOOL_NAMES.has('draft_plan')).toBe(true);
+			expect(COLLAB_TOOL_NAMES.has('request_revision')).toBe(true);
 			for (const def of COLLAB_TOOL_DEFS) {
 				expect(COLLAB_TOOL_NAMES.has(def.name)).toBe(true);
 				expect(def.description).toBeTruthy();
 				expect(def.parameters.type).toBe('object');
 				expect(def.parameters.required.length).toBeGreaterThan(0);
 			}
+			for (const def of REVIEWER_COLLAB_TOOL_DEFS) {
+				expect(COLLAB_TOOL_NAMES.has(def.name)).toBe(true);
+			}
+			expect(REVIEWER_COLLAB_TOOL_DEFS.some((d) => d.name === 'request_revision')).toBe(true);
 		});
 	});
 

@@ -8,16 +8,18 @@ import type { AiEmployeesConnection } from '../api/client';
 import type { OrgBootstrapStatus, OrgEmployee, OrgPromptTemplate } from '../api/orgTypes';
 import {
 	apiCreateOrgEmployee,
-	apiListOrgEmployees,
 	apiPatchOrgEmployee,
 	apiPostBootstrapComplete,
 	apiPostBootstrapConfirmTemplates,
 	apiPostBootstrapOrg,
 } from '../api/orgClient';
-import { formatLocalModelPickLabel, resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
+import {
+	formatLocalModelPickLabel,
+	getModelRecommendation,
+	resolveEmployeeLocalModelId,
+} from '../adapters/modelAdapter';
 import { RoleCustomSystemPromptField, RoleProfileEditor } from '../components/RoleProfileEditor';
 import type { LocalModelEntry } from '../sessionTypes';
-import { invokeGenerateHiringPlanForOrg, mapHiringCandidatesToMemberDrafts } from '../domain/ceoHiringPlan';
 import { emptyPromptDraft } from '../domain/persona';
 import {
 	applyGeneratedPromptDraft,
@@ -32,13 +34,11 @@ type SetupStage =
 	| 'connect'
 	| 'configure_model'
 	| 'choose_team_mode'
-	| 'ceo_generate'
 	| 'preview_team'
 	| 'confirm_team_name';
-type TeamModeId = 'product_delivery' | 'lean_builder' | 'ceo_arrange';
 
 type TeamModeConfig = {
-	id: TeamModeId;
+	id: 'tech_team';
 	titleKey: string;
 	descKey: string;
 	roles: Array<{
@@ -53,107 +53,63 @@ type TeamModeConfig = {
 	}>;
 };
 
-function createTeamModes(t: TFunction): TeamModeConfig[] {
-	return [
-		{
-			id: 'product_delivery',
-			titleKey: 'aiEmployees.setup.modeProductTitle',
-			descKey: 'aiEmployees.setup.modeProductDesc',
-			roles: [
-				{
-					id: 'lead',
-					roleKey: 'ceo',
-					customRoleTitle: t('aiEmployees.setup.role.coordinatorTitle'),
-					jobMission: t('aiEmployees.setup.role.coordinatorMission'),
-					domainContext: t('aiEmployees.setup.role.coordinatorContext'),
-					communicationNotes: t('aiEmployees.setup.role.coordinatorNotes'),
-					templateHints: ['ceo', 'lead', 'coordinator', 'manager'],
-				},
-				{
-					id: 'pm',
-					roleKey: 'pm',
-					customRoleTitle: t('aiEmployees.setup.role.pmTitle'),
-					jobMission: t('aiEmployees.setup.role.pmMission'),
-					domainContext: t('aiEmployees.setup.role.pmContext'),
-					communicationNotes: t('aiEmployees.setup.role.pmNotes'),
-					templateHints: ['pm', 'product'],
-					managerId: 'lead',
-				},
-				{
-					id: 'engineer',
-					roleKey: 'engineer',
-					customRoleTitle: t('aiEmployees.setup.role.engineerTitle'),
-					jobMission: t('aiEmployees.setup.role.engineerMission'),
-					domainContext: t('aiEmployees.setup.role.engineerContext'),
-					communicationNotes: t('aiEmployees.setup.role.engineerNotes'),
-					templateHints: ['engineer', 'developer', 'backend', 'frontend', 'fullstack'],
-					managerId: 'lead',
-				},
-				{
-					id: 'qa',
-					roleKey: 'qa',
-					customRoleTitle: t('aiEmployees.setup.role.qaTitle'),
-					jobMission: t('aiEmployees.setup.role.qaMission'),
-					domainContext: t('aiEmployees.setup.role.qaContext'),
-					communicationNotes: t('aiEmployees.setup.role.qaNotes'),
-					templateHints: ['qa', 'test'],
-					managerId: 'lead',
-				},
-			],
-		},
-		{
-			id: 'lean_builder',
-			titleKey: 'aiEmployees.setup.modeLeanTitle',
-			descKey: 'aiEmployees.setup.modeLeanDesc',
-			roles: [
-				{
-					id: 'lead',
-					roleKey: 'ceo',
-					customRoleTitle: t('aiEmployees.setup.role.teamLeadTitle'),
-					jobMission: t('aiEmployees.setup.role.teamLeadMission'),
-					domainContext: t('aiEmployees.setup.role.teamLeadContext'),
-					communicationNotes: t('aiEmployees.setup.role.teamLeadNotes'),
-					templateHints: ['ceo', 'lead', 'coordinator'],
-				},
-				{
-					id: 'builder',
-					roleKey: 'fullstack',
-					customRoleTitle: t('aiEmployees.setup.role.builderTitle'),
-					jobMission: t('aiEmployees.setup.role.builderMission'),
-					domainContext: t('aiEmployees.setup.role.builderContext'),
-					communicationNotes: t('aiEmployees.setup.role.builderNotes'),
-					templateHints: ['fullstack', 'engineer', 'developer'],
-					managerId: 'lead',
-				},
-				{
-					id: 'qa',
-					roleKey: 'qa',
-					customRoleTitle: t('aiEmployees.setup.role.qaTitle'),
-					jobMission: t('aiEmployees.setup.role.qaMission'),
-					domainContext: t('aiEmployees.setup.role.qaContext'),
-					communicationNotes: t('aiEmployees.setup.role.qaNotes'),
-					templateHints: ['qa', 'test'],
-					managerId: 'lead',
-				},
-			],
-		},
-		{
-			id: 'ceo_arrange',
-			titleKey: 'aiEmployees.setup.modeCeoArrangeTitle',
-			descKey: 'aiEmployees.setup.modeCeoArrangeDesc',
-			roles: [
-				{
-					id: 'lead',
-					roleKey: 'ceo',
-					customRoleTitle: t('aiEmployees.setup.role.coordinatorTitle'),
-					jobMission: t('aiEmployees.setup.role.coordinatorMission'),
-					domainContext: t('aiEmployees.setup.role.coordinatorContext'),
-					communicationNotes: t('aiEmployees.setup.role.coordinatorNotes'),
-					templateHints: ['ceo', 'lead', 'coordinator', 'manager'],
-				},
-			],
-		},
-	];
+function createTechTeamMode(t: TFunction): TeamModeConfig {
+	return {
+		id: 'tech_team',
+		titleKey: 'aiEmployees.setup.modeTechTeamTitle',
+		descKey: 'aiEmployees.setup.modeTechTeamDesc',
+		roles: [
+			{
+				id: 'lead',
+				roleKey: 'ceo',
+				customRoleTitle: t('aiEmployees.setup.role.teamLeadTitle'),
+				jobMission: t('aiEmployees.setup.role.teamLeadMission'),
+				domainContext: t('aiEmployees.setup.role.teamLeadContext'),
+				communicationNotes: t('aiEmployees.setup.role.teamLeadNotes'),
+				templateHints: ['ceo', 'lead', 'coordinator', 'manager'],
+			},
+			{
+				id: 'frontend',
+				roleKey: 'frontend',
+				customRoleTitle: t('aiEmployees.setup.role.frontendTitle'),
+				jobMission: t('aiEmployees.setup.role.frontendMission'),
+				domainContext: t('aiEmployees.setup.role.frontendContext'),
+				communicationNotes: t('aiEmployees.setup.role.frontendNotes'),
+				templateHints: ['frontend', 'ui', 'web'],
+				managerId: 'lead',
+			},
+			{
+				id: 'backend',
+				roleKey: 'backend',
+				customRoleTitle: t('aiEmployees.setup.role.backendTitle'),
+				jobMission: t('aiEmployees.setup.role.backendMission'),
+				domainContext: t('aiEmployees.setup.role.backendContext'),
+				communicationNotes: t('aiEmployees.setup.role.backendNotes'),
+				templateHints: ['backend', 'api', 'server'],
+				managerId: 'lead',
+			},
+			{
+				id: 'qa',
+				roleKey: 'qa',
+				customRoleTitle: t('aiEmployees.setup.role.qaTitle'),
+				jobMission: t('aiEmployees.setup.role.qaMission'),
+				domainContext: t('aiEmployees.setup.role.qaContext'),
+				communicationNotes: t('aiEmployees.setup.role.qaNotes'),
+				templateHints: ['qa', 'test'],
+				managerId: 'lead',
+			},
+			{
+				id: 'reviewer',
+				roleKey: 'reviewer',
+				customRoleTitle: t('aiEmployees.setup.role.reviewerTitle'),
+				jobMission: t('aiEmployees.setup.role.reviewerMission'),
+				domainContext: t('aiEmployees.setup.role.reviewerContext'),
+				communicationNotes: t('aiEmployees.setup.role.reviewerNotes'),
+				templateHints: ['reviewer', 'review'],
+				managerId: 'lead',
+			},
+		],
+	};
 }
 
 function inferStage(sessionPhase: AiEmployeesSessionPhase, workspaceId: string, status: OrgBootstrapStatus | null): SetupStage {
@@ -332,13 +288,9 @@ export function AiEmployeesSetupFlow({
 }) {
 	const [stage, setStage] = useState<SetupStage>(() => inferStage(sessionPhase, workspaceId, bootstrapStatus));
 	const [teamName, setTeamName] = useState('');
-	const [teamMode, setTeamMode] = useState<TeamModeId>('product_delivery');
 	const [submitBusy, setSubmitBusy] = useState(false);
 	const [submitErr, setSubmitErr] = useState<string | null>(null);
-	const [ceoAiMemberDrafts, setCeoAiMemberDrafts] = useState<RoleProfileDraft[] | null>(null);
-	const [ceoPlanBusy, setCeoPlanBusy] = useState(false);
 	const [selectedModelId, setSelectedModelId] = useState('');
-	const [ceoRequirements, setCeoRequirements] = useState('');
 	const [previewTeamDrafts, setPreviewTeamDrafts] = useState<RoleProfileDraft[]>([]);
 	const [wizardCommitDrafts, setWizardCommitDrafts] = useState<RoleProfileDraft[] | null>(null);
 	const [previewEditDraft, setPreviewEditDraft] = useState<RoleProfileDraft | null>(null);
@@ -418,7 +370,7 @@ export function AiEmployeesSetupFlow({
 		}
 	}, [stage, onLoadPromptTemplates]);
 
-	const teamModes = useMemo(() => createTeamModes(t), [t]);
+	const teamMode = useMemo(() => createTechTeamMode(t), [t]);
 
 	const draftOrgLabel = useMemo(
 		() => teamName.trim() || suggestTeamName(localRoot, workspaces, workspaceId, companyName) || 'Async Team',
@@ -428,20 +380,15 @@ export function AiEmployeesSetupFlow({
 	const effectiveModelForDrafts = selectedModelId && modelOptionIdSet.has(selectedModelId) ? selectedModelId : defaultModelId;
 
 	const previewDrafts = useMemo(() => {
-		const mode = teamModes.find((item) => item.id === teamMode) ?? teamModes[0];
-		return mode.roles.map((role) => createDraftFromModeRole(role, promptTemplates, effectiveModelForDrafts, t));
-	}, [teamMode, promptTemplates, effectiveModelForDrafts, teamModes, t]);
+		return teamMode.roles.map((role) => createDraftFromModeRole(role, promptTemplates, effectiveModelForDrafts, t));
+	}, [teamMode, promptTemplates, effectiveModelForDrafts, t]);
 
 	const commitDrafts = useMemo((): RoleProfileDraft[] => {
 		if (orgEmployees.length > 0) {
 			return mapOrgEmployeesToCommitDrafts(orgEmployees, agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet);
 		}
-		const lead = previewDrafts.find((d) => d.roleKey === 'ceo');
-		if (ceoAiMemberDrafts && lead) {
-			return [cloneRoleDraft(lead), ...ceoAiMemberDrafts.map((m) => cloneRoleDraft(m))];
-		}
 		return previewDrafts.map((item) => cloneRoleDraft(item));
-	}, [orgEmployees, previewDrafts, ceoAiMemberDrafts, agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet]);
+	}, [orgEmployees, previewDrafts, agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet]);
 
 	const goBack = () => {
 		if (stage === 'confirm_team_name' && setupFinishOnlyResume) {
@@ -456,10 +403,6 @@ export function AiEmployeesSetupFlow({
 			return;
 		}
 		if (stage === 'preview_team') {
-			setStage(teamMode === 'ceo_arrange' ? 'ceo_generate' : 'choose_team_mode');
-			return;
-		}
-		if (stage === 'ceo_generate') {
 			setStage('choose_team_mode');
 			return;
 		}
@@ -484,12 +427,6 @@ export function AiEmployeesSetupFlow({
 
 	const goChooseTeamNext = () => {
 		setSubmitErr(null);
-		if (teamMode === 'ceo_arrange') {
-			setCeoAiMemberDrafts(null);
-			setStage('ceo_generate');
-			return;
-		}
-		setCeoAiMemberDrafts(null);
 		setPreviewTeamDrafts(previewDrafts.map((d) => cloneRoleDraft(d)));
 		setStage('preview_team');
 	};
@@ -522,89 +459,7 @@ export function AiEmployeesSetupFlow({
 		}
 	};
 
-	const triggerCeoGenerate = async () => {
-		const shell = window.asyncShell;
-		if (!shell) {
-			setSubmitErr(t('aiEmployees.setup.ceoPlanNoShell'));
-			return;
-		}
-		const modelId =
-			selectedModelId && modelOptionIdSet.has(selectedModelId)
-				? selectedModelId
-				: previewDrafts.find((d) => d.localModelId && modelOptionIdSet.has(d.localModelId))?.localModelId;
-		if (!modelId) {
-			setSubmitErr(t('aiEmployees.setup.ceoPlanNeedModel'));
-			return;
-		}
-		if (!workspaceId) {
-			return;
-		}
-		const lead = previewDrafts.find((d) => d.roleKey === 'ceo');
-		if (!lead) {
-			setSubmitErr(t('aiEmployees.setup.ceoPlanNeedCeo'));
-			return;
-		}
-		setCeoPlanBusy(true);
-		setSubmitErr(null);
-		try {
-			try {
-				await apiPostBootstrapOrg(conn, workspaceId, teamName.trim() || companyName.trim() || draftOrgLabel);
-			} catch {
-				/* org profile may already exist */
-			}
-			await onSync();
-			let employees = await apiListOrgEmployees(conn, workspaceId);
-			let ceoEmp = employees.find((e) => e.isCeo);
-			if (!ceoEmp) {
-				const created = await apiCreateOrgEmployee(conn, workspaceId, {
-					displayName: lead.displayName.trim(),
-					roleKey: 'ceo',
-					customRoleTitle: lead.customRoleTitle.trim() || undefined,
-					isCeo: true,
-					templatePromptKey: lead.templatePromptKey?.trim() || undefined,
-					...(lead.promptDraft.systemPrompt.trim() ? { customSystemPrompt: lead.promptDraft.systemPrompt.trim() } : {}),
-					personaSeed: toPersonaSeed(lead, 'user'),
-					modelSource: 'local_model',
-				});
-				const bindId = lead.localModelId && modelOptionIdSet.has(lead.localModelId) ? lead.localModelId : modelId;
-				onBindEmployeeLocalModel(created.id, bindId);
-				await onSync();
-				employees = await apiListOrgEmployees(conn, workspaceId);
-				ceoEmp = employees.find((e) => e.isCeo) ?? employees.find((e) => e.id === created.id);
-			}
-			if (!ceoEmp) {
-				setSubmitErr(t('aiEmployees.setup.ceoPlanNeedCeo'));
-				return;
-			}
-			const result = await invokeGenerateHiringPlanForOrg(shell, {
-				modelId,
-				companyName: teamName.trim() || companyName || draftOrgLabel,
-				ceoDisplayName: ceoEmp.displayName,
-				ceoPersonaSeed: ceoEmp.personaSeed ?? null,
-				ceoSystemPrompt: ceoEmp.customSystemPrompt ?? '',
-				userRequirements: ceoRequirements.trim() || undefined,
-				currentEmployees: employees,
-			});
-			if (!result.ok) {
-				setSubmitErr(result.error ?? t('aiEmployees.setup.ceoPlanFailed'));
-				return;
-			}
-			const memberDrafts = mapHiringCandidatesToMemberDrafts(result.candidates, modelId);
-			if (memberDrafts.length === 0) {
-				setSubmitErr(t('aiEmployees.setup.ceoPlanEmpty'));
-				return;
-			}
-			setCeoAiMemberDrafts(memberDrafts);
-			setPreviewTeamDrafts([cloneRoleDraft(lead), ...memberDrafts.map((m) => cloneRoleDraft(m))]);
-			setStage('preview_team');
-		} catch (error) {
-			notifyAiEmployeesRequestFailed(error);
-		} finally {
-			setCeoPlanBusy(false);
-		}
-	};
-
-	/** Prefer wizard snapshot: CEO 规划会在服务端先建 CEO，此时 org 里只有一人，不能覆盖预览里已确认的完整名单。 */
+	/** Prefer wizard snapshot over live org list during onboarding commit. */
 	const draftsForBootstrapCommit = useMemo(() => {
 		if (wizardCommitDrafts?.length) {
 			return wizardCommitDrafts.map((d) => cloneRoleDraft(d));
@@ -715,7 +570,6 @@ export function AiEmployeesSetupFlow({
 	const setupFrameClass =
 		stage === 'connect' ||
 		stage === 'configure_model' ||
-		stage === 'ceo_generate' ||
 		stage === 'confirm_team_name'
 			? 'ref-ai-employees-setup-frame ref-ai-employees-setup-frame--narrow'
 			: stage === 'choose_team_mode' || stage === 'preview_team'
@@ -905,50 +759,37 @@ export function AiEmployeesSetupFlow({
 							{t('aiEmployees.setup.modeBlurb').trim() ? <p>{t('aiEmployees.setup.modeBlurb')}</p> : null}
 							<p className="ref-ai-employees-setup-muted ref-ai-employees-setup-mode-customize-hint">{t('aiEmployees.setup.modeCustomizeLaterHint')}</p>
 						</div>
-						<div className="ref-ai-employees-setup-tier-grid" role="listbox" aria-label={t('aiEmployees.setup.modeHeading')}>
-							{teamModes.map((mode) => {
-								const active = mode.id === teamMode;
-								const featured = mode.id === 'product_delivery';
-								return (
-									<button
-										key={mode.id}
-										type="button"
-										role="option"
-										aria-selected={active}
-										className={`ref-ai-employees-setup-tier-card ${active ? 'is-selected' : ''} ${featured ? 'is-featured' : ''}`}
-										onClick={() => setTeamMode(mode.id)}
-									>
-										<div className="ref-ai-employees-setup-tier-badge-row">
-											{featured ? <span className="ref-ai-employees-setup-tier-badge">{t('aiEmployees.setup.tierRecommended')}</span> : null}
-										</div>
-										<div className="ref-ai-employees-setup-tier-top">
-											<h3 className="ref-ai-employees-setup-tier-name">{t(mode.titleKey)}</h3>
-											<p className="ref-ai-employees-setup-tier-desc">{t(mode.descKey)}</p>
-										</div>
-										<div className="ref-ai-employees-setup-tier-divider" />
-										{mode.roles.length > 0 ? (
-											<>
-												<p className="ref-ai-employees-setup-tier-include-label">{t('aiEmployees.setup.tierIncludedLabel')}</p>
-												<ul className="ref-ai-employees-setup-tier-features">
-													{mode.roles.map((role) => (
-														<li key={role.id}>{role.customRoleTitle}</li>
-													))}
-												</ul>
-												{mode.id === 'ceo_arrange' ? (
-													<p className="ref-ai-employees-setup-muted ref-ai-employees-setup-tier-ceo-hint">{t('aiEmployees.setup.tierCeoWillGenerate')}</p>
+						<div className="ref-ai-employees-setup-tier-grid" role="list" aria-label={t('aiEmployees.setup.modeHeading')}>
+							<div
+								role="listitem"
+								className="ref-ai-employees-setup-tier-card is-selected is-featured"
+							>
+								<div className="ref-ai-employees-setup-tier-badge-row">
+									<span className="ref-ai-employees-setup-tier-badge">{t('aiEmployees.setup.tierRecommended')}</span>
+								</div>
+								<div className="ref-ai-employees-setup-tier-top">
+									<h3 className="ref-ai-employees-setup-tier-name">{t(teamMode.titleKey)}</h3>
+									<p className="ref-ai-employees-setup-tier-desc">{t(teamMode.descKey)}</p>
+								</div>
+								<div className="ref-ai-employees-setup-tier-divider" />
+								<p className="ref-ai-employees-setup-tier-include-label">{t('aiEmployees.setup.tierIncludedLabel')}</p>
+								<ul className="ref-ai-employees-setup-tier-features">
+									{teamMode.roles.map((role) => {
+										const rec = getModelRecommendation(role.roleKey);
+										return (
+											<li key={role.id}>
+												<span>{role.customRoleTitle}</span>
+												{rec ? (
+													<span className="ref-ai-employees-setup-tier-feature-hint">
+														{' · '}
+														{t(rec.hintKey)}
+													</span>
 												) : null}
-											</>
-										) : (
-											<p className="ref-ai-employees-setup-tier-no-roles">{t('aiEmployees.setup.tierNoRolesPreset')}</p>
-										)}
-										<div className="ref-ai-employees-setup-tier-foot">
-											<span className={`ref-ai-employees-setup-tier-cta ${active ? 'is-selected' : ''}`}>
-												{active ? t('aiEmployees.setup.tierSelected') : t('aiEmployees.setup.tierSelect')}
-											</span>
-										</div>
-									</button>
-								);
-							})}
+											</li>
+										);
+									})}
+								</ul>
+							</div>
 						</div>
 						<p className="ref-ai-employees-setup-muted ref-ai-employees-setup-tier-footnote">{t('aiEmployees.setup.modeMultiProjectHint')}</p>
 						<div className="ref-ai-employees-form-actions ref-ai-employees-setup-actions ref-ai-employees-setup-nav-row">
@@ -961,56 +802,6 @@ export function AiEmployeesSetupFlow({
 								</button>
 							</div>
 						</div>
-					</div>
-				) : null}
-
-				{stage === 'ceo_generate' ? (
-					<div className="ref-ai-employees-setup-step ref-ai-employees-setup-step--ceo-gen">
-						<div className="ref-ai-employees-setup-panel-head">
-							<div className="ref-ai-employees-setup-chip">{t('aiEmployees.setup.stepCeoGenerate')}</div>
-							<h2>{t('aiEmployees.setup.ceoGenHeading')}</h2>
-							<p>{t('aiEmployees.setup.ceoGenBlurb')}</p>
-						</div>
-						<label className="ref-ai-employees-catalog-field">
-							<span>{t('aiEmployees.setup.ceoGenRequirementsLabel')}</span>
-							<textarea
-								className="ref-ai-employees-input ref-ai-employees-setup-ceo-gen-textarea"
-								rows={5}
-								value={ceoRequirements}
-								onChange={(e) => setCeoRequirements(e.target.value)}
-								placeholder={t('aiEmployees.setup.ceoGenPlaceholder')}
-								disabled={ceoPlanBusy}
-							/>
-						</label>
-						<div className="ref-ai-employees-form-actions ref-ai-employees-setup-actions ref-ai-employees-setup-nav-row">
-							<button type="button" className="ref-ai-employees-btn ref-ai-employees-btn--secondary" onClick={goBack} disabled={ceoPlanBusy}>
-								{t('aiEmployees.onboarding.prevStep')}
-							</button>
-							<div className="ref-ai-employees-setup-nav-trailing">
-								<button
-									type="button"
-									className="ref-ai-employees-btn ref-ai-employees-btn--primary"
-									disabled={ceoPlanBusy}
-									onClick={() => void triggerCeoGenerate()}
-								>
-									{ceoPlanBusy ? t('common.loading') : t('aiEmployees.setup.ceoGenStart')}
-								</button>
-							</div>
-						</div>
-						{ceoPlanBusy ? (
-							<div className="ref-ai-employees-ceo-gen-overlay" aria-busy="true" aria-live="polite">
-								<p className="ref-ai-employees-ceo-gen-status-text">{t('aiEmployees.setup.ceoGenBusy')}</p>
-								<div className="ref-ai-employees-ceo-gen-skeleton-grid">
-									{[0, 1, 2, 3].map((i) => (
-										<div key={i} className="ref-ai-employees-ceo-gen-skeleton-card">
-											<div className="ref-ai-employees-ceo-gen-skeleton-face ref-ai-employees-skeleton" />
-											<div className="ref-ai-employees-ceo-gen-skeleton-line ref-ai-employees-ceo-gen-skeleton-line--wide ref-ai-employees-skeleton" />
-											<div className="ref-ai-employees-ceo-gen-skeleton-line ref-ai-employees-ceo-gen-skeleton-line--narrow ref-ai-employees-skeleton" />
-										</div>
-									))}
-								</div>
-							</div>
-						) : null}
 					</div>
 				) : null}
 

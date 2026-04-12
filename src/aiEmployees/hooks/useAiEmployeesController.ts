@@ -112,7 +112,7 @@ import { publishAiEmployeesNetworkError } from '../AiEmployeesNetworkToast';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
-const SUB_AGENT_MAX_CONCURRENCY = 2;
+const SUB_AGENT_MAX_CONCURRENCY = 3;
 
 type SubAgentQueueItem =
 	| { kind: 'delegated'; jobId: string; runId: string; employeeId: string }
@@ -143,6 +143,13 @@ type SubAgentCollabAction =
 			tool: 'report_blocker';
 			description: string;
 			suggestedHelperName?: string;
+	  }
+	| {
+			tool: 'request_revision';
+			targetEmployeeName: string;
+			filePath: string;
+			issueDescription: string;
+			suggestion?: string;
 	  };
 
 type SubAgentIpcOk = {
@@ -176,7 +183,12 @@ function pickTerminalSubAgentAction(
 }
 
 function filterFollowUpSubAgentActions(actions: readonly SubAgentCollabAction[]): SubAgentCollabAction[] {
-	return actions.filter((action) => action.tool === 'delegate_task' || action.tool === 'send_colleague_message');
+	return actions.filter(
+		(action) =>
+			action.tool === 'delegate_task' ||
+			action.tool === 'send_colleague_message' ||
+			action.tool === 'request_revision'
+	);
 }
 
 function hasPendingRunSubAgentWork(
@@ -1382,6 +1394,63 @@ export function useAiEmployeesController(t: TFunction) {
 							processSubAgentQueueRef.current();
 						}
 					}
+					break;
+				}
+
+				case 'request_revision': {
+					if (haltedSubAgentRunIdsRef.current.has(runId)) {
+						break;
+					}
+					const targetName = String(action.targetEmployeeName ?? '');
+					const filePath = String(action.filePath ?? '');
+					const issue = String(action.issueDescription ?? '');
+					const suggestion = action.suggestion ? String(action.suggestion) : '';
+					const target = resolveEmployeeByName(targetName);
+					if (!target || !filePath || !issue) {
+						persistOrchestration((state) =>
+							appendCollabMessage(state, {
+								id: crypto.randomUUID(),
+								runId,
+								type: 'status_update',
+								fromEmployeeId,
+								summary: `Revision request ignored`,
+								body: `Could not route revision request to "${targetName}" for ${filePath || '?'}.`,
+								createdAtIso: nowIso,
+							})
+						);
+						break;
+					}
+					const messageId = crypto.randomUUID();
+					const body = [
+						`Revise ${filePath}:`,
+						issue,
+						suggestion ? `Suggestion: ${suggestion}` : '',
+					].filter(Boolean).join('\n');
+					persistOrchestration((state) => {
+						let next = appendCollabMessage(state, {
+							id: messageId,
+							runId,
+							type: 'text',
+							fromEmployeeId,
+							toEmployeeId: target.id,
+							summary: `${fromName} → ${target.displayName}: revise ${filePath}`,
+							body,
+							createdAtIso: nowIso,
+						});
+						next = appendTimelineEvent(next, {
+							id: `message:${messageId}`,
+							runId,
+							type: 'message',
+							label: `${fromName} requested revision from ${target.displayName}`,
+							description: `${filePath}: ${issue.slice(0, 120)}`,
+							createdAtIso: nowIso,
+							employeeId: target.id,
+							source: 'local',
+						});
+						return next;
+					});
+					subAgentQueueRef.current.push({ kind: 'colleague', runId, employeeId: target.id });
+					processSubAgentQueueRef.current();
 					break;
 				}
 			}
@@ -2915,6 +2984,18 @@ export function useAiEmployeesController(t: TFunction) {
 				return;
 			}
 			const nowIso = new Date().toISOString();
+			// User follow-up while the team is mid-run: tag the message so the Team Lead
+			// treats it as a high-priority directive and adjusts the active plan.
+			const isFromUser = !input.fromEmployeeId;
+			const targetsCeo = input.toEmployeeId && input.toEmployeeId === ceoEmployeeId;
+			const runIsActive = hasPendingRunSubAgentWork(
+				input.runId,
+				subAgentQueueRef.current,
+				activeSubAgentItemsRef.current
+			);
+			const decoratedBody = isFromUser && targetsCeo && runIsActive
+				? `[USER FOLLOW-UP — HIGH PRIORITY DIRECTIVE, adapt the current plan as needed]\n${body}`
+				: body;
 			const message: AiCollabMessage = {
 				id: crypto.randomUUID(),
 				runId: input.runId,
@@ -2922,7 +3003,7 @@ export function useAiEmployeesController(t: TFunction) {
 				fromEmployeeId: input.fromEmployeeId,
 				toEmployeeId: input.toEmployeeId,
 				summary: input.summary?.trim() || body.slice(0, 80),
-				body,
+				body: decoratedBody,
 				taskId: input.taskId,
 				createdAtIso: nowIso,
 			};
