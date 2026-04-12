@@ -939,7 +939,17 @@ export function useAiEmployeesController(t: TFunction) {
 			if (!modelId) {
 				return null;
 			}
-			const history = buildChatHistoryForRequest(employeeId, runId, employee);
+			let history = buildChatHistoryForRequest(employeeId, runId, employee);
+			if (history.length === 0 && subAgentJobId && !employee.isCeo) {
+				const run = orchestrationRef.current.runs.find((r) => r.id === runId);
+				const job = run?.subAgentJobs?.find((j) => j.id === subAgentJobId && j.employeeId === employeeId);
+				const fallbackTitle = job?.taskTitle.trim() || t('aiEmployees.groupChat.pendingTask');
+				const fallbackBody = job?.taskDescription.trim();
+				const fallbackContent = fallbackBody
+					? `[Task assigned] ${fallbackTitle}\n${fallbackBody}`
+					: `[Task assigned] ${fallbackTitle}`;
+				history = [{ role: 'user', content: fallbackContent }];
+			}
 			if (history.length === 0) {
 				return null;
 			}
@@ -1068,6 +1078,7 @@ export function useAiEmployeesController(t: TFunction) {
 			orgEmployees,
 			projects,
 			skills,
+			t,
 			workspaceMembers,
 		]
 	);
@@ -1079,13 +1090,17 @@ export function useAiEmployeesController(t: TFunction) {
 	const orchestrationDirtyRef = useRef(false);
 	const persistOrchestration = useCallback(
 		(updater: (state: ReturnType<typeof emptyOrchestrationState>) => ReturnType<typeof emptyOrchestrationState>) => {
+			const baseOrchestration = orchestrationRef.current;
+			const eagerOrchestration = updater(baseOrchestration);
 			// Eagerly apply to the ref so code running synchronously after this call
 			// (e.g. processSubAgentQueue) sees the freshest orchestration state
 			// instead of waiting for React's async render cycle.
-			orchestrationRef.current = updater(orchestrationRef.current);
+			orchestrationRef.current = eagerOrchestration;
 
 			setAiSettings((prev) => {
-				const nextOrchestration = updater(prev.orchestration ?? emptyOrchestrationState());
+				const prevOrchestration = prev.orchestration ?? emptyOrchestrationState();
+				const nextOrchestration =
+					prevOrchestration === baseOrchestration ? eagerOrchestration : updater(prevOrchestration);
 				const next = { ...prev, orchestration: nextOrchestration };
 				orchestrationDirtyRef.current = true;
 				// Schedule a single debounced disk write
@@ -1198,8 +1213,10 @@ export function useAiEmployeesController(t: TFunction) {
 						return;
 					}
 					const targetName = String(action.targetEmployeeName ?? '');
-					const taskTitle = String(action.taskTitle ?? '');
-					const taskDesc = String(action.taskDescription ?? '');
+					const rawTaskTitle = String(action.taskTitle ?? '').trim();
+					const rawTaskDesc = String(action.taskDescription ?? '').trim();
+					const taskTitle = rawTaskTitle || rawTaskDesc || t('aiEmployees.groupChat.pendingTask');
+					const taskDesc = rawTaskDesc || t('aiEmployees.groupChat.pendingTaskAutoDescription');
 					const delegatePriority = String(action.priority ?? 'medium');
 					const planItemId = String(action.planItemId ?? action.plan_item_id ?? '').trim();
 					const target = resolveEmployeeByName(targetName);
@@ -2543,10 +2560,12 @@ export function useAiEmployeesController(t: TFunction) {
 						const payload = buildEmployeeChatPayload(employee, rid, requestId, jobId);
 						if (!payload) {
 							const history = buildChatHistoryForRequest(employeeId, rid, employee);
+							const run = orchestrationRef.current.runs.find((r) => r.id === rid);
+							const job = run?.subAgentJobs?.find((j) => j.id === jobId);
 							const missingReason = !modelId
 								? 'No usable local model is bound to this teammate.'
 								: history.length === 0
-									? 'No usable chat history was generated for this teammate.'
+									? `No usable chat history was generated for this teammate. (jobTitleEmpty=${!job?.taskTitle?.trim()}, jobDescEmpty=${!job?.taskDescription?.trim()})`
 									: 'Could not build the teammate payload.';
 							const errIso = new Date().toISOString();
 							persistOrchestration((s) =>
