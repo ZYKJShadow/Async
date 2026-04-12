@@ -156,9 +156,9 @@ export function buildEmployeeSystemPrompt(input: EmployeeChatInput): string {
 
 export type EmployeeChatHandlers = StreamHandlers & {
 	/** Called when the agent invokes a tool (only in agent mode). */
-	onToolCall?: (name: string, args: Record<string, unknown>) => void;
+	onToolCall?: (name: string, args: Record<string, unknown>, toolUseId: string) => void;
 	/** Called when a tool returns (only in agent mode). */
-	onToolResult?: (name: string, success: boolean) => void;
+	onToolResult?: (name: string, success: boolean, toolUseId: string, resultPreview?: string) => void;
 	/** Called when the agent invokes a collaboration tool (delegate_task, submit_result, etc.). */
 	onCollabAction?: (action: CollabAction) => void;
 };
@@ -214,8 +214,8 @@ export async function runEmployeeChat(
 
 		const agentHandlers: AgentLoopHandlers = {
 			onTextDelta: (text) => handlers.onDelta(text),
-			onToolCall: (name, args, _id) => {
-				handlers.onToolCall?.(name, args);
+			onToolCall: (name, args, toolUseId) => {
+				handlers.onToolCall?.(name, args, toolUseId);
 				// Emit structured collab action when a collaboration tool is called
 				if (isCollabTool(name) && handlers.onCollabAction) {
 					const action = parseCollabAction(name, args);
@@ -224,8 +224,9 @@ export async function runEmployeeChat(
 					}
 				}
 			},
-			onToolResult: (name, _result, success, _id) => {
-				handlers.onToolResult?.(name, success);
+			onToolResult: (name, result, success, toolUseId) => {
+				const preview = typeof result === 'string' ? result : '';
+				handlers.onToolResult?.(name, success, toolUseId, preview);
 			},
 			onDone: (text) => {
 				// The agent loop returns the full structured payload (JSON with tool parts).

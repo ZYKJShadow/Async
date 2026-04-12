@@ -263,11 +263,11 @@ export function AiEmployeesApp() {
 											defaultModelId={c.localModels.defaultModelId}
 											modelOptions={c.modelOptions}
 											modelOptionIdSet={c.modelOptionIdSet}
-											onCreateRun={c.createEmployeeRun}
+											onCreateGroupRun={c.createGroupChatRun}
 											onSendMessage={c.sendCollabMessage}
 											onMarkMessageRead={c.markCollabMessageRead}
-											listMessagesByEmployee={c.listMessagesByEmployee}
-											findActiveRunByEmployee={c.findActiveRunByEmployee}
+											listMessagesByRun={c.listMessagesByRun}
+											ceoEmployeeId={c.ceoEmployeeId}
 											employeeChatStreaming={c.employeeChatStreaming}
 											employeeChatError={c.employeeChatError}
 											onNavigateToActivity={() => c.setTab('activity')}

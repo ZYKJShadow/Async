@@ -2,11 +2,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { TFunction } from '../../i18n';
-import { IconDotsHorizontal, IconMessageCircle, IconSend } from '../../icons';
+import { IconDotsHorizontal, IconMessageCircle, IconPlus, IconSend } from '../../icons';
 import type {
 	AiCollabMessage,
 	AiEmployeesOrchestrationState,
 	AiOrchestrationRun,
+	AiSubAgentJob,
 } from '../../../shared/aiEmployeesSettings';
 import type { OrgEmployee } from '../api/orgTypes';
 import {
@@ -15,14 +16,11 @@ import {
 	type AiEmployeesConnection,
 } from '../api/client';
 import type { InboxItemJson } from '../api/types';
-import { EmployeeActivityStatusLabel } from '../components/EmployeeActivityStatus';
 import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
-import { buildEmployeeActivityStatusMap } from '../domain/employeeActivityStatus';
 import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 import type { LocalModelEntry } from '../sessionTypes';
 import { CollabCard, isStructuredMessage } from '../components/CollabCard';
-
-/* ─── Helpers ──────────────────────────────────────────────── */
+import { SubAgentDetailPanel } from './SubAgentDetailPanel';
 
 function InboxChatAvatarSlot({
 	conn,
@@ -66,16 +64,32 @@ function formatChatMessageTime(iso: string): string {
 	return d.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
-type SidebarSelection =
-	| { kind: 'employee'; employeeId: string }
-	| { kind: 'task'; messageId: string };
+function runStatusBadge(t: TFunction, run: AiOrchestrationRun): string {
+	switch (run.status) {
+		case 'running':
+			return t('aiEmployees.groupChat.runStatus.running');
+		case 'completed':
+			return t('aiEmployees.groupChat.runStatus.completed');
+		case 'awaiting_approval':
+			return t('aiEmployees.groupChat.runStatus.awaiting');
+		case 'cancelled':
+			return t('aiEmployees.groupChat.runStatus.cancelled');
+		default:
+			return run.statusSummary ?? run.status;
+	}
+}
 
-/* ─── Component ────────────────────────────────────────────── */
+function jobFromRun(run: AiOrchestrationRun | undefined, jobId?: string): AiSubAgentJob | undefined {
+	if (!run || !jobId) return undefined;
+	return (run.subAgentJobs ?? []).find((j) => j.id === jobId);
+}
+
+type SidebarSelection = { kind: 'run'; runId: string } | { kind: 'task'; messageId: string };
 
 export function InboxPage({
 	t,
 	orgEmployees,
-	orchestration: _orchestration,
+	orchestration,
 	conn,
 	workspaceId,
 	inboxVersion,
@@ -84,11 +98,11 @@ export function InboxPage({
 	defaultModelId,
 	modelOptions,
 	modelOptionIdSet,
-	onCreateRun,
+	onCreateGroupRun,
 	onSendMessage,
 	onMarkMessageRead,
-	listMessagesByEmployee,
-	findActiveRunByEmployee,
+	listMessagesByRun,
+	ceoEmployeeId,
 	employeeChatStreaming,
 	employeeChatError,
 	onNavigateToActivity,
@@ -104,9 +118,7 @@ export function InboxPage({
 	defaultModelId?: string;
 	modelOptions: LocalModelEntry[];
 	modelOptionIdSet: Set<string>;
-	employeeChatStreaming: Record<string, string>;
-	employeeChatError: Record<string, string | undefined>;
-	onCreateRun: (employeeId: string, title: string, details: string, targetBranch: string) => string;
+	onCreateGroupRun: (title: string) => string;
 	onSendMessage: (input: {
 		runId: string;
 		type?: 'text' | 'task_assignment';
@@ -115,21 +127,13 @@ export function InboxPage({
 		toEmployeeId?: string;
 	}) => void;
 	onMarkMessageRead: (messageId: string) => void;
-	listMessagesByEmployee: (employeeId: string) => AiCollabMessage[];
-	findActiveRunByEmployee: (employeeId: string) => AiOrchestrationRun | undefined;
-	/** Navigate to activity tab to show run details. */
+	listMessagesByRun: (runId: string) => AiCollabMessage[];
+	ceoEmployeeId?: string;
+	employeeChatStreaming: Record<string, string>;
+	employeeChatError: Record<string, string | undefined>;
 	onNavigateToActivity?: (runId?: string) => void;
 }) {
-	const sorted = useMemo(
-		() =>
-			[...orgEmployees].sort((a, b) => {
-				// CEO/coordinator always first
-				if (a.isCeo && !b.isCeo) return -1;
-				if (!a.isCeo && b.isCeo) return 1;
-				return a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' });
-			}),
-		[orgEmployees]
-	);
+	const ceo = useMemo(() => orgEmployees.find((e) => e.isCeo), [orgEmployees]);
 
 	const modelRouteParams = useMemo(
 		() => ({
@@ -142,38 +146,81 @@ export function InboxPage({
 		[agentLocalModelMap, employeeLocalModelMap, defaultModelId, modelOptionIdSet, modelOptions]
 	);
 
-	const employeeModelLine = useCallback(
-		(employee: OrgEmployee) =>
-			formatEmployeeResolvedModelLabel({ employee, ...modelRouteParams }) ?? t('aiEmployees.modelDisplayNone'),
-		[modelRouteParams, t]
-	);
+	const orgById = useMemo(() => new Map(orgEmployees.map((employee) => [employee.id, employee])), [orgEmployees]);
 
-	const orgById = useMemo(() => new Map(sorted.map((employee) => [employee.id, employee])), [sorted]);
-
-	const employeeActivityMap = useMemo(
-		() => buildEmployeeActivityStatusMap(sorted, _orchestration),
-		[_orchestration, sorted],
+	const sortedRuns = useMemo(
+		() =>
+			[...orchestration.runs].sort(
+				(a, b) =>
+					Date.parse(b.lastEventAtIso ?? b.createdAtIso) - Date.parse(a.lastEventAtIso ?? a.createdAtIso)
+			),
+		[orchestration.runs]
 	);
 
 	const [selection, setSelection] = useState<SidebarSelection | null>(null);
 	const [draft, setDraft] = useState('');
 	const [moreOpen, setMoreOpen] = useState(false);
+	const [detailJob, setDetailJob] = useState<AiSubAgentJob | null>(null);
 	const moreRef = useRef<HTMLDivElement>(null);
 	const threadRef = useRef<HTMLDivElement>(null);
 
-	const selectedEmployeeId = selection?.kind === 'employee' ? selection.employeeId : null;
+	const selectedRunId = selection?.kind === 'run' ? selection.runId : null;
+	const selectedRun = selectedRunId ? orchestration.runs.find((r) => r.id === selectedRunId) : undefined;
 
-	// Pending tasks for the user: approval_request + blocker messages without a response
+	useEffect(() => {
+		if (!selection && sortedRuns[0]?.id) {
+			setSelection({ kind: 'run', runId: sortedRuns[0].id });
+		}
+		if (selectedRunId && !orchestration.runs.some((r) => r.id === selectedRunId)) {
+			setSelection(sortedRuns[0] ? { kind: 'run', runId: sortedRuns[0].id } : null);
+		}
+	}, [selection, selectedRunId, sortedRuns, orchestration.runs]);
+
+	useEffect(() => {
+		if (!moreOpen) return;
+		const onDoc = (event: MouseEvent) => {
+			if (!moreRef.current?.contains(event.target as Node)) {
+				setMoreOpen(false);
+			}
+		};
+		document.addEventListener('mousedown', onDoc);
+		return () => document.removeEventListener('mousedown', onDoc);
+	}, [moreOpen]);
+
+	const thread = useMemo(() => {
+		if (!selectedRunId) return [];
+		return [...listMessagesByRun(selectedRunId)].sort(
+			(a, b) => Date.parse(a.createdAtIso) - Date.parse(b.createdAtIso)
+		);
+	}, [listMessagesByRun, selectedRunId]);
+
+	const streamDraft =
+		ceoEmployeeId && selectedRunId ? employeeChatStreaming[ceoEmployeeId] : undefined;
+	const streamErr = ceoEmployeeId && selectedRunId ? employeeChatError[ceoEmployeeId] : undefined;
+
+	useEffect(() => {
+		for (const message of thread) {
+			if (message.toEmployeeId === ceoEmployeeId && !message.readAtIso) {
+				onMarkMessageRead(message.id);
+			}
+		}
+	}, [onMarkMessageRead, thread, ceoEmployeeId]);
+
+	useEffect(() => {
+		const el = threadRef.current;
+		if (!el) return;
+		el.scrollTop = el.scrollHeight;
+	}, [selectedRunId, thread.length, streamDraft]);
+
 	const pendingTasks = useMemo(() => {
-		const msgs = _orchestration.collabMessages;
+		const msgs = orchestration.collabMessages;
 		return msgs.filter(
 			(m) =>
 				(m.type === 'approval_request' || m.type === 'blocker') &&
-				!m.toEmployeeId // sent to user (no toEmployeeId = user-facing)
+				!m.toEmployeeId
 		);
-	}, [_orchestration.collabMessages]);
+	}, [orchestration.collabMessages]);
 
-	// Remote inbox items from server API
 	const [remoteItems, setRemoteItems] = useState<InboxItemJson[]>([]);
 
 	const fetchRemoteInbox = useCallback(async () => {
@@ -182,7 +229,7 @@ export function InboxPage({
 			const items = await apiListInboxItems(conn, workspaceId, { archived: false });
 			setRemoteItems(items);
 		} catch {
-			// Remote inbox is optional
+			/* optional */
 		}
 	}, [conn, workspaceId]);
 
@@ -202,103 +249,110 @@ export function InboxPage({
 			await apiBatchInbox(conn, workspaceId, unreadIds, 'read');
 			setRemoteItems((prev) => prev.map((item) => ({ ...item, read: true })));
 		} catch {
-			// ignore
+			/* ignore */
 		}
 	}, [conn, remoteItems, workspaceId]);
 
-	// Auto-select first employee if nothing selected
-	useEffect(() => {
-		if (!selection && sorted[0]?.id) {
-			setSelection({ kind: 'employee', employeeId: sorted[0].id });
-		}
-		if (selectedEmployeeId && !sorted.some((employee) => employee.id === selectedEmployeeId)) {
-			setSelection(sorted[0] ? { kind: 'employee', employeeId: sorted[0].id } : null);
-		}
-	}, [selection, selectedEmployeeId, sorted]);
-
-	useEffect(() => {
-		if (!moreOpen) return;
-		const onDoc = (event: MouseEvent) => {
-			if (!moreRef.current?.contains(event.target as Node)) {
-				setMoreOpen(false);
-			}
-		};
-		document.addEventListener('mousedown', onDoc);
-		return () => document.removeEventListener('mousedown', onDoc);
-	}, [moreOpen]);
-
-	const selected = selectedEmployeeId ? sorted.find((employee) => employee.id === selectedEmployeeId) : undefined;
-	const thread = useMemo(() => {
-		if (!selectedEmployeeId) return [];
-		return [...listMessagesByEmployee(selectedEmployeeId)].sort(
-			(a, b) => Date.parse(a.createdAtIso) - Date.parse(b.createdAtIso)
-		);
-	}, [listMessagesByEmployee, selectedEmployeeId]);
-	const streamDraft = selectedEmployeeId ? employeeChatStreaming[selectedEmployeeId] : undefined;
-	const streamErr = selectedEmployeeId ? employeeChatError[selectedEmployeeId] : undefined;
-	const activeRun = selectedEmployeeId ? findActiveRunByEmployee(selectedEmployeeId) : undefined;
-
-	useEffect(() => {
-		for (const message of thread) {
-			if (message.toEmployeeId === selectedEmployeeId && !message.readAtIso) {
-				onMarkMessageRead(message.id);
-			}
-		}
-	}, [onMarkMessageRead, selectedEmployeeId, thread]);
-
-	// Auto-scroll to bottom when: switching employee, new messages arrive, streaming updates
-	useEffect(() => {
-		const el = threadRef.current;
-		if (!el) return;
-		el.scrollTop = el.scrollHeight;
-	}, [selectedEmployeeId, thread.length, streamDraft]);
-
-	const unreadCountByEmployee = useMemo(() => {
-		const map = new Map<string, number>();
-		for (const employee of sorted) {
-			const unread = listMessagesByEmployee(employee.id).filter(
-				(message) => message.toEmployeeId === employee.id && !message.readAtIso
-			).length;
-			map.set(employee.id, unread);
-		}
-		return map;
-	}, [listMessagesByEmployee, sorted]);
-
 	const sendMessage = () => {
 		const text = draft.trim();
-		if (!selectedEmployeeId || !text) return;
-		if (activeRun) {
+		if (!text || !ceoEmployeeId) return;
+		if (selectedRunId) {
 			onSendMessage({
-				runId: activeRun.id,
+				runId: selectedRunId,
 				type: 'text',
 				body: text,
 				summary: text.slice(0, 80),
-				toEmployeeId: selectedEmployeeId,
+				toEmployeeId: ceoEmployeeId,
 			});
 		} else {
-			onCreateRun(selectedEmployeeId, t('aiEmployees.inbox.defaultRunTitle'), text, '');
+			const runId = onCreateGroupRun(t('aiEmployees.inbox.defaultRunTitle'));
+			if (runId) {
+				setSelection({ kind: 'run', runId });
+				onSendMessage({
+					runId,
+					type: 'text',
+					body: text,
+					summary: text.slice(0, 80),
+					toEmployeeId: ceoEmployeeId,
+				});
+			}
 		}
 		setDraft('');
 	};
 
-	// When viewing a task message, find the related employee for the detail panel
+	const newConversation = () => {
+		const runId = onCreateGroupRun(t('aiEmployees.inbox.defaultRunTitle'));
+		if (runId) {
+			setSelection({ kind: 'run', runId });
+			setDraft('');
+		}
+	};
+
 	const taskMessage = selection?.kind === 'task'
-		? _orchestration.collabMessages.find((m) => m.id === selection.messageId)
+		? orchestration.collabMessages.find((m) => m.id === selection.messageId)
 		: undefined;
 	const taskEmployee = taskMessage?.fromEmployeeId
 		? orgById.get(taskMessage.fromEmployeeId)
 		: undefined;
 
+	const renderDelegationCard = (message: AiCollabMessage) => {
+		const job = jobFromRun(selectedRun, message.subAgentJobId ?? message.cardMeta?.handoffId);
+		const st = job?.status ?? 'queued';
+		const cardLabel =
+			st === 'done'
+				? t('aiEmployees.groupChat.cardDone')
+				: st === 'running'
+					? t('aiEmployees.groupChat.cardRunning')
+					: st === 'error'
+						? t('aiEmployees.groupChat.cardError')
+						: st === 'blocked'
+							? t('aiEmployees.groupChat.cardBlocked')
+							: st === 'queued'
+								? t('aiEmployees.groupChat.cardQueued')
+								: t('aiEmployees.groupChat.cardPending');
+		const assignee = message.toEmployeeId ? orgById.get(message.toEmployeeId) : undefined;
+		return (
+			<div className="ref-ai-employees-group-card" data-job-status={st}>
+				<div className="ref-ai-employees-group-card-head">
+					<span className="ref-ai-employees-group-card-who">
+						{assignee?.displayName ?? message.summary}
+					</span>
+					<span className="ref-ai-employees-group-card-state">{cardLabel}</span>
+				</div>
+				<div className="ref-ai-employees-group-card-title">{message.summary}</div>
+				{message.body ? (
+					<div className="ref-ai-employees-group-card-desc">{message.body}</div>
+				) : null}
+				{job && (job.toolLog.length > 0 || (job.resultSummary && job.status === 'done')) ? (
+					<button
+						type="button"
+						className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-group-card-detail"
+						onClick={() => setDetailJob(job)}
+					>
+						{t('aiEmployees.groupChat.viewJobDetail')}
+					</button>
+				) : null}
+			</div>
+		);
+	};
+
 	return (
 		<div className="ref-ai-employees-inbox">
 			<div className="ref-ai-employees-inbox-split">
-				{/* ── Left sidebar ── */}
 				<div className="ref-ai-employees-inbox-list-col">
 					<div className="ref-ai-employees-inbox-list-head">
 						<div className="ref-ai-employees-inbox-list-head-left">
-							<h2 className="ref-ai-employees-inbox-list-title">{t('aiEmployees.tab.inbox')}</h2>
+							<h2 className="ref-ai-employees-inbox-list-title">{t('aiEmployees.groupChat.sidebarTitle')}</h2>
 						</div>
 						<div className="ref-ai-employees-inbox-list-head-actions" ref={moreRef}>
+							<button
+								type="button"
+								className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-inbox-new-run"
+								onClick={newConversation}
+							>
+								<IconPlus className="ref-ai-employees-comm-send-ico" aria-hidden />
+								{t('aiEmployees.groupChat.newConversation')}
+							</button>
 							<button
 								type="button"
 								className="ref-agent-sidebar-icon-btn"
@@ -328,7 +382,6 @@ export function InboxPage({
 						</div>
 					</div>
 					<div className="ref-ai-employees-inbox-list-scroll">
-						{/* Tasks / Approvals section */}
 						{pendingTasks.length > 0 ? (
 							<>
 								<div className="ref-ai-employees-inbox-section-label">
@@ -365,54 +418,30 @@ export function InboxPage({
 							</>
 						) : null}
 
-						{/* Conversations section */}
-						<div className="ref-ai-employees-inbox-section-label">
-							{t('aiEmployees.inbox.sectionConversations')}
-						</div>
-						{sorted.length === 0 ? (
+						<div className="ref-ai-employees-inbox-section-label">{t('aiEmployees.inbox.sectionConversations')}</div>
+						{sortedRuns.length === 0 ? (
 							<div className="ref-ai-employees-inbox-list-zero">
 								<IconMessageCircle className="ref-ai-employees-inbox-list-zero-icon" aria-hidden />
-								<p className="ref-ai-employees-inbox-list-zero-text">{t('aiEmployees.inbox.noThreads')}</p>
+								<p className="ref-ai-employees-inbox-list-zero-text">{t('aiEmployees.groupChat.noRuns')}</p>
 							</div>
 						) : (
 							<ul className="ref-ai-employees-inbox-peer-list" aria-label={t('aiEmployees.inbox.railAria')}>
-								{sorted.map((employee) => {
-									const active = selection?.kind === 'employee' && employee.id === selectedEmployeeId;
-									const initial = employee.displayName.trim().slice(0, 1).toUpperCase() || '?';
-									const unread = unreadCountByEmployee.get(employee.id) ?? 0;
-									const run = findActiveRunByEmployee(employee.id);
-									const modelLine = employeeModelLine(employee);
+								{sortedRuns.map((run) => {
+									const active = selection?.kind === 'run' && selection.runId === run.id;
 									return (
-										<li key={employee.id}>
+										<li key={run.id}>
 											<button
 												type="button"
 												className={`ref-ai-employees-inbox-peer-row ${active ? 'is-active' : ''}`}
-												onClick={() => setSelection({ kind: 'employee', employeeId: employee.id })}
+												onClick={() => setSelection({ kind: 'run', runId: run.id })}
 											>
 												<span className="ref-ai-employees-inbox-peer-avatar" aria-hidden>
-													{employee.isCeo ? '\u{1F451}' : initial}
+													{'\u{1F4AC}'}
 												</span>
 												<span className="ref-ai-employees-inbox-peer-meta">
-													<span className="ref-ai-employees-inbox-peer-name">
-														{employee.displayName}
-														{employee.isCeo ? (
-															<span className="ref-ai-employees-inbox-peer-ceo-tag">CEO</span>
-														) : null}
-													</span>
-													<span className="ref-ai-employees-inbox-peer-role">
-														{run?.statusSummary ?? (employee.customRoleTitle || employee.roleKey)}
-													</span>
-													<span className="ref-ai-employees-inbox-peer-model" title={modelLine}>
-														{modelLine}
-													</span>
+													<span className="ref-ai-employees-inbox-peer-name">{run.goal}</span>
+													<span className="ref-ai-employees-inbox-peer-role">{runStatusBadge(t, run)}</span>
 												</span>
-												<div className="ref-ai-employees-inbox-peer-trail">
-													<EmployeeActivityStatusLabel
-														t={t}
-														activity={employeeActivityMap.get(employee.id) ?? { status: 'idle' }}
-													/>
-													{unread > 0 ? <span className="ref-ai-employees-inbox-peer-badge">{unread}</span> : null}
-												</div>
 											</button>
 										</li>
 									);
@@ -422,98 +451,72 @@ export function InboxPage({
 					</div>
 				</div>
 
-				{/* ── Right detail panel ── */}
 				<div className="ref-ai-employees-inbox-detail">
-					{/* Task detail view */}
 					{selection?.kind === 'task' && taskMessage ? (
 						<>
 							<div className="ref-ai-employees-inbox-detail-headbar">
 								<div className="ref-ai-employees-inbox-detail-headbar-main">
 									<div className="ref-ai-employees-inbox-detail-title">{taskMessage.summary}</div>
 									<div className="ref-ai-employees-inbox-detail-subtitle">
-										{taskEmployee?.displayName ?? '?'} · {taskMessage.type === 'approval_request'
+										{taskEmployee?.displayName ?? '?'} ·{' '}
+										{taskMessage.type === 'approval_request'
 											? t('aiEmployees.collab.approvalRequest')
 											: t('aiEmployees.collab.blocker')}
 									</div>
 								</div>
 							</div>
 							<div className="ref-ai-employees-comm-thread" style={{ padding: '24px 18px' }}>
-								<CollabCard
-									t={t}
-									message={taskMessage}
-									employeeMap={orgById}
-								/>
+								<CollabCard t={t} message={taskMessage} employeeMap={orgById} />
 								{taskMessage.body ? (
-									<div style={{ marginTop: 16, fontSize: 13, lineHeight: 1.6, color: 'var(--void-fg-1, #9aa4b2)', whiteSpace: 'pre-wrap' }}>
+									<div
+										style={{
+											marginTop: 16,
+											fontSize: 13,
+											lineHeight: 1.6,
+											color: 'var(--void-fg-1, #9aa4b2)',
+											whiteSpace: 'pre-wrap',
+										}}
+									>
 										{taskMessage.body}
-									</div>
-								) : null}
-								{taskMessage.type === 'approval_request' ? (
-									<div className="ref-ai-employees-collab-card-actions" style={{ marginTop: 16 }}>
-										<button
-											type="button"
-											className="ref-ai-employees-btn ref-ai-employees-btn--primary"
-										>
-											{t('aiEmployees.inbox.approveAction')}
-										</button>
-										<button
-											type="button"
-											className="ref-ai-employees-btn ref-ai-employees-btn--secondary"
-										>
-											{t('aiEmployees.inbox.rejectAction')}
-										</button>
 									</div>
 								) : null}
 							</div>
 						</>
 					) : null}
 
-					{/* Employee chat view */}
-					{selection?.kind === 'employee' && !selected ? (
+					{selection?.kind === 'run' && !selectedRun ? (
 						<div className="ref-ai-employees-inbox-detail-empty">
 							<IconMessageCircle className="ref-ai-employees-inbox-detail-empty-ico ref-ai-employees-inbox-detail-empty-ico--muted" aria-hidden />
 							<p className="ref-ai-employees-inbox-detail-empty-title">{t('aiEmployees.inbox.detailPickTitle')}</p>
-							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">{t('aiEmployees.inbox.detailPickHint')}</p>
+							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">
+								{t('aiEmployees.groupChat.pickRunHint')}
+							</p>
 						</div>
 					) : null}
 
-					{selection?.kind === 'employee' && selected ? (
+					{selection?.kind === 'run' && selectedRun ? (
 						<>
 							<div className="ref-ai-employees-inbox-detail-headbar">
 								<div className="ref-ai-employees-inbox-detail-headbar-main">
-									<div className="ref-ai-employees-inbox-detail-title">
-										{selected.displayName}
-										{selected.isCeo ? (
-											<span className="ref-ai-employees-inbox-ceo-badge">{t('aiEmployees.inbox.ceoCoordinator')}</span>
-										) : null}
-									</div>
-									<div className="ref-ai-employees-inbox-detail-subtitle">{selected.customRoleTitle || selected.roleKey}</div>
-									<div className="ref-ai-employees-inbox-detail-model" title={employeeModelLine(selected)}>
-										{employeeModelLine(selected)}
-									</div>
-								</div>
-							</div>
-							{/* Active run status bar — shows handoff activity and link to details */}
-							{activeRun && activeRun.handoffs.length > 0 ? (
-								<div className="ref-ai-employees-inbox-run-bar">
-									<div className="ref-ai-employees-inbox-run-bar-info">
-										<span className="ref-ai-employees-inbox-run-bar-label">{t('aiEmployees.inbox.activeRun')}</span>
-										<span className="ref-ai-employees-inbox-run-bar-status">{activeRun.statusSummary || activeRun.goal}</span>
-										<span className="ref-ai-employees-inbox-run-bar-counts">
-											{activeRun.handoffs.filter(h => h.status === 'done').length}/{activeRun.handoffs.length} {t('aiEmployees.inbox.handoffsDone')}
-										</span>
-									</div>
-									{onNavigateToActivity ? (
-										<button
-											type="button"
-											className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-inbox-run-bar-link"
-											onClick={() => onNavigateToActivity(activeRun.id)}
-										>
-											{t('aiEmployees.inbox.viewDetails')}
-										</button>
+									<div className="ref-ai-employees-inbox-detail-title">{t('aiEmployees.groupChat.headerLine')}</div>
+									<div className="ref-ai-employees-inbox-detail-subtitle">{selectedRun.goal}</div>
+									{ceo ? (
+										<div className="ref-ai-employees-inbox-detail-model" title={formatEmployeeResolvedModelLabel({ employee: ceo, ...modelRouteParams }) ?? ''}>
+											CEO: {ceo.displayName} ·{' '}
+											{formatEmployeeResolvedModelLabel({ employee: ceo, ...modelRouteParams }) ?? t('aiEmployees.modelDisplayNone')}
+										</div>
 									) : null}
 								</div>
-							) : null}
+								{onNavigateToActivity ? (
+									<button
+										type="button"
+										className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-inbox-run-bar-link"
+										onClick={() => onNavigateToActivity(selectedRun.id)}
+									>
+										{t('aiEmployees.inbox.viewDetails')}
+									</button>
+								) : null}
+							</div>
 							<div ref={threadRef} className="ref-ai-employees-comm-thread ref-ai-employees-inbox-chat-thread" role="log" aria-live="polite">
 								{streamErr ? (
 									<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
@@ -527,9 +530,54 @@ export function InboxPage({
 										const prev = thread[idx - 1];
 										const showDay =
 											!prev || calendarDayKey(prev.createdAtIso) !== calendarDayKey(message.createdAtIso);
-										const isUser = message.toEmployeeId === selected.id;
+										const isUser = Boolean(ceoEmployeeId && message.toEmployeeId === ceoEmployeeId && !message.fromEmployeeId);
 
-										// Render structured messages as cards
+										if (message.type === 'task_assignment' && message.subAgentJobId) {
+											return (
+												<Fragment key={message.id}>
+													{showDay ? (
+														<div className="ref-ai-employees-inbox-chat-day" role="separator" aria-label={formatChatDayDivider(message.createdAtIso)}>
+															{formatChatDayDivider(message.createdAtIso)}
+														</div>
+													) : null}
+													<div className="ref-ai-employees-inbox-chat-row is-full">
+														{renderDelegationCard(message)}
+													</div>
+												</Fragment>
+											);
+										}
+
+										if (message.type === 'result' && message.subAgentJobId) {
+											const rjob = jobFromRun(selectedRun, message.subAgentJobId);
+											return (
+												<Fragment key={message.id}>
+													{showDay ? (
+														<div className="ref-ai-employees-inbox-chat-day" role="separator" aria-label={formatChatDayDivider(message.createdAtIso)}>
+															{formatChatDayDivider(message.createdAtIso)}
+														</div>
+													) : null}
+													<div className="ref-ai-employees-inbox-chat-row is-full">
+														<div className="ref-ai-employees-group-card ref-ai-employees-group-card--result">
+															<div className="ref-ai-employees-group-card-head">
+																<span className="ref-ai-employees-group-card-who">{message.summary}</span>
+																<span className="ref-ai-employees-group-card-state">{t('aiEmployees.groupChat.cardDone')}</span>
+															</div>
+															<div className="ref-ai-employees-group-card-desc">{message.body}</div>
+															{rjob && rjob.toolLog.length > 0 ? (
+																<button
+																	type="button"
+																	className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-group-card-detail"
+																	onClick={() => setDetailJob(rjob)}
+																>
+																	{t('aiEmployees.groupChat.viewJobDetail')}
+																</button>
+															) : null}
+														</div>
+													</div>
+												</Fragment>
+											);
+										}
+
 										if (isStructuredMessage(message)) {
 											return (
 												<Fragment key={message.id}>
@@ -543,26 +591,17 @@ export function InboxPage({
 															<InboxChatAvatarSlot
 																conn={conn}
 																workspaceId={workspaceId}
-																employee={message.fromEmployeeId ? orgById.get(message.fromEmployeeId) ?? selected : selected}
+																employee={message.fromEmployeeId ? orgById.get(message.fromEmployeeId) ?? ceo ?? null : ceo ?? null}
 															/>
 														) : null}
-														<CollabCard
-															t={t}
-															message={message}
-															employeeMap={orgById}
-														/>
+														<CollabCard t={t} message={message} employeeMap={orgById} />
 													</div>
 												</Fragment>
 											);
 										}
 
-										// Regular text messages
 										const peerFace =
-											!isUser && message.fromEmployeeId
-												? orgById.get(message.fromEmployeeId) ?? selected
-												: !isUser
-													? selected
-													: null;
+											!isUser && message.fromEmployeeId ? orgById.get(message.fromEmployeeId) ?? ceo ?? null : !isUser ? ceo ?? null : null;
 										return (
 											<Fragment key={message.id}>
 												{showDay ? (
@@ -602,9 +641,9 @@ export function InboxPage({
 										);
 									})
 								)}
-								{streamDraft !== undefined ? (
+								{streamDraft !== undefined && ceo ? (
 									<div className="ref-ai-employees-inbox-chat-row is-peer">
-										<InboxChatAvatarSlot conn={conn} workspaceId={workspaceId} employee={selected} />
+										<InboxChatAvatarSlot conn={conn} workspaceId={workspaceId} employee={ceo} />
 										<div className="ref-ai-employees-inbox-chat-msg is-peer ref-ai-employees-inbox-chat-msg--streaming">
 											<div
 												className="ref-ai-employees-comm-bubble ref-ai-employees-comm-bubble--system ref-ai-employees-inbox-streaming"
@@ -649,7 +688,7 @@ export function InboxPage({
 										<button
 											type="button"
 											className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-inbox-composer-send"
-											disabled={!draft.trim()}
+											disabled={!draft.trim() || !ceoEmployeeId}
 											onClick={sendMessage}
 											aria-label={t('aiEmployees.inbox.send')}
 										>
@@ -661,16 +700,16 @@ export function InboxPage({
 						</>
 					) : null}
 
-					{/* Nothing selected at all */}
 					{!selection ? (
 						<div className="ref-ai-employees-inbox-detail-empty">
 							<IconMessageCircle className="ref-ai-employees-inbox-detail-empty-ico ref-ai-employees-inbox-detail-empty-ico--muted" aria-hidden />
 							<p className="ref-ai-employees-inbox-detail-empty-title">{t('aiEmployees.inbox.detailPickTitle')}</p>
-							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">{t('aiEmployees.inbox.detailPickHint')}</p>
+							<p className="ref-ai-employees-inbox-detail-empty-hint ref-ai-employees-muted">{t('aiEmployees.groupChat.pickRunHint')}</p>
 						</div>
 					) : null}
 				</div>
 			</div>
+			<SubAgentDetailPanel t={t} job={detailJob} onClose={() => setDetailJob(null)} />
 		</div>
 	);
 }

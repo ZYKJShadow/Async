@@ -6,6 +6,8 @@ import type {
 	AiOrchestrationHandoffStatus,
 	AiOrchestrationRun,
 	AiOrchestrationTimelineEvent,
+	AiSubAgentJob,
+	AiSubAgentToolEntry,
 } from '../../../shared/aiEmployeesSettings';
 
 export function emptyOrchestrationState(): AiEmployeesOrchestrationState {
@@ -26,6 +28,7 @@ export function createDraftRun(
 		status: 'draft',
 		createdAtIso: nowIso,
 		handoffs: [],
+		subAgentJobs: [],
 		gitApproved: false,
 		statusSummary: 'Run created',
 		lastEventAtIso: nowIso,
@@ -110,12 +113,13 @@ function deriveRunStatus(run: AiOrchestrationRun): AiOrchestrationRun['status'] 
 }
 
 function finalizeRun(run: AiOrchestrationRun): AiOrchestrationRun {
-	const statusSummary = deriveRunStatusSummary(run);
-	const currentAssigneeEmployeeId = deriveCurrentAssignee(run);
-	const approvalState = deriveApprovalState(run);
-	const status = deriveRunStatus({ ...run, statusSummary, currentAssigneeEmployeeId, approvalState });
+	const base = { ...run, subAgentJobs: run.subAgentJobs ?? [] };
+	const statusSummary = deriveRunStatusSummary(base);
+	const currentAssigneeEmployeeId = deriveCurrentAssignee(base);
+	const approvalState = deriveApprovalState(base);
+	const status = deriveRunStatus({ ...base, statusSummary, currentAssigneeEmployeeId, approvalState });
 	return {
-		...run,
+		...base,
 		statusSummary,
 		currentAssigneeEmployeeId,
 		approvalState,
@@ -289,4 +293,46 @@ export function findRunByTaskId(state: AiEmployeesOrchestrationState, taskId: st
 
 export function findNextPendingHandoff(run: AiOrchestrationRun): AiOrchestrationHandoff | undefined {
 	return run.handoffs.find((handoff) => handoff.status === 'pending');
+}
+
+export function addSubAgentJobToRun(
+	state: AiEmployeesOrchestrationState,
+	runId: string,
+	job: AiSubAgentJob
+): AiEmployeesOrchestrationState {
+	return updateRunInState(state, runId, (run) => ({
+		...run,
+		subAgentJobs: [...(run.subAgentJobs ?? []), job],
+		lastEventAtIso: job.queuedAtIso,
+	}));
+}
+
+export function updateSubAgentJobInRun(
+	state: AiEmployeesOrchestrationState,
+	runId: string,
+	jobId: string,
+	updater: (job: AiSubAgentJob) => AiSubAgentJob
+): AiEmployeesOrchestrationState {
+	return updateRunInState(state, runId, (run) => {
+		const jobs = run.subAgentJobs ?? [];
+		const idx = jobs.findIndex((j) => j.id === jobId);
+		if (idx < 0) {
+			return run;
+		}
+		const nextJobs = [...jobs];
+		nextJobs[idx] = updater(nextJobs[idx]);
+		return { ...run, subAgentJobs: nextJobs };
+	});
+}
+
+export function appendToolLogToJob(
+	state: AiEmployeesOrchestrationState,
+	runId: string,
+	jobId: string,
+	entry: AiSubAgentToolEntry
+): AiEmployeesOrchestrationState {
+	return updateSubAgentJobInRun(state, runId, jobId, (job) => ({
+		...job,
+		toolLog: [...job.toolLog, entry].slice(-50),
+	}));
 }

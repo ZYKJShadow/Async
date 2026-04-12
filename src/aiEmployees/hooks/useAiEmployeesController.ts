@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
 	applyAppearanceSettingsToDom,
 	defaultAppearanceSettings,
@@ -22,11 +22,13 @@ import type {
 	AiOrchestrationHandoffStatus,
 	AiOrchestrationRun,
 	AiOrchestrationTimelineEvent,
+	AiSubAgentJob,
 } from '../../../shared/aiEmployeesSettings';
 import { DEFAULT_API, DEFAULT_WS, normConn } from '../domain/connection';
 import { pickWorkspaceId, resolveMappedWorkspace } from '../domain/workspacePaths';
 import {
 	addHandoffToRunInState,
+	addSubAgentJobToRun,
 	appendTimelineEventToState,
 	approveGitForRun,
 	createDraftRun,
@@ -37,6 +39,7 @@ import {
 	setRunIssueInState,
 	setHandoffStatusInState,
 	updateRunInState,
+	updateSubAgentJobInRun,
 	upsertRun,
 	upsertCollabMessageInState,
 } from '../domain/orchestration';
@@ -93,11 +96,37 @@ import {
 } from '../domain/taskEvents';
 import type { AiEmployeesSessionPhase, LocalModelEntry } from '../sessionTypes';
 import { resolveEmployeeLocalModelId } from '../adapters/modelAdapter';
-import { buildCollabHistoryForEmployee } from '../domain/employeeChatHistory';
-import type { EmployeeChatInput, TeamMemberSummary } from '../../../shared/aiEmployeesPersona';
+import {
+	buildCollabHistoryForCeoInRun,
+	buildCollabHistoryForEmployee,
+	buildCollabHistoryForEmployeeInRun,
+} from '../domain/employeeChatHistory';
+import type { EmployeeChatHistoryTurn, EmployeeChatInput, TeamMemberSummary } from '../../../shared/aiEmployeesPersona';
 import { publishAiEmployeesNetworkError } from '../AiEmployeesNetworkToast';
 
 type Shell = NonNullable<Window['asyncShell']>;
+
+const SUB_AGENT_MAX_CONCURRENCY = 2;
+
+type SubAgentQueueItem =
+	| { kind: 'delegated'; jobId: string; runId: string; employeeId: string }
+	| { kind: 'colleague'; runId: string; employeeId: string };
+
+type SubAgentIpcOk = {
+	ok: true;
+	resultText: string;
+	toolLog: AiSubAgentJob['toolLog'];
+	collabActions: Array<{ tool: string; [key: string]: unknown }>;
+	durationMs: number;
+};
+
+type SubAgentIpcErr = {
+	ok: false;
+	error: string;
+	toolLog: AiSubAgentJob['toolLog'];
+	collabActions: Array<{ tool: string; [key: string]: unknown }>;
+	durationMs: number;
+};
 
 type ShellUiLike = Record<string, unknown>;
 
@@ -186,7 +215,9 @@ export function useAiEmployeesController() {
 	const [chatVersion, setChatVersion] = useState(0);
 	const [employeeChatStreaming, setEmployeeChatStreaming] = useState<Record<string, string>>({});
 	const [employeeChatError, setEmployeeChatError] = useState<Record<string, string | undefined>>({});
-	const pendingEmployeeChatRef = useRef(new Map<string, { employeeId: string; runId: string }>());
+	const pendingEmployeeChatRef = useRef(
+		new Map<string, { employeeId: string; runId: string; allowStream: boolean }>()
+	);
 	const employeeReplyGuardRef = useRef(new Set<string>());
 	const requestEmployeeReplyRef = useRef<((employeeId: string, runId: string) => Promise<void>) | null>(null);
 	// Streaming-delta throttle: accumulate chunks in a ref, flush to state once per animation frame
@@ -206,17 +237,13 @@ export function useAiEmployeesController() {
 			return next;
 		});
 	}, []);
-	// Stagger auto-triggered employee starts so multiple agents don't all begin at once.
-	// Each call returns an incrementing delay; resets after a quiet period.
-	const delegationStaggerRef = useRef<{ count: number; resetTimer: ReturnType<typeof setTimeout> | null }>({ count: 0, resetTimer: null });
-	const getStaggeredDelay = useCallback(() => {
-		const s = delegationStaggerRef.current;
-		if (s.resetTimer !== null) clearTimeout(s.resetTimer);
-		const delay = 500 + s.count * 2000; // 500ms, 2500ms, 4500ms, …
-		s.count += 1;
-		s.resetTimer = setTimeout(() => { s.count = 0; s.resetTimer = null; }, 10_000);
-		return delay;
-	}, []);
+	const subAgentQueueRef = useRef<SubAgentQueueItem[]>([]);
+	const activeSubAgentCountRef = useRef(0);
+	const processSubAgentQueueRef = useRef<() => void>(() => {});
+	const handleCollabActionRef = useRef<
+		((fromEmployeeId: string, runId: string, action: { tool: string; [key: string]: unknown }) => void) | null
+	>(null);
+	const ceoEmployeeId = useMemo(() => orgEmployees.find((e) => e.isCeo)?.id, [orgEmployees]);
 	const wsRef = useRef<AiEmployeesWsClient | null>(null);
 
 	const prefersDark = useSyncExternalStore(
@@ -720,6 +747,163 @@ export function useAiEmployeesController() {
 		[employeeById]
 	);
 
+	const buildChatHistoryForRequest = useCallback(
+		(employeeId: string, runId: string, employee: OrgEmployee): EmployeeChatHistoryTurn[] => {
+			const msgs = orchestrationRef.current.collabMessages;
+			if (runId.startsWith('im:')) {
+				return buildCollabHistoryForEmployee(msgs, employeeId);
+			}
+			if (employee.isCeo) {
+				return buildCollabHistoryForCeoInRun(msgs, runId, employeeId);
+			}
+			return buildCollabHistoryForEmployeeInRun(msgs, runId, employeeId, ceoEmployeeId);
+		},
+		[ceoEmployeeId]
+	);
+
+	const buildEmployeeChatPayload = useCallback(
+		(employee: OrgEmployee, runId: string, requestId: string): EmployeeChatInput | null => {
+			const employeeId = employee.id;
+			const modelId = resolveEmployeeLocalModelId({
+				employeeId,
+				remoteAgentId: employee.linkedRemoteAgentId ?? undefined,
+				agentLocalModelMap: aiSettings.agentLocalModelIdByRemoteAgentId,
+				employeeLocalModelMap: aiSettings.employeeLocalModelIdByEmployeeId,
+				defaultModelId: localModels.defaultModelId,
+				modelOptionIds: modelOptionIdSet,
+			});
+			if (!modelId) {
+				return null;
+			}
+			const history = buildChatHistoryForRequest(employeeId, runId, employee);
+			if (history.length === 0) {
+				return null;
+			}
+			const teamMembers: TeamMemberSummary[] = orgEmployees
+				.filter((e) => e.id !== employeeId)
+				.map((e) => ({
+					id: e.id,
+					displayName: e.displayName,
+					roleTitle: e.customRoleTitle || e.roleKey,
+					jobMission: e.personaSeed?.jobMission,
+				}));
+			const wsLines: string[] = [];
+			if (bootstrapStatus?.companyName) {
+				wsLines.push(`Company: ${bootstrapStatus.companyName}`);
+			}
+			if (projects.length > 0) {
+				wsLines.push('Projects in this workspace (you can see and reference these):');
+				for (const p of projects) {
+					let leadName: string | undefined;
+					if (p.lead_type === 'member' && p.lead_id) {
+						leadName = workspaceMembers.find((m) => m.user_id === p.lead_id)?.name;
+					} else if (p.lead_type === 'agent' && p.lead_id) {
+						leadName =
+							agents.find((a) => a.id === p.lead_id)?.name ??
+							orgEmployees.find((e) => e.linkedRemoteAgentId === p.lead_id)?.displayName;
+					}
+					const total = p.issue_count ?? 0;
+					const done = p.done_count ?? 0;
+					const progress = total > 0 ? ` [${done}/${total} issues done]` : ' [no issues yet]';
+					const lead = leadName ? `, lead: ${leadName}` : '';
+					const bk = p.boundary_kind ?? 'none';
+					const bPath = bk === 'local_folder' ? p.boundary_local_path : bk === 'git_repo' ? p.boundary_git_url : null;
+					const boundary = bPath ? `, ${bk}: ${bPath}` : '';
+					wsLines.push(`  • ${p.icon ?? '📁'} ${p.title}${progress}${lead}${boundary}`);
+					if (p.description) {
+						wsLines.push(`    ${p.description.slice(0, 120).replace(/\n/g, ' ')}`);
+					}
+				}
+			} else {
+				wsLines.push('Projects: none created yet.');
+			}
+			if (issues.length > 0) {
+				wsLines.push('Issues/tasks in this workspace:');
+				for (const i of issues.slice(0, 25)) {
+					let assigneeName: string | undefined;
+					if (i.assignee_type === 'member' && i.assignee_id) {
+						assigneeName = workspaceMembers.find((m) => m.user_id === i.assignee_id)?.name;
+					} else if (i.assignee_type === 'agent' && i.assignee_id) {
+						assigneeName =
+							agents.find((a) => a.id === i.assignee_id)?.name ??
+							orgEmployees.find((e) => e.linkedRemoteAgentId === i.assignee_id)?.displayName;
+					}
+					const id = i.identifier ? `${i.identifier} ` : '';
+					const proj = projects.find((p) => p.id === i.project_id);
+					const projLabel = proj ? ` [${proj.title}]` : '';
+					const assigneeLabel = assigneeName ? ` → ${assigneeName}` : '';
+					const priority = i.priority && i.priority !== 'none' ? ` (${i.priority})` : '';
+					wsLines.push(`  • ${id}${i.title} · ${i.status}${priority}${projLabel}${assigneeLabel}`);
+				}
+			}
+			if (skills.length > 0) {
+				wsLines.push(`Available skills: ${skills.map((s) => s.name).join(', ')}`);
+			}
+			const wsContextSection =
+				wsLines.length > 0
+					? `IMPORTANT — Workspace context (live data provided by the system):\n` +
+						`You CAN see this data. It is injected into your context by the system.\n` +
+						`If you previously said you could not see workspace data, that was before this update — disregard that.\n` +
+						`Always refer to the information below when asked about projects, issues, tasks, or team status.\n\n` +
+						wsLines.join('\n')
+					: '';
+			const roleTitle = employee.customRoleTitle?.trim() || employee.roleKey || 'team member';
+			const basePrompt =
+				employee.customSystemPrompt?.trim() || `You are ${employee.displayName || 'AI employee'}, ${roleTitle}.`;
+			const injectedSystemPrompt = wsContextSection ? `${basePrompt}\n\n${wsContextSection}` : basePrompt;
+			const hasWorkspaceData = projects.length > 0 || issues.length > 0;
+			const effectiveHistory = hasWorkspaceData
+				? [
+						{
+							role: 'user' as const,
+							content:
+								'[System context update] Your workspace data has been synced. Check your system prompt for the latest projects and issues.',
+						},
+						{
+							role: 'assistant' as const,
+							content:
+								'Understood. I now have access to the current workspace data including projects, issues, and skills. I will refer to this information going forward.',
+						},
+						...history,
+					]
+				: history;
+			const boundaryLocalPaths = projects
+				.filter((p) => p.boundary_kind === 'local_folder' && p.boundary_local_path?.trim())
+				.map((p) => p.boundary_local_path!.trim());
+			return {
+				requestId,
+				modelId,
+				displayName: employee.displayName,
+				roleKey: employee.roleKey,
+				customRoleTitle: employee.customRoleTitle,
+				customSystemPrompt: injectedSystemPrompt,
+				jobMission: employee.personaSeed?.jobMission,
+				domainContext: employee.personaSeed?.domainContext,
+				communicationNotes: employee.personaSeed?.communicationNotes,
+				collaborationRules: employee.personaSeed?.collaborationRules,
+				handoffRules: employee.personaSeed?.handoffRules,
+				history: effectiveHistory,
+				teamMembers,
+				boundaryLocalPaths: boundaryLocalPaths.length > 0 ? boundaryLocalPaths : undefined,
+				isCeo: employee.isCeo || false,
+			};
+		},
+		[
+			aiSettings.agentLocalModelIdByRemoteAgentId,
+			aiSettings.employeeLocalModelIdByEmployeeId,
+			agents,
+			bootstrapStatus?.companyName,
+			buildChatHistoryForRequest,
+			issues,
+			localModels.defaultModelId,
+			modelOptionIdSet,
+			orgEmployees,
+			projects,
+			skills,
+			workspaceMembers,
+		]
+	);
+
 	// Debounced disk-write: React state updates immediately, but the IPC write to disk
 	// is coalesced so rapid-fire persistOrchestration calls (e.g. during multi-agent delegation)
 	// don't create a write storm. The latest state is always persisted within 300ms.
@@ -786,7 +970,6 @@ export function useAiEmployeesController() {
 					const delegatePriority = String(action.priority ?? 'medium');
 					const target = resolveEmployeeByName(targetName);
 					if (!target) {
-						// Target not found — log it as a message
 						persistOrchestration((state) =>
 							appendCollabMessage(state, {
 								id: crypto.randomUUID(),
@@ -800,12 +983,21 @@ export function useAiEmployeesController() {
 						);
 						return;
 					}
-					// Create handoff + task assignment message
-					const handoffId = crypto.randomUUID();
-					const messageId = crypto.randomUUID();
+					const correlationId = crypto.randomUUID();
+					const job: AiSubAgentJob = {
+						id: correlationId,
+						runId,
+						employeeId: target.id,
+						employeeName: target.displayName,
+						taskTitle,
+						taskDescription: taskDesc,
+						status: 'queued',
+						queuedAtIso: nowIso,
+						toolLog: [],
+					};
 					persistOrchestration((state) => {
 						let next = addHandoffToRunInState(state, runId, {
-							id: handoffId,
+							id: correlationId,
 							fromEmployeeId,
 							toEmployeeId: target.id,
 							status: 'in_progress',
@@ -813,18 +1005,19 @@ export function useAiEmployeesController() {
 							atIso: nowIso,
 						});
 						next = appendTimelineEvent(next, {
-							id: `handoff:${handoffId}:created`,
+							id: `handoff:${correlationId}:created`,
 							runId,
 							type: 'handoff_added',
 							label: `${fromName} → ${target.displayName}: ${taskTitle}`,
 							description: taskDesc,
 							createdAtIso: nowIso,
-							handoffId,
+							handoffId: correlationId,
 							employeeId: target.id,
 							source: 'local',
 						});
+						next = addSubAgentJobToRun(next, runId, job);
 						next = appendCollabMessage(next, {
-							id: messageId,
+							id: correlationId,
 							runId,
 							type: 'task_assignment',
 							fromEmployeeId,
@@ -832,17 +1025,21 @@ export function useAiEmployeesController() {
 							summary: taskTitle,
 							body: taskDesc,
 							createdAtIso: nowIso,
+							subAgentJobId: correlationId,
 							cardMeta: {
-								status: 'in_progress',
-								handoffId,
+								status: 'pending',
+								handoffId: correlationId,
 							},
 						});
 						return next;
 					});
-					// Auto-trigger the target employee to begin working (staggered)
-					window.setTimeout(() => {
-						void requestEmployeeReplyRef.current?.(target.id, runId);
-					}, getStaggeredDelay());
+					subAgentQueueRef.current.push({
+						kind: 'delegated',
+						jobId: correlationId,
+						runId,
+						employeeId: target.id,
+					});
+					processSubAgentQueueRef.current();
 					break;
 				}
 
@@ -875,10 +1072,8 @@ export function useAiEmployeesController() {
 						});
 						return next;
 					});
-					// Auto-trigger the target employee to respond (staggered)
-					window.setTimeout(() => {
-						void requestEmployeeReplyRef.current?.(target.id, runId);
-					}, getStaggeredDelay());
+					subAgentQueueRef.current.push({ kind: 'colleague', runId, employeeId: target.id });
+					processSubAgentQueueRef.current();
 					break;
 				}
 
@@ -942,13 +1137,15 @@ export function useAiEmployeesController() {
 						}
 						return next;
 					});
-					// Auto-trigger next pending handoff in the chain (staggered)
 					if (run) {
 						const nextPending = run.handoffs.find((h) => h.status === 'pending');
 						if (nextPending) {
-							window.setTimeout(() => {
-								void requestEmployeeReplyRef.current?.(nextPending.toEmployeeId, runId);
-							}, getStaggeredDelay());
+							subAgentQueueRef.current.push({
+								kind: 'colleague',
+								runId,
+								employeeId: nextPending.toEmployeeId,
+							});
+							processSubAgentQueueRef.current();
 						}
 					}
 					break;
@@ -1002,23 +1199,15 @@ export function useAiEmployeesController() {
 					if (suggestedHelper) {
 						const helper = resolveEmployeeByName(suggestedHelper);
 						if (helper) {
-							window.setTimeout(() => {
-								void requestEmployeeReplyRef.current?.(helper.id, runId);
-							}, getStaggeredDelay());
+							subAgentQueueRef.current.push({ kind: 'colleague', runId, employeeId: helper.id });
+							processSubAgentQueueRef.current();
 						}
 					}
 					break;
 				}
 			}
 		},
-		[
-			appendCollabMessage,
-			appendTimelineEvent,
-			employeeById,
-			getStaggeredDelay,
-			persistOrchestration,
-			resolveEmployeeByName,
-		]
+		[appendCollabMessage, appendTimelineEvent, employeeById, persistOrchestration, resolveEmployeeByName]
 	);
 
 	useEffect(() => {
@@ -1040,8 +1229,11 @@ export function useAiEmployeesController() {
 			if (!meta) {
 				return;
 			}
-			const { employeeId, runId } = meta;
+			const { employeeId, runId, allowStream } = meta;
 			if (p.kind === 'delta' && p.delta) {
+				if (!allowStream) {
+					return;
+				}
 				// Buffer deltas and flush once per animation frame to avoid setState storm
 				streamingDeltaBufferRef.current[employeeId] =
 					(streamingDeltaBufferRef.current[employeeId] ?? '') + p.delta;
@@ -1547,7 +1739,7 @@ export function useAiEmployeesController() {
 			if (!employee) {
 				return;
 			}
-			const modelId = resolveEmployeeLocalModelId({
+			const modelProbe = resolveEmployeeLocalModelId({
 				employeeId,
 				remoteAgentId: employee.linkedRemoteAgentId ?? undefined,
 				agentLocalModelMap: aiSettings.agentLocalModelIdByRemoteAgentId,
@@ -1555,7 +1747,7 @@ export function useAiEmployeesController() {
 				defaultModelId: localModels.defaultModelId,
 				modelOptionIds: modelOptionIdSet,
 			});
-			if (!modelId) {
+			if (!modelProbe) {
 				setEmployeeChatError((prev) => ({
 					...prev,
 					[employeeId]: 'No local model — bind one in Team tab.',
@@ -1574,129 +1766,17 @@ export function useAiEmployeesController() {
 				);
 				return;
 			}
-			const history = buildCollabHistoryForEmployee(orchestrationRef.current.collabMessages, employeeId);
-			if (history.length === 0) {
-				return;
-			}
 			employeeReplyGuardRef.current.add(employeeId);
 			const requestId = crypto.randomUUID();
-			pendingEmployeeChatRef.current.set(requestId, { employeeId, runId });
+			const payload = buildEmployeeChatPayload(employee, runId, requestId);
+			if (!payload) {
+				employeeReplyGuardRef.current.delete(employeeId);
+				return;
+			}
+			const allowStream = runId.startsWith('im:') || employeeId === ceoEmployeeId;
+			pendingEmployeeChatRef.current.set(requestId, { employeeId, runId, allowStream });
 			setEmployeeChatStreaming((prev) => ({ ...prev, [employeeId]: '' }));
 			setEmployeeChatError((prev) => ({ ...prev, [employeeId]: undefined }));
-
-			// Build team roster (excluding the current employee)
-			const teamMembers: TeamMemberSummary[] = orgEmployees
-				.filter((e) => e.id !== employeeId)
-				.map((e) => ({
-					id: e.id,
-					displayName: e.displayName,
-					roleTitle: e.customRoleTitle || e.roleKey,
-					jobMission: e.personaSeed?.jobMission,
-				}));
-
-			// Build workspace context string and inject it directly into customSystemPrompt.
-			// This path goes through the existing main-process handler without needing a rebuild.
-			const wsLines: string[] = [];
-			if (bootstrapStatus?.companyName) {
-				wsLines.push(`Company: ${bootstrapStatus.companyName}`);
-			}
-			if (projects.length > 0) {
-				wsLines.push('Projects in this workspace (you can see and reference these):');
-				for (const p of projects) {
-					let leadName: string | undefined;
-					if (p.lead_type === 'member' && p.lead_id) {
-						leadName = workspaceMembers.find((m) => m.user_id === p.lead_id)?.name;
-					} else if (p.lead_type === 'agent' && p.lead_id) {
-						leadName = agents.find((a) => a.id === p.lead_id)?.name
-							?? orgEmployees.find((e) => e.linkedRemoteAgentId === p.lead_id)?.displayName;
-					}
-					const total = p.issue_count ?? 0;
-					const done = p.done_count ?? 0;
-					const progress = total > 0 ? ` [${done}/${total} issues done]` : ' [no issues yet]';
-					const lead = leadName ? `, lead: ${leadName}` : '';
-					const bk = p.boundary_kind ?? 'none';
-					const bPath = bk === 'local_folder' ? p.boundary_local_path : bk === 'git_repo' ? p.boundary_git_url : null;
-					const boundary = bPath ? `, ${bk}: ${bPath}` : '';
-					wsLines.push(`  • ${p.icon ?? '📁'} ${p.title}${progress}${lead}${boundary}`);
-					if (p.description) {
-						wsLines.push(`    ${p.description.slice(0, 120).replace(/\n/g, ' ')}`);
-					}
-				}
-			} else {
-				wsLines.push('Projects: none created yet.');
-			}
-			if (issues.length > 0) {
-				wsLines.push('Issues/tasks in this workspace:');
-				for (const i of issues.slice(0, 25)) {
-					let assigneeName: string | undefined;
-					if (i.assignee_type === 'member' && i.assignee_id) {
-						assigneeName = workspaceMembers.find((m) => m.user_id === i.assignee_id)?.name;
-					} else if (i.assignee_type === 'agent' && i.assignee_id) {
-						assigneeName = agents.find((a) => a.id === i.assignee_id)?.name
-							?? orgEmployees.find((e) => e.linkedRemoteAgentId === i.assignee_id)?.displayName;
-					}
-					const id = i.identifier ? `${i.identifier} ` : '';
-					const proj = projects.find((p) => p.id === i.project_id);
-					const projLabel = proj ? ` [${proj.title}]` : '';
-					const assigneeLabel = assigneeName ? ` → ${assigneeName}` : '';
-					const priority = i.priority && i.priority !== 'none' ? ` (${i.priority})` : '';
-					wsLines.push(`  • ${id}${i.title} · ${i.status}${priority}${projLabel}${assigneeLabel}`);
-				}
-			}
-			if (skills.length > 0) {
-				wsLines.push(`Available skills: ${skills.map((s) => s.name).join(', ')}`);
-			}
-			const wsContextSection = wsLines.length > 0
-				? `IMPORTANT — Workspace context (live data provided by the system):\n` +
-				  `You CAN see this data. It is injected into your context by the system.\n` +
-				  `If you previously said you could not see workspace data, that was before this update — disregard that.\n` +
-				  `Always refer to the information below when asked about projects, issues, tasks, or team status.\n\n` +
-				  wsLines.join('\n')
-				: '';
-
-			// Compose the effective system prompt: preserve the employee's custom prompt (or build a default),
-			// then append the workspace context.
-			const roleTitle = employee.customRoleTitle?.trim() || employee.roleKey || 'team member';
-			const basePrompt = employee.customSystemPrompt?.trim()
-				|| `You are ${employee.displayName || 'AI employee'}, ${roleTitle}.`;
-			const injectedSystemPrompt = wsContextSection
-				? `${basePrompt}\n\n${wsContextSection}`
-				: basePrompt;
-
-			// Prepend a synthetic context-reset exchange to override stale history where
-			// the model previously claimed it couldn't see workspace data.
-			// These messages are only sent to the LLM — they do NOT appear in the UI.
-			const hasWorkspaceData = projects.length > 0 || issues.length > 0;
-			const effectiveHistory = hasWorkspaceData
-				? [
-					{ role: 'user' as const, content: '[System context update] Your workspace data has been synced. Check your system prompt for the latest projects and issues.' },
-					{ role: 'assistant' as const, content: 'Understood. I now have access to the current workspace data including projects, issues, and skills. I will refer to this information going forward.' },
-					...history,
-				]
-				: history;
-
-			// Collect local_folder boundary paths from all workspace projects for agent file access
-			const boundaryLocalPaths = projects
-				.filter((p) => p.boundary_kind === 'local_folder' && p.boundary_local_path?.trim())
-				.map((p) => p.boundary_local_path!.trim());
-
-			const payload: EmployeeChatInput = {
-				requestId,
-				modelId,
-				displayName: employee.displayName,
-				roleKey: employee.roleKey,
-				customRoleTitle: employee.customRoleTitle,
-				customSystemPrompt: injectedSystemPrompt,
-				jobMission: employee.personaSeed?.jobMission,
-				domainContext: employee.personaSeed?.domainContext,
-				communicationNotes: employee.personaSeed?.communicationNotes,
-				collaborationRules: employee.personaSeed?.collaborationRules,
-				handoffRules: employee.personaSeed?.handoffRules,
-				history: effectiveHistory,
-				teamMembers,
-				boundaryLocalPaths: boundaryLocalPaths.length > 0 ? boundaryLocalPaths : undefined,
-				isCeo: employee.isCeo || false,
-			};
 
 			try {
 				const result = (await shell.invoke('aiEmployees:chat', payload)) as {
@@ -1788,16 +1868,242 @@ export function useAiEmployeesController() {
 			persistOrchestration,
 			appendCollabMessage,
 			appendTimelineEvent,
-			bootstrapStatus,
-			projects,
-			issues,
-			skills,
-			workspaceMembers,
-			agents,
-			orgEmployees,
+			buildEmployeeChatPayload,
+			ceoEmployeeId,
 		]
 	);
 	requestEmployeeReplyRef.current = requestEmployeeReply;
+
+	const maybeTriggerCeoDigest = useCallback(
+		(runId: string) => {
+			const ceoId = orgEmployees.find((e) => e.isCeo)?.id;
+			if (!ceoId) {
+				return;
+			}
+			if (activeSubAgentCountRef.current > 0) {
+				return;
+			}
+			if (subAgentQueueRef.current.some((i) => i.runId === runId)) {
+				return;
+			}
+			const run = orchestrationRef.current.runs.find((r) => r.id === runId);
+			if (!run) {
+				return;
+			}
+			const jobs = run.subAgentJobs ?? [];
+			const digestTargets = jobs.filter((j) => j.status === 'done' && !j.ceoIngested);
+			if (digestTargets.length === 0) {
+				return;
+			}
+			const block =
+				'[Sub-agent results — synthesize a concise update for the boss]\n\n' +
+				digestTargets.map((j) => `### ${j.employeeName}: ${j.taskTitle}\n${j.resultSummary ?? ''}`).join('\n\n');
+			const nowIso = new Date().toISOString();
+			persistOrchestration((state) => {
+				let next = appendCollabMessage(state, {
+					id: crypto.randomUUID(),
+					runId,
+					type: 'status_update',
+					summary: 'Team sub-results',
+					body: block,
+					createdAtIso: nowIso,
+				});
+				for (const j of digestTargets) {
+					next = updateSubAgentJobInRun(next, runId, j.id, (job) => ({ ...job, ceoIngested: true }));
+				}
+				return next;
+			});
+			window.setTimeout(() => {
+				void requestEmployeeReplyRef.current?.(ceoId, runId);
+			}, 0);
+		},
+		[appendCollabMessage, orgEmployees, persistOrchestration, updateSubAgentJobInRun]
+	);
+
+	const processSubAgentQueue = useCallback(() => {
+		if (!shell) {
+			return;
+		}
+		while (activeSubAgentCountRef.current < SUB_AGENT_MAX_CONCURRENCY && subAgentQueueRef.current.length > 0) {
+			const item = subAgentQueueRef.current.shift();
+			if (!item) {
+				break;
+			}
+			activeSubAgentCountRef.current++;
+			void (async () => {
+				const rid = item.runId;
+				try {
+					const employee = employeeById.get(item.employeeId);
+					if (!employee) {
+						return;
+					}
+					if (item.kind === 'delegated') {
+						const { jobId, employeeId } = item;
+						const markIso = new Date().toISOString();
+						persistOrchestration((s) => {
+							let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+								...j,
+								status: 'running',
+								startedAtIso: j.startedAtIso ?? markIso,
+							}));
+							const msg = next.collabMessages.find((m) => m.id === jobId);
+							if (msg) {
+								next = upsertCollabMessageInState(next, {
+									...msg,
+									cardMeta: { ...msg.cardMeta, status: 'in_progress', handoffId: jobId },
+								});
+							}
+							return next;
+						});
+						const requestId = crypto.randomUUID();
+						const payload = buildEmployeeChatPayload(employee, rid, requestId);
+						if (!payload) {
+							const errIso = new Date().toISOString();
+							persistOrchestration((s) =>
+								updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+									...j,
+									status: 'error',
+									completedAtIso: errIso,
+									errorMessage: 'Missing model or empty history for this teammate.',
+								}))
+							);
+							return;
+						}
+						const raw = (await shell.invoke('aiEmployees:runSubAgent', payload)) as SubAgentIpcOk | SubAgentIpcErr;
+						if (raw.ok) {
+							const doneIso = new Date().toISOString();
+							const summaryText = raw.resultText?.trim() || '(completed)';
+							persistOrchestration((s) => {
+								let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+									...j,
+									status: 'done',
+									toolLog: raw.toolLog,
+									resultSummary: summaryText,
+									completedAtIso: doneIso,
+								}));
+								next = setHandoffStatusInState(next, rid, jobId, 'done', {
+									resultSummary: summaryText,
+									atIso: doneIso,
+								});
+								const assignMsg = next.collabMessages.find((m) => m.id === jobId);
+								if (assignMsg) {
+									next = upsertCollabMessageInState(next, {
+										...assignMsg,
+										cardMeta: { ...assignMsg.cardMeta, status: 'done', handoffId: jobId },
+									});
+								}
+								const resultId = crypto.randomUUID();
+								next = appendCollabMessage(next, {
+									id: resultId,
+									runId: rid,
+									type: 'result',
+									fromEmployeeId: employeeId,
+									toEmployeeId: ceoEmployeeId,
+									subAgentJobId: jobId,
+									summary: `${employee.displayName} · ${summaryText.slice(0, 72)}`,
+									body: summaryText,
+									createdAtIso: doneIso,
+									cardMeta: { status: 'done', handoffId: jobId },
+								});
+								next = appendTimelineEvent(next, {
+									id: `message:${resultId}`,
+									runId: rid,
+									type: 'result',
+									label: `${employee.displayName} completed task`,
+									description: summaryText,
+									createdAtIso: doneIso,
+									employeeId,
+									source: 'local',
+								});
+								return next;
+							});
+							for (const action of raw.collabActions) {
+								handleCollabActionRef.current?.(employeeId, rid, action);
+							}
+						} else {
+							const errIso = new Date().toISOString();
+							persistOrchestration((s) => {
+								let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+									...j,
+									status: 'error',
+									completedAtIso: errIso,
+									errorMessage: raw.error,
+									toolLog: raw.toolLog,
+								}));
+								next = setHandoffStatusInState(next, rid, jobId, 'blocked', {
+									blockedReason: raw.error,
+									atIso: errIso,
+								});
+								const assignMsg = next.collabMessages.find((m) => m.id === jobId);
+								if (assignMsg) {
+									next = upsertCollabMessageInState(next, {
+										...assignMsg,
+										cardMeta: { ...assignMsg.cardMeta, status: 'blocked', handoffId: jobId },
+									});
+								}
+								return next;
+							});
+						}
+					} else {
+						const requestId = crypto.randomUUID();
+						const payload = buildEmployeeChatPayload(employee, rid, requestId);
+						if (!payload) {
+							return;
+						}
+						const raw = (await shell.invoke('aiEmployees:runSubAgent', payload)) as SubAgentIpcOk | SubAgentIpcErr;
+						if (raw.ok && raw.resultText.trim()) {
+							const nowIso = new Date().toISOString();
+							const text = raw.resultText.trim();
+							persistOrchestration((s) => {
+								const message: AiCollabMessage = {
+									id: crypto.randomUUID(),
+									runId: rid,
+									type: 'text',
+									fromEmployeeId: item.employeeId,
+									summary: text.slice(0, 80),
+									body: text,
+									createdAtIso: nowIso,
+								};
+								let next = appendCollabMessage(s, message);
+								next = appendTimelineEvent(next, {
+									id: `message:${message.id}`,
+									runId: rid,
+									type: 'message',
+									label: message.summary,
+									description: message.body,
+									createdAtIso: nowIso,
+									employeeId: item.employeeId,
+									source: 'local',
+								});
+								return next;
+							});
+							for (const action of raw.collabActions) {
+								handleCollabActionRef.current?.(item.employeeId, rid, action);
+							}
+						}
+					}
+				} finally {
+					activeSubAgentCountRef.current -= 1;
+					processSubAgentQueue();
+					maybeTriggerCeoDigest(rid);
+				}
+			})();
+		}
+	}, [
+		appendCollabMessage,
+		appendTimelineEvent,
+		buildEmployeeChatPayload,
+		ceoEmployeeId,
+		employeeById,
+		maybeTriggerCeoDigest,
+		persistOrchestration,
+		shell,
+	]);
+
+	useLayoutEffect(() => {
+		handleCollabActionRef.current = handleCollabAction;
+		processSubAgentQueueRef.current = processSubAgentQueue;
+	}, [handleCollabAction, processSubAgentQueue]);
 
 	const bindAgentLocalModel = useCallback(
 		(agentId: string, modelEntryId: string) => {
@@ -2185,11 +2491,29 @@ export function useAiEmployeesController() {
 				const empId = input.toEmployeeId;
 				const rid = input.runId;
 				window.setTimeout(() => {
-					void requestEmployeeReply(empId, rid);
+					if (empId === ceoEmployeeId) {
+						void requestEmployeeReply(empId, rid);
+					} else {
+						subAgentQueueRef.current.push({ kind: 'colleague', runId: rid, employeeId: empId });
+						processSubAgentQueueRef.current();
+					}
 				}, 0);
 			}
 		},
-		[appendCollabMessage, appendTimelineEvent, persistOrchestration, requestEmployeeReply]
+		[appendCollabMessage, appendTimelineEvent, ceoEmployeeId, persistOrchestration, requestEmployeeReply]
+	);
+
+	const createGroupChatRun = useCallback(
+		(title: string) => {
+			const ceoId = orgEmployees.find((e) => e.isCeo)?.id;
+			if (!ceoId) {
+				return '';
+			}
+			const goal = title.trim() || 'Conversation';
+			const { runId } = createOrchestrationRun(goal, '', { ownerEmployeeId: ceoId });
+			return runId;
+		},
+		[createOrchestrationRun, orgEmployees]
 	);
 
 	const markCollabMessageRead = useCallback(
@@ -2418,6 +2742,8 @@ export function useAiEmployeesController() {
 		orchestration,
 		createOrchestrationRun,
 		createEmployeeRun,
+		createGroupChatRun,
+		ceoEmployeeId,
 		approveOrchestrationGit,
 		addOrchestrationHandoff,
 		setOrchestrationHandoffStatus,

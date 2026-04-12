@@ -57,6 +57,36 @@ export type AiCollabCardMeta = {
 	actions?: AiCollabCardAction[];
 };
 
+/** A single tool invocation recorded during sub-agent execution. */
+export type AiSubAgentToolEntry = {
+	id: string;
+	name: string;
+	args: Record<string, unknown>;
+	result: string;
+	success: boolean;
+	startedAtIso: string;
+	durationMs?: number;
+};
+
+/** A sub-agent job — one employee working on one delegated task. */
+export type AiSubAgentJob = {
+	id: string;
+	runId: string;
+	employeeId: string;
+	employeeName: string;
+	taskTitle: string;
+	taskDescription: string;
+	status: 'queued' | 'running' | 'done' | 'error' | 'blocked';
+	queuedAtIso: string;
+	startedAtIso?: string;
+	completedAtIso?: string;
+	resultSummary?: string;
+	toolLog: AiSubAgentToolEntry[];
+	errorMessage?: string;
+	/** Set after CEO digest so the same batch is not re-injected. */
+	ceoIngested?: boolean;
+};
+
 export type AiCollabMessage = {
 	id: string;
 	runId: string;
@@ -69,6 +99,8 @@ export type AiCollabMessage = {
 	createdAtIso: string;
 	readAtIso?: string;
 	cardMeta?: AiCollabCardMeta;
+	/** Links a task_assignment / result / blocker row to a sub-agent job. */
+	subAgentJobId?: string;
 };
 
 export type AiOrchestrationTimelineEventType =
@@ -124,6 +156,8 @@ export type AiOrchestrationRun = {
 	status: AiOrchestrationRunStatus;
 	createdAtIso: string;
 	handoffs: AiOrchestrationHandoff[];
+	/** Sub-agent jobs spawned by delegation within this run. */
+	subAgentJobs?: AiSubAgentJob[];
 	gitApproved?: boolean;
 	ownerEmployeeId?: string;
 	currentAssigneeEmployeeId?: string;

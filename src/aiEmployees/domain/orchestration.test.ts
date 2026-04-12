@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addHandoffToRunInState,
+	addSubAgentJobToRun,
 	appendTimelineEventToState,
+	appendToolLogToJob,
 	approveGitForRun,
 	createDraftRun,
 	emptyOrchestrationState,
 	markCollabMessageReadInState,
 	setHandoffStatusInState,
+	updateSubAgentJobInRun,
 	upsertCollabMessageInState,
 	upsertRun,
 } from './orchestration';
@@ -18,6 +21,38 @@ describe('orchestration', () => {
 		expect(run.targetBranch).toBe('b1');
 		expect(run.status).toBe('draft');
 		expect(run.approvalState).toBe('none');
+		expect(run.subAgentJobs).toEqual([]);
+	});
+
+	it('addSubAgentJobToRun / updateSubAgentJobInRun / appendToolLogToJob', () => {
+		const run = { ...createDraftRun('g', undefined, 't', 'r1'), status: 'running' as const };
+		let state = upsertRun(emptyOrchestrationState(), run);
+		const job = {
+			id: 'j1',
+			runId: 'r1',
+			employeeId: 'e1',
+			employeeName: 'A',
+			taskTitle: 't1',
+			taskDescription: 'd',
+			status: 'queued' as const,
+			queuedAtIso: '2020-01-02T00:00:00.000Z',
+			toolLog: [],
+		};
+		state = addSubAgentJobToRun(state, 'r1', job);
+		expect(state.runs[0]?.subAgentJobs).toHaveLength(1);
+		state = updateSubAgentJobInRun(state, 'r1', 'j1', (j) => ({ ...j, status: 'running' }));
+		expect(state.runs[0]?.subAgentJobs?.[0]?.status).toBe('running');
+		state = appendToolLogToJob(state, 'r1', 'j1', {
+			id: 'tool-1',
+			name: 'Read',
+			args: { path: 'x' },
+			result: 'ok',
+			success: true,
+			startedAtIso: '2020-01-02T00:00:01.000Z',
+			durationMs: 5,
+		});
+		expect(state.runs[0]?.subAgentJobs?.[0]?.toolLog).toHaveLength(1);
+		expect(state.runs[0]?.subAgentJobs?.[0]?.toolLog[0]?.name).toBe('Read');
 	});
 
 	it('upsertRun replaces by id and sets activeRunId', () => {

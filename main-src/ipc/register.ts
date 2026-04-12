@@ -163,6 +163,7 @@ import { buildMemoryEntrypoint, queueExtractMemories } from '../services/extract
 import { getWorkspaceIndexDir } from '../workspaceIndexPaths.js';
 import { generateHiringPlan, generateRolePromptDraft } from '../aiEmployees/roleGeneration.js';
 import { runEmployeeChat } from '../aiEmployees/employeeChat.js';
+import { runSubAgentEmployee } from '../aiEmployees/subAgentRunner.js';
 import { isCollabTool } from '../aiEmployees/collaborationTools.js';
 import type { EmployeeChatInput } from '../../shared/aiEmployeesPersona.js';
 
@@ -2864,11 +2865,11 @@ ipcMain.handle(
 					lastError = message;
 					send('error', { error: message });
 				},
-				onToolCall(name, args) {
-					send('tool_call', { toolName: name, toolArgs: args, isCollabTool: isCollabTool(name) });
+				onToolCall(name, args, toolUseId) {
+					send('tool_call', { toolName: name, toolArgs: args, toolUseId, isCollabTool: isCollabTool(name) });
 				},
-				onToolResult(name, success) {
-					send('tool_result', { toolName: name, toolSuccess: success, isCollabTool: isCollabTool(name) });
+				onToolResult(name, success, toolUseId) {
+					send('tool_result', { toolName: name, toolSuccess: success, toolUseId, isCollabTool: isCollabTool(name) });
 				},
 				onCollabAction(action) {
 					send('collab_action', { action });
@@ -2882,6 +2883,16 @@ ipcMain.handle(
 			const msg = e instanceof Error ? e.message : String(e);
 			send('error', { error: msg });
 			return { ok: false as const, error: msg };
+		}
+	});
+
+	ipcMain.handle('aiEmployees:runSubAgent', async (_event, payload: EmployeeChatInput) => {
+		const settings = getSettings();
+		try {
+			return await runSubAgentEmployee(settings, payload);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			return { ok: false as const, error: msg, toolLog: [] as const, collabActions: [] as const, durationMs: 0 };
 		}
 	});
 

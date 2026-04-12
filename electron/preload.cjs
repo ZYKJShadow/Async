@@ -84,6 +84,7 @@ const INVOKE_CHANNELS = new Set([
 	'aiEmployees:generateRolePrompt',
 	'aiEmployees:generateHiringPlan',
 	'aiEmployees:chat',
+	'aiEmployees:runSubAgent',
 	'workspaceAgent:get',
 	'workspaceAgent:set',
 	'workspace:closeFolder',

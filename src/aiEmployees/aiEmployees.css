@@ -5630,6 +5630,11 @@
 	min-width: 0;
 }
 
+.ref-ai-employees-inbox-chat-row.is-full {
+	align-self: stretch;
+	max-width: 100%;
+}
+
 .ref-ai-employees-inbox-chat-row.is-peer {
 	align-self: flex-start;
 	flex-direction: row;
@@ -9480,4 +9485,202 @@
 	max-width: 120px;
 	text-align: center;
 	font-size: 16px;
+}
+
+/* ── Group chat (inbox) + sub-agent detail ─────────────────── */
+
+.ref-ai-employees-inbox-new-run {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-right: 6px;
+	font-size: 12px;
+	padding: 4px 10px;
+}
+
+.ref-ai-employees-group-card {
+	align-self: stretch;
+	width: 100%;
+	max-width: 100%;
+	padding: 12px 14px;
+	border-radius: 10px;
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.1));
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-ai-employees-group-card[data-job-status='running'] {
+	border-color: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 35%, var(--void-border-1));
+}
+
+.ref-ai-employees-group-card[data-job-status='done'] {
+	border-color: color-mix(in srgb, #3fb950 40%, var(--void-border-1));
+}
+
+.ref-ai-employees-group-card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	font-size: 12px;
+}
+
+.ref-ai-employees-group-card-who {
+	font-weight: 600;
+	color: var(--void-fg-0, #e6edf3);
+}
+
+.ref-ai-employees-group-card-state {
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-group-card-title {
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.ref-ai-employees-group-card-desc {
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--void-fg-1, #c9d1d9);
+	white-space: pre-wrap;
+}
+
+.ref-ai-employees-group-card-detail {
+	align-self: flex-start;
+	margin-top: 4px;
+}
+
+.ref-ai-employees-subagent-panel {
+	position: fixed;
+	inset: 0;
+	z-index: 80;
+	pointer-events: none;
+}
+
+.ref-ai-employees-subagent-panel-backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.45);
+	pointer-events: auto;
+}
+
+.ref-ai-employees-subagent-panel-sheet {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: min(480px, 100%);
+	background: var(--void-surface-1, #161b22);
+	border-left: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.1));
+	display: flex;
+	flex-direction: column;
+	pointer-events: auto;
+	box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+
+.ref-ai-employees-subagent-panel-head {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 14px 16px;
+	border-bottom: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
+}
+
+.ref-ai-employees-subagent-panel-title {
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.ref-ai-employees-subagent-panel-meta {
+	font-size: 12px;
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-subagent-panel-body {
+	flex: 1;
+	overflow: auto;
+	padding: 12px 16px 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.ref-ai-employees-subagent-tool-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-ai-employees-subagent-tool-head {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	text-align: left;
+	padding: 8px 10px;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-1, rgba(255, 255, 255, 0.08));
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
+	color: var(--void-fg-0, #e6edf3);
+	font-size: 13px;
+}
+
+.ref-ai-employees-subagent-tool-name {
+	flex: 1;
+	font-weight: 600;
+}
+
+.ref-ai-employees-subagent-tool-time {
+	font-size: 11px;
+	color: var(--void-fg-2, #8b949e);
+}
+
+.ref-ai-employees-subagent-tool-head .is-ok {
+	color: #3fb950;
+	font-size: 11px;
+}
+
+.ref-ai-employees-subagent-tool-head .is-err {
+	color: #f85149;
+	font-size: 11px;
+}
+
+.ref-ai-employees-subagent-tool-body {
+	padding: 8px 4px 0 22px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-ai-employees-subagent-tool-pre {
+	margin: 0;
+	padding: 10px;
+	border-radius: 8px;
+	background: rgba(0, 0, 0, 0.35);
+	font-size: 11px;
+	line-height: 1.45;
+	overflow: auto;
+	max-height: 220px;
+	white-space: pre-wrap;
+}
+
+.ref-ai-employees-subagent-tool-result-label,
+.ref-ai-employees-subagent-result-label {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--void-fg-2, #8b949e);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.ref-ai-employees-subagent-result-text {
+	font-size: 13px;
+	line-height: 1.55;
+	white-space: pre-wrap;
 }
