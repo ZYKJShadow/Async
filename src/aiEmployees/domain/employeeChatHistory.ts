@@ -46,18 +46,37 @@ export function buildCollabHistoryForEmployee(messages: AiCollabMessage[], emplo
 
 function messageSnippetForHistory(m: AiCollabMessage): string | undefined {
 	const body = m.body?.trim();
-	if (!body) {
-		return undefined;
-	}
+	const summary = m.summary?.trim();
 	switch (m.type) {
-		case 'task_assignment':
-			return `[Task assigned] ${m.summary}\n${body}`;
-		case 'result':
-			return `[Teammate result] ${m.summary}\n${body}`;
-		case 'blocker':
-			return `[Blocker] ${m.summary}\n${body}`;
+		case 'task_assignment': {
+			if (body) {
+				return `[Task assigned] ${summary || 'Task'}\n${body}`;
+			}
+			if (summary) {
+				return `[Task assigned] ${summary}`;
+			}
+			return undefined;
+		}
+		case 'result': {
+			if (body) {
+				return `[Teammate result] ${summary || 'Result'}\n${body}`;
+			}
+			if (summary) {
+				return `[Teammate result] ${summary}`;
+			}
+			return undefined;
+		}
+		case 'blocker': {
+			if (body) {
+				return `[Blocker] ${summary || 'Blocked'}\n${body}`;
+			}
+			if (summary) {
+				return `[Blocker] ${summary}`;
+			}
+			return undefined;
+		}
 		default:
-			return body;
+			return body || summary || undefined;
 	}
 }
 

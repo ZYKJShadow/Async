@@ -2527,15 +2527,29 @@ export function useAiEmployeesController(t: TFunction) {
 							return next;
 						});
 						const requestId = crypto.randomUUID();
+						const modelId = resolveEmployeeLocalModelId({
+							employeeId,
+							remoteAgentId: employee.linkedRemoteAgentId ?? undefined,
+							agentLocalModelMap: aiSettings.agentLocalModelIdByRemoteAgentId,
+							employeeLocalModelMap: aiSettings.employeeLocalModelIdByEmployeeId,
+							defaultModelId: localModels.defaultModelId,
+							modelOptionIds: modelOptionIdSet,
+						});
 						const payload = buildEmployeeChatPayload(employee, rid, requestId, jobId);
 						if (!payload) {
+							const history = buildChatHistoryForRequest(employeeId, rid, employee);
+							const missingReason = !modelId
+								? 'No usable local model is bound to this teammate.'
+								: history.length === 0
+									? 'No usable chat history was generated for this teammate.'
+									: 'Could not build the teammate payload.';
 							const errIso = new Date().toISOString();
 							persistOrchestration((s) =>
 								updateSubAgentJobInRunAndSyncPlan(s, rid, jobId, (j) => ({
 									...j,
 									status: 'error',
 									completedAtIso: errIso,
-									errorMessage: 'Missing model or empty history for this teammate.',
+									errorMessage: missingReason,
 								}))
 							);
 							return;

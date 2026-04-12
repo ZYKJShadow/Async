@@ -107,6 +107,23 @@ describe('employeeChatHistory group run', () => {
 		expect(h).toEqual([{ role: 'assistant', content: 'only eng' }]);
 	});
 
+	it('keeps delegated task history when task body is empty but summary exists', () => {
+		const messages: AiCollabMessage[] = [
+			msg({
+				id: '1',
+				runId: 'r1',
+				type: 'task_assignment',
+				fromEmployeeId: 'ceo1',
+				toEmployeeId: 'e1',
+				summary: '实现设置页交互优化',
+				body: '',
+				createdAtIso: '2020-01-01T00:00:00.000Z',
+			}),
+		];
+		const h = buildCollabHistoryForEmployeeInRun(messages, 'r1', eng.id, 'ceo1');
+		expect(h).toEqual([{ role: 'user', content: '[Task assigned] 实现设置页交互优化' }]);
+	});
+
 	it('does not leak CEO messages to other teammates into this employee thread', () => {
 		const messages: AiCollabMessage[] = [
 			msg({
