@@ -6,7 +6,9 @@ import {
 	IconArrowUp,
 	IconDotsHorizontal,
 	IconMessageCircle,
+	IconPencil,
 	IconPlus,
+	IconRefresh,
 	IconTrash,
 } from '../../icons';
 import type {
@@ -207,8 +209,12 @@ export function InboxPage({
 	onNavigateToActivity?: (runId?: string) => void;
 	subAgentToolLiveByJobId: Record<string, { runId: string; employeeId: string; label: string }>;
 	onStopOrchestrationRun: (runId: string) => void;
+	onInterruptGeneration?: (runId: string) => void;
+	onResumeRun?: (runId: string) => void;
 	onDeleteGroupRun: (runId: string) => void;
+	onRenameGroupRun?: (runId: string, newTitle: string) => void;
 	onApproveOrchestrationGit?: (runId: string) => void | Promise<unknown>;
+	onRetryLastMessage?: (runId: string) => void;
 }) {
 	const ceo = useMemo(() => orgEmployees.find((e) => e.isCeo), [orgEmployees]);
 
@@ -238,6 +244,10 @@ export function InboxPage({
 	const [draft, setDraft] = useState('');
 	const [moreOpen, setMoreOpen] = useState(false);
 	const [detailJob, setDetailJob] = useState<AiSubAgentJob | null>(null);
+	const [contextMenu, setContextMenu] = useState<{ runId: string; x: number; y: number } | null>(null);
+	const [renamingRunId, setRenamingRunId] = useState<string | null>(null);
+	const [renameValue, setRenameValue] = useState('');
+	const contextMenuRef = useRef<HTMLDivElement>(null);
 	const moreRef = useRef<HTMLDivElement>(null);
 	const threadRef = useRef<HTMLDivElement>(null);
 	const threadStickToBottomRef = useRef(true);
@@ -276,6 +286,17 @@ export function InboxPage({
 		document.addEventListener('mousedown', onDoc);
 		return () => document.removeEventListener('mousedown', onDoc);
 	}, [moreOpen]);
+
+	useEffect(() => {
+		if (!contextMenu) return;
+		const onDoc = (event: MouseEvent) => {
+			if (!contextMenuRef.current?.contains(event.target as Node)) {
+				setContextMenu(null);
+			}
+		};
+		document.addEventListener('mousedown', onDoc);
+		return () => document.removeEventListener('mousedown', onDoc);
+	}, [contextMenu]);
 
 	const thread = useMemo(() => {
 		if (!selectedRunId) return [];
@@ -357,23 +378,33 @@ export function InboxPage({
 		}
 	}, [conn, remoteItems, workspaceId]);
 
-	const canDeleteSelectedRun = !!selection && sortedRuns.some((r) => r.id === selection.runId);
-
-	const requestDeleteSelectedRun = useCallback((): boolean => {
-		if (!selection) {
-			return false;
-		}
-		const run = orchestration.runs.find((r) => r.id === selection.runId);
+	const requestDeleteRun = useCallback((runId: string): boolean => {
+		const run = orchestration.runs.find((r) => r.id === runId);
 		if (!run) {
 			return false;
 		}
-		const title = run.goal.trim().slice(0, 120) || selection.runId;
+		const title = run.goal.trim().slice(0, 120) || runId;
 		if (!window.confirm(t('aiEmployees.groupChat.deleteRunConfirm', { title }))) {
 			return false;
 		}
-		onDeleteGroupRun(selection.runId);
+		onDeleteGroupRun(runId);
 		return true;
-	}, [selection, orchestration.runs, onDeleteGroupRun, t]);
+	}, [orchestration.runs, onDeleteGroupRun, t]);
+
+	const startRenameRun = useCallback((runId: string) => {
+		const run = orchestration.runs.find((r) => r.id === runId);
+		if (!run) return;
+		setRenamingRunId(runId);
+		setRenameValue(run.goal);
+	}, [orchestration.runs]);
+
+	const commitRename = useCallback(() => {
+		if (renamingRunId && renameValue.trim() && onRenameGroupRun) {
+			onRenameGroupRun(renamingRunId, renameValue.trim());
+		}
+		setRenamingRunId(null);
+		setRenameValue('');
+	}, [renamingRunId, renameValue, onRenameGroupRun]);
 
 	const focusMessageInThread = useCallback((messageId: string) => {
 		const container = threadRef.current;
@@ -416,6 +447,9 @@ export function InboxPage({
 		const text = draft.trim();
 		if (!text || !ceoEmployeeId) return;
 		if (selectedRunId) {
+			if (selectedRun?.status === 'cancelled' && onResumeRun) {
+				onResumeRun(selectedRunId);
+			}
 			onSendMessage({
 				runId: selectedRunId,
 				type: 'text',
@@ -491,69 +525,44 @@ export function InboxPage({
 						<div className="ref-ai-employees-inbox-list-head-left">
 							<h2 className="ref-ai-employees-inbox-list-title">{t('aiEmployees.groupChat.sidebarTitle')}</h2>
 						</div>
-						<div className="ref-ai-employees-inbox-list-head-actions" ref={moreRef}>
-							<div className="ref-ai-employees-inbox-list-head-actions-row">
+					<div className="ref-ai-employees-inbox-list-head-actions" ref={moreRef}>
+						<div className="ref-ai-employees-inbox-list-head-actions-row">
+							<button
+								type="button"
+								className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-inbox-new-run"
+								onClick={newConversation}
+							>
+								<IconPlus className="ref-ai-employees-comm-send-ico" aria-hidden />
+								{t('aiEmployees.groupChat.newConversation')}
+							</button>
+							<button
+								type="button"
+								className="ref-agent-sidebar-icon-btn"
+								aria-expanded={moreOpen}
+								aria-haspopup="menu"
+								aria-label={t('aiEmployees.inbox.moreActions')}
+								onClick={() => setMoreOpen((open) => !open)}
+							>
+								<IconDotsHorizontal />
+							</button>
+						</div>
+						{moreOpen ? (
+							<div className="ref-void-select-menu ref-ai-employees-inbox-dropdown" role="menu">
 								<button
 									type="button"
-									className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-inbox-new-run"
-									onClick={newConversation}
-								>
-									<IconPlus className="ref-ai-employees-comm-send-ico" aria-hidden />
-									{t('aiEmployees.groupChat.newConversation')}
-								</button>
-								<button
-									type="button"
-									className="ref-agent-sidebar-icon-btn ref-ai-employees-inbox-delete-run"
-									disabled={!canDeleteSelectedRun}
-									title={t('aiEmployees.groupChat.deleteRunAria')}
-									aria-label={t('aiEmployees.groupChat.deleteRunAria')}
+									className="ref-void-select-option ref-ai-employees-inbox-dropdown-item"
+									role="menuitem"
 									onClick={() => {
-										void requestDeleteSelectedRun();
+										void markAllRemoteRead();
+										setMoreOpen(false);
 									}}
 								>
-									<IconTrash />
-								</button>
-								<button
-									type="button"
-									className="ref-agent-sidebar-icon-btn"
-									aria-expanded={moreOpen}
-									aria-haspopup="menu"
-									aria-label={t('aiEmployees.inbox.moreActions')}
-									onClick={() => setMoreOpen((open) => !open)}
-								>
-									<IconDotsHorizontal />
+									{t('aiEmployees.inbox.menuMarkAllRead')}
+									{unreadRemoteCount > 0 ? ` (${unreadRemoteCount})` : ''}
 								</button>
 							</div>
-							{moreOpen ? (
-								<div className="ref-void-select-menu ref-ai-employees-inbox-dropdown" role="menu">
-									<button
-										type="button"
-										className="ref-void-select-option ref-ai-employees-inbox-dropdown-item"
-										role="menuitem"
-										onClick={() => {
-											void markAllRemoteRead();
-											setMoreOpen(false);
-										}}
-									>
-										{t('aiEmployees.inbox.menuMarkAllRead')}
-										{unreadRemoteCount > 0 ? ` (${unreadRemoteCount})` : ''}
-									</button>
-									<button
-										type="button"
-										className="ref-void-select-option ref-ai-employees-inbox-dropdown-item ref-ai-employees-inbox-dropdown-item--danger"
-										role="menuitem"
-										disabled={!canDeleteSelectedRun}
-										onClick={() => {
-											if (requestDeleteSelectedRun()) {
-												setMoreOpen(false);
-											}
-										}}
-									>
-										{t('aiEmployees.groupChat.deleteRunMenu')}
-									</button>
-								</div>
-							) : null}
-						</div>
+						) : null}
+					</div>
 					</div>
 					<div className="ref-ai-employees-inbox-list-scroll">
 						{pendingTasks.length > 0 ? (
@@ -613,18 +622,38 @@ export function InboxPage({
 												)}`
 											: undefined;
 									const subline = liveLine ?? fallbackBusy;
+									const isRenaming = renamingRunId === run.id;
 									return (
 										<li key={run.id}>
 											<button
 												type="button"
 												className={`ref-ai-employees-inbox-peer-row ${active ? 'is-active' : ''}`}
 												onClick={() => setSelection({ kind: 'run', runId: run.id })}
+												onContextMenu={(e) => {
+													e.preventDefault();
+													setContextMenu({ runId: run.id, x: e.clientX, y: e.clientY });
+												}}
 											>
 												<span className="ref-ai-employees-inbox-peer-avatar" aria-hidden>
 													{'\u{1F4AC}'}
 												</span>
 												<span className="ref-ai-employees-inbox-peer-meta">
-													<span className="ref-ai-employees-inbox-peer-name">{run.goal}</span>
+													{isRenaming ? (
+														<input
+															className="ref-ai-employees-input ref-ai-employees-inbox-rename-input"
+															value={renameValue}
+															autoFocus
+															onClick={(e) => e.stopPropagation()}
+															onChange={(e) => setRenameValue(e.target.value)}
+															onKeyDown={(e) => {
+																if (e.key === 'Enter') { commitRename(); }
+																if (e.key === 'Escape') { setRenamingRunId(null); }
+															}}
+															onBlur={commitRename}
+														/>
+													) : (
+														<span className="ref-ai-employees-inbox-peer-name">{run.goal}</span>
+													)}
 													<span className="ref-ai-employees-inbox-peer-role">{runStatusBadge(t, run)}</span>
 													{subline ? (
 														<span className="ref-ai-employees-inbox-peer-live">{subline}</span>
@@ -641,6 +670,39 @@ export function InboxPage({
 								})}
 							</ul>
 						)}
+						{contextMenu ? (
+							<div
+								ref={contextMenuRef}
+								className="ref-void-select-menu ref-ai-employees-inbox-context-menu"
+								role="menu"
+								style={{ position: 'fixed', left: contextMenu.x, top: contextMenu.y, zIndex: 999 }}
+							>
+								<button
+									type="button"
+									className="ref-void-select-option ref-ai-employees-inbox-dropdown-item"
+									role="menuitem"
+									onClick={() => {
+										startRenameRun(contextMenu.runId);
+										setContextMenu(null);
+									}}
+								>
+									<IconPencil className="ref-ai-employees-inbox-ctx-ico" aria-hidden />
+									{t('aiEmployees.groupChat.contextMenuRename')}
+								</button>
+								<button
+									type="button"
+									className="ref-void-select-option ref-ai-employees-inbox-dropdown-item ref-ai-employees-inbox-dropdown-item--danger"
+									role="menuitem"
+									onClick={() => {
+										requestDeleteRun(contextMenu.runId);
+										setContextMenu(null);
+									}}
+								>
+									<IconTrash className="ref-ai-employees-inbox-ctx-ico" aria-hidden />
+									{t('aiEmployees.groupChat.contextMenuDelete')}
+								</button>
+							</div>
+						) : null}
 					</div>
 				</div>
 
@@ -732,10 +794,12 @@ export function InboxPage({
 								t={t}
 								run={selectedRun}
 								presenceLine={selectedRunLiveLine}
+								onInterrupt={onInterruptGeneration ? () => onInterruptGeneration(selectedRun.id) : undefined}
 								onStop={() => onStopOrchestrationRun(selectedRun.id)}
 								onApproveGit={
 									onApproveOrchestrationGit ? () => void onApproveOrchestrationGit(selectedRun.id) : undefined
 								}
+								isStreaming={streamDraft !== undefined}
 							/>
 							<div
 								ref={threadRef}
@@ -767,11 +831,21 @@ export function InboxPage({
 										/>
 									</div>
 								) : null}
-								{streamErr ? (
-									<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
-										{streamErr}
-									</div>
-								) : null}
+							{streamErr ? (
+								<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
+									<span>{streamErr}</span>
+									{onRetryLastMessage ? (
+										<button
+											type="button"
+											className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-banner-retry"
+											onClick={() => onRetryLastMessage(selectedRun.id)}
+										>
+											<IconRefresh className="ref-ai-employees-comm-send-ico" aria-hidden />
+											{t('aiEmployees.groupChat.retryError')}
+										</button>
+									) : null}
+								</div>
+							) : null}
 								{thread.length === 0 && streamDraft === undefined ? (
 									<div className="ref-ai-employees-inbox-thread-empty ref-ai-employees-muted">{t('aiEmployees.inbox.threadEmptyHint')}</div>
 								) : (

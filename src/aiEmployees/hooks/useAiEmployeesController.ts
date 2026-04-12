@@ -488,6 +488,44 @@ export function useAiEmployeesController(t: TFunction) {
 		})();
 	}, [shell]);
 
+	const refreshLocalModels = useCallback(async () => {
+		if (!shell) return;
+		const raw = await shell.invoke('settings:get');
+		const r = raw as {
+			models?: {
+				providers?: Array<{ id?: string; displayName?: string }>;
+				entries?: Array<{ id?: string; displayName?: string; providerId?: string }>;
+				enabledIds?: string[];
+			};
+			defaultModel?: string;
+		};
+		const providers = Array.isArray(r?.models?.providers) ? r.models.providers : [];
+		const providerLabel = new Map<string, string>();
+		for (const p of providers) {
+			if (typeof p?.id !== 'string') continue;
+			const name = typeof p.displayName === 'string' && p.displayName.trim() ? p.displayName.trim() : p.id;
+			providerLabel.set(p.id, name);
+		}
+		const entries = (r?.models?.entries ?? [])
+			.filter((e): e is { id: string; displayName: string; providerId?: string } => typeof e?.id === 'string' && typeof e?.displayName === 'string')
+			.map((e) => {
+				const pid = typeof e.providerId === 'string' ? e.providerId : '';
+				const providerDisplayName = pid ? (providerLabel.get(pid) ?? pid) : undefined;
+				return { id: e.id, displayName: e.displayName, providerDisplayName };
+			});
+		setLocalModels({
+			entries,
+			enabledIds: Array.isArray(r?.models?.enabledIds) ? r.models.enabledIds.filter((x): x is string => typeof x === 'string') : [],
+			defaultModelId: typeof r?.defaultModel === 'string' ? r.defaultModel : undefined,
+		});
+	}, [shell]);
+
+	useEffect(() => {
+		const onFocus = () => { void refreshLocalModels(); };
+		window.addEventListener('focus', onFocus);
+		return () => window.removeEventListener('focus', onFocus);
+	}, [refreshLocalModels]);
+
 	useEffect(() => {
 		if (!shell?.subscribeAiEmployeesWorkspace) {
 			return;
@@ -1735,6 +1773,96 @@ export function useAiEmployeesController(t: TFunction) {
 			processSubAgentQueueRef.current();
 		},
 		[shell, persistOrchestration, clearEmployeeStreamingState]
+	);
+
+	const interruptGeneration = useCallback(
+		(runId: string) => {
+			subAgentQueueRef.current = subAgentQueueRef.current.filter((q) => q.runId !== runId);
+			for (const [reqId, meta] of [...pendingEmployeeChatRef.current.entries()]) {
+				if (meta.runId !== runId) {
+					continue;
+				}
+				void shell?.invoke('aiEmployees:abortChat', reqId);
+				pendingEmployeeChatRef.current.delete(reqId);
+				employeeReplyGuardRef.current.delete(meta.employeeId);
+				if (activeStreamOwnerRef.current === reqId) {
+					activeStreamOwnerRef.current = null;
+				}
+				clearEmployeeStreamingState(meta.employeeId);
+				setEmployeeChatError((prev) => {
+					const next = { ...prev };
+					delete next[meta.employeeId];
+					return next;
+				});
+			}
+			setSubAgentToolLiveByJobId((prev) => {
+				let changed = false;
+				const next = { ...prev };
+				for (const [jid, entry] of Object.entries(prev)) {
+					if (entry.runId === runId) {
+						delete next[jid];
+						changed = true;
+					}
+				}
+				return changed ? next : prev;
+			});
+			const nowIso = new Date().toISOString();
+			const interruptedSummary = t('aiEmployees.groupChat.runInterruptedSummary');
+			const interruptedBody = t('aiEmployees.groupChat.runInterruptedBody');
+			persistOrchestration((state) =>
+				appendCollabMessage(state, {
+					id: crypto.randomUUID(),
+					runId,
+					type: 'status_update',
+					summary: interruptedSummary,
+					body: interruptedBody,
+					createdAtIso: nowIso,
+				})
+			);
+			processSubAgentQueueRef.current();
+		},
+		[shell, persistOrchestration, appendCollabMessage, t, clearEmployeeStreamingState, setSubAgentToolLiveByJobId]
+	);
+
+	const resumeOrchestrationRun = useCallback(
+		(runId: string) => {
+			haltedSubAgentRunIdsRef.current.delete(runId);
+			const nowIso = new Date().toISOString();
+			const resumedSummary = t('aiEmployees.groupChat.runResumedSummary');
+			const resumedBody = t('aiEmployees.groupChat.runResumedBody');
+			persistOrchestration((state) => {
+				let next = appendCollabMessage(state, {
+					id: crypto.randomUUID(),
+					runId,
+					type: 'status_update',
+					summary: resumedSummary,
+					body: resumedBody,
+					createdAtIso: nowIso,
+				});
+				next = updateRunInState(next, runId, (run) => ({
+					...run,
+					status: 'running',
+					statusSummary: undefined,
+					lastEventAtIso: nowIso,
+				}));
+				return next;
+			});
+		},
+		[persistOrchestration, appendCollabMessage, t]
+	);
+
+	const renameOrchestrationRun = useCallback(
+		(runId: string, newTitle: string) => {
+			const nowIso = new Date().toISOString();
+			persistOrchestration((state) =>
+				updateRunInState(state, runId, (run) => ({
+					...run,
+					goal: newTitle,
+					lastEventAtIso: nowIso,
+				}))
+			);
+		},
+		[persistOrchestration]
 	);
 
 	const matchRunForTaskEvent = useCallback(
@@ -3038,6 +3166,20 @@ export function useAiEmployeesController(t: TFunction) {
 		[appendCollabMessage, appendTimelineEvent, ceoEmployeeId, persistOrchestration, requestEmployeeReply]
 	);
 
+	const retryLastCeoReply = useCallback(
+		(runId: string) => {
+			const ceoId = ceoEmployeeId;
+			if (!ceoId) return;
+			setEmployeeChatError((prev) => {
+				const next = { ...prev };
+				delete next[ceoId];
+				return next;
+			});
+			void requestEmployeeReply(ceoId, runId);
+		},
+		[ceoEmployeeId, requestEmployeeReply]
+	);
+
 	const createGroupChatRun = useCallback(
 		(title: string) => {
 			const ceoId = orgEmployees.find((e) => e.isCeo)?.id;
@@ -3297,6 +3439,10 @@ export function useAiEmployeesController(t: TFunction) {
 		setOrchestrationHandoffStatus,
 		sendCollabMessage,
 		stopOrchestrationRun,
+		interruptGeneration,
+		resumeOrchestrationRun,
+		renameOrchestrationRun,
+		retryLastCeoReply,
 		deleteOrchestrationRun,
 		subAgentToolLiveByJobId,
 		markCollabMessageRead,

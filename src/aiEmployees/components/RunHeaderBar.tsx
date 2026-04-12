@@ -15,14 +15,18 @@ export function RunHeaderBar({
 	t,
 	run,
 	presenceLine,
+	onInterrupt,
 	onStop,
 	onApproveGit,
+	isStreaming,
 }: {
 	t: TFunction;
 	run: AiOrchestrationRun;
 	presenceLine?: string;
+	onInterrupt?: () => void;
 	onStop: () => void;
 	onApproveGit?: () => void;
+	isStreaming?: boolean;
 }) {
 	const [now, setNow] = useState(() => Date.now());
 	const started = Date.parse(run.createdAtIso);
@@ -85,37 +89,40 @@ export function RunHeaderBar({
 					<span className="ref-ai-employees-run-header-bar-presence-text">{presenceLine}</span>
 				</div>
 			) : null}
-			<div className="ref-ai-employees-run-header-bar-actions">
+		<div className="ref-ai-employees-run-header-bar-actions">
+			{onInterrupt && isStreaming && canStop ? (
 				<button
 					type="button"
 					className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-run-header-btn"
-					disabled
-					title={t('aiEmployees.groupChat.runHeaderPauseHint')}
-				>
-					{t('aiEmployees.groupChat.runHeaderPause')}
-				</button>
-				<button
-					type="button"
-					className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-run-header-btn ref-ai-employees-run-header-btn--danger"
-					disabled={!canStop}
-					onClick={() => {
-						onStop();
-					}}
-					title={t('aiEmployees.groupChat.runHeaderStopHint')}
+					onClick={() => onInterrupt()}
+					title={t('aiEmployees.groupChat.runHeaderInterruptHint')}
 				>
 					<IconStop className="ref-ai-employees-run-header-btn-ico" aria-hidden />
-					{t('aiEmployees.groupChat.runHeaderStop')}
+					{t('aiEmployees.groupChat.runHeaderInterrupt')}
 				</button>
-				{showApprove ? (
-					<button
-						type="button"
-						className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-run-header-btn"
-						onClick={() => onApproveGit?.()}
-					>
-						{t('aiEmployees.groupChat.runHeaderApprove')}
-					</button>
-				) : null}
-			</div>
+			) : null}
+			<button
+				type="button"
+				className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-run-header-btn ref-ai-employees-run-header-btn--danger"
+				disabled={!canStop}
+				onClick={() => {
+					onStop();
+				}}
+				title={t('aiEmployees.groupChat.runHeaderCancelHint')}
+			>
+				<IconStop className="ref-ai-employees-run-header-btn-ico" aria-hidden />
+				{t('aiEmployees.groupChat.runHeaderCancel')}
+			</button>
+			{showApprove ? (
+				<button
+					type="button"
+					className="ref-ai-employees-btn ref-ai-employees-btn--primary ref-ai-employees-run-header-btn"
+					onClick={() => onApproveGit?.()}
+				>
+					{t('aiEmployees.groupChat.runHeaderApprove')}
+				</button>
+			) : null}
+		</div>
 		</div>
 	);
 }

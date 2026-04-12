@@ -724,6 +724,16 @@
 .ref-ai-employees-banner--err {
 	background: rgba(248, 81, 73, 0.12);
 	border: 1px solid rgba(248, 81, 73, 0.35);
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	justify-content: space-between;
+}
+
+.ref-ai-employees-banner-retry {
+	flex-shrink: 0;
+	font-size: 12px;
+	gap: 4px;
 }
 
 .ref-ai-employees-banner--muted {
@@ -4553,6 +4563,33 @@
 	width: 100%;
 	align-items: center;
 	gap: 8px;
+}
+
+.ref-ai-employees-inbox-context-menu {
+	min-width: 180px;
+	border-radius: 8px;
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+}
+
+.ref-ai-employees-inbox-ctx-ico {
+	width: 14px;
+	height: 14px;
+	flex-shrink: 0;
+}
+
+.ref-ai-employees-inbox-rename-input {
+	width: 100%;
+	font-size: 13px;
+	padding: 2px 4px;
+	background: var(--void-bg-2, #161b22);
+	border: 1px solid var(--void-border-2, rgba(255, 255, 255, 0.18));
+	border-radius: 4px;
+	color: var(--void-fg-0, #e6edf3);
+	outline: none;
+}
+
+.ref-ai-employees-inbox-rename-input:focus {
+	border-color: var(--void-accent, #2f81f7);
 }
 
 .ref-ai-employees-inbox-list-scroll {

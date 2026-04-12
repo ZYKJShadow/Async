@@ -317,10 +317,15 @@ export async function runEmployeeChat(
 	const hasBoundary =
 		input.boundaryLocalPaths &&
 		input.boundaryLocalPaths.length > 0;
-	const canUseTools = resolved.paradigm !== 'gemini'; // Gemini doesn't support tool use
+	const canUseTools = resolved.paradigm !== 'gemini';
 
-	// CEO only gets collaboration tools — never file tools.
-	// Regular employees get file tools + collaboration tools when they have a workspace boundary.
+	if (input.isCeo && hasTeammates && !canUseTools) {
+		const msg = `The model "${resolved.requestModelId}" (paradigm: ${resolved.paradigm}) does not support tool calling. ` +
+			`The CEO role requires tool calling to delegate tasks. Please bind a model that supports function calling (e.g. OpenAI, Anthropic).`;
+		handlers.onError(msg);
+		throw new Error(msg);
+	}
+
 	const useAgentMode = canUseTools && (input.isCeo ? hasTeammates : hasBoundary);
 
 	if (useAgentMode) {

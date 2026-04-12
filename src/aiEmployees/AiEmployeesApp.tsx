@@ -281,9 +281,13 @@ export function AiEmployeesApp() {
 												c.setTab('activity');
 											}}
 											subAgentToolLiveByJobId={c.subAgentToolLiveByJobId}
-											onStopOrchestrationRun={c.stopOrchestrationRun}
-											onDeleteGroupRun={c.deleteOrchestrationRun}
-											onApproveOrchestrationGit={async (runId) => {
+										onStopOrchestrationRun={c.stopOrchestrationRun}
+										onInterruptGeneration={c.interruptGeneration}
+										onResumeRun={c.resumeOrchestrationRun}
+										onDeleteGroupRun={c.deleteOrchestrationRun}
+										onRenameGroupRun={c.renameOrchestrationRun}
+										onRetryLastMessage={c.retryLastCeoReply}
+										onApproveOrchestrationGit={async (runId) => {
 												const r = await c.approveOrchestrationGit(runId);
 												if (r && typeof r === 'object' && 'ok' in r && r.ok === false && 'error' in r) {
 													publishAiEmployeesNotice(String((r as { error?: string }).error ?? t('aiEmployees.groupChat.approveGitFailedFallback')));
