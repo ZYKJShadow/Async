@@ -275,6 +275,8 @@ export function useAiEmployeesController() {
 		new Map<string, { employeeId: string; runId: string; allowStream: boolean }>()
 	);
 	const employeeReplyGuardRef = useRef(new Set<string>());
+	/** Exclusive guard so only one employee chat stream renders deltas at a time (across runs). */
+	const activeStreamOwnerRef = useRef<string | null>(null);
 	const requestEmployeeReplyRef = useRef<((employeeId: string, runId: string) => Promise<void>) | null>(null);
 	// Streaming-delta throttle: accumulate chunks in a ref, flush to state once per animation frame
 	const streamingDeltaBufferRef = useRef<Record<string, string>>({});
@@ -1323,6 +1325,9 @@ export function useAiEmployeesController() {
 				const text = (p.text ?? '').trim();
 				pendingEmployeeChatRef.current.delete(rid);
 				employeeReplyGuardRef.current.delete(employeeId);
+				if (activeStreamOwnerRef.current === rid) {
+					activeStreamOwnerRef.current = null;
+				}
 				setEmployeeChatStreaming((prev) => {
 					const next = { ...prev };
 					delete next[employeeId];
@@ -1360,6 +1365,9 @@ export function useAiEmployeesController() {
 				const err = p.error ?? 'Unknown error';
 				pendingEmployeeChatRef.current.delete(rid);
 				employeeReplyGuardRef.current.delete(employeeId);
+				if (activeStreamOwnerRef.current === rid) {
+					activeStreamOwnerRef.current = null;
+				}
 				setEmployeeChatError((prev) => ({ ...prev, [employeeId]: err }));
 				setEmployeeChatStreaming((prev) => {
 					const next = { ...prev };
@@ -1833,7 +1841,11 @@ export function useAiEmployeesController() {
 				maybeTriggerPendingCeoDigestsRef.current();
 				return;
 			}
-			const allowStream = runId.startsWith('im:') || employeeId === ceoEmployeeId;
+			const isStreamCandidate = runId.startsWith('im:') || employeeId === ceoEmployeeId;
+			const allowStream = isStreamCandidate && activeStreamOwnerRef.current === null;
+			if (allowStream) {
+				activeStreamOwnerRef.current = requestId;
+			}
 			pendingEmployeeChatRef.current.set(requestId, { employeeId, runId, allowStream });
 			setEmployeeChatStreaming((prev) => ({ ...prev, [employeeId]: '' }));
 			setEmployeeChatError((prev) => ({ ...prev, [employeeId]: undefined }));
@@ -1847,6 +1859,9 @@ export function useAiEmployeesController() {
 				if (pendingEmployeeChatRef.current.has(requestId)) {
 					pendingEmployeeChatRef.current.delete(requestId);
 					employeeReplyGuardRef.current.delete(employeeId);
+					if (activeStreamOwnerRef.current === requestId) {
+						activeStreamOwnerRef.current = null;
+					}
 					setEmployeeChatStreaming((prev) => {
 						const next = { ...prev };
 						delete next[employeeId];
@@ -1899,6 +1914,9 @@ export function useAiEmployeesController() {
 				const msg = e instanceof Error ? e.message : String(e);
 				pendingEmployeeChatRef.current.delete(requestId);
 				employeeReplyGuardRef.current.delete(employeeId);
+				if (activeStreamOwnerRef.current === requestId) {
+					activeStreamOwnerRef.current = null;
+				}
 				setEmployeeChatStreaming((prev) => {
 					const next = { ...prev };
 					delete next[employeeId];
@@ -1948,7 +1966,9 @@ export function useAiEmployeesController() {
 				return;
 			}
 			const jobs = run.subAgentJobs ?? [];
-			const digestTargets = jobs.filter((j) => j.status === 'done' && !j.ceoIngested);
+			const digestTargets = jobs.filter(
+				(j) => (j.status === 'done' || j.status === 'error' || j.status === 'blocked') && !j.ceoIngested
+			);
 			if (digestTargets.length === 0) {
 				pendingCeoDigestRunIdsRef.current.delete(runId);
 				return;
@@ -1963,7 +1983,14 @@ export function useAiEmployeesController() {
 			pendingCeoDigestRunIdsRef.current.delete(runId);
 			const block =
 				'[Sub-agent results — synthesize a concise update for the boss]\n\n' +
-				digestTargets.map((j) => `### ${j.employeeName}: ${j.taskTitle}\n${j.resultSummary ?? ''}`).join('\n\n');
+				digestTargets.map((j) => {
+						if (j.status === 'done') {
+							return `### ${j.employeeName}: ${j.taskTitle}\n${j.resultSummary ?? ''}`;
+						}
+						const label = j.status === 'blocked' ? 'blocked' : 'failed';
+						const detail = j.errorMessage ?? j.resultSummary ?? '';
+						return `### ${j.employeeName} (${label}): ${j.taskTitle}\n${detail}`;
+					}).join('\n\n');
 			const nowIso = new Date().toISOString();
 			persistOrchestration((state) => {
 				let next = appendCollabMessage(state, {

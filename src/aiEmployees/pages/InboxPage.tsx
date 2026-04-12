@@ -343,37 +343,15 @@ export function InboxPage({
 
 	const renderDelegationCard = (message: AiCollabMessage) => {
 		const job = jobFromRun(selectedRun, message.subAgentJobId ?? message.cardMeta?.handoffId);
-		if (job) {
-			return (
-				<SubAgentExecutionCard
-					t={t}
-					job={job}
-					description={message.body}
-					onOpenDetail={setDetailJob}
-				/>
-			);
+		if (!job) {
+			return null;
 		}
-		const assignee = message.toEmployeeId ? orgById.get(message.toEmployeeId) : undefined;
-		const placeholderJob: AiSubAgentJob = {
-			id: message.subAgentJobId ?? message.cardMeta?.handoffId ?? message.id,
-			runId: message.runId,
-			employeeId: message.toEmployeeId ?? '',
-			employeeName:
-				(assignee?.displayName ?? message.summary) ||
-				t('aiEmployees.groupChat.pendingAssignee'),
-			taskTitle: message.summary || t('aiEmployees.groupChat.pendingTask'),
-			taskDescription: message.body || '',
-			status: 'queued',
-			queuedAtIso: message.createdAtIso,
-			toolLog: [],
-		};
 		return (
 			<SubAgentExecutionCard
 				t={t}
-				job={placeholderJob}
+				job={job}
 				description={message.body}
 				onOpenDetail={setDetailJob}
-				isPlaceholder
 			/>
 		);
 	};

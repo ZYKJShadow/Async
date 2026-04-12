@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiSubAgentJob } from '../../../shared/aiEmployeesSettings';
 import {
@@ -116,70 +116,24 @@ export function SubAgentExecutionCard({
 	job,
 	description,
 	onOpenDetail,
-	isPlaceholder = false,
 }: {
 	t: TFunction;
 	job: AiSubAgentJob;
 	description?: string;
 	onOpenDetail: (job: AiSubAgentJob) => void;
-	isPlaceholder?: boolean;
 }) {
 	const timeline = useMemo(() => buildSubAgentTimeline(job), [job]);
 	const [open, setOpen] = useState(
 		job.status === 'running' || job.status === 'blocked' || job.status === 'error'
 	);
-	const [autoFollow, setAutoFollow] = useState(true);
-	const [hasOverflow, setHasOverflow] = useState(false);
 	const hasTimeline = timeline.length > 0;
 	const wallMs = getSubAgentJobWallDurationMs(job);
 	const statusText = jobStatusLabel(t, job.status);
 	const detailText = description?.trim() || job.taskDescription?.trim();
-	const timelineScrollRef = useRef<HTMLDivElement>(null);
-	const timelineContentRef = useRef<HTMLDivElement>(null);
-
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const scrollEl = timelineScrollRef.current;
-		if (!scrollEl) {
-			return;
-		}
-		scrollEl.scrollTop = scrollEl.scrollHeight;
-		setAutoFollow(true);
-		setHasOverflow(scrollEl.scrollHeight - scrollEl.clientHeight > 4);
-	}, [open]);
-
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const scrollEl = timelineScrollRef.current;
-		const contentEl = timelineContentRef.current;
-		if (!scrollEl || !contentEl || typeof ResizeObserver === 'undefined') {
-			return;
-		}
-		const syncMetrics = () => {
-			const nextOverflow = scrollEl.scrollHeight - scrollEl.clientHeight > 4;
-			setHasOverflow(nextOverflow);
-			if (autoFollow) {
-				scrollEl.scrollTop = scrollEl.scrollHeight;
-			}
-		};
-		syncMetrics();
-		const observer = new ResizeObserver(() => {
-			syncMetrics();
-		});
-		observer.observe(scrollEl);
-		observer.observe(contentEl);
-		return () => observer.disconnect();
-	}, [autoFollow, open, timeline.length]);
-
-	const showLatest = open && hasOverflow && !autoFollow;
 
 	return (
 		<article
-			className={`ref-ai-employees-subagent-live-card ${isPlaceholder ? 'is-placeholder' : ''}`}
+			className="ref-ai-employees-subagent-live-card"
 			data-job-status={job.status}
 		>
 			<div className="ref-ai-employees-subagent-live-card-head">
@@ -216,17 +170,15 @@ export function SubAgentExecutionCard({
 						<IconChevron className={`ref-ai-employees-subagent-live-card-chevron ${open ? 'is-open' : ''}`} />
 					) : null}
 				</button>
-				{!isPlaceholder ? (
-					<button
-						type="button"
-						className="ref-ai-employees-subagent-live-card-open"
-						onClick={() => onOpenDetail(job)}
-						title={t('aiEmployees.groupChat.viewJobDetail')}
-						aria-label={t('aiEmployees.groupChat.viewJobDetail')}
-					>
-						<IconWindowMaximize />
-					</button>
-				) : null}
+				<button
+					type="button"
+					className="ref-ai-employees-subagent-live-card-open"
+					onClick={() => onOpenDetail(job)}
+					title={t('aiEmployees.groupChat.viewJobDetail')}
+					aria-label={t('aiEmployees.groupChat.viewJobDetail')}
+				>
+					<IconWindowMaximize />
+				</button>
 			</div>
 			<div className="ref-ai-employees-subagent-live-card-body">
 				<div className="ref-ai-employees-subagent-live-task">{job.taskTitle}</div>
@@ -234,46 +186,17 @@ export function SubAgentExecutionCard({
 					<div className="ref-ai-employees-subagent-live-desc">{detailText}</div>
 				) : null}
 			</div>
-			{hasTimeline ? (
-				<div className={`ref-ai-employees-subagent-live-timeline-wrap ${open ? 'is-open' : ''}`}>
+			{hasTimeline && open ? (
+				<div className="ref-ai-employees-subagent-live-timeline-wrap is-open">
 					<div className="ref-ai-employees-subagent-live-timeline-shell">
-						<div
-							ref={timelineScrollRef}
-							className="ref-ai-employees-subagent-live-timeline"
-							onScroll={() => {
-								const scrollEl = timelineScrollRef.current;
-								if (!scrollEl) {
-									return;
-								}
-								const nearBottom =
-									scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 24;
-								setHasOverflow(scrollEl.scrollHeight - scrollEl.clientHeight > 4);
-								setAutoFollow(nearBottom);
-							}}
-						>
-							<div ref={timelineContentRef} className="ref-ai-employees-subagent-live-timeline-inner">
+						<div className="ref-ai-employees-subagent-live-timeline">
+							<div className="ref-ai-employees-subagent-live-timeline-inner">
 								{timeline.map((item) => (
 									<CompactTimelineRow key={item.id} t={t} item={item} />
 								))}
 							</div>
 						</div>
 					</div>
-					{showLatest ? (
-						<button
-							type="button"
-							className="ref-ai-employees-subagent-live-latest"
-							onClick={() => {
-								const scrollEl = timelineScrollRef.current;
-								if (!scrollEl) {
-									return;
-								}
-								scrollEl.scrollTop = scrollEl.scrollHeight;
-								setAutoFollow(true);
-							}}
-						>
-							{t('aiEmployees.groupChat.jumpToLatest')}
-						</button>
-					) : null}
 				</div>
 			) : null}
 		</article>

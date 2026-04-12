@@ -18,27 +18,6 @@ export type SubAgentTimelineItem =
 			detail: string;
 	  };
 
-function shortenPath(value: string): string {
-	const normalized = value.replace(/\\/g, '/');
-	const parts = normalized.split('/').filter(Boolean);
-	if (parts.length <= 3) {
-		return normalized;
-	}
-	return `.../${parts.slice(-2).join('/')}`;
-}
-
-function firstShortString(values: unknown[]): string {
-	for (const value of values) {
-		if (typeof value === 'string') {
-			const trimmed = value.trim();
-			if (trimmed.length > 0 && trimmed.length <= 120) {
-				return trimmed;
-			}
-		}
-	}
-	return '';
-}
-
 function previewText(value: string): string {
 	const text = value.trim().replace(/\s+/g, ' ');
 	if (!text) {
@@ -48,40 +27,15 @@ function previewText(value: string): string {
 }
 
 export function summarizeSubAgentToolArgs(args: Record<string, unknown>): string {
-	const query = typeof args.query === 'string' ? args.query.trim() : '';
-	if (query) {
-		return query;
+	for (const value of Object.values(args)) {
+		if (typeof value === 'string') {
+			const trimmed = value.trim().replace(/\s+/g, ' ');
+			if (trimmed) {
+				return trimmed.length > 120 ? `${trimmed.slice(0, 120)}...` : trimmed;
+			}
+		}
 	}
-	const pathValue =
-		typeof args.file_path === 'string'
-			? args.file_path
-			: typeof args.path === 'string'
-				? args.path
-				: '';
-	if (pathValue) {
-		return shortenPath(pathValue);
-	}
-	const pattern = typeof args.pattern === 'string' ? args.pattern.trim() : '';
-	if (pattern) {
-		return pattern;
-	}
-	const description = typeof args.description === 'string' ? args.description.trim() : '';
-	if (description) {
-		return description;
-	}
-	const command = typeof args.command === 'string' ? args.command.trim() : '';
-	if (command) {
-		return command.length > 120 ? `${command.slice(0, 120)}...` : command;
-	}
-	const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
-	if (prompt) {
-		return prompt.length > 120 ? `${prompt.slice(0, 120)}...` : prompt;
-	}
-	const skill = typeof args.skill === 'string' ? args.skill.trim() : '';
-	if (skill) {
-		return skill;
-	}
-	return firstShortString(Object.values(args));
+	return '';
 }
 
 export function formatSubAgentDuration(ms?: number): string {
