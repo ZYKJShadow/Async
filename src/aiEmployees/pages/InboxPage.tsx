@@ -2,7 +2,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { TFunction } from '../../i18n';
-import { IconDotsHorizontal, IconMessageCircle, IconPlus, IconSend } from '../../icons';
+import {
+	IconArrowUp,
+	IconDotsHorizontal,
+	IconMessageCircle,
+	IconPlus,
+} from '../../icons';
 import type {
 	AiCollabMessage,
 	AiEmployeesOrchestrationState,
@@ -20,6 +25,7 @@ import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
 import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 import type { LocalModelEntry } from '../sessionTypes';
 import { CollabCard, isStructuredMessage } from '../components/CollabCard';
+import { SubAgentExecutionCard } from '../components/SubAgentExecutionCard';
 import { SubAgentDetailPanel } from './SubAgentDetailPanel';
 
 function InboxChatAvatarSlot({
@@ -76,6 +82,19 @@ function runStatusBadge(t: TFunction, run: AiOrchestrationRun): string {
 			return t('aiEmployees.groupChat.runStatus.cancelled');
 		default:
 			return run.statusSummary ?? run.status;
+	}
+}
+
+function runStatusTone(run: AiOrchestrationRun): string {
+	switch (run.status) {
+		case 'completed':
+			return 'is-done';
+		case 'awaiting_approval':
+			return 'is-pending';
+		case 'cancelled':
+			return 'is-blocked';
+		default:
+			return 'is-running';
 	}
 }
 
@@ -163,6 +182,7 @@ export function InboxPage({
 	const [detailJob, setDetailJob] = useState<AiSubAgentJob | null>(null);
 	const moreRef = useRef<HTMLDivElement>(null);
 	const threadRef = useRef<HTMLDivElement>(null);
+	const composerInputRef = useRef<HTMLTextAreaElement>(null);
 
 	const selectedRunId = selection?.kind === 'run' ? selection.runId : null;
 	const selectedRun = selectedRunId ? orchestration.runs.find((r) => r.id === selectedRunId) : undefined;
@@ -211,6 +231,13 @@ export function InboxPage({
 		if (!el) return;
 		el.scrollTop = el.scrollHeight;
 	}, [selectedRunId, thread.length, streamDraft]);
+
+	useEffect(() => {
+		const el = composerInputRef.current;
+		if (!el) return;
+		el.style.height = 'auto';
+		el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+	}, [draft]);
 
 	const pendingTasks = useMemo(() => {
 		const msgs = orchestration.collabMessages;
@@ -297,40 +324,30 @@ export function InboxPage({
 
 	const renderDelegationCard = (message: AiCollabMessage) => {
 		const job = jobFromRun(selectedRun, message.subAgentJobId ?? message.cardMeta?.handoffId);
-		const st = job?.status ?? 'queued';
-		const cardLabel =
-			st === 'done'
-				? t('aiEmployees.groupChat.cardDone')
-				: st === 'running'
-					? t('aiEmployees.groupChat.cardRunning')
-					: st === 'error'
-						? t('aiEmployees.groupChat.cardError')
-						: st === 'blocked'
-							? t('aiEmployees.groupChat.cardBlocked')
-							: st === 'queued'
-								? t('aiEmployees.groupChat.cardQueued')
-								: t('aiEmployees.groupChat.cardPending');
+		if (job) {
+			return (
+				<SubAgentExecutionCard
+					t={t}
+					job={job}
+					description={message.body}
+					onOpenDetail={setDetailJob}
+				/>
+			);
+		}
 		const assignee = message.toEmployeeId ? orgById.get(message.toEmployeeId) : undefined;
 		return (
-			<div className="ref-ai-employees-group-card" data-job-status={st}>
+			<div className="ref-ai-employees-group-card" data-job-status="queued">
 				<div className="ref-ai-employees-group-card-head">
 					<span className="ref-ai-employees-group-card-who">
 						{assignee?.displayName ?? message.summary}
 					</span>
-					<span className="ref-ai-employees-group-card-state">{cardLabel}</span>
+					<span className="ref-ai-employees-group-card-state">
+						{t('aiEmployees.groupChat.cardQueued')}
+					</span>
 				</div>
 				<div className="ref-ai-employees-group-card-title">{message.summary}</div>
 				{message.body ? (
 					<div className="ref-ai-employees-group-card-desc">{message.body}</div>
-				) : null}
-				{job && (job.toolLog.length > 0 || (job.resultSummary && job.status === 'done')) ? (
-					<button
-						type="button"
-						className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-group-card-detail"
-						onClick={() => setDetailJob(job)}
-					>
-						{t('aiEmployees.groupChat.viewJobDetail')}
-					</button>
 				) : null}
 			</div>
 		);
@@ -498,14 +515,32 @@ export function InboxPage({
 						<>
 							<div className="ref-ai-employees-inbox-detail-headbar">
 								<div className="ref-ai-employees-inbox-detail-headbar-main">
-									<div className="ref-ai-employees-inbox-detail-title">{t('aiEmployees.groupChat.headerLine')}</div>
-									<div className="ref-ai-employees-inbox-detail-subtitle">{selectedRun.goal}</div>
-									{ceo ? (
-										<div className="ref-ai-employees-inbox-detail-model" title={formatEmployeeResolvedModelLabel({ employee: ceo, ...modelRouteParams }) ?? ''}>
-											CEO: {ceo.displayName} ·{' '}
-											{formatEmployeeResolvedModelLabel({ employee: ceo, ...modelRouteParams }) ?? t('aiEmployees.modelDisplayNone')}
-										</div>
-									) : null}
+									<div className="ref-ai-employees-inbox-detail-subtitle">
+										{t('aiEmployees.groupChat.headerLine')}
+									</div>
+									<div className="ref-ai-employees-inbox-detail-title">{selectedRun.goal}</div>
+									<div className="ref-ai-employees-inbox-detail-meta">
+										<span className={`ref-ai-employees-run-badge ${runStatusTone(selectedRun)}`}>
+											{runStatusBadge(t, selectedRun)}
+										</span>
+										{ceo ? (
+											<span
+												className="ref-ai-employees-inbox-detail-model"
+												title={
+													formatEmployeeResolvedModelLabel({
+														employee: ceo,
+														...modelRouteParams,
+													}) ?? ''
+												}
+											>
+												CEO: {ceo.displayName} ·{' '}
+												{formatEmployeeResolvedModelLabel({
+													employee: ceo,
+													...modelRouteParams,
+												}) ?? t('aiEmployees.modelDisplayNone')}
+											</span>
+										) : null}
+									</div>
 								</div>
 								{onNavigateToActivity ? (
 									<button
@@ -548,7 +583,6 @@ export function InboxPage({
 										}
 
 										if (message.type === 'result' && message.subAgentJobId) {
-											const rjob = jobFromRun(selectedRun, message.subAgentJobId);
 											return (
 												<Fragment key={message.id}>
 													{showDay ? (
@@ -557,22 +591,7 @@ export function InboxPage({
 														</div>
 													) : null}
 													<div className="ref-ai-employees-inbox-chat-row is-full">
-														<div className="ref-ai-employees-group-card ref-ai-employees-group-card--result">
-															<div className="ref-ai-employees-group-card-head">
-																<span className="ref-ai-employees-group-card-who">{message.summary}</span>
-																<span className="ref-ai-employees-group-card-state">{t('aiEmployees.groupChat.cardDone')}</span>
-															</div>
-															<div className="ref-ai-employees-group-card-desc">{message.body}</div>
-															{rjob && rjob.toolLog.length > 0 ? (
-																<button
-																	type="button"
-																	className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-group-card-detail"
-																	onClick={() => setDetailJob(rjob)}
-																>
-																	{t('aiEmployees.groupChat.viewJobDetail')}
-																</button>
-															) : null}
-														</div>
+														{renderDelegationCard(message)}
 													</div>
 												</Fragment>
 											);
@@ -673,8 +692,9 @@ export function InboxPage({
 								<div className="ref-ai-employees-comm-composer ref-ai-employees-inbox-composer">
 									<div className="ref-ai-employees-inbox-composer-inner">
 										<textarea
+											ref={composerInputRef}
 											className="ref-ai-employees-comm-input ref-ai-employees-input ref-ai-employees-inbox-composer-input"
-											rows={2}
+											rows={1}
 											value={draft}
 											placeholder={t('aiEmployees.inbox.messagePlaceholder')}
 											onChange={(event) => setDraft(event.target.value)}
@@ -692,7 +712,7 @@ export function InboxPage({
 											onClick={sendMessage}
 											aria-label={t('aiEmployees.inbox.send')}
 										>
-											<IconSend className="ref-ai-employees-comm-send-ico" aria-hidden />
+											<IconArrowUp className="ref-ai-employees-comm-send-ico" aria-hidden />
 										</button>
 									</div>
 								</div>
