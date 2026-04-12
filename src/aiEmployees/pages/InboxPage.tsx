@@ -135,6 +135,27 @@ function isThreadNearBottom(el: HTMLDivElement, threshold = 40): boolean {
 	return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
 }
 
+function isOutgoingMessage(message: AiCollabMessage, ceoEmployeeId?: string): boolean {
+	if (!ceoEmployeeId) {
+		return false;
+	}
+	return message.fromEmployeeId === ceoEmployeeId || (!message.fromEmployeeId && message.toEmployeeId === ceoEmployeeId);
+}
+
+function avatarEmployeeForIncomingMessage(
+	message: AiCollabMessage,
+	orgById: Map<string, OrgEmployee>,
+	ceo: OrgEmployee | undefined
+): OrgEmployee | null {
+	if (message.fromEmployeeId) {
+		return orgById.get(message.fromEmployeeId) ?? ceo ?? null;
+	}
+	if (message.toEmployeeId) {
+		return orgById.get(message.toEmployeeId) ?? ceo ?? null;
+	}
+	return ceo ?? null;
+}
+
 type SidebarSelection = { kind: 'run'; runId: string } | { kind: 'task'; messageId: string };
 
 export function InboxPage({
@@ -672,7 +693,7 @@ export function InboxPage({
 										const prev = thread[idx - 1];
 										const showDay =
 											!prev || calendarDayKey(prev.createdAtIso) !== calendarDayKey(message.createdAtIso);
-										const isUser = Boolean(ceoEmployeeId && message.toEmployeeId === ceoEmployeeId && !message.fromEmployeeId);
+										const isUser = isOutgoingMessage(message, ceoEmployeeId);
 
 										if (message.type === 'task_assignment' && message.subAgentJobId) {
 											return (
@@ -710,7 +731,7 @@ export function InboxPage({
 															<InboxChatAvatarSlot
 																conn={conn}
 																workspaceId={workspaceId}
-																employee={message.fromEmployeeId ? orgById.get(message.fromEmployeeId) ?? ceo ?? null : ceo ?? null}
+																employee={avatarEmployeeForIncomingMessage(message, orgById, ceo)}
 															/>
 														) : null}
 														<CollabCard t={t} message={message} employeeMap={orgById} ceoEmployeeId={ceoEmployeeId} />
@@ -719,8 +740,7 @@ export function InboxPage({
 											);
 										}
 
-										const peerFace =
-											!isUser && message.fromEmployeeId ? orgById.get(message.fromEmployeeId) ?? ceo ?? null : !isUser ? ceo ?? null : null;
+										const peerFace = !isUser ? avatarEmployeeForIncomingMessage(message, orgById, ceo) : null;
 										return (
 											<Fragment key={message.id}>
 												{showDay ? (

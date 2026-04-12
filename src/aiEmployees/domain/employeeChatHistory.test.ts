@@ -106,4 +106,31 @@ describe('employeeChatHistory group run', () => {
 		const h = buildCollabHistoryForEmployeeInRun(messages, 'r1', eng.id, 'ceo1');
 		expect(h).toEqual([{ role: 'assistant', content: 'only eng' }]);
 	});
+
+	it('does not leak CEO messages to other teammates into this employee thread', () => {
+		const messages: AiCollabMessage[] = [
+			msg({
+				id: '1',
+				runId: 'r1',
+				type: 'text',
+				fromEmployeeId: 'ceo1',
+				toEmployeeId: 'e2',
+				summary: 'to designer',
+				body: '这条消息是发给设计师的',
+				createdAtIso: '2020-01-01T00:00:00.000Z',
+			}),
+			msg({
+				id: '2',
+				runId: 'r1',
+				type: 'text',
+				fromEmployeeId: 'ceo1',
+				toEmployeeId: 'e1',
+				summary: 'to engineer',
+				body: '这条消息是发给工程师的',
+				createdAtIso: '2020-01-01T00:00:01.000Z',
+			}),
+		];
+		const h = buildCollabHistoryForEmployeeInRun(messages, 'r1', eng.id, 'ceo1');
+		expect(h).toEqual([{ role: 'user', content: '这条消息是发给工程师的' }]);
+	});
 });

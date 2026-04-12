@@ -1,6 +1,27 @@
 import type { AiCollabMessage } from '../../../shared/aiEmployeesSettings';
 import type { EmployeeChatHistoryTurn } from '../../../shared/aiEmployeesPersona';
 
+function isDirectThreadParticipant(
+	message: AiCollabMessage,
+	employeeId: string,
+	ceoEmployeeId?: string
+): boolean {
+	if (message.fromEmployeeId === employeeId || message.toEmployeeId === employeeId) {
+		return true;
+	}
+	if (!ceoEmployeeId) {
+		return false;
+	}
+	if (message.fromEmployeeId === ceoEmployeeId && !message.toEmployeeId) {
+		return true;
+	}
+	const touchesCeo = message.fromEmployeeId === ceoEmployeeId || message.toEmployeeId === ceoEmployeeId;
+	if (!touchesCeo) {
+		return false;
+	}
+	return message.fromEmployeeId === employeeId || message.toEmployeeId === employeeId;
+}
+
 /**
  * Build OpenAI-style turns for an employee inbox thread: user = lead/manager, assistant = employee.
  */
@@ -53,15 +74,7 @@ export function buildCollabHistoryForEmployeeInRun(
 	const inRun = messages
 		.filter((m) => m.runId === runId)
 		.sort((a, b) => Date.parse(a.createdAtIso) - Date.parse(b.createdAtIso));
-	const thread = inRun.filter((m) => {
-		if (m.toEmployeeId === employeeId || m.fromEmployeeId === employeeId) {
-			return true;
-		}
-		if (ceoEmployeeId && m.fromEmployeeId === ceoEmployeeId) {
-			return true;
-		}
-		return false;
-	});
+	const thread = inRun.filter((m) => isDirectThreadParticipant(m, employeeId, ceoEmployeeId));
 	const out: EmployeeChatHistoryTurn[] = [];
 	for (const m of thread) {
 		const content = messageSnippetForHistory(m);
