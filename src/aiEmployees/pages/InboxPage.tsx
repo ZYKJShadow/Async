@@ -151,7 +151,9 @@ function avatarEmployeeForIncomingMessage(
 	return ceo ?? null;
 }
 
-type SidebarSelection = { kind: 'run'; runId: string } | { kind: 'task'; messageId: string };
+type SidebarSelection =
+	| { kind: 'run'; runId: string }
+	| { kind: 'task'; messageId: string };
 
 export function InboxPage({
 	t,
@@ -240,9 +242,20 @@ export function InboxPage({
 	const threadRef = useRef<HTMLDivElement>(null);
 	const threadStickToBottomRef = useRef(true);
 	const composerInputRef = useRef<HTMLTextAreaElement>(null);
+	const pendingFocusMessageIdRef = useRef<string | null>(null);
 
 	const selectedRunId = selection?.kind === 'run' ? selection.runId : null;
 	const selectedRun = selectedRunId ? orchestration.runs.find((r) => r.id === selectedRunId) : undefined;
+
+	const taskMessage = useMemo(() => {
+		if (selection?.kind !== 'task') return undefined;
+		return orchestration.collabMessages.find((m) => m.id === selection.messageId);
+	}, [selection, orchestration.collabMessages]);
+
+	const taskEmployee = useMemo(() => {
+		if (!taskMessage?.fromEmployeeId) return undefined;
+		return orgById.get(taskMessage.fromEmployeeId);
+	}, [taskMessage, orgById]);
 
 	useEffect(() => {
 		if (!selection && sortedRuns[0]?.id) {
@@ -282,6 +295,14 @@ export function InboxPage({
 			}
 		}
 	}, [onMarkMessageRead, thread, ceoEmployeeId]);
+
+	useEffect(() => {
+		if (pendingFocusMessageIdRef.current && threadRef.current) {
+			const id = pendingFocusMessageIdRef.current;
+			pendingFocusMessageIdRef.current = null;
+			window.setTimeout(() => focusMessageInThread(id), 100);
+		}
+	}, [selectedRunId, thread.length, focusMessageInThread]);
 
 	useEffect(() => {
 		const el = threadRef.current;
@@ -344,10 +365,10 @@ export function InboxPage({
 		}
 	}, [conn, remoteItems, workspaceId]);
 
-	const canDeleteSelectedRun = selection?.kind === 'run' && sortedRuns.some((r) => r.id === selection.runId);
+	const canDeleteSelectedRun = !!selection && sortedRuns.some((r) => r.id === selection.runId);
 
 	const requestDeleteSelectedRun = useCallback((): boolean => {
-		if (selection?.kind !== 'run') {
+		if (!selection) {
 			return false;
 		}
 		const run = orchestration.runs.find((r) => r.id === selection.runId);
@@ -362,6 +383,35 @@ export function InboxPage({
 		return true;
 	}, [selection, orchestration.runs, onDeleteGroupRun, t]);
 
+	const focusMessageInThread = useCallback((messageId: string) => {
+		const container = threadRef.current;
+		if (!container) return;
+		const el = container.querySelector(`[data-inbox-message-id="${messageId}"]`);
+		if (!(el instanceof HTMLElement)) return;
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		el.classList.add('ref-ai-employees-run-plan-flash');
+		window.setTimeout(() => el.classList.remove('ref-ai-employees-run-plan-flash'), 800);
+	}, []);
+
+	const openTaskMessage = useCallback(
+		(task: AiCollabMessage) => {
+			pendingFocusMessageIdRef.current = task.id;
+			if (selection?.runId === task.runId) {
+				window.requestAnimationFrame(() => focusMessageInThread(task.id));
+			} else {
+				setSelection({ kind: 'run', runId: task.runId });
+			}
+		},
+		[focusMessageInThread, selection?.runId]
+	);
+
+	const deriveRunTitleFromText = (text: string): string => {
+		const firstLine = text.split(/\r?\n/).find((line) => line.trim()) ?? text;
+		const trimmed = firstLine.trim();
+		if (!trimmed) return t('aiEmployees.inbox.defaultRunTitle');
+		return trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed;
+	};
+
 	const sendMessage = () => {
 		const text = draft.trim();
 		if (!text || !ceoEmployeeId) return;
@@ -374,7 +424,7 @@ export function InboxPage({
 				toEmployeeId: ceoEmployeeId,
 			});
 		} else {
-			const runId = onCreateGroupRun(t('aiEmployees.inbox.defaultRunTitle'));
+			const runId = onCreateGroupRun(deriveRunTitleFromText(text));
 			if (runId) {
 				setSelection({ kind: 'run', runId });
 				onSendMessage({
@@ -394,15 +444,9 @@ export function InboxPage({
 		if (runId) {
 			setSelection({ kind: 'run', runId });
 			setDraft('');
+			window.requestAnimationFrame(() => composerInputRef.current?.focus());
 		}
 	};
-
-	const taskMessage = selection?.kind === 'task'
-		? orchestration.collabMessages.find((m) => m.id === selection.messageId)
-		: undefined;
-	const taskEmployee = taskMessage?.fromEmployeeId
-		? orgById.get(taskMessage.fromEmployeeId)
-		: undefined;
 
 	const runPreviewById = useMemo(() => {
 		const preview = new Map<string, string>();
@@ -527,7 +571,7 @@ export function InboxPage({
 												<button
 													type="button"
 													className={`ref-ai-employees-inbox-task-item ${isActive ? 'is-active' : ''}`}
-													onClick={() => setSelection({ kind: 'task', messageId: task.id })}
+													onClick={() => openTaskMessage(task)}
 												>
 													<span
 														className={`ref-ai-employees-inbox-task-dot ${
@@ -795,6 +839,20 @@ export function InboxPage({
 														<InboxChatAvatarSlot conn={conn} workspaceId={workspaceId} employee={peerFace} />
 													) : null}
 													<div className={`ref-ai-employees-inbox-chat-msg ${isUser ? 'is-user' : 'is-peer'}`}>
+														{!isUser && peerFace?.displayName ? (
+															<div
+																className="ref-ai-employees-inbox-chat-msg-author"
+																style={{
+																	fontSize: 12,
+																	color: 'var(--void-fg-3, #9aa4b2)',
+																	marginBottom: 4,
+																	marginLeft: 4,
+																	fontWeight: 500,
+																}}
+															>
+																{peerFace.displayName}
+															</div>
+														) : null}
 														<div
 															className={`ref-ai-employees-comm-bubble ${
 																isUser ? 'ref-ai-employees-comm-bubble--user' : 'ref-ai-employees-comm-bubble--system'
@@ -826,6 +884,18 @@ export function InboxPage({
 									<div className="ref-ai-employees-inbox-chat-row is-peer">
 										<InboxChatAvatarSlot conn={conn} workspaceId={workspaceId} employee={ceo} />
 										<div className="ref-ai-employees-inbox-chat-msg is-peer ref-ai-employees-inbox-chat-msg--streaming">
+											<div
+												className="ref-ai-employees-inbox-chat-msg-author"
+												style={{
+													fontSize: 12,
+													color: 'var(--void-fg-3, #9aa4b2)',
+													marginBottom: 4,
+													marginLeft: 4,
+													fontWeight: 500,
+												}}
+											>
+												{ceo.displayName}
+											</div>
 											<div
 												className="ref-ai-employees-comm-bubble ref-ai-employees-comm-bubble--system ref-ai-employees-inbox-streaming"
 												aria-busy={!streamDraft}
