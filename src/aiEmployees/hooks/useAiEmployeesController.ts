@@ -35,6 +35,7 @@ import {
 	createDraftRun,
 	emptyOrchestrationState,
 	findRunByTaskId,
+	linkDelegatedJobToPlanInState,
 	linkTaskToHandoffInState,
 	markCollabMessageReadInState,
 	setRunIssueInState,
@@ -1153,32 +1154,14 @@ export function useAiEmployeesController(t: TFunction) {
 						toolLog: [],
 					};
 					persistOrchestration((state) => {
-						const run = state.runs.find((r) => r.id === runId);
-						const existingPlan = run?.plan;
 						let next = state;
-
-						if (!existingPlan?.length) {
-							const synthetic: AiRunPlanItem = {
-								id: crypto.randomUUID(),
-								runId,
-								title: taskTitle,
-								ownerEmployeeId: target.id,
-								subAgentJobId: correlationId,
-								status: 'in_progress',
-								createdAtIso: nowIso,
-							};
-							next = setRunPlanInState(next, runId, [synthetic], 'ceo', nowIso);
-						} else if (planItemId) {
-							next = updateRunInState(next, runId, (r) => ({
-								...r,
-								plan: r.plan?.map((item) =>
-									item.id === planItemId
-										? { ...item, subAgentJobId: correlationId, status: 'in_progress' as const }
-										: item
-								),
-								lastEventAtIso: nowIso,
-							}));
-						}
+						next = linkDelegatedJobToPlanInState(next, runId, {
+							jobId: correlationId,
+							taskTitle,
+							ownerEmployeeId: target.id,
+							nowIso,
+							planItemId: planItemId || undefined,
+						});
 
 						next = addHandoffToRunInState(next, runId, {
 							id: correlationId,
@@ -1613,7 +1596,28 @@ export function useAiEmployeesController(t: TFunction) {
 					createdAtIso: nowIso,
 					source: 'local',
 				});
+				const target = next.runs.find((r) => r.id === runId);
+				if (target && target.status !== 'completed' && target.status !== 'cancelled') {
+					next = updateRunInState(next, runId, (run) => ({
+						...run,
+						status: 'cancelled',
+						statusSummary: t('aiEmployees.groupChat.runStoppedStatusSummary'),
+						lastEventAtIso: nowIso,
+					}));
+				}
 				return next;
+			});
+
+			setSubAgentToolLiveByJobId((prev) => {
+				let changed = false;
+				const next = { ...prev };
+				for (const [jid, meta] of Object.entries(prev)) {
+					if (meta.runId === runId) {
+						delete next[jid];
+						changed = true;
+					}
+				}
+				return changed ? next : prev;
 			});
 
 			if (!shell) {
@@ -1622,7 +1626,7 @@ export function useAiEmployeesController(t: TFunction) {
 
 			processSubAgentQueueRef.current();
 		},
-		[shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, t]
+		[shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, t, setSubAgentToolLiveByJobId]
 	);
 
 	const matchRunForTaskEvent = useCallback(

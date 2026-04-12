@@ -577,6 +577,7 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.groupChat.pendingAssignee': 'Pending assignee',
 	'aiEmployees.groupChat.jumpToLatest': 'Latest',
 	'aiEmployees.groupChat.runPlanTitle': 'Plan',
+	'aiEmployees.groupChat.runPlanCoordinator': 'CEO',
 	'aiEmployees.groupChat.runPlanUnassigned': 'Unassigned',
 	'aiEmployees.groupChat.runHeaderElapsed': 'Elapsed time since run started',
 	'aiEmployees.groupChat.runHeaderProgress': '{{done}} / {{total}} done',
@@ -586,6 +587,7 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.groupChat.runHeaderStop': 'Stop',
 	'aiEmployees.groupChat.runHeaderStopHint': 'Stop new work on this run (active sub-tasks finish)',
 	'aiEmployees.groupChat.runHeaderApprove': 'Approve result',
+	'aiEmployees.groupChat.runStoppedStatusSummary': 'Stopped by you',
 	'aiEmployees.groupChat.runStoppedSummary': 'Run stopped',
 	'aiEmployees.groupChat.runStoppedTimelineLabel': 'Run stopped',
 	'aiEmployees.groupChat.runStoppedBodyHadEffect':

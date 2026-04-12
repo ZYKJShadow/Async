@@ -131,6 +131,10 @@ function livePresenceForRun(
 	return undefined;
 }
 
+function isThreadNearBottom(el: HTMLDivElement, threshold = 40): boolean {
+	return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+}
+
 type SidebarSelection = { kind: 'run'; runId: string } | { kind: 'task'; messageId: string };
 
 export function InboxPage({
@@ -216,6 +220,7 @@ export function InboxPage({
 	const [detailJob, setDetailJob] = useState<AiSubAgentJob | null>(null);
 	const moreRef = useRef<HTMLDivElement>(null);
 	const threadRef = useRef<HTMLDivElement>(null);
+	const threadStickToBottomRef = useRef(true);
 	const composerInputRef = useRef<HTMLTextAreaElement>(null);
 
 	const selectedRunId = selection?.kind === 'run' ? selection.runId : null;
@@ -263,8 +268,15 @@ export function InboxPage({
 	useEffect(() => {
 		const el = threadRef.current;
 		if (!el) return;
+		threadStickToBottomRef.current = true;
 		el.scrollTop = el.scrollHeight;
-	}, [selectedRunId, thread.length, streamDraft]);
+	}, [selectedRunId]);
+
+	useEffect(() => {
+		const el = threadRef.current;
+		if (!el || !threadStickToBottomRef.current) return;
+		el.scrollTop = el.scrollHeight;
+	}, [thread.length, streamDraft]);
 
 	useEffect(() => {
 		const el = composerInputRef.current;
@@ -370,6 +382,11 @@ export function InboxPage({
 		}
 		return livePresenceForRun(selectedRunId, subAgentToolLiveByJobId, orgById);
 	}, [orgById, selectedRunId, subAgentToolLiveByJobId]);
+
+	const selectedRunJobsById = useMemo(
+		() => new Map((selectedRun?.subAgentJobs ?? []).map((job) => [job.id, job])),
+		[selectedRun]
+	);
 
 	const renderDelegationCard = (message: AiCollabMessage) => {
 		const job = jobFromRun(selectedRun, message.subAgentJobId ?? message.cardMeta?.handoffId);
@@ -613,13 +630,22 @@ export function InboxPage({
 									onApproveOrchestrationGit ? () => void onApproveOrchestrationGit(selectedRun.id) : undefined
 								}
 							/>
-							<div ref={threadRef} className="ref-ai-employees-comm-thread ref-ai-employees-inbox-chat-thread" role="log" aria-live="polite">
+							<div
+								ref={threadRef}
+								className="ref-ai-employees-comm-thread ref-ai-employees-inbox-chat-thread"
+								role="log"
+								aria-live="polite"
+								onScroll={(event) => {
+									threadStickToBottomRef.current = isThreadNearBottom(event.currentTarget);
+								}}
+							>
 								{selectedRun.plan?.length ? (
 									<div className="ref-ai-employees-inbox-plan-anchor">
 										<RunPlanCard
 											t={t}
 											plan={selectedRun.plan}
 											employeeById={orgById}
+											jobsById={selectedRunJobsById}
 											onItemActivate={(jobId) => {
 												if (!jobId || !threadRef.current) {
 													return;
@@ -664,18 +690,11 @@ export function InboxPage({
 										}
 
 										if (message.type === 'result' && message.subAgentJobId) {
-											return (
-												<Fragment key={message.id}>
-													{showDay ? (
-														<div className="ref-ai-employees-inbox-chat-day" role="separator" aria-label={formatChatDayDivider(message.createdAtIso)}>
-															{formatChatDayDivider(message.createdAtIso)}
-														</div>
-													) : null}
-													<div className="ref-ai-employees-inbox-chat-row is-full">
-														{renderDelegationCard(message)}
-													</div>
-												</Fragment>
-											);
+											return null;
+										}
+
+										if (message.type === 'blocker' && message.subAgentJobId) {
+											return null;
 										}
 
 										if (isStructuredMessage(message)) {

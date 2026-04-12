@@ -7,10 +7,12 @@ import {
 	approveGitForRun,
 	createDraftRun,
 	emptyOrchestrationState,
+	linkDelegatedJobToPlanInState,
 	markCollabMessageReadInState,
 	setHandoffStatusInState,
 	setRunPlanInState,
 	syncRunPlanAfterSubAgentJobUpdate,
+	updateRunInState,
 	updateSubAgentJobInRun,
 	upsertCollabMessageInState,
 	upsertRun,
@@ -98,6 +100,99 @@ describe('orchestration', () => {
 		expect(state.runs[0]?.plan?.[0]?.completedAtIso).toBe('t2');
 	});
 
+	it('links delegated jobs to existing plan rows by title when no explicit plan item id is available', () => {
+		const run = { ...createDraftRun('g', undefined, 't', 'r1'), status: 'running' as const };
+		let state = upsertRun(emptyOrchestrationState(), run);
+		state = setRunPlanInState(
+			state,
+			'r1',
+			[
+				{
+					id: 'p1',
+					runId: 'r1',
+					title: 'Explore project structure',
+					ownerEmployeeId: 'eng-1',
+					status: 'pending',
+					createdAtIso: 't0',
+				},
+			],
+			'ceo',
+			't0'
+		);
+		state = linkDelegatedJobToPlanInState(state, 'r1', {
+			jobId: 'job-1',
+			taskTitle: 'Explore project structure',
+			ownerEmployeeId: 'eng-1',
+			nowIso: 't1',
+		});
+		expect(state.runs[0]?.plan?.[0]).toMatchObject({
+			id: 'p1',
+			subAgentJobId: 'job-1',
+			status: 'in_progress',
+		});
+	});
+
+	it('honors explicit plan item ids when delegating', () => {
+		const run = { ...createDraftRun('g', undefined, 't', 'r1'), status: 'running' as const };
+		let state = upsertRun(emptyOrchestrationState(), run);
+		state = setRunPlanInState(
+			state,
+			'r1',
+			[
+				{ id: 'p1', runId: 'r1', title: 'Step A', status: 'pending', createdAtIso: 't0' },
+				{ id: 'p2', runId: 'r1', title: 'Step B', status: 'pending', createdAtIso: 't0' },
+			],
+			'ceo',
+			't0'
+		);
+		state = linkDelegatedJobToPlanInState(state, 'r1', {
+			jobId: 'job-2',
+			taskTitle: 'Step B',
+			ownerEmployeeId: 'eng-2',
+			nowIso: 't1',
+			planItemId: 'p2',
+		});
+		expect(state.runs[0]?.plan?.[1]).toMatchObject({
+			id: 'p2',
+			subAgentJobId: 'job-2',
+			status: 'in_progress',
+		});
+	});
+
+	it('appends a synthetic plan row when delegation does not match the drafted checklist', () => {
+		const run = { ...createDraftRun('g', undefined, 't', 'r1'), status: 'running' as const };
+		let state = upsertRun(emptyOrchestrationState(), run);
+		state = setRunPlanInState(
+			state,
+			'r1',
+			[
+				{
+					id: 'p1',
+					runId: 'r1',
+					title: 'Review findings',
+					status: 'done',
+					createdAtIso: 't0',
+					subAgentJobId: 'job-old',
+				},
+			],
+			'ceo',
+			't0'
+		);
+		state = linkDelegatedJobToPlanInState(state, 'r1', {
+			jobId: 'job-new',
+			taskTitle: 'Draft regression fix',
+			ownerEmployeeId: 'eng-3',
+			nowIso: 't1',
+		});
+		expect(state.runs[0]?.plan).toHaveLength(2);
+		expect(state.runs[0]?.plan?.[1]).toMatchObject({
+			title: 'Draft regression fix',
+			subAgentJobId: 'job-new',
+			status: 'in_progress',
+			ownerEmployeeId: 'eng-3',
+		});
+	});
+
 	it('upsertRun replaces by id and sets activeRunId', () => {
 		const s0 = emptyOrchestrationState();
 		const r1 = createDraftRun('a', undefined, 't', '1');
@@ -145,6 +240,26 @@ describe('orchestration', () => {
 		const next = setHandoffStatusInState(state, 'r1', 'h1', 'done', { resultSummary: 'done', atIso: 't3' });
 		expect(next.runs[0]?.handoffs[0]?.status).toBe('done');
 		expect(next.runs[0]?.handoffs[1]?.status).toBe('in_progress');
+	});
+
+	it('finalizeRun keeps user stop summary and clears approval when status is cancelled', () => {
+		const run = {
+			...createDraftRun('g', undefined, 't', 'r1'),
+			status: 'running' as const,
+			approvalState: 'pending_git' as const,
+		};
+		let state = upsertRun(emptyOrchestrationState(), run);
+		state = updateRunInState(state, 'r1', (r) => ({
+			...r,
+			status: 'cancelled',
+			statusSummary: 'Stopped by you',
+			lastEventAtIso: '2020-01-02T00:00:00.000Z',
+		}));
+		const updated = state.runs.find((x) => x.id === 'r1');
+		expect(updated?.status).toBe('cancelled');
+		expect(updated?.statusSummary).toBe('Stopped by you');
+		expect(updated?.approvalState).toBe('none');
+		expect(updated?.currentAssigneeEmployeeId).toBeUndefined();
 	});
 
 	it('stores timeline events and collab messages', () => {

@@ -47,6 +47,9 @@ function sortRuns(runs: AiOrchestrationRun[]): AiOrchestrationRun[] {
 }
 
 function deriveRunStatusSummary(run: AiOrchestrationRun): string | undefined {
+	if (run.status === 'cancelled') {
+		return run.statusSummary;
+	}
 	const blocked = [...run.handoffs].reverse().find((handoff) => handoff.status === 'blocked');
 	if (blocked?.blockedReason) {
 		return blocked.blockedReason;
@@ -73,6 +76,9 @@ function deriveRunStatusSummary(run: AiOrchestrationRun): string | undefined {
 }
 
 function deriveCurrentAssignee(run: AiOrchestrationRun): string | undefined {
+	if (run.status === 'cancelled') {
+		return undefined;
+	}
 	const active = [...run.handoffs].reverse().find((handoff) => handoff.status === 'in_progress');
 	if (active) {
 		return active.toEmployeeId;
@@ -82,6 +88,9 @@ function deriveCurrentAssignee(run: AiOrchestrationRun): string | undefined {
 }
 
 function deriveApprovalState(run: AiOrchestrationRun): AiOrchestrationApprovalState {
+	if (run.status === 'cancelled') {
+		return 'none';
+	}
 	if (run.gitApproved) {
 		return 'approved';
 	}
@@ -339,6 +348,106 @@ export function setRunPlanInState(
 		planSource,
 		lastEventAtIso,
 	}));
+}
+
+function normalizePlanTitle(value: string): string {
+	return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function pickPlanItemForDelegation(
+	run: AiOrchestrationRun,
+	taskTitle: string,
+	ownerEmployeeId: string,
+	planItemId?: string
+): AiRunPlanItem | undefined {
+	const plan = run.plan ?? [];
+	if (!plan.length) {
+		return undefined;
+	}
+	if (planItemId) {
+		const explicit = plan.find((item) => item.id === planItemId);
+		if (explicit) {
+			return explicit;
+		}
+	}
+	const titleKey = normalizePlanTitle(taskTitle);
+	const candidates = plan.filter((item) => !item.subAgentJobId || item.status === 'pending');
+	if (titleKey) {
+		const sameTitle = candidates.find((item) => normalizePlanTitle(item.title) === titleKey);
+		if (sameTitle) {
+			return sameTitle;
+		}
+	}
+	const sameOwner = candidates.find((item) => item.ownerEmployeeId === ownerEmployeeId);
+	if (sameOwner) {
+		return sameOwner;
+	}
+	return candidates[0];
+}
+
+export function linkDelegatedJobToPlanInState(
+	state: AiEmployeesOrchestrationState,
+	runId: string,
+	input: {
+		jobId: string;
+		taskTitle: string;
+		ownerEmployeeId: string;
+		nowIso: string;
+		planItemId?: string;
+	}
+): AiEmployeesOrchestrationState {
+	return updateRunInState(state, runId, (run) => {
+		const existingPlan = run.plan ?? [];
+		if (!existingPlan.length) {
+			const synthetic: AiRunPlanItem = {
+				id: crypto.randomUUID(),
+				runId,
+				title: input.taskTitle,
+				ownerEmployeeId: input.ownerEmployeeId,
+				subAgentJobId: input.jobId,
+				status: 'in_progress',
+				createdAtIso: input.nowIso,
+			};
+			return {
+				...run,
+				plan: [synthetic],
+				planSource: run.planSource ?? 'ceo',
+				lastEventAtIso: input.nowIso,
+			};
+		}
+		const matched = pickPlanItemForDelegation(run, input.taskTitle, input.ownerEmployeeId, input.planItemId);
+		if (!matched) {
+			const synthetic: AiRunPlanItem = {
+				id: crypto.randomUUID(),
+				runId,
+				title: input.taskTitle,
+				ownerEmployeeId: input.ownerEmployeeId,
+				subAgentJobId: input.jobId,
+				status: 'in_progress',
+				createdAtIso: input.nowIso,
+			};
+			return {
+				...run,
+				plan: [...existingPlan, synthetic],
+				lastEventAtIso: input.nowIso,
+			};
+		}
+		return {
+			...run,
+			plan: existingPlan.map((item) =>
+				item.id === matched.id
+					? {
+							...item,
+							ownerEmployeeId: item.ownerEmployeeId ?? input.ownerEmployeeId,
+							subAgentJobId: input.jobId,
+							status: 'in_progress' as const,
+							completedAtIso: undefined,
+					  }
+					: item
+			),
+			lastEventAtIso: input.nowIso,
+		};
+	});
 }
 
 /** After a sub-agent job row is updated, mirror terminal states onto linked plan items. */

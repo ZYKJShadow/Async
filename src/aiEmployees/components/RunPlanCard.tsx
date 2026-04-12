@@ -1,5 +1,5 @@
 import type { TFunction } from '../../i18n';
-import type { AiRunPlanItem } from '../../../shared/aiEmployeesSettings';
+import type { AiRunPlanItem, AiSubAgentJob } from '../../../shared/aiEmployeesSettings';
 import type { OrgEmployee } from '../api/orgTypes';
 
 function statusGlyph(status: AiRunPlanItem['status']): string {
@@ -21,11 +21,13 @@ export function RunPlanCard({
 	t,
 	plan,
 	employeeById,
+	jobsById,
 	onItemActivate,
 }: {
 	t: TFunction;
 	plan: AiRunPlanItem[];
 	employeeById: Map<string, OrgEmployee>;
+	jobsById: Map<string, AiSubAgentJob>;
 	onItemActivate: (jobId: string | undefined) => void;
 }) {
 	if (!plan.length) {
@@ -40,7 +42,15 @@ export function RunPlanCard({
 			<ol className="ref-ai-employees-run-plan-card-list">
 				{plan.map((item, index) => {
 					const owner = item.ownerEmployeeId ? employeeById.get(item.ownerEmployeeId) : undefined;
-					const ownerLabel = owner?.displayName ?? t('aiEmployees.groupChat.runPlanUnassigned');
+					const linkedJob = item.subAgentJobId ? jobsById.get(item.subAgentJobId) : undefined;
+					const ownerLabel = owner?.displayName ?? t('aiEmployees.groupChat.runPlanCoordinator');
+					const jobNote =
+						item.note?.trim() ||
+						(linkedJob?.status === 'done'
+							? linkedJob.resultSummary?.trim()
+							: linkedJob?.status === 'blocked' || linkedJob?.status === 'error'
+								? linkedJob.errorMessage?.trim()
+								: '');
 					const busy = item.status === 'in_progress' || item.status === 'pending';
 					return (
 						<li key={item.id} className="ref-ai-employees-run-plan-card-row">
@@ -58,8 +68,17 @@ export function RunPlanCard({
 									{statusGlyph(item.status)}
 								</span>
 								<span className="ref-ai-employees-run-plan-card-index">{index + 1}.</span>
-								<span className="ref-ai-employees-run-plan-card-title">{item.title}</span>
-								<span className="ref-ai-employees-run-plan-card-owner">{ownerLabel}</span>
+								<span className="ref-ai-employees-run-plan-card-copy">
+									<span className="ref-ai-employees-run-plan-card-main">
+										<span className="ref-ai-employees-run-plan-card-title">{item.title}</span>
+										<span className="ref-ai-employees-run-plan-card-owner">{ownerLabel}</span>
+									</span>
+									{jobNote ? (
+										<span className="ref-ai-employees-run-plan-card-note" title={jobNote}>
+											{jobNote}
+										</span>
+									) : null}
+								</span>
 							</button>
 						</li>
 					);

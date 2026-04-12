@@ -5664,6 +5664,11 @@
 	backdrop-filter: blur(8px);
 }
 
+.ref-ai-employees-run-header-bar[data-run-status='cancelled'] {
+	opacity: 0.9;
+	border-color: color-mix(in srgb, var(--void-fg-2, #8b949e) 55%, var(--void-border-1));
+}
+
 .ref-ai-employees-run-header-bar-row {
 	display: flex;
 	align-items: center;
@@ -5848,7 +5853,7 @@
 
 .ref-ai-employees-run-plan-card-line {
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	gap: 8px;
 	width: 100%;
 	text-align: left;
@@ -5885,11 +5890,37 @@
 	min-width: 0;
 }
 
+.ref-ai-employees-run-plan-card-copy {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.ref-ai-employees-run-plan-card-main {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
 .ref-ai-employees-run-plan-card-owner {
 	flex-shrink: 0;
 	font-size: 12px;
 	color: var(--void-fg-2, #8b949e);
 	max-width: 38%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-ai-employees-run-plan-card-note {
+	display: block;
+	min-width: 0;
+	font-size: 12px;
+	line-height: 1.35;
+	color: var(--void-fg-2, #8b949e);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

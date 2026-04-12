@@ -571,6 +571,7 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.groupChat.pendingAssignee': '待分配成员',
 	'aiEmployees.groupChat.jumpToLatest': '回到最新',
 	'aiEmployees.groupChat.runPlanTitle': '执行计划',
+	'aiEmployees.groupChat.runPlanCoordinator': 'CEO',
 	'aiEmployees.groupChat.runPlanUnassigned': '待指定',
 	'aiEmployees.groupChat.runHeaderElapsed': '自会话开始经过的时间',
 	'aiEmployees.groupChat.runHeaderProgress': '{{done}} / {{total}} 已完成',
@@ -580,6 +581,7 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.groupChat.runHeaderStop': '停止',
 	'aiEmployees.groupChat.runHeaderStopHint': '停止本会话的新工作（已在跑的子任务会跑完）',
 	'aiEmployees.groupChat.runHeaderApprove': '批准结果',
+	'aiEmployees.groupChat.runStoppedStatusSummary': '已由你停止',
 	'aiEmployees.groupChat.runStoppedSummary': '已停止本会话',
 	'aiEmployees.groupChat.runStoppedTimelineLabel': '会话已停止',
 	'aiEmployees.groupChat.runStoppedBodyHadEffect':

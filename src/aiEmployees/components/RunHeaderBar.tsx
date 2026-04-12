@@ -39,20 +39,15 @@ export function RunHeaderBar({
 	const elapsedMs = elapsedOk ? now - started : 0;
 	const progress = useMemo(() => runHeaderProgress(run), [run]);
 
+	const runEnded = run.status === 'completed' || run.status === 'cancelled';
 	const showApprove =
-		(run.approvalState === 'pending_git' || run.approvalState === 'pending_handoff') && Boolean(onApproveGit);
-	const canStop = run.status !== 'completed' && run.status !== 'cancelled';
-	const [pauseHint, setPauseHint] = useState<string | null>(null);
-	useEffect(() => {
-		if (!pauseHint) {
-			return;
-		}
-		const tmr = window.setTimeout(() => setPauseHint(null), 4500);
-		return () => window.clearTimeout(tmr);
-	}, [pauseHint]);
+		!runEnded &&
+		(run.approvalState === 'pending_git' || run.approvalState === 'pending_handoff') &&
+		Boolean(onApproveGit);
+	const canStop = !runEnded;
 
 	return (
-		<div className="ref-ai-employees-run-header-bar">
+		<div className="ref-ai-employees-run-header-bar" data-run-status={run.status}>
 			<div className="ref-ai-employees-run-header-bar-row ref-ai-employees-run-header-bar-row--goal">
 				<span className="ref-ai-employees-run-header-bar-goal-ico" aria-hidden>
 					{'\u{1F3AF}'}
@@ -94,8 +89,8 @@ export function RunHeaderBar({
 				<button
 					type="button"
 					className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-run-header-btn"
+					disabled
 					title={t('aiEmployees.groupChat.runHeaderPauseHint')}
-					onClick={() => setPauseHint(t('aiEmployees.groupChat.runHeaderPauseHint'))}
 				>
 					{t('aiEmployees.groupChat.runHeaderPause')}
 				</button>
@@ -104,7 +99,6 @@ export function RunHeaderBar({
 					className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-run-header-btn ref-ai-employees-run-header-btn--danger"
 					disabled={!canStop}
 					onClick={() => {
-						setPauseHint(null);
 						onStop();
 					}}
 					title={t('aiEmployees.groupChat.runHeaderStopHint')}
@@ -122,11 +116,6 @@ export function RunHeaderBar({
 					</button>
 				) : null}
 			</div>
-			{pauseHint ? (
-				<p className="ref-ai-employees-run-header-bar-hint" role="status">
-					{pauseHint}
-				</p>
-			) : null}
 		</div>
 	);
 }
