@@ -187,6 +187,34 @@ export function useAiEmployeesController() {
 	const pendingEmployeeChatRef = useRef(new Map<string, { employeeId: string; runId: string }>());
 	const employeeReplyGuardRef = useRef(new Set<string>());
 	const requestEmployeeReplyRef = useRef<((employeeId: string, runId: string) => Promise<void>) | null>(null);
+	// Streaming-delta throttle: accumulate chunks in a ref, flush to state once per animation frame
+	const streamingDeltaBufferRef = useRef<Record<string, string>>({});
+	const streamingRafRef = useRef<number | null>(null);
+	const flushStreamingDeltas = useCallback(() => {
+		streamingRafRef.current = null;
+		const buf = streamingDeltaBufferRef.current;
+		const keys = Object.keys(buf);
+		if (keys.length === 0) return;
+		streamingDeltaBufferRef.current = {};
+		setEmployeeChatStreaming((prev) => {
+			const next = { ...prev };
+			for (const id of keys) {
+				next[id] = (prev[id] ?? '') + buf[id];
+			}
+			return next;
+		});
+	}, []);
+	// Stagger auto-triggered employee starts so multiple agents don't all begin at once.
+	// Each call returns an incrementing delay; resets after a quiet period.
+	const delegationStaggerRef = useRef<{ count: number; resetTimer: ReturnType<typeof setTimeout> | null }>({ count: 0, resetTimer: null });
+	const getStaggeredDelay = useCallback(() => {
+		const s = delegationStaggerRef.current;
+		if (s.resetTimer !== null) clearTimeout(s.resetTimer);
+		const delay = 500 + s.count * 2000; // 500ms, 2500ms, 4500ms, …
+		s.count += 1;
+		s.resetTimer = setTimeout(() => { s.count = 0; s.resetTimer = null; }, 10_000);
+		return delay;
+	}, []);
 	const wsRef = useRef<AiEmployeesWsClient | null>(null);
 
 	const prefersDark = useSyncExternalStore(
@@ -793,10 +821,10 @@ export function useAiEmployeesController() {
 						});
 						return next;
 					});
-					// Auto-trigger the target employee to begin working
+					// Auto-trigger the target employee to begin working (staggered)
 					window.setTimeout(() => {
 						void requestEmployeeReplyRef.current?.(target.id, runId);
-					}, 500);
+					}, getStaggeredDelay());
 					break;
 				}
 
@@ -829,10 +857,10 @@ export function useAiEmployeesController() {
 						});
 						return next;
 					});
-					// Auto-trigger the target employee to respond
+					// Auto-trigger the target employee to respond (staggered)
 					window.setTimeout(() => {
 						void requestEmployeeReplyRef.current?.(target.id, runId);
-					}, 500);
+					}, getStaggeredDelay());
 					break;
 				}
 
@@ -896,13 +924,13 @@ export function useAiEmployeesController() {
 						}
 						return next;
 					});
-					// Auto-trigger next pending handoff in the chain
+					// Auto-trigger next pending handoff in the chain (staggered)
 					if (run) {
 						const nextPending = run.handoffs.find((h) => h.status === 'pending');
 						if (nextPending) {
 							window.setTimeout(() => {
 								void requestEmployeeReplyRef.current?.(nextPending.toEmployeeId, runId);
-							}, 500);
+							}, getStaggeredDelay());
 						}
 					}
 					break;
@@ -952,13 +980,13 @@ export function useAiEmployeesController() {
 						}
 						return next;
 					});
-					// If a helper was suggested, auto-trigger them
+					// If a helper was suggested, auto-trigger them (staggered)
 					if (suggestedHelper) {
 						const helper = resolveEmployeeByName(suggestedHelper);
 						if (helper) {
 							window.setTimeout(() => {
 								void requestEmployeeReplyRef.current?.(helper.id, runId);
-							}, 500);
+							}, getStaggeredDelay());
 						}
 					}
 					break;
@@ -969,6 +997,7 @@ export function useAiEmployeesController() {
 			appendCollabMessage,
 			appendTimelineEvent,
 			employeeById,
+			getStaggeredDelay,
 			persistOrchestration,
 			resolveEmployeeByName,
 		]
@@ -978,7 +1007,7 @@ export function useAiEmployeesController() {
 		if (!shell?.subscribeAiEmployeesChat) {
 			return;
 		}
-		return shell.subscribeAiEmployeesChat((raw) => {
+		const unsub = shell.subscribeAiEmployeesChat((raw) => {
 			const p = raw as {
 				requestId?: string; kind?: string; delta?: string; text?: string;
 				error?: string; toolName?: string; toolSuccess?: boolean;
@@ -995,42 +1024,22 @@ export function useAiEmployeesController() {
 			}
 			const { employeeId, runId } = meta;
 			if (p.kind === 'delta' && p.delta) {
-				setEmployeeChatStreaming((prev) => ({ ...prev, [employeeId]: (prev[employeeId] ?? '') + p.delta }));
+				// Buffer deltas and flush once per animation frame to avoid setState storm
+				streamingDeltaBufferRef.current[employeeId] =
+					(streamingDeltaBufferRef.current[employeeId] ?? '') + p.delta;
+				if (streamingRafRef.current === null) {
+					streamingRafRef.current = requestAnimationFrame(flushStreamingDeltas);
+				}
 				return;
 			}
 			if (p.kind === 'tool_call' && p.toolName) {
-				if (p.isCollabTool) {
-					// Collab tool calls are handled via collab_action event — skip chat display
-					return;
-				}
-				// File tool activity → record in run timeline, NOT in chat bubbles.
-				// Only show a brief working indicator in the chat streaming area.
-				const empName = employeeById.get(employeeId)?.displayName ?? employeeId.slice(0, 8);
-				const nowIso = new Date().toISOString();
-				persistOrchestration((state) =>
-					appendTimelineEvent(state, {
-						id: `tool:${employeeId}:${p.toolName}:${nowIso}`,
-						runId,
-						type: 'task_event',
-						label: `${empName}: ${p.toolName}`,
-						description: p.toolArgs ? JSON.stringify(p.toolArgs).slice(0, 200) : undefined,
-						createdAtIso: nowIso,
-						employeeId,
-						source: 'local',
-					})
-				);
-				// Show a minimal working indicator (no tool name detail in chat)
-				setEmployeeChatStreaming((prev) => {
-					const current = prev[employeeId] ?? '';
-					if (!current) {
-						return { ...prev, [employeeId]: '' };
-					}
-					return prev;
-				});
+				// Collab tools are handled via collab_action event; file tools are just
+				// working activity — do NOT persist to orchestration on every call
+				// (that causes a disk-write + React re-render storm when multiple agents run).
+				// The meaningful output will arrive in the 'done' text or via submit_result.
 				return;
 			}
 			if (p.kind === 'tool_result') {
-				// Tool finished — no action needed; timeline already recorded the call
 				return;
 			}
 			if (p.kind === 'collab_action' && p.action) {
@@ -1099,7 +1108,14 @@ export function useAiEmployeesController() {
 				);
 			}
 		});
-	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, handleCollabAction, employeeById]);
+		return () => {
+			unsub();
+			if (streamingRafRef.current !== null) {
+				cancelAnimationFrame(streamingRafRef.current);
+				streamingRafRef.current = null;
+			}
+		};
+	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, handleCollabAction, employeeById, flushStreamingDeltas]);
 
 	const matchRunForTaskEvent = useCallback(
 		(state: ReturnType<typeof emptyOrchestrationState>, event: NormalizedTaskEvent) => {
