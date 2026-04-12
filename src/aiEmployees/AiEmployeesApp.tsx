@@ -280,6 +280,9 @@ export function AiEmployeesApp() {
 												}
 												c.setTab('activity');
 											}}
+											subAgentToolLiveByJobId={c.subAgentToolLiveByJobId}
+											onStopOrchestrationRun={c.stopOrchestrationRun}
+											onApproveOrchestrationGit={c.approveOrchestrationGit}
 										/>
 									) : null}
 

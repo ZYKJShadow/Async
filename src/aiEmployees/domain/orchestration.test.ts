@@ -9,6 +9,8 @@ import {
 	emptyOrchestrationState,
 	markCollabMessageReadInState,
 	setHandoffStatusInState,
+	setRunPlanInState,
+	syncRunPlanAfterSubAgentJobUpdate,
 	updateSubAgentJobInRun,
 	upsertCollabMessageInState,
 	upsertRun,
@@ -53,6 +55,47 @@ describe('orchestration', () => {
 		});
 		expect(state.runs[0]?.subAgentJobs?.[0]?.toolLog).toHaveLength(1);
 		expect(state.runs[0]?.subAgentJobs?.[0]?.toolLog[0]?.name).toBe('Read');
+	});
+
+	it('syncRunPlanAfterSubAgentJobUpdate mirrors job status to linked plan item', () => {
+		const run = { ...createDraftRun('g', undefined, 't', 'r1'), status: 'running' as const };
+		let state = upsertRun(emptyOrchestrationState(), run);
+		state = setRunPlanInState(
+			state,
+			'r1',
+			[
+				{
+					id: 'p1',
+					runId: 'r1',
+					title: 'Do work',
+					status: 'in_progress',
+					createdAtIso: 't0',
+					subAgentJobId: 'j1',
+				},
+			],
+			'ceo',
+			't1'
+		);
+		const job = {
+			id: 'j1',
+			runId: 'r1',
+			employeeId: 'e1',
+			employeeName: 'A',
+			taskTitle: 't1',
+			taskDescription: 'd',
+			status: 'done' as const,
+			queuedAtIso: 't0',
+			completedAtIso: 't2',
+			toolLog: [],
+		};
+		state = addSubAgentJobToRun(state, 'r1', job);
+		state = syncRunPlanAfterSubAgentJobUpdate(state, 'r1', 'j1', {
+			...job,
+			status: 'done',
+			completedAtIso: 't2',
+		});
+		expect(state.runs[0]?.plan?.[0]?.status).toBe('done');
+		expect(state.runs[0]?.plan?.[0]?.completedAtIso).toBe('t2');
 	});
 
 	it('upsertRun replaces by id and sets activeRunId', () => {

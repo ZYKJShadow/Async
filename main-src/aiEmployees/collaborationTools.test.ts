@@ -11,6 +11,7 @@ import type { ToolCall } from '../agent/agentTools';
 describe('collaborationTools', () => {
 	describe('isCollabTool', () => {
 		it('recognizes all collaboration tool names', () => {
+			expect(isCollabTool('draft_plan')).toBe(true);
 			expect(isCollabTool('delegate_task')).toBe(true);
 			expect(isCollabTool('send_colleague_message')).toBe(true);
 			expect(isCollabTool('submit_result')).toBe(true);
@@ -26,8 +27,9 @@ describe('collaborationTools', () => {
 	});
 
 	describe('COLLAB_TOOL_DEFS', () => {
-		it('has one definition per tool name', () => {
-			expect(COLLAB_TOOL_DEFS.length).toBe(COLLAB_TOOL_NAMES.size);
+		it('worker defs are a subset of tool names (CEO adds draft_plan)', () => {
+			expect(COLLAB_TOOL_NAMES.size).toBe(COLLAB_TOOL_DEFS.length + 1);
+			expect(COLLAB_TOOL_NAMES.has('draft_plan')).toBe(true);
 			for (const def of COLLAB_TOOL_DEFS) {
 				expect(COLLAB_TOOL_NAMES.has(def.name)).toBe(true);
 				expect(def.description).toBeTruthy();
@@ -45,6 +47,7 @@ describe('collaborationTools', () => {
 				task_description: 'The login form has a validation bug',
 				priority: 'high',
 				context_files: 'src/Login.tsx, src/auth.ts',
+				plan_item_id: 'plan-row-1',
 			});
 			expect(action).toEqual({
 				tool: 'delegate_task',
@@ -53,6 +56,20 @@ describe('collaborationTools', () => {
 				taskDescription: 'The login form has a validation bug',
 				priority: 'high',
 				contextFiles: ['src/Login.tsx', 'src/auth.ts'],
+				planItemId: 'plan-row-1',
+			});
+		});
+
+		it('parses draft_plan', () => {
+			const action = parseCollabAction('draft_plan', {
+				items: [
+					{ title: 'Explore repo', owner_employee_name: 'Li Ming' },
+					{ title: 'Write summary' },
+				],
+			});
+			expect(action).toEqual({
+				tool: 'draft_plan',
+				items: [{ title: 'Explore repo', ownerEmployeeName: 'Li Ming' }, { title: 'Write summary' }],
 			});
 		});
 
@@ -163,6 +180,19 @@ describe('collaborationTools', () => {
 			const result = executeCollabTool(call);
 			expect(result.isError).toBe(false);
 			expect(result.content).toContain('Zhang Wei');
+		});
+
+		it('returns success for draft_plan', () => {
+			const call: ToolCall = {
+				id: 'tc-draft',
+				name: 'draft_plan',
+				arguments: {
+					items: [{ title: 'Step one' }, { title: 'Step two', owner_employee_name: 'A' }],
+				},
+			};
+			const result = executeCollabTool(call);
+			expect(result.isError).toBe(false);
+			expect(result.content).toContain('2 step');
 		});
 
 		it('returns error for unknown collab tool', () => {

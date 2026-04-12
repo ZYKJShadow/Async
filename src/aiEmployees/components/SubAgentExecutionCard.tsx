@@ -135,6 +135,7 @@ export function SubAgentExecutionCard({
 		<article
 			className="ref-ai-employees-subagent-live-card"
 			data-job-status={job.status}
+			data-sub-agent-job-id={job.id}
 		>
 			<div className="ref-ai-employees-subagent-live-card-head">
 				<button

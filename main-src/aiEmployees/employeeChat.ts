@@ -6,8 +6,30 @@ import { streamChatUnified } from '../llm/llmRouter.js';
 import { runAgentLoop, type AgentLoopHandlers, type AgentLoopOptions } from '../agent/agentLoop.js';
 import { assembleAgentToolPool } from '../agent/agentToolPool.js';
 import type { StreamHandlers } from '../llm/types.js';
-import { COLLAB_TOOL_DEFS, isCollabTool, parseCollabAction, type CollabAction } from './collaborationTools.js';
+import { CEO_COLLAB_TOOL_DEFS, COLLAB_TOOL_DEFS, isCollabTool, parseCollabAction, type CollabAction } from './collaborationTools.js';
 import { flattenAssistantTextPartsForSearch, isStructuredAssistantMessage } from '../../src/agentStructuredMessage.js';
+
+/** Abort when either the user-controlled signal or the timeout fires. */
+function mergeWithTimeout(timeoutMs: number, user?: AbortSignal): AbortSignal {
+	const timeoutSig = AbortSignal.timeout(timeoutMs);
+	if (!user) {
+		return timeoutSig;
+	}
+	if (user.aborted || timeoutSig.aborted) {
+		return user.aborted ? user : timeoutSig;
+	}
+	const merged = new AbortController();
+	const forward = () => {
+		try {
+			merged.abort();
+		} catch {
+			/* noop */
+		}
+	};
+	user.addEventListener('abort', forward, { once: true });
+	timeoutSig.addEventListener('abort', forward, { once: true });
+	return merged.signal;
+}
 
 function trim(value: unknown): string {
 	return typeof value === 'string' ? value.trim() : '';
@@ -109,21 +131,24 @@ export function buildEmployeeSystemPrompt(input: EmployeeChatInput): string {
 			'You are the team coordinator (CEO). You do NOT write code or modify files yourself.\n' +
 			'Your job is to analyze, plan, delegate, and report.\n\n' +
 			'Your tools:\n' +
-			'• delegate_task — Assign a sub-task to a teammate. This is your PRIMARY tool.\n' +
+			'• draft_plan — Publish a visible checklist for the boss BEFORE delegating (required for multi-step work).\n' +
+			'• delegate_task — Assign a sub-task to a teammate. Pass plan_item_id when it maps to a draft_plan row.\n' +
 			'• send_colleague_message — Ask a teammate a question or share context.\n' +
 			'• submit_result — Report overall status back to the boss.\n' +
 			'• report_blocker — Escalate when the team is stuck.\n\n' +
 			'When you receive a request from the boss:\n' +
 			'1. Briefly acknowledge the request.\n' +
 			'2. Analyze what needs to be done.\n' +
-			'3. Break it into sub-tasks and delegate each to the right teammate using `delegate_task`.\n' +
-			'4. Explain your plan to the boss in plain language: who will do what and why.\n' +
-			'5. You may delegate to multiple teammates in one response.\n\n' +
+			'3. For anything beyond a one-line answer, call `draft_plan` once with ordered steps (title + optional owner_employee_name).\n' +
+			'4. Then call `delegate_task` for each step that needs a teammate; use the same titles when possible and include plan_item_id.\n' +
+			'5. Explain your plan in plain language: who will do what and why.\n' +
+			'6. You may delegate to multiple teammates in one response.\n\n' +
 			'IMPORTANT:\n' +
 			'- Do NOT read, write, or edit files yourself. Delegate all technical work.\n' +
 			'- Your chat responses should be short verbal summaries only.\n' +
 			'- When delegating, match the task to the teammate whose role fits best.\n' +
-			'- If no teammate fits, explain to the boss and suggest hiring.'
+			'- If no teammate fits, explain to the boss and suggest hiring.\n' +
+			'- For quick one-sentence answers with no delegation, you may skip draft_plan and reply or use submit_result.'
 		);
 	} else if (input.teamMembers && input.teamMembers.length > 0) {
 		// Non-CEO employees with teammates: can do real work + collaborate
@@ -203,7 +228,7 @@ export async function runEmployeeChat(
 		let toolPool;
 		if (input.isCeo) {
 			// CEO: collaboration tools only — force delegation, no file operations
-			toolPool = [...COLLAB_TOOL_DEFS];
+			toolPool = [...CEO_COLLAB_TOOL_DEFS];
 		} else {
 			// Regular employee: file tools + collaboration tools
 			const baseTools = assembleAgentToolPool('agent', {
@@ -251,7 +276,7 @@ export async function runEmployeeChat(
 			requestBaseURL: resolved.baseURL,
 			requestProxyUrl: resolved.proxyUrl,
 			maxOutputTokens: Math.min(resolved.maxOutputTokens, maxTokens),
-			signal: AbortSignal.timeout(timeout),
+			signal: mergeWithTimeout(timeout, input.abortSignal),
 			composerMode: 'agent',
 			toolPoolOverride: toolPool,
 			workspaceRoot,
@@ -266,7 +291,7 @@ export async function runEmployeeChat(
 			messages,
 			{
 				mode: 'ask',
-				signal: AbortSignal.timeout(120_000),
+				signal: mergeWithTimeout(120_000, input.abortSignal),
 				requestModelId: resolved.requestModelId,
 				paradigm: resolved.paradigm,
 				requestApiKey: resolved.apiKey,

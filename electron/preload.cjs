@@ -84,6 +84,7 @@ const INVOKE_CHANNELS = new Set([
 	'aiEmployees:generateRolePrompt',
 	'aiEmployees:generateHiringPlan',
 	'aiEmployees:chat',
+	'aiEmployees:abortChat',
 	'aiEmployees:runSubAgent',
 	'workspaceAgent:get',
 	'workspaceAgent:set',
@@ -128,6 +129,19 @@ let aiEmployeesWorkspaceSeq = 0;
 
 const aiEmployeesChatHandlers = new Map();
 let aiEmployeesChatSeq = 0;
+
+const aiEmployeesSubAgentEventHandlers = new Map();
+let aiEmployeesSubAgentEventSeq = 0;
+
+ipcRenderer.on('async-shell:aiEmployeesSubAgentEvent', (_event, payload) => {
+	for (const fn of aiEmployeesSubAgentEventHandlers.values()) {
+		try {
+			fn(payload);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
 
 ipcRenderer.on('async-shell:aiEmployeesChat', (_event, payload) => {
 	for (const fn of aiEmployeesChatHandlers.values()) {
@@ -286,6 +300,11 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++aiEmployeesChatSeq;
 		aiEmployeesChatHandlers.set(id, callback);
 		return () => aiEmployeesChatHandlers.delete(id);
+	},
+	subscribeAiEmployeesSubAgentEvent(callback) {
+		const id = ++aiEmployeesSubAgentEventSeq;
+		aiEmployeesSubAgentEventHandlers.set(id, callback);
+		return () => aiEmployeesSubAgentEventHandlers.delete(id);
 	},
 	subscribeAutoUpdateStatus(callback) {
 		const id = ++autoUpdateStatusSeq;

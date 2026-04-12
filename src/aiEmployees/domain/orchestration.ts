@@ -6,6 +6,7 @@ import type {
 	AiOrchestrationHandoffStatus,
 	AiOrchestrationRun,
 	AiOrchestrationTimelineEvent,
+	AiRunPlanItem,
 	AiSubAgentJob,
 	AiSubAgentToolEntry,
 } from '../../../shared/aiEmployeesSettings';
@@ -322,6 +323,61 @@ export function updateSubAgentJobInRun(
 		const nextJobs = [...jobs];
 		nextJobs[idx] = updater(nextJobs[idx]);
 		return { ...run, subAgentJobs: nextJobs };
+	});
+}
+
+export function setRunPlanInState(
+	state: AiEmployeesOrchestrationState,
+	runId: string,
+	plan: AiRunPlanItem[],
+	planSource: 'ceo' | 'user',
+	lastEventAtIso: string
+): AiEmployeesOrchestrationState {
+	return updateRunInState(state, runId, (run) => ({
+		...run,
+		plan,
+		planSource,
+		lastEventAtIso,
+	}));
+}
+
+/** After a sub-agent job row is updated, mirror terminal states onto linked plan items. */
+export function syncRunPlanAfterSubAgentJobUpdate(
+	state: AiEmployeesOrchestrationState,
+	runId: string,
+	jobId: string,
+	job: AiSubAgentJob
+): AiEmployeesOrchestrationState {
+	return updateRunInState(state, runId, (run) => {
+		if (!run.plan?.length) {
+			return run;
+		}
+		let touched = false;
+		const plan = run.plan.map((item) => {
+			if (item.subAgentJobId !== jobId) {
+				return item;
+			}
+			touched = true;
+			if (job.status === 'done') {
+				return {
+					...item,
+					status: 'done' as const,
+					completedAtIso: job.completedAtIso ?? item.completedAtIso,
+				};
+			}
+			if (job.status === 'blocked' || job.status === 'error') {
+				return {
+					...item,
+					status: 'blocked' as const,
+					completedAtIso: job.completedAtIso ?? item.completedAtIso,
+				};
+			}
+			return {
+				...item,
+				status: 'in_progress' as const,
+			};
+		});
+		return touched ? { ...run, plan } : run;
 	});
 }
 

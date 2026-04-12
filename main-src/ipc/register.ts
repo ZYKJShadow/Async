@@ -2818,12 +2818,31 @@ ipcMain.handle(
 		}
 	});
 
+	/** Abort in-flight `aiEmployees:chat` by `requestId` (Stop run / user cancel). */
+	const aiEmployeesChatAbortByRequestId = new Map<string, AbortController>();
+
+	ipcMain.handle('aiEmployees:abortChat', (_e, requestId: unknown) => {
+		const rid = typeof requestId === 'string' ? requestId : '';
+		const ac = rid ? aiEmployeesChatAbortByRequestId.get(rid) : undefined;
+		if (ac) {
+			try {
+				ac.abort();
+			} catch {
+				/* noop */
+			}
+			aiEmployeesChatAbortByRequestId.delete(rid);
+		}
+		return { ok: true as const };
+	});
+
 	ipcMain.handle('aiEmployees:chat', async (event, payload: EmployeeChatInput) => {
 		const settings = getSettings();
 		const requestId = typeof payload?.requestId === 'string' ? payload.requestId : '';
 		if (!requestId) {
 			return { ok: false as const, error: 'missing requestId' };
 		}
+		const abortController = new AbortController();
+		aiEmployeesChatAbortByRequestId.set(requestId, abortController);
 		const send = (kind: string, data: Record<string, unknown>) => {
 			try {
 				event.sender.send('async-shell:aiEmployeesChat', { requestId, kind, ...data });
@@ -2845,7 +2864,7 @@ ipcMain.handle(
 		try {
 			let fullText = '';
 			let lastError: string | null = null;
-			await runEmployeeChat(settings, payload, {
+			await runEmployeeChat(settings, { ...payload, abortSignal: abortController.signal }, {
 				onDelta(text) {
 					deltaBuf += text;
 					if (deltaTimer === null) {
@@ -2883,13 +2902,22 @@ ipcMain.handle(
 			const msg = e instanceof Error ? e.message : String(e);
 			send('error', { error: msg });
 			return { ok: false as const, error: msg };
+		} finally {
+			aiEmployeesChatAbortByRequestId.delete(requestId);
 		}
 	});
 
-	ipcMain.handle('aiEmployees:runSubAgent', async (_event, payload: EmployeeChatInput) => {
+	ipcMain.handle('aiEmployees:runSubAgent', async (event, payload: EmployeeChatInput) => {
 		const settings = getSettings();
+		const sendSub = (data: Record<string, unknown>) => {
+			try {
+				event.sender.send('async-shell:aiEmployeesSubAgentEvent', data);
+			} catch {
+				/* window may be gone */
+			}
+		};
 		try {
-			return await runSubAgentEmployee(settings, payload);
+			return await runSubAgentEmployee(settings, payload, (ev) => sendSub(ev));
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			return { ok: false as const, error: msg, toolLog: [] as const, collabActions: [] as const, durationMs: 0 };

@@ -151,6 +151,19 @@ export type AiOrchestrationRunStatus =
 	| 'completed'
 	| 'cancelled';
 
+/** CEO-authored (or user) checklist for a run; items link to at most one sub-agent job. */
+export type AiRunPlanItem = {
+	id: string;
+	runId: string;
+	title: string;
+	ownerEmployeeId?: string;
+	subAgentJobId?: string;
+	status: 'pending' | 'in_progress' | 'done' | 'blocked' | 'skipped';
+	note?: string;
+	createdAtIso: string;
+	completedAtIso?: string;
+};
+
 export type AiOrchestrationRun = {
 	id: string;
 	goal: string;
@@ -160,6 +173,9 @@ export type AiOrchestrationRun = {
 	handoffs: AiOrchestrationHandoff[];
 	/** Sub-agent jobs spawned by delegation within this run. */
 	subAgentJobs?: AiSubAgentJob[];
+	/** Optional multi-step plan shown as a checklist in the inbox. */
+	plan?: AiRunPlanItem[];
+	planSource?: 'ceo' | 'user';
 	gitApproved?: boolean;
 	ownerEmployeeId?: string;
 	currentAssigneeEmployeeId?: string;

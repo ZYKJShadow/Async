@@ -22,6 +22,7 @@ import type {
 	AiOrchestrationHandoffStatus,
 	AiOrchestrationRun,
 	AiOrchestrationTimelineEvent,
+	AiRunPlanItem,
 	AiSubAgentJob,
 } from '../../../shared/aiEmployeesSettings';
 import { DEFAULT_API, DEFAULT_WS, normConn } from '../domain/connection';
@@ -38,6 +39,8 @@ import {
 	markCollabMessageReadInState,
 	setRunIssueInState,
 	setHandoffStatusInState,
+	setRunPlanInState,
+	syncRunPlanAfterSubAgentJobUpdate,
 	updateRunInState,
 	updateSubAgentJobInRun,
 	upsertRun,
@@ -120,6 +123,7 @@ type SubAgentCollabAction =
 			taskDescription: string;
 			priority: string;
 			contextFiles: string[];
+			planItemId?: string;
 	  }
 	| {
 			tool: 'send_colleague_message';
@@ -178,6 +182,23 @@ function hasPendingRunSubAgentWork(
 	activeItems: readonly SubAgentQueueItem[]
 ): boolean {
 	return queuedItems.some((item) => item.runId === runId) || activeItems.some((item) => item.runId === runId);
+}
+
+type OrchestrationState = ReturnType<typeof emptyOrchestrationState>;
+
+function updateSubAgentJobInRunAndSyncPlan(
+	state: OrchestrationState,
+	runId: string,
+	jobId: string,
+	updater: (job: AiSubAgentJob) => AiSubAgentJob
+): OrchestrationState {
+	let next = updateSubAgentJobInRun(state, runId, jobId, updater);
+	const run = next.runs.find((r) => r.id === runId);
+	const job = run?.subAgentJobs?.find((j) => j.id === jobId);
+	if (job) {
+		next = syncRunPlanAfterSubAgentJobUpdate(next, runId, jobId, job);
+	}
+	return next;
 }
 
 function shellUiColorMode(ui: ShellUiLike): AppColorMode | undefined {
@@ -304,6 +325,12 @@ export function useAiEmployeesController() {
 	const handleCollabActionRef = useRef<
 		((fromEmployeeId: string, runId: string, action: { tool: string; [key: string]: unknown }) => void) | null
 	>(null);
+	/** User stopped this run: block new delegations / CEO turns until the next user message. */
+	const haltedSubAgentRunIdsRef = useRef<Set<string>>(new Set());
+	/** Latest sub-agent tool line per job (IPC; not persisted). Key = subAgent job id. */
+	const [subAgentToolLiveByJobId, setSubAgentToolLiveByJobId] = useState<
+		Record<string, { runId: string; employeeId: string; label: string }>
+	>({});
 	const ceoEmployeeId = useMemo(() => orgEmployees.find((e) => e.isCeo)?.id, [orgEmployees]);
 	const wsRef = useRef<AiEmployeesWsClient | null>(null);
 
@@ -826,7 +853,7 @@ export function useAiEmployeesController() {
 	);
 
 	const buildEmployeeChatPayload = useCallback(
-		(employee: OrgEmployee, runId: string, requestId: string): EmployeeChatInput | null => {
+		(employee: OrgEmployee, runId: string, requestId: string, subAgentJobId?: string): EmployeeChatInput | null => {
 			const employeeId = employee.id;
 			const modelId = resolveEmployeeLocalModelId({
 				employeeId,
@@ -950,6 +977,10 @@ export function useAiEmployeesController() {
 				teamMembers,
 				boundaryLocalPaths: boundaryLocalPaths.length > 0 ? boundaryLocalPaths : undefined,
 				isCeo: employee.isCeo || false,
+				subAgentPresence:
+					subAgentJobId && !employee.isCeo
+						? { runId, jobId: subAgentJobId, employeeId: employee.id }
+						: undefined,
 			};
 		},
 		[
@@ -1027,11 +1058,72 @@ export function useAiEmployeesController() {
 			const fromName = employeeById.get(fromEmployeeId)?.displayName ?? fromEmployeeId.slice(0, 8);
 
 			switch (action.tool) {
+				case 'draft_plan': {
+					const rawItems = action.items;
+					if (!Array.isArray(rawItems)) {
+						break;
+					}
+					const planItems: AiRunPlanItem[] = [];
+					for (const row of rawItems) {
+						if (!row || typeof row !== 'object') {
+							continue;
+						}
+						const rec = row as Record<string, unknown>;
+						const title = typeof rec.title === 'string' ? rec.title.trim() : '';
+						if (!title) {
+							continue;
+						}
+						const ownerName =
+							typeof rec.ownerEmployeeName === 'string' ? rec.ownerEmployeeName.trim() : '';
+						const owner = ownerName ? resolveEmployeeByName(ownerName) : undefined;
+						planItems.push({
+							id: crypto.randomUUID(),
+							runId,
+							title,
+							ownerEmployeeId: owner?.id,
+							status: 'pending',
+							createdAtIso: nowIso,
+						});
+					}
+					if (planItems.length === 0) {
+						break;
+					}
+					persistOrchestration((state) => {
+						let next = setRunPlanInState(state, runId, planItems, 'ceo', nowIso);
+						next = appendTimelineEvent(next, {
+							id: `plan:${runId}:${nowIso}`,
+							runId,
+							type: 'status_update',
+							label: 'Plan published',
+							description: `${planItems.length} step(s)`,
+							createdAtIso: nowIso,
+							source: 'local',
+						});
+						return next;
+					});
+					break;
+				}
+
 				case 'delegate_task': {
+					if (haltedSubAgentRunIdsRef.current.has(runId)) {
+						persistOrchestration((state) =>
+							appendCollabMessage(state, {
+								id: crypto.randomUUID(),
+								runId,
+								type: 'status_update',
+								fromEmployeeId,
+								summary: 'Run stopped',
+								body: 'This run was stopped — delegation was skipped.',
+								createdAtIso: nowIso,
+							})
+						);
+						return;
+					}
 					const targetName = String(action.targetEmployeeName ?? '');
 					const taskTitle = String(action.taskTitle ?? '');
 					const taskDesc = String(action.taskDescription ?? '');
 					const delegatePriority = String(action.priority ?? 'medium');
+					const planItemId = String(action.planItemId ?? action.plan_item_id ?? '').trim();
 					const target = resolveEmployeeByName(targetName);
 					if (!target) {
 						persistOrchestration((state) =>
@@ -1060,7 +1152,34 @@ export function useAiEmployeesController() {
 						toolLog: [],
 					};
 					persistOrchestration((state) => {
-						let next = addHandoffToRunInState(state, runId, {
+						const run = state.runs.find((r) => r.id === runId);
+						const existingPlan = run?.plan;
+						let next = state;
+
+						if (!existingPlan?.length) {
+							const synthetic: AiRunPlanItem = {
+								id: crypto.randomUUID(),
+								runId,
+								title: taskTitle,
+								ownerEmployeeId: target.id,
+								subAgentJobId: correlationId,
+								status: 'in_progress',
+								createdAtIso: nowIso,
+							};
+							next = setRunPlanInState(next, runId, [synthetic], 'ceo', nowIso);
+						} else if (planItemId) {
+							next = updateRunInState(next, runId, (r) => ({
+								...r,
+								plan: r.plan?.map((item) =>
+									item.id === planItemId
+										? { ...item, subAgentJobId: correlationId, status: 'in_progress' as const }
+										: item
+								),
+								lastEventAtIso: nowIso,
+							}));
+						}
+
+						next = addHandoffToRunInState(next, runId, {
 							id: correlationId,
 							fromEmployeeId,
 							toEmployeeId: target.id,
@@ -1271,7 +1390,15 @@ export function useAiEmployeesController() {
 				}
 			}
 		},
-		[appendCollabMessage, appendTimelineEvent, employeeById, persistOrchestration, resolveEmployeeByName]
+		[
+			appendCollabMessage,
+			appendTimelineEvent,
+			employeeById,
+			persistOrchestration,
+			resolveEmployeeByName,
+			setRunPlanInState,
+			updateRunInState,
+		]
 	);
 
 	useEffect(() => {
@@ -1396,6 +1523,51 @@ export function useAiEmployeesController() {
 			}
 		};
 	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, handleCollabAction, employeeById, flushStreamingDeltas]);
+
+	useEffect(() => {
+		if (!shell?.subscribeAiEmployeesSubAgentEvent) {
+			return;
+		}
+		return shell.subscribeAiEmployeesSubAgentEvent((raw) => {
+			const p = raw as {
+				kind?: string;
+				jobId?: string;
+				runId?: string;
+				employeeId?: string;
+				summary?: string;
+				toolName?: string;
+			};
+			const jobId = typeof p.jobId === 'string' ? p.jobId : '';
+			if (!jobId || p.kind !== 'tool_start') {
+				return;
+			}
+			const label = (typeof p.summary === 'string' && p.summary.trim()) || String(p.toolName ?? '').trim();
+			if (!label) {
+				return;
+			}
+			setSubAgentToolLiveByJobId((prev) => ({
+				...prev,
+				[jobId]: {
+					runId: String(p.runId ?? ''),
+					employeeId: String(p.employeeId ?? ''),
+					label,
+				},
+			}));
+		});
+	}, [shell]);
+
+	const stopOrchestrationRun = useCallback(
+		(runId: string) => {
+			haltedSubAgentRunIdsRef.current.add(runId);
+			subAgentQueueRef.current = subAgentQueueRef.current.filter((q) => q.runId !== runId);
+			for (const [reqId, meta] of [...pendingEmployeeChatRef.current.entries()]) {
+				if (meta.runId === runId) {
+					void shell?.invoke('aiEmployees:abortChat', reqId);
+				}
+			}
+		},
+		[shell]
+	);
 
 	const matchRunForTaskEvent = useCallback(
 		(state: ReturnType<typeof emptyOrchestrationState>, event: NormalizedTaskEvent) => {
@@ -2003,7 +2175,7 @@ export function useAiEmployeesController() {
 					internalOnly: true,
 				});
 				for (const j of digestTargets) {
-					next = updateSubAgentJobInRun(next, runId, j.id, (job) => ({ ...job, ceoIngested: true }));
+					next = updateSubAgentJobInRunAndSyncPlan(next, runId, j.id, (job) => ({ ...job, ceoIngested: true }));
 				}
 				return next;
 			});
@@ -2042,7 +2214,7 @@ export function useAiEmployeesController() {
 						const { jobId, employeeId } = item;
 						const markIso = new Date().toISOString();
 						persistOrchestration((s) => {
-							let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+							let next = updateSubAgentJobInRunAndSyncPlan(s, rid, jobId, (j) => ({
 								...j,
 								status: 'running',
 								startedAtIso: j.startedAtIso ?? markIso,
@@ -2057,11 +2229,11 @@ export function useAiEmployeesController() {
 							return next;
 						});
 						const requestId = crypto.randomUUID();
-						const payload = buildEmployeeChatPayload(employee, rid, requestId);
+						const payload = buildEmployeeChatPayload(employee, rid, requestId, jobId);
 						if (!payload) {
 							const errIso = new Date().toISOString();
 							persistOrchestration((s) =>
-								updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+								updateSubAgentJobInRunAndSyncPlan(s, rid, jobId, (j) => ({
 									...j,
 									status: 'error',
 									completedAtIso: errIso,
@@ -2081,7 +2253,7 @@ export function useAiEmployeesController() {
 									? `${blockerText}\n\nSuggested helper: ${terminalAction.suggestedHelperName}`
 									: blockerText;
 								persistOrchestration((s) => {
-									let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+									let next = updateSubAgentJobInRunAndSyncPlan(s, rid, jobId, (j) => ({
 										...j,
 										status: 'blocked',
 										toolLog: raw.toolLog,
@@ -2147,7 +2319,7 @@ export function useAiEmployeesController() {
 											].filter(Boolean).join('\n')
 										: summaryText;
 								persistOrchestration((s) => {
-									let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+									let next = updateSubAgentJobInRunAndSyncPlan(s, rid, jobId, (j) => ({
 										...j,
 										status: 'done',
 										toolLog: raw.toolLog,
@@ -2197,7 +2369,7 @@ export function useAiEmployeesController() {
 						} else {
 							const errIso = new Date().toISOString();
 							persistOrchestration((s) => {
-								let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+								let next = updateSubAgentJobInRunAndSyncPlan(s, rid, jobId, (j) => ({
 									...j,
 									status: 'error',
 									completedAtIso: errIso,
@@ -2259,6 +2431,16 @@ export function useAiEmployeesController() {
 						}
 					}
 				} finally {
+					if (item.kind === 'delegated') {
+						setSubAgentToolLiveByJobId((prev) => {
+							if (!(item.jobId in prev)) {
+								return prev;
+							}
+							const next = { ...prev };
+							delete next[item.jobId];
+							return next;
+						});
+					}
 					activeSubAgentCountRef.current -= 1;
 					activeSubAgentItemsRef.current = activeSubAgentItemsRef.current.filter((activeItem) => activeItem !== item);
 					processSubAgentQueue();
@@ -2635,6 +2817,7 @@ export function useAiEmployeesController() {
 			toEmployeeId?: string;
 			taskId?: string;
 		}) => {
+			haltedSubAgentRunIdsRef.current.delete(input.runId);
 			const body = input.body.trim();
 			if (!body) {
 				return;
@@ -2940,6 +3123,8 @@ export function useAiEmployeesController() {
 		addOrchestrationHandoff,
 		setOrchestrationHandoffStatus,
 		sendCollabMessage,
+		stopOrchestrationRun,
+		subAgentToolLiveByJobId,
 		markCollabMessageRead,
 		listMessagesByEmployee,
 		listMessagesByRun,

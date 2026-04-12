@@ -25,6 +25,8 @@ import { formatEmployeeResolvedModelLabel } from '../adapters/modelAdapter';
 import { useOrgEmployeeAvatarPreview } from '../hooks/useOrgEmployeeAvatarPreview';
 import type { LocalModelEntry } from '../sessionTypes';
 import { CollabCard, isStructuredMessage } from '../components/CollabCard';
+import { RunHeaderBar } from '../components/RunHeaderBar';
+import { RunPlanCard } from '../components/RunPlanCard';
 import { SubAgentExecutionCard } from '../components/SubAgentExecutionCard';
 import { SubAgentDetailPanel } from './SubAgentDetailPanel';
 
@@ -114,6 +116,21 @@ function jobFromRun(run: AiOrchestrationRun | undefined, jobId?: string): AiSubA
 	return (run.subAgentJobs ?? []).find((j) => j.id === jobId);
 }
 
+function livePresenceForRun(
+	runId: string,
+	liveByJob: Record<string, { runId: string; employeeId: string; label: string }>,
+	orgById: Map<string, OrgEmployee>
+): string | undefined {
+	for (const row of Object.values(liveByJob)) {
+		if (row.runId !== runId) {
+			continue;
+		}
+		const name = orgById.get(row.employeeId)?.displayName?.trim();
+		return name ? `${name} · ${row.label}` : row.label;
+	}
+	return undefined;
+}
+
 type SidebarSelection = { kind: 'run'; runId: string } | { kind: 'task'; messageId: string };
 
 export function InboxPage({
@@ -136,6 +153,9 @@ export function InboxPage({
 	employeeChatStreaming,
 	employeeChatError,
 	onNavigateToActivity,
+	subAgentToolLiveByJobId,
+	onStopOrchestrationRun,
+	onApproveOrchestrationGit,
 }: {
 	t: TFunction;
 	orgEmployees: OrgEmployee[];
@@ -162,6 +182,9 @@ export function InboxPage({
 	employeeChatStreaming: Record<string, string>;
 	employeeChatError: Record<string, string | undefined>;
 	onNavigateToActivity?: (runId?: string) => void;
+	subAgentToolLiveByJobId: Record<string, { runId: string; employeeId: string; label: string }>;
+	onStopOrchestrationRun: (runId: string) => void;
+	onApproveOrchestrationGit?: (runId: string) => void | Promise<unknown>;
 }) {
 	const ceo = useMemo(() => orgEmployees.find((e) => e.isCeo), [orgEmployees]);
 
@@ -341,6 +364,13 @@ export function InboxPage({
 		return preview;
 	}, [listMessagesByRun, sortedRuns]);
 
+	const selectedRunLiveLine = useMemo(() => {
+		if (!selectedRunId) {
+			return undefined;
+		}
+		return livePresenceForRun(selectedRunId, subAgentToolLiveByJobId, orgById);
+	}, [orgById, selectedRunId, subAgentToolLiveByJobId]);
+
 	const renderDelegationCard = (message: AiCollabMessage) => {
 		const job = jobFromRun(selectedRun, message.subAgentJobId ?? message.cardMeta?.handoffId);
 		if (!job) {
@@ -449,6 +479,16 @@ export function InboxPage({
 								{sortedRuns.map((run) => {
 									const active = selection?.kind === 'run' && selection.runId === run.id;
 									const preview = runPreviewById.get(run.id);
+									const liveLine = livePresenceForRun(run.id, subAgentToolLiveByJobId, orgById);
+									const jobs = run.subAgentJobs ?? [];
+									const busyJob = jobs.find((j) => j.status === 'running' || j.status === 'queued');
+									const fallbackBusy =
+										!liveLine && busyJob
+											? `${orgById.get(busyJob.employeeId)?.displayName ?? busyJob.employeeName} · ${t(
+													'aiEmployees.groupChat.sidebarLiveFallback'
+												)}`
+											: undefined;
+									const subline = liveLine ?? fallbackBusy;
 									return (
 										<li key={run.id}>
 											<button
@@ -462,7 +502,9 @@ export function InboxPage({
 												<span className="ref-ai-employees-inbox-peer-meta">
 													<span className="ref-ai-employees-inbox-peer-name">{run.goal}</span>
 													<span className="ref-ai-employees-inbox-peer-role">{runStatusBadge(t, run)}</span>
-													{preview ? (
+													{subline ? (
+														<span className="ref-ai-employees-inbox-peer-live">{subline}</span>
+													) : preview ? (
 														<span className="ref-ai-employees-inbox-peer-preview">{preview}</span>
 													) : null}
 												</span>
@@ -562,7 +604,36 @@ export function InboxPage({
 									</button>
 								) : null}
 							</div>
+							<RunHeaderBar
+								t={t}
+								run={selectedRun}
+								presenceLine={selectedRunLiveLine}
+								onStop={() => onStopOrchestrationRun(selectedRun.id)}
+								onApproveGit={
+									onApproveOrchestrationGit ? () => void onApproveOrchestrationGit(selectedRun.id) : undefined
+								}
+							/>
 							<div ref={threadRef} className="ref-ai-employees-comm-thread ref-ai-employees-inbox-chat-thread" role="log" aria-live="polite">
+								{selectedRun.plan?.length ? (
+									<div className="ref-ai-employees-inbox-plan-anchor">
+										<RunPlanCard
+											t={t}
+											plan={selectedRun.plan}
+											employeeById={orgById}
+											onItemActivate={(jobId) => {
+												if (!jobId || !threadRef.current) {
+													return;
+												}
+												const el = threadRef.current.querySelector(`[data-sub-agent-job-id="${jobId}"]`);
+												el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+												if (el instanceof HTMLElement) {
+													el.classList.add('ref-ai-employees-run-plan-flash');
+													window.setTimeout(() => el.classList.remove('ref-ai-employees-run-plan-flash'), 700);
+												}
+											}}
+										/>
+									</div>
+								) : null}
 								{streamErr ? (
 									<div className="ref-ai-employees-banner ref-ai-employees-banner--err" role="alert">
 										{streamErr}

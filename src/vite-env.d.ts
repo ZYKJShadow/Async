@@ -16,6 +16,8 @@ export interface AsyncShellAPI {
 	subscribeAiEmployeesWorkspace?(callback: (workspaceRoot: string) => void): () => void;
 	/** AI 团队收件箱对话流式输出（delta/done/error） */
 	subscribeAiEmployeesChat?(callback: (payload: unknown) => void): () => void;
+	/** 子 agent 执行过程中的工具起止（非持久化，仅用于 UI 活性） */
+	subscribeAiEmployeesSubAgentEvent?(callback: (payload: unknown) => void): () => void;
 	/** PTY 终端输出（按 session id 区分） */
 	subscribeTerminalPtyData?(callback: (id: string, data: string) => void): () => void;
 	subscribeTerminalPtyExit?(callback: (id: string, code: unknown) => void): () => void;

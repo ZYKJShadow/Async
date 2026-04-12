@@ -138,4 +138,17 @@ export type EmployeeChatInput = {
 	boundaryLocalPaths?: string[];
 	/** Whether this employee is the CEO/coordinator — enables delegation-first behavior. */
 	isCeo?: boolean;
+	/**
+	 * When set, main merges this with the request timeout so `aiEmployees:abortChat` can cancel in flight.
+	 * Renderer sets it for CEO inbox turns that should be stoppable.
+	 */
+	abortSignal?: AbortSignal;
+	/**
+	 * When set, main emits `async-shell:aiEmployeesSubAgentEvent` during this delegated run (tool_start / tool_end).
+	 */
+	subAgentPresence?: {
+		runId: string;
+		jobId: string;
+		employeeId: string;
+	};
 };
