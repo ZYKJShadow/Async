@@ -50,6 +50,7 @@ import {
 } from '../domain/orchestration';
 import { employeeHasActiveRunInvolvement, isOrchestrationRunIncomplete } from '../domain/employeeActivityStatus';
 import { buildModelOptions } from '../adapters/modelAdapter';
+import { mergeEnabledIdsWithAllModels, type UserModelEntry } from '../../modelCatalog';
 import { formatOrchestrationCommitMessage, requestCommitToBranch } from '../adapters/gitAdapter';
 import {
 	type AiEmployeesConnection,
@@ -480,9 +481,13 @@ export function useAiEmployeesController(t: TFunction) {
 					const providerDisplayName = pid ? (providerLabel.get(pid) ?? pid) : undefined;
 					return { id: e.id, displayName: e.displayName, providerDisplayName };
 				});
+			const rawEnabled = Array.isArray(r?.models?.enabledIds)
+				? r.models.enabledIds.filter((x): x is string => typeof x === 'string')
+				: [];
+			const mergedEnabled = mergeEnabledIdsWithAllModels(entries as unknown as UserModelEntry[], rawEnabled);
 			setLocalModels({
 				entries,
-				enabledIds: Array.isArray(r?.models?.enabledIds) ? r.models.enabledIds.filter((x): x is string => typeof x === 'string') : [],
+				enabledIds: mergedEnabled,
 				defaultModelId: typeof r?.defaultModel === 'string' ? r.defaultModel : undefined,
 			});
 		})();
@@ -513,9 +518,13 @@ export function useAiEmployeesController(t: TFunction) {
 				const providerDisplayName = pid ? (providerLabel.get(pid) ?? pid) : undefined;
 				return { id: e.id, displayName: e.displayName, providerDisplayName };
 			});
+		const rawEnabled = Array.isArray(r?.models?.enabledIds)
+			? r.models.enabledIds.filter((x): x is string => typeof x === 'string')
+			: [];
+		const mergedEnabled = mergeEnabledIdsWithAllModels(entries as unknown as UserModelEntry[], rawEnabled);
 		setLocalModels({
 			entries,
-			enabledIds: Array.isArray(r?.models?.enabledIds) ? r.models.enabledIds.filter((x): x is string => typeof x === 'string') : [],
+			enabledIds: mergedEnabled,
 			defaultModelId: typeof r?.defaultModel === 'string' ? r.defaultModel : undefined,
 		});
 	}, [shell]);
