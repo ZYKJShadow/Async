@@ -7,6 +7,7 @@ import { runAgentLoop, type AgentLoopHandlers, type AgentLoopOptions } from '../
 import { assembleAgentToolPool } from '../agent/agentToolPool.js';
 import type { StreamHandlers } from '../llm/types.js';
 import { COLLAB_TOOL_DEFS, isCollabTool, parseCollabAction, type CollabAction } from './collaborationTools.js';
+import { flattenAssistantTextPartsForSearch, isStructuredAssistantMessage } from '../../src/agentStructuredMessage.js';
 
 function trim(value: unknown): string {
 	return typeof value === 'string' ? value.trim() : '';
@@ -226,7 +227,15 @@ export async function runEmployeeChat(
 			onToolResult: (name, _result, success, _id) => {
 				handlers.onToolResult?.(name, success);
 			},
-			onDone: (text) => handlers.onDone(text),
+			onDone: (text) => {
+				// The agent loop returns the full structured payload (JSON with tool parts).
+				// For employee chat we only want the verbal text — tool details live in
+				// the activity/timeline views, not in the chat bubble.
+				const chatText = isStructuredAssistantMessage(text)
+					? flattenAssistantTextPartsForSearch(text)
+					: text;
+				handlers.onDone(chatText);
+			},
 			onError: (msg) => handlers.onError(msg),
 		};
 
