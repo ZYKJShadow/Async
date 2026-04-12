@@ -29,6 +29,7 @@ import { RunHeaderBar } from '../components/RunHeaderBar';
 import { RunPlanCard } from '../components/RunPlanCard';
 import { SubAgentExecutionCard } from '../components/SubAgentExecutionCard';
 import { SubAgentDetailPanel } from './SubAgentDetailPanel';
+import { isOutgoingInboxMessage } from '../domain/inboxMessageLayout';
 
 function InboxChatAvatarSlot({
 	conn,
@@ -133,13 +134,6 @@ function livePresenceForRun(
 
 function isThreadNearBottom(el: HTMLDivElement, threshold = 40): boolean {
 	return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
-}
-
-function isOutgoingMessage(message: AiCollabMessage, ceoEmployeeId?: string): boolean {
-	if (!ceoEmployeeId) {
-		return false;
-	}
-	return message.fromEmployeeId === ceoEmployeeId || (!message.fromEmployeeId && message.toEmployeeId === ceoEmployeeId);
 }
 
 function avatarEmployeeForIncomingMessage(
@@ -693,7 +687,7 @@ export function InboxPage({
 										const prev = thread[idx - 1];
 										const showDay =
 											!prev || calendarDayKey(prev.createdAtIso) !== calendarDayKey(message.createdAtIso);
-										const isUser = isOutgoingMessage(message, ceoEmployeeId);
+										const isUser = isOutgoingInboxMessage(message);
 
 										if (message.type === 'task_assignment' && message.subAgentJobId) {
 											return (
