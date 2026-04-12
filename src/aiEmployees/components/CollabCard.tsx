@@ -1,6 +1,7 @@
 import type { TFunction } from '../../i18n';
 import type { AiCollabMessage, AiCollabCardStatus } from '../../../shared/aiEmployeesSettings';
 import type { OrgEmployee } from '../api/orgTypes';
+import { isCeoFinalCollabMessage } from '../domain/ceoFinalCollabMessage';
 
 function employeeName(employees: Map<string, OrgEmployee>, id?: string): string {
 	if (!id) return 'You';
@@ -115,11 +116,7 @@ export function CollabCard({
 	const toName = employeeName(employeeMap, message.toEmployeeId);
 	const status = message.cardMeta?.status;
 	const actions = message.cardMeta?.actions;
-	const isCeoFinalAnswer =
-		Boolean(ceoEmployeeId) &&
-		message.type === 'result' &&
-		message.fromEmployeeId === ceoEmployeeId &&
-		!message.subAgentJobId;
+	const isCeoFinalAnswer = isCeoFinalCollabMessage(message, ceoEmployeeId);
 
 	const copyFinalAnswer = () => {
 		const text = (message.body ?? '').trim();

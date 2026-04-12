@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiOrchestrationRun } from '../../../shared/aiEmployeesSettings';
+import { runHeaderProgress } from '../domain/runHeaderMetrics';
 import { IconStop } from '../../icons';
 
 function formatElapsed(ms: number): string {
@@ -8,21 +9,6 @@ function formatElapsed(ms: number): string {
 	const m = Math.floor(totalSec / 60);
 	const s = totalSec % 60;
 	return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function runProgress(run: AiOrchestrationRun): { done: number; total: number } | null {
-	const plan = run.plan;
-	if (plan?.length) {
-		const total = plan.length;
-		const done = plan.filter((p) => p.status === 'done' || p.status === 'skipped').length;
-		return { done, total };
-	}
-	const jobs = run.subAgentJobs ?? [];
-	if (!jobs.length) {
-		return null;
-	}
-	const done = jobs.filter((j) => j.status === 'done' || j.status === 'error' || j.status === 'blocked').length;
-	return { done, total: jobs.length };
 }
 
 export function RunHeaderBar({
@@ -51,7 +37,7 @@ export function RunHeaderBar({
 	}, [run.status]);
 
 	const elapsedMs = elapsedOk ? now - started : 0;
-	const progress = useMemo(() => runProgress(run), [run]);
+	const progress = useMemo(() => runHeaderProgress(run), [run]);
 
 	const showApprove =
 		(run.approvalState === 'pending_git' || run.approvalState === 'pending_handoff') && Boolean(onApproveGit);
@@ -118,6 +104,7 @@ export function RunHeaderBar({
 					className="ref-ai-employees-btn ref-ai-employees-btn--secondary ref-ai-employees-run-header-btn ref-ai-employees-run-header-btn--danger"
 					disabled={!canStop}
 					onClick={() => {
+						setPauseHint(null);
 						onStop();
 					}}
 					title={t('aiEmployees.groupChat.runHeaderStopHint')}

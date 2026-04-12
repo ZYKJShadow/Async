@@ -8,6 +8,11 @@ import {
 	IconWindowMaximize,
 } from '../../icons';
 import {
+	subAgentCardCompactHead,
+	subAgentCardShowBody,
+	subAgentCardShowDesc,
+} from '../domain/subAgentCardLayout';
+import {
 	buildSubAgentTimeline,
 	formatSubAgentDuration,
 	getSubAgentJobWallDurationMs,
@@ -130,8 +135,9 @@ export function SubAgentExecutionCard({
 	const wallMs = getSubAgentJobWallDurationMs(job);
 	const statusText = jobStatusLabel(t, job.status);
 	const detailText = description?.trim() || job.taskDescription?.trim();
-	const showCompactHead = hasTimeline && !timelineOpen;
-	const showBody = !hasTimeline || timelineOpen;
+	const showCompactHead = subAgentCardCompactHead(hasTimeline, timelineOpen);
+	const showBody = subAgentCardShowBody(hasTimeline, timelineOpen);
+	const showDesc = subAgentCardShowDesc(detailText, hasTimeline, timelineOpen);
 
 	return (
 		<article
@@ -196,9 +202,7 @@ export function SubAgentExecutionCard({
 			{showBody ? (
 				<div className="ref-ai-employees-subagent-live-card-body">
 					<div className="ref-ai-employees-subagent-live-task">{job.taskTitle}</div>
-					{detailText && (!hasTimeline || timelineOpen) ? (
-						<div className="ref-ai-employees-subagent-live-desc">{detailText}</div>
-					) : null}
+					{showDesc ? <div className="ref-ai-employees-subagent-live-desc">{detailText}</div> : null}
 				</div>
 			) : null}
 			{hasTimeline && timelineOpen ? (
