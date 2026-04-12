@@ -747,6 +747,9 @@ export function useAiEmployeesController() {
 		[employeeById]
 	);
 
+	const modelOptions = useMemo(() => buildModelOptions(localModels), [localModels]);
+	const modelOptionIdSet = useMemo(() => new Set(modelOptions.map((m) => m.id)), [modelOptions]);
+
 	const buildChatHistoryForRequest = useCallback(
 		(employeeId: string, runId: string, employee: OrgEmployee): EmployeeChatHistoryTurn[] => {
 			const msgs = orchestrationRef.current.collabMessages;
@@ -1723,9 +1726,6 @@ export function useAiEmployeesController() {
 			wsRef.current = null;
 		};
 	}, [conn, sessionPhase, workspaceId, routeWsEventToRefresh, softRefreshPayload, refreshAgentsOnly, recordTaskEvent, syncOrchestrationHistory, persistOrchestration, appendCollabMessage, aiSettings]);
-
-	const modelOptions = useMemo(() => buildModelOptions(localModels), [localModels]);
-	const modelOptionIdSet = useMemo(() => new Set(modelOptions.map((m) => m.id)), [modelOptions]);
 
 	const requestEmployeeReply = useCallback(
 		async (employeeId: string, runId: string) => {
