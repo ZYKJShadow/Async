@@ -70,6 +70,17 @@ function formatChatMessageTime(iso: string): string {
 	return d.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+function latestRunPreview(messages: AiCollabMessage[]): string {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		const text = (message.summary || message.body || '').trim().replace(/\s+/g, ' ');
+		if (text) {
+			return text;
+		}
+	}
+	return '';
+}
+
 function runStatusBadge(t: TFunction, run: AiOrchestrationRun): string {
 	switch (run.status) {
 		case 'running':
@@ -322,6 +333,14 @@ export function InboxPage({
 		? orgById.get(taskMessage.fromEmployeeId)
 		: undefined;
 
+	const runPreviewById = useMemo(() => {
+		const preview = new Map<string, string>();
+		for (const run of sortedRuns) {
+			preview.set(run.id, latestRunPreview(listMessagesByRun(run.id)));
+		}
+		return preview;
+	}, [listMessagesByRun, sortedRuns]);
+
 	const renderDelegationCard = (message: AiCollabMessage) => {
 		const job = jobFromRun(selectedRun, message.subAgentJobId ?? message.cardMeta?.handoffId);
 		if (job) {
@@ -335,21 +354,27 @@ export function InboxPage({
 			);
 		}
 		const assignee = message.toEmployeeId ? orgById.get(message.toEmployeeId) : undefined;
+		const placeholderJob: AiSubAgentJob = {
+			id: message.subAgentJobId ?? message.cardMeta?.handoffId ?? message.id,
+			runId: message.runId,
+			employeeId: message.toEmployeeId ?? '',
+			employeeName:
+				(assignee?.displayName ?? message.summary) ||
+				t('aiEmployees.groupChat.pendingAssignee'),
+			taskTitle: message.summary || t('aiEmployees.groupChat.pendingTask'),
+			taskDescription: message.body || '',
+			status: 'queued',
+			queuedAtIso: message.createdAtIso,
+			toolLog: [],
+		};
 		return (
-			<div className="ref-ai-employees-group-card" data-job-status="queued">
-				<div className="ref-ai-employees-group-card-head">
-					<span className="ref-ai-employees-group-card-who">
-						{assignee?.displayName ?? message.summary}
-					</span>
-					<span className="ref-ai-employees-group-card-state">
-						{t('aiEmployees.groupChat.cardQueued')}
-					</span>
-				</div>
-				<div className="ref-ai-employees-group-card-title">{message.summary}</div>
-				{message.body ? (
-					<div className="ref-ai-employees-group-card-desc">{message.body}</div>
-				) : null}
-			</div>
+			<SubAgentExecutionCard
+				t={t}
+				job={placeholderJob}
+				description={message.body}
+				onOpenDetail={setDetailJob}
+				isPlaceholder
+			/>
 		);
 	};
 
@@ -445,6 +470,7 @@ export function InboxPage({
 							<ul className="ref-ai-employees-inbox-peer-list" aria-label={t('aiEmployees.inbox.railAria')}>
 								{sortedRuns.map((run) => {
 									const active = selection?.kind === 'run' && selection.runId === run.id;
+									const preview = runPreviewById.get(run.id);
 									return (
 										<li key={run.id}>
 											<button
@@ -458,6 +484,12 @@ export function InboxPage({
 												<span className="ref-ai-employees-inbox-peer-meta">
 													<span className="ref-ai-employees-inbox-peer-name">{run.goal}</span>
 													<span className="ref-ai-employees-inbox-peer-role">{runStatusBadge(t, run)}</span>
+													{preview ? (
+														<span className="ref-ai-employees-inbox-peer-preview">{preview}</span>
+													) : null}
+												</span>
+												<span className="ref-ai-employees-inbox-peer-time">
+													{formatChatMessageTime(run.lastEventAtIso ?? run.createdAtIso)}
 												</span>
 											</button>
 										</li>

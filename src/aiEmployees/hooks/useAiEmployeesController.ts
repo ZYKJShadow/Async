@@ -216,6 +216,11 @@ function myIssuesListQuery(meUserId: string | undefined, orgEmps: OrgEmployee[] 
 }
 
 export type AiEmployeesTabId = 'inbox' | 'myIssues' | 'issues' | 'projects' | 'agents' | 'skills' | 'activity' | 'connection';
+export type ActivityFocusState = {
+	runId: string;
+	from?: 'inbox' | 'agents';
+	employeeId?: string;
+};
 
 export function useAiEmployeesController() {
 	const shell = window.asyncShell as Shell | undefined;
@@ -227,6 +232,7 @@ export function useAiEmployeesController() {
 	const aiSettingsRef = useRef(aiSettings);
 	aiSettingsRef.current = aiSettings;
 	const [tab, setTab] = useState<AiEmployeesTabId>('inbox');
+	const [activityFocus, setActivityFocus] = useState<ActivityFocusState | null>(null);
 	/** 侧栏「新建任务」等触发：递增后由 IssuesHubPage 打开弹窗 */
 	const [createIssueSignal, setCreateIssueSignal] = useState(0);
 	const requestCreateIssue = useCallback(() => {
@@ -2688,6 +2694,15 @@ export function useAiEmployeesController() {
 		[orchestration.timelineEvents]
 	);
 
+	const openActivityForRun = useCallback((focus: ActivityFocusState) => {
+		setActivityFocus(focus);
+		setTab('activity');
+	}, []);
+
+	const clearActivityFocus = useCallback(() => {
+		setActivityFocus(null);
+	}, []);
+
 	const findActiveRunByEmployee = useCallback(
 		(employeeId: string) =>
 			orchestration.runs
@@ -2849,6 +2864,9 @@ export function useAiEmployeesController() {
 		setAiSettings,
 		tab,
 		setTab,
+		activityFocus,
+		openActivityForRun,
+		clearActivityFocus,
 		createIssueSignal,
 		requestCreateIssue,
 		workspaceId,

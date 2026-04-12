@@ -66,6 +66,7 @@ export function EmployeesPage({
 	employeeChatError,
 	skillsCatalog,
 	onRefreshSkills,
+	onNavigateToActivity,
 }: {
 	t: TFunction;
 	conn: AiEmployeesConnection;
@@ -85,6 +86,7 @@ export function EmployeesPage({
 	orchestration?: AiEmployeesOrchestrationState;
 	employeeChatStreaming?: Record<string, string>;
 	employeeChatError?: Record<string, string | undefined>;
+	onNavigateToActivity?: (focus: { runId: string; employeeId?: string }) => void;
 }) {
 	type AiEmployeeDetailTab = 'instructions' | 'skills' | 'tasks' | 'settings';
 
@@ -565,14 +567,32 @@ export function EmployeesPage({
 									{openRunsForSelected.length === 0 ? (
 										<p className="ref-ai-employees-muted">{t('aiEmployees.aiDetail.tasksEmpty')}</p>
 									) : orchestration ? (
-										<EmployeeRunOperationsFeed
-											t={t}
-											orchestration={orchestration}
-											runs={openRunsForSelected}
-											employeeMap={orgById}
-											streamingSnippet={selectedId ? employeeChatStreaming?.[selectedId] : undefined}
-											streamError={selectedId ? employeeChatError?.[selectedId] : undefined}
-										/>
+										<>
+											{onNavigateToActivity && openRunsForSelected[0] ? (
+												<div className="ref-ai-employees-task-feed-actions">
+													<button
+														type="button"
+														className="ref-ai-employees-btn ref-ai-employees-btn--ghost ref-ai-employees-task-feed-jump"
+														onClick={() =>
+															onNavigateToActivity({
+																runId: openRunsForSelected[0]!.id,
+																employeeId: selectedId ?? undefined,
+															})
+														}
+													>
+														{t('aiEmployees.activity.openFocusedRun')}
+													</button>
+												</div>
+											) : null}
+											<EmployeeRunOperationsFeed
+												t={t}
+												orchestration={orchestration}
+												runs={openRunsForSelected}
+												employeeMap={orgById}
+												streamingSnippet={selectedId ? employeeChatStreaming?.[selectedId] : undefined}
+												streamError={selectedId ? employeeChatError?.[selectedId] : undefined}
+											/>
+										</>
 									) : (
 										<p className="ref-ai-employees-muted">{t('aiEmployees.aiDetail.tasksEmpty')}</p>
 									)}

@@ -80,6 +80,9 @@ export function AiEmployeesApp() {
 			className={`ref-ai-employees-nav-item ${activeTab === id ? 'is-active' : ''}`}
 			onClick={() => {
 				if (!disabled && !navBusy) {
+					if (id !== 'activity' && c.activityFocus) {
+						c.clearActivityFocus();
+					}
 					c.setTab(id);
 				}
 			}}
@@ -270,7 +273,13 @@ export function AiEmployeesApp() {
 											ceoEmployeeId={c.ceoEmployeeId}
 											employeeChatStreaming={c.employeeChatStreaming}
 											employeeChatError={c.employeeChatError}
-											onNavigateToActivity={() => c.setTab('activity')}
+											onNavigateToActivity={(runId) => {
+												if (runId) {
+													c.openActivityForRun({ runId, from: 'inbox' });
+													return;
+												}
+												c.setTab('activity');
+											}}
 										/>
 									) : null}
 
@@ -354,6 +363,7 @@ export function AiEmployeesApp() {
 											orchestration={c.orchestration}
 											employeeChatStreaming={c.employeeChatStreaming}
 											employeeChatError={c.employeeChatError}
+											onNavigateToActivity={(focus) => c.openActivityForRun({ ...focus, from: 'agents' })}
 										/>
 									) : null}
 
@@ -362,6 +372,8 @@ export function AiEmployeesApp() {
 											t={t}
 											orchestration={c.orchestration}
 											orgEmployees={c.orgEmployees}
+											activityFocus={c.activityFocus}
+											onClearFocus={c.clearActivityFocus}
 										/>
 									) : null}
 

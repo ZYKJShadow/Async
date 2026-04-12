@@ -116,11 +116,13 @@ export function SubAgentExecutionCard({
 	job,
 	description,
 	onOpenDetail,
+	isPlaceholder = false,
 }: {
 	t: TFunction;
 	job: AiSubAgentJob;
 	description?: string;
 	onOpenDetail: (job: AiSubAgentJob) => void;
+	isPlaceholder?: boolean;
 }) {
 	const timeline = useMemo(() => buildSubAgentTimeline(job), [job]);
 	const [open, setOpen] = useState(
@@ -132,7 +134,10 @@ export function SubAgentExecutionCard({
 	const detailText = description?.trim() || job.taskDescription?.trim();
 
 	return (
-		<article className="ref-ai-employees-subagent-live-card" data-job-status={job.status}>
+		<article
+			className={`ref-ai-employees-subagent-live-card ${isPlaceholder ? 'is-placeholder' : ''}`}
+			data-job-status={job.status}
+		>
 			<div className="ref-ai-employees-subagent-live-card-head">
 				<button
 					type="button"
@@ -167,15 +172,17 @@ export function SubAgentExecutionCard({
 						<IconChevron className={`ref-ai-employees-subagent-live-card-chevron ${open ? 'is-open' : ''}`} />
 					) : null}
 				</button>
-				<button
-					type="button"
-					className="ref-ai-employees-subagent-live-card-open"
-					onClick={() => onOpenDetail(job)}
-					title={t('aiEmployees.groupChat.viewJobDetail')}
-					aria-label={t('aiEmployees.groupChat.viewJobDetail')}
-				>
-					<IconWindowMaximize />
-				</button>
+				{!isPlaceholder ? (
+					<button
+						type="button"
+						className="ref-ai-employees-subagent-live-card-open"
+						onClick={() => onOpenDetail(job)}
+						title={t('aiEmployees.groupChat.viewJobDetail')}
+						aria-label={t('aiEmployees.groupChat.viewJobDetail')}
+					>
+						<IconWindowMaximize />
+					</button>
+				) : null}
 			</div>
 			<div className="ref-ai-employees-subagent-live-card-body">
 				<div className="ref-ai-employees-subagent-live-task">{job.taskTitle}</div>

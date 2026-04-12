@@ -1,42 +1,17 @@
 import { useMemo } from 'react';
 import type { TFunction } from '../../i18n';
 import type {
-	AiCollabMessage,
 	AiEmployeesOrchestrationState,
 	AiOrchestrationRun,
-	AiOrchestrationTimelineEvent,
 } from '../../../shared/aiEmployeesSettings';
 import type { OrgEmployee } from '../api/orgTypes';
 import { CollabCard } from './CollabCard';
-
-type FeedItem =
-	| { kind: 'timeline'; event: AiOrchestrationTimelineEvent }
-	| { kind: 'collab'; message: AiCollabMessage };
+import { buildRunExecutionFeed } from '../domain/runExecutionFeed';
 
 function formatTime(iso: string): string {
 	const d = new Date(iso);
 	if (Number.isNaN(d.getTime())) return '';
 	return d.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function mergeRunFeed(orchestration: AiEmployeesOrchestrationState, runIds: ReadonlySet<string>): FeedItem[] {
-	const out: FeedItem[] = [];
-	for (const e of orchestration.timelineEvents) {
-		if (runIds.has(e.runId)) {
-			out.push({ kind: 'timeline', event: e });
-		}
-	}
-	for (const m of orchestration.collabMessages) {
-		if (runIds.has(m.runId) && !m.internalOnly) {
-			out.push({ kind: 'collab', message: m });
-		}
-	}
-	out.sort((a, b) => {
-		const ta = a.kind === 'timeline' ? a.event.createdAtIso : a.message.createdAtIso;
-		const tb = b.kind === 'timeline' ? b.event.createdAtIso : b.message.createdAtIso;
-		return Date.parse(ta) - Date.parse(tb);
-	});
-	return out;
 }
 
 /** 与主界面 Agent 聊天区一致的消息轨道：展示该成员相关运行的时间线 + 协作消息 + 流式片段 */
@@ -57,7 +32,7 @@ export function EmployeeRunOperationsFeed({
 }) {
 	const runIdSet = useMemo(() => new Set(runs.map((r) => r.id)), [runs]);
 
-	const items = useMemo(() => mergeRunFeed(orchestration, runIdSet), [orchestration, runIdSet]);
+	const items = useMemo(() => buildRunExecutionFeed(orchestration, runIdSet), [orchestration, runIdSet]);
 
 	const hasTail = Boolean(streamingSnippet?.trim()) || Boolean(streamError);
 
@@ -91,10 +66,7 @@ export function EmployeeRunOperationsFeed({
 						</div>
 					) : null}
 					{items.map((item) => (
-						<div
-							key={item.kind === 'timeline' ? `tl-${item.event.id}` : `cm-${item.message.id}`}
-							className="ref-msg-row-measure"
-						>
+						<div key={item.id} className="ref-msg-row-measure">
 							<div className="ref-msg-slot ref-msg-slot--assistant ref-ai-employees-task-feed-slot">
 								<div className="ref-msg-assistant-body ref-ai-employees-task-feed-body">
 									{item.kind === 'timeline' ? (
