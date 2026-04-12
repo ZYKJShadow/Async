@@ -569,6 +569,7 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.groupChat.jobBlocked': '阻塞',
 	'aiEmployees.groupChat.pendingTask': '委派任务',
 	'aiEmployees.groupChat.pendingAssignee': '待分配成员',
+	'aiEmployees.groupChat.jumpToLatest': '回到最新',
 	'aiEmployees.tab.activity': '动态',
 	'aiEmployees.activity.title': '团队动态',
 	'aiEmployees.activity.focusTitle': '运行动态',

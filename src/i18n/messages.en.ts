@@ -575,6 +575,7 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.groupChat.jobBlocked': 'Blocked',
 	'aiEmployees.groupChat.pendingTask': 'Delegated task',
 	'aiEmployees.groupChat.pendingAssignee': 'Pending assignee',
+	'aiEmployees.groupChat.jumpToLatest': 'Latest',
 	'aiEmployees.tab.activity': 'Activity',
 	'aiEmployees.activity.title': 'Team Activity',
 	'aiEmployees.activity.focusTitle': 'Run activity',

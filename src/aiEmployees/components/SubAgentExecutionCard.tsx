@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from '../../i18n';
 import type { AiSubAgentJob } from '../../../shared/aiEmployeesSettings';
 import {
@@ -128,10 +128,54 @@ export function SubAgentExecutionCard({
 	const [open, setOpen] = useState(
 		job.status === 'running' || job.status === 'blocked' || job.status === 'error'
 	);
+	const [autoFollow, setAutoFollow] = useState(true);
+	const [hasOverflow, setHasOverflow] = useState(false);
 	const hasTimeline = timeline.length > 0;
 	const wallMs = getSubAgentJobWallDurationMs(job);
 	const statusText = jobStatusLabel(t, job.status);
 	const detailText = description?.trim() || job.taskDescription?.trim();
+	const timelineScrollRef = useRef<HTMLDivElement>(null);
+	const timelineContentRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		const scrollEl = timelineScrollRef.current;
+		if (!scrollEl) {
+			return;
+		}
+		scrollEl.scrollTop = scrollEl.scrollHeight;
+		setAutoFollow(true);
+		setHasOverflow(scrollEl.scrollHeight - scrollEl.clientHeight > 4);
+	}, [open]);
+
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		const scrollEl = timelineScrollRef.current;
+		const contentEl = timelineContentRef.current;
+		if (!scrollEl || !contentEl || typeof ResizeObserver === 'undefined') {
+			return;
+		}
+		const syncMetrics = () => {
+			const nextOverflow = scrollEl.scrollHeight - scrollEl.clientHeight > 4;
+			setHasOverflow(nextOverflow);
+			if (autoFollow) {
+				scrollEl.scrollTop = scrollEl.scrollHeight;
+			}
+		};
+		syncMetrics();
+		const observer = new ResizeObserver(() => {
+			syncMetrics();
+		});
+		observer.observe(scrollEl);
+		observer.observe(contentEl);
+		return () => observer.disconnect();
+	}, [autoFollow, open, timeline.length]);
+
+	const showLatest = open && hasOverflow && !autoFollow;
 
 	return (
 		<article
@@ -190,11 +234,46 @@ export function SubAgentExecutionCard({
 					<div className="ref-ai-employees-subagent-live-desc">{detailText}</div>
 				) : null}
 			</div>
-			{hasTimeline && open ? (
-				<div className="ref-ai-employees-subagent-live-timeline">
-					{timeline.map((item) => (
-						<CompactTimelineRow key={item.id} t={t} item={item} />
-					))}
+			{hasTimeline ? (
+				<div className={`ref-ai-employees-subagent-live-timeline-wrap ${open ? 'is-open' : ''}`}>
+					<div className="ref-ai-employees-subagent-live-timeline-shell">
+						<div
+							ref={timelineScrollRef}
+							className="ref-ai-employees-subagent-live-timeline"
+							onScroll={() => {
+								const scrollEl = timelineScrollRef.current;
+								if (!scrollEl) {
+									return;
+								}
+								const nearBottom =
+									scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 24;
+								setHasOverflow(scrollEl.scrollHeight - scrollEl.clientHeight > 4);
+								setAutoFollow(nearBottom);
+							}}
+						>
+							<div ref={timelineContentRef} className="ref-ai-employees-subagent-live-timeline-inner">
+								{timeline.map((item) => (
+									<CompactTimelineRow key={item.id} t={t} item={item} />
+								))}
+							</div>
+						</div>
+					</div>
+					{showLatest ? (
+						<button
+							type="button"
+							className="ref-ai-employees-subagent-live-latest"
+							onClick={() => {
+								const scrollEl = timelineScrollRef.current;
+								if (!scrollEl) {
+									return;
+								}
+								scrollEl.scrollTop = scrollEl.scrollHeight;
+								setAutoFollow(true);
+							}}
+						>
+							{t('aiEmployees.groupChat.jumpToLatest')}
+						</button>
+					) : null}
 				</div>
 			) : null}
 		</article>

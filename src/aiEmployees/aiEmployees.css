@@ -9826,6 +9826,12 @@
 .ref-ai-employees-subagent-live-card.is-placeholder {
 	border-style: dashed;
 	box-shadow: none;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--void-fg-0) 3%, transparent) 0%,
+			color-mix(in srgb, var(--void-fg-0) 1%, transparent) 100%
+		);
 }
 
 .ref-ai-employees-subagent-live-card[data-job-status='running'] {
@@ -10010,15 +10016,67 @@
 	white-space: pre-wrap;
 }
 
+.ref-ai-employees-subagent-live-timeline-wrap {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	transition:
+		grid-template-rows 0.22s ease,
+		opacity 0.16s ease;
+}
+
+.ref-ai-employees-subagent-live-timeline-wrap.is-open {
+	grid-template-rows: 1fr;
+	opacity: 1;
+}
+
+.ref-ai-employees-subagent-live-timeline-shell {
+	min-height: 0;
+	overflow: hidden;
+	padding-left: 44px;
+}
+
 .ref-ai-employees-subagent-live-timeline {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
 	padding-top: 2px;
-	padding-left: 44px;
 	max-height: min(36vh, 320px);
 	overflow: auto;
 	scrollbar-gutter: stable;
+}
+
+.ref-ai-employees-subagent-live-timeline-inner {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding-bottom: 4px;
+}
+
+.ref-ai-employees-subagent-live-latest {
+	align-self: flex-start;
+	margin-left: 44px;
+	margin-top: 8px;
+	padding: 5px 10px;
+	border-radius: 999px;
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool, #58a6ff) 24%, transparent);
+	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 10%, var(--void-bg-1, #161b22));
+	color: var(--void-accent-cool, #58a6ff);
+	font: inherit;
+	font-size: 11px;
+	font-weight: 600;
+	cursor: pointer;
+	transition:
+		background 0.16s ease,
+		border-color 0.16s ease,
+		color 0.16s ease;
+}
+
+.ref-ai-employees-subagent-live-latest:hover {
+	background: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 16%, var(--void-bg-1, #161b22));
+	border-color: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 34%, transparent);
+	color: color-mix(in srgb, var(--void-accent-cool, #58a6ff) 88%, white);
 }
 
 .ref-ai-employees-subagent-live-row {
