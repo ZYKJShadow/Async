@@ -266,18 +266,20 @@ Each tool entry is collapsible — click to expand and see args/result detail.
 
 ### 6.1 Files to Modify
 
-| File | Change |
-|------|--------|
-| `shared/aiEmployeesSettings.ts` | Add `AiSubAgentJob`, `AiSubAgentToolEntry` types; extend `AiOrchestrationRun` with `subAgentJobs`; add `subAgentJobId` to `AiCollabMessage` |
-| `src/aiEmployees/domain/orchestration.ts` | Add pure functions: `addSubAgentJob`, `updateSubAgentJob`, `appendToolLogEntry`; update `emptyOrchestrationState` |
+
+| File                                                | Change                                                                                                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `shared/aiEmployeesSettings.ts`                     | Add `AiSubAgentJob`, `AiSubAgentToolEntry` types; extend `AiOrchestrationRun` with `subAgentJobs`; add `subAgentJobId` to `AiCollabMessage`                                    |
+| `src/aiEmployees/domain/orchestration.ts`           | Add pure functions: `addSubAgentJob`, `updateSubAgentJob`, `appendToolLogEntry`; update `emptyOrchestrationState`                                                              |
 | `src/aiEmployees/hooks/useAiEmployeesController.ts` | Major refactor: replace per-employee streaming with single-stream group chat; add sub-agent job queue; rewrite `handleCollabAction` for new flow; add sub-agent executor logic |
-| `src/aiEmployees/pages/InboxPage.tsx` | Rewrite as GroupChatPage: sidebar shows runs, main area shows group timeline, delegation/result cards replace 1:1 messages |
-| `src/aiEmployees/pages/SubAgentDetailPanel.tsx` | **NEW**: slide-out panel showing sub-agent tool log |
-| `src/aiEmployees/AiEmployeesApp.tsx` | Wire new GroupChatPage; remove per-employee streaming props |
-| `main-src/aiEmployees/employeeChat.ts` | Add new handler type for sub-agent mode: `onToolCall` records to work log instead of streaming |
-| `main-src/ipc/register.ts` | Add `aiEmployees:runSubAgent` IPC handler (or modify existing); sub-agent mode records tool log and returns result, no streaming to renderer |
-| `src/aiEmployees/aiEmployees.css` | New styles for group chat layout, delegation cards, result cards, detail panel |
-| `src/i18n/messages.en.ts`, `messages.zh-CN.ts` | New i18n keys for group chat UI |
+| `src/aiEmployees/pages/InboxPage.tsx`               | Rewrite as GroupChatPage: sidebar shows runs, main area shows group timeline, delegation/result cards replace 1:1 messages                                                     |
+| `src/aiEmployees/pages/SubAgentDetailPanel.tsx`     | **NEW**: slide-out panel showing sub-agent tool log                                                                                                                            |
+| `src/aiEmployees/AiEmployeesApp.tsx`                | Wire new GroupChatPage; remove per-employee streaming props                                                                                                                    |
+| `main-src/aiEmployees/employeeChat.ts`              | Add new handler type for sub-agent mode: `onToolCall` records to work log instead of streaming                                                                                 |
+| `main-src/ipc/register.ts`                          | Add `aiEmployees:runSubAgent` IPC handler (or modify existing); sub-agent mode records tool log and returns result, no streaming to renderer                                   |
+| `src/aiEmployees/aiEmployees.css`                   | New styles for group chat layout, delegation cards, result cards, detail panel                                                                                                 |
+| `src/i18n/messages.en.ts`, `messages.zh-CN.ts`      | New i18n keys for group chat UI                                                                                                                                                |
+
 
 ### 6.2 Files to Delete / Deprecate
 
@@ -290,15 +292,14 @@ None — the existing types and functions remain useful. We're changing the flow
 **New**: Two distinct modes:
 
 1. **CEO streaming mode** (existing channel, same protocol):
-   - CEO streams response to group chat
-   - `delta` events render in real-time
-   - `collab_action` events create sub-agent jobs
-
+  - CEO streams response to group chat
+  - `delta` events render in real-time
+  - `collab_action` events create sub-agent jobs
 2. **Sub-agent batch mode** (new IPC handler `aiEmployees:runSubAgent`):
-   - Runs employee agent loop to completion
-   - Records tool calls in a structured log
-   - Returns final result + tool log as one IPC response (no streaming)
-   - Renderer updates the job status and posts result to group chat
+  - Runs employee agent loop to completion
+  - Records tool calls in a structured log
+  - Returns final result + tool log as one IPC response (no streaming)
+  - Renderer updates the job status and posts result to group chat
 
 ```ts
 // New IPC handler signature
@@ -325,6 +326,7 @@ const SUB_AGENT_MAX_CONCURRENCY = 2; // run at most 2 sub-agents at once
 ```
 
 This means:
+
 - CEO delegates 3 tasks → jobs #1 and #2 start immediately, #3 queues
 - When #1 finishes → #3 starts
 - Group chat shows real-time status updates (running/queued/done) on cards
@@ -339,9 +341,9 @@ This means:
 2. Add `subAgentJobs: AiSubAgentJob[]` to `AiOrchestrationRun` (default `[]`)
 3. Add `subAgentJobId?: string` to `AiCollabMessage`
 4. Add pure functions to `orchestration.ts`:
-   - `addSubAgentJobToRun(state, runId, job)`
-   - `updateSubAgentJobInRun(state, runId, jobId, updater)`
-   - `appendToolLogToJob(state, runId, jobId, entry)`
+  - `addSubAgentJobToRun(state, runId, job)`
+  - `updateSubAgentJobInRun(state, runId, jobId, updater)`
+  - `appendToolLogToJob(state, runId, jobId, entry)`
 5. Update `emptyOrchestrationState` and any serialization helpers
 
 **Estimated scope**: ~150 lines across 2 files. No UI breakage.
@@ -351,9 +353,9 @@ This means:
 **Goal**: Add `aiEmployees:runSubAgent` that runs an employee agent loop to completion, returning result + tool log.
 
 1. Create `main-src/aiEmployees/subAgentRunner.ts`:
-   - Reuses `runEmployeeChat` internals but captures tool calls into a log
-   - No `onDelta` streaming — text accumulates in memory
-   - Returns `{ resultText, toolLog, durationMs }`
+  - Reuses `runEmployeeChat` internals but captures tool calls into a log
+  - No `onDelta` streaming — text accumulates in memory
+  - Returns `{ resultText, toolLog, durationMs }`
 2. Register `aiEmployees:runSubAgent` IPC handler in `register.ts`
 3. Expose it via the preload bridge
 
@@ -364,14 +366,14 @@ This means:
 **Goal**: Replace the "auto-trigger requestEmployeeReply per delegation" pattern with a job queue.
 
 1. Add sub-agent job queue to `useAiEmployeesController`:
-   ```ts
+  ```ts
    const subAgentQueueRef = useRef<AiSubAgentJob[]>([]);
    const activeSubAgentCountRef = useRef(0);
-   ```
+  ```
 2. Rewrite `handleCollabAction` for `delegate_task`:
-   - Create `AiSubAgentJob` and add to orchestration state
-   - Enqueue into `subAgentQueueRef`
-   - Call `processSubAgentQueue()` which picks next job, runs it via `shell.invoke('aiEmployees:runSubAgent', ...)`, updates state on completion
+  - Create `AiSubAgentJob` and add to orchestration state
+  - Enqueue into `subAgentQueueRef`
+  - Call `processSubAgentQueue()` which picks next job, runs it via `shell.invoke('aiEmployees:runSubAgent', ...)`, updates state on completion
 3. Remove old stagger logic and per-employee streaming for delegated tasks
 4. Keep CEO streaming path unchanged (CEO still uses `aiEmployees:chat` with streaming)
 5. After all jobs in a batch complete, optionally re-trigger CEO for summary
@@ -383,15 +385,15 @@ This means:
 **Goal**: Replace InboxPage's employee-list + 1:1 chat with run-list + group timeline.
 
 1. **Sidebar**: Change from employee list to run (conversation) list
-   - Each row: run goal as title, status badge, timestamp
-   - "New Conversation" button
-   - Sort by `lastEventAtIso` descending
+  - Each row: run goal as title, status badge, timestamp
+  - "New Conversation" button
+  - Sort by `lastEventAtIso` descending
 2. **Chat thread**: Show all `collabMessages` for the selected run
-   - User messages: right-aligned bubbles (same as current)
-   - CEO text messages: left-aligned with CEO avatar
-   - Delegation cards: full-width cards with employee avatar, task title, status indicator
-   - Result cards: full-width cards with summary, "查看详情" button
-   - Blocker cards: red-tinted cards with blocker description
+  - User messages: right-aligned bubbles (same as current)
+  - CEO text messages: left-aligned with CEO avatar
+  - Delegation cards: full-width cards with employee avatar, task title, status indicator
+  - Result cards: full-width cards with summary, "查看详情" button
+  - Blocker cards: red-tinted cards with blocker description
 3. **Streaming**: Only show streaming bubble for CEO (or whichever agent is currently speaking in the group)
 4. **Composer**: Same as current — textarea + send button, triggers CEO
 5. Update `listMessagesByEmployee` → `listMessagesByRun` (already exists at line 2210)
@@ -403,11 +405,11 @@ This means:
 **Goal**: Let user click into a delegation/result card to see full sub-agent work log.
 
 1. Create `SubAgentDetailPanel.tsx` — a slide-out drawer or modal:
-   - Header: employee name, task title, status, duration
-   - Body: list of `AiSubAgentToolEntry` items, each collapsible
-   - Collapsed: tool name + duration
-   - Expanded: args (JSON pretty-printed) + result (truncated, expandable)
-   - Footer: final result text
+  - Header: employee name, task title, status, duration
+  - Body: list of `AiSubAgentToolEntry` items, each collapsible
+  - Collapsed: tool name + duration
+  - Expanded: args (JSON pretty-printed) + result (truncated, expandable)
+  - Footer: final result text
 2. Add CSS for the panel (slide from right, 480px wide, overlays chat)
 3. Wire into GroupChatPage: clicking "查看详情" on a card sets `selectedJobId` state → renders panel
 
@@ -418,10 +420,10 @@ This means:
 **Goal**: When all sub-agents finish, CEO synthesizes results.
 
 1. In `processSubAgentQueue`, track "batch completion":
-   - When all jobs for a given delegation wave are `done`
-   - Collect result summaries
-   - Inject as assistant-visible context (synthetic collabMessages)
-   - Re-trigger CEO agent loop
+  - When all jobs for a given delegation wave are `done`
+  - Collect result summaries
+  - Inject as assistant-visible context (synthetic collabMessages)
+  - Re-trigger CEO agent loop
 2. CEO streams its summary into group chat as usual
 
 **Estimated scope**: ~80 lines in controller.
@@ -436,21 +438,24 @@ This means:
 
 ## 8. Risk Assessment
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Breaking existing orchestration data | Users lose conversation history | Phase 1 is additive — new fields default to `[]`/`undefined`, old data still renders |
-| Sub-agent timeout | Job stuck in "running" forever | Add timeout (300s) to sub-agent runner; mark job as `error` on timeout |
-| CEO doesn't delegate | User sees no sub-agent activity | Fallback: if CEO responds with plain text (no delegation), show it directly — same as current ask-mode |
-| LLM API rate limiting with concurrent sub-agents | Jobs fail | `SUB_AGENT_MAX_CONCURRENCY = 2` caps parallel API calls |
-| Large tool logs in memory | Memory pressure | Truncate tool results to 2000 chars in log entries; cap toolLog to 50 entries |
+
+| Risk                                             | Impact                          | Mitigation                                                                                             |
+| ------------------------------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Breaking existing orchestration data             | Users lose conversation history | Phase 1 is additive — new fields default to `[]`/`undefined`, old data still renders                   |
+| Sub-agent timeout                                | Job stuck in "running" forever  | Add timeout (300s) to sub-agent runner; mark job as `error` on timeout                                 |
+| CEO doesn't delegate                             | User sees no sub-agent activity | Fallback: if CEO responds with plain text (no delegation), show it directly — same as current ask-mode |
+| LLM API rate limiting with concurrent sub-agents | Jobs fail                       | `SUB_AGENT_MAX_CONCURRENCY = 2` caps parallel API calls                                                |
+| Large tool logs in memory                        | Memory pressure                 | Truncate tool results to 2000 chars in log entries; cap toolLog to 50 entries                          |
+
 
 ## 9. Success Criteria
 
-- [ ] User sends message → CEO responds in group chat (single stream, no lag)
-- [ ] CEO delegates → delegation cards appear in group chat with live status
-- [ ] Sub-agents work in background (no streaming to UI during execution)
-- [ ] Sub-agent completion → result card appears in group chat
-- [ ] Clicking "查看详情" opens detail panel with full tool log
-- [ ] All sub-agents done → CEO auto-summarizes
-- [ ] Zero concurrent streams to the renderer during normal operation
-- [ ] Backward-compatible with existing orchestration data
+- User sends message → CEO responds in group chat (single stream, no lag)
+- CEO delegates → delegation cards appear in group chat with live status
+- Sub-agents work in background (no streaming to UI during execution)
+- Sub-agent completion → result card appears in group chat
+- Clicking "查看详情" opens detail panel with full tool log
+- All sub-agents done → CEO auto-summarizes
+- Zero concurrent streams to the renderer during normal operation
+- Backward-compatible with existing orchestration data
+

@@ -112,11 +112,37 @@ type SubAgentQueueItem =
 	| { kind: 'delegated'; jobId: string; runId: string; employeeId: string }
 	| { kind: 'colleague'; runId: string; employeeId: string };
 
+type SubAgentCollabAction =
+	| {
+			tool: 'delegate_task';
+			targetEmployeeName: string;
+			taskTitle: string;
+			taskDescription: string;
+			priority: string;
+			contextFiles: string[];
+	  }
+	| {
+			tool: 'send_colleague_message';
+			targetEmployeeName: string;
+			message: string;
+	  }
+	| {
+			tool: 'submit_result';
+			summary: string;
+			modifiedFiles: string[];
+			nextSteps?: string;
+	  }
+	| {
+			tool: 'report_blocker';
+			description: string;
+			suggestedHelperName?: string;
+	  };
+
 type SubAgentIpcOk = {
 	ok: true;
 	resultText: string;
 	toolLog: AiSubAgentJob['toolLog'];
-	collabActions: Array<{ tool: string; [key: string]: unknown }>;
+	collabActions: SubAgentCollabAction[];
 	durationMs: number;
 };
 
@@ -124,11 +150,35 @@ type SubAgentIpcErr = {
 	ok: false;
 	error: string;
 	toolLog: AiSubAgentJob['toolLog'];
-	collabActions: Array<{ tool: string; [key: string]: unknown }>;
+	collabActions: SubAgentCollabAction[];
 	durationMs: number;
 };
 
 type ShellUiLike = Record<string, unknown>;
+
+function pickTerminalSubAgentAction(
+	actions: readonly SubAgentCollabAction[]
+): Extract<SubAgentCollabAction, { tool: 'submit_result' | 'report_blocker' }> | undefined {
+	for (let index = actions.length - 1; index >= 0; index -= 1) {
+		const action = actions[index];
+		if (action.tool === 'submit_result' || action.tool === 'report_blocker') {
+			return action;
+		}
+	}
+	return undefined;
+}
+
+function filterFollowUpSubAgentActions(actions: readonly SubAgentCollabAction[]): SubAgentCollabAction[] {
+	return actions.filter((action) => action.tool === 'delegate_task' || action.tool === 'send_colleague_message');
+}
+
+function hasPendingRunSubAgentWork(
+	runId: string,
+	queuedItems: readonly SubAgentQueueItem[],
+	activeItems: readonly SubAgentQueueItem[]
+): boolean {
+	return queuedItems.some((item) => item.runId === runId) || activeItems.some((item) => item.runId === runId);
+}
 
 function shellUiColorMode(ui: ShellUiLike): AppColorMode | undefined {
 	const c = ui.colorMode;
@@ -239,7 +289,10 @@ export function useAiEmployeesController() {
 	}, []);
 	const subAgentQueueRef = useRef<SubAgentQueueItem[]>([]);
 	const activeSubAgentCountRef = useRef(0);
+	const activeSubAgentItemsRef = useRef<SubAgentQueueItem[]>([]);
+	const pendingCeoDigestRunIdsRef = useRef<Set<string>>(new Set());
 	const processSubAgentQueueRef = useRef<() => void>(() => {});
+	const maybeTriggerPendingCeoDigestsRef = useRef<() => void>(() => {});
 	const handleCollabActionRef = useRef<
 		((fromEmployeeId: string, runId: string, action: { tool: string; [key: string]: unknown }) => void) | null
 	>(null);
@@ -1771,6 +1824,7 @@ export function useAiEmployeesController() {
 			const payload = buildEmployeeChatPayload(employee, runId, requestId);
 			if (!payload) {
 				employeeReplyGuardRef.current.delete(employeeId);
+				maybeTriggerPendingCeoDigestsRef.current();
 				return;
 			}
 			const allowStream = runId.startsWith('im:') || employeeId === ceoEmployeeId;
@@ -1833,6 +1887,7 @@ export function useAiEmployeesController() {
 							})
 						);
 					}
+					maybeTriggerPendingCeoDigestsRef.current();
 				}
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
@@ -1856,6 +1911,7 @@ export function useAiEmployeesController() {
 						createdAtIso: nowIso,
 					})
 				);
+				maybeTriggerPendingCeoDigestsRef.current();
 			}
 		},
 		[
@@ -1880,21 +1936,25 @@ export function useAiEmployeesController() {
 			if (!ceoId) {
 				return;
 			}
-			if (activeSubAgentCountRef.current > 0) {
-				return;
-			}
-			if (subAgentQueueRef.current.some((i) => i.runId === runId)) {
-				return;
-			}
 			const run = orchestrationRef.current.runs.find((r) => r.id === runId);
 			if (!run) {
+				pendingCeoDigestRunIdsRef.current.delete(runId);
 				return;
 			}
 			const jobs = run.subAgentJobs ?? [];
 			const digestTargets = jobs.filter((j) => j.status === 'done' && !j.ceoIngested);
 			if (digestTargets.length === 0) {
+				pendingCeoDigestRunIdsRef.current.delete(runId);
 				return;
 			}
+			if (
+				hasPendingRunSubAgentWork(runId, subAgentQueueRef.current, activeSubAgentItemsRef.current) ||
+				employeeReplyGuardRef.current.has(ceoId)
+			) {
+				pendingCeoDigestRunIdsRef.current.add(runId);
+				return;
+			}
+			pendingCeoDigestRunIdsRef.current.delete(runId);
 			const block =
 				'[Sub-agent results — synthesize a concise update for the boss]\n\n' +
 				digestTargets.map((j) => `### ${j.employeeName}: ${j.taskTitle}\n${j.resultSummary ?? ''}`).join('\n\n');
@@ -1907,6 +1967,7 @@ export function useAiEmployeesController() {
 					summary: 'Team sub-results',
 					body: block,
 					createdAtIso: nowIso,
+					internalOnly: true,
 				});
 				for (const j of digestTargets) {
 					next = updateSubAgentJobInRun(next, runId, j.id, (job) => ({ ...job, ceoIngested: true }));
@@ -1917,8 +1978,14 @@ export function useAiEmployeesController() {
 				void requestEmployeeReplyRef.current?.(ceoId, runId);
 			}, 0);
 		},
-		[appendCollabMessage, orgEmployees, persistOrchestration, updateSubAgentJobInRun]
+		[appendCollabMessage, orgEmployees, persistOrchestration]
 	);
+
+	const maybeTriggerPendingCeoDigests = useCallback(() => {
+		for (const runId of [...pendingCeoDigestRunIdsRef.current]) {
+			maybeTriggerCeoDigest(runId);
+		}
+	}, [maybeTriggerCeoDigest]);
 
 	const processSubAgentQueue = useCallback(() => {
 		if (!shell) {
@@ -1930,6 +1997,7 @@ export function useAiEmployeesController() {
 				break;
 			}
 			activeSubAgentCountRef.current++;
+			activeSubAgentItemsRef.current.push(item);
 			void (async () => {
 				const rid = item.runId;
 				try {
@@ -1972,52 +2040,125 @@ export function useAiEmployeesController() {
 						const raw = (await shell.invoke('aiEmployees:runSubAgent', payload)) as SubAgentIpcOk | SubAgentIpcErr;
 						if (raw.ok) {
 							const doneIso = new Date().toISOString();
-							const summaryText = raw.resultText?.trim() || '(completed)';
-							persistOrchestration((s) => {
-								let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
-									...j,
-									status: 'done',
-									toolLog: raw.toolLog,
-									resultSummary: summaryText,
-									completedAtIso: doneIso,
-								}));
-								next = setHandoffStatusInState(next, rid, jobId, 'done', {
-									resultSummary: summaryText,
-									atIso: doneIso,
-								});
-								const assignMsg = next.collabMessages.find((m) => m.id === jobId);
-								if (assignMsg) {
-									next = upsertCollabMessageInState(next, {
-										...assignMsg,
-										cardMeta: { ...assignMsg.cardMeta, status: 'done', handoffId: jobId },
+							const terminalAction = pickTerminalSubAgentAction(raw.collabActions);
+							const followUpActions = filterFollowUpSubAgentActions(raw.collabActions);
+							if (terminalAction?.tool === 'report_blocker') {
+								const blockerText = terminalAction.description.trim() || 'Blocked';
+								const blockerBody = terminalAction.suggestedHelperName
+									? `${blockerText}\n\nSuggested helper: ${terminalAction.suggestedHelperName}`
+									: blockerText;
+								persistOrchestration((s) => {
+									let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+										...j,
+										status: 'blocked',
+										toolLog: raw.toolLog,
+										errorMessage: blockerText,
+										completedAtIso: doneIso,
+									}));
+									next = setHandoffStatusInState(next, rid, jobId, 'blocked', {
+										blockedReason: blockerText,
+										atIso: doneIso,
 									});
+									const assignMsg = next.collabMessages.find((m) => m.id === jobId);
+									if (assignMsg) {
+										next = upsertCollabMessageInState(next, {
+											...assignMsg,
+											cardMeta: { ...assignMsg.cardMeta, status: 'blocked', handoffId: jobId },
+										});
+									}
+									const blockerId = crypto.randomUUID();
+									next = appendCollabMessage(next, {
+										id: blockerId,
+										runId: rid,
+										type: 'blocker',
+										fromEmployeeId: employeeId,
+										toEmployeeId: ceoEmployeeId,
+										subAgentJobId: jobId,
+										summary: `${employee.displayName} blocked: ${blockerText.slice(0, 60)}`,
+										body: blockerBody,
+										createdAtIso: doneIso,
+										cardMeta: { status: 'blocked', handoffId: jobId },
+									});
+									next = appendTimelineEvent(next, {
+										id: `message:${blockerId}`,
+										runId: rid,
+										type: 'message',
+										label: `${employee.displayName} is blocked`,
+										description: blockerText,
+										createdAtIso: doneIso,
+										employeeId,
+										source: 'local',
+									});
+									return next;
+								});
+								if (terminalAction.suggestedHelperName) {
+									const helper = resolveEmployeeByName(terminalAction.suggestedHelperName);
+									if (helper) {
+										subAgentQueueRef.current.push({ kind: 'colleague', runId: rid, employeeId: helper.id });
+										processSubAgentQueueRef.current();
+									}
 								}
-								const resultId = crypto.randomUUID();
-								next = appendCollabMessage(next, {
-									id: resultId,
-									runId: rid,
-									type: 'result',
-									fromEmployeeId: employeeId,
-									toEmployeeId: ceoEmployeeId,
-									subAgentJobId: jobId,
-									summary: `${employee.displayName} · ${summaryText.slice(0, 72)}`,
-									body: summaryText,
-									createdAtIso: doneIso,
-									cardMeta: { status: 'done', handoffId: jobId },
+							} else {
+								const summaryText =
+									terminalAction?.tool === 'submit_result'
+										? terminalAction.summary.trim() || raw.resultText?.trim() || '(completed)'
+										: raw.resultText?.trim() || '(completed)';
+								const resultBody =
+									terminalAction?.tool === 'submit_result'
+										? [
+												summaryText,
+												terminalAction.modifiedFiles.length
+													? `Modified: ${terminalAction.modifiedFiles.join(', ')}`
+													: '',
+												terminalAction.nextSteps ? `Next steps: ${terminalAction.nextSteps}` : '',
+											].filter(Boolean).join('\n')
+										: summaryText;
+								persistOrchestration((s) => {
+									let next = updateSubAgentJobInRun(s, rid, jobId, (j) => ({
+										...j,
+										status: 'done',
+										toolLog: raw.toolLog,
+										resultSummary: summaryText,
+										completedAtIso: doneIso,
+									}));
+									next = setHandoffStatusInState(next, rid, jobId, 'done', {
+										resultSummary: summaryText,
+										atIso: doneIso,
+									});
+									const assignMsg = next.collabMessages.find((m) => m.id === jobId);
+									if (assignMsg) {
+										next = upsertCollabMessageInState(next, {
+											...assignMsg,
+											cardMeta: { ...assignMsg.cardMeta, status: 'done', handoffId: jobId },
+										});
+									}
+									const resultId = crypto.randomUUID();
+									next = appendCollabMessage(next, {
+										id: resultId,
+										runId: rid,
+										type: 'result',
+										fromEmployeeId: employeeId,
+										toEmployeeId: ceoEmployeeId,
+										subAgentJobId: jobId,
+										summary: `${employee.displayName} · ${summaryText.slice(0, 72)}`,
+										body: resultBody,
+										createdAtIso: doneIso,
+										cardMeta: { status: 'done', handoffId: jobId },
+									});
+									next = appendTimelineEvent(next, {
+										id: `message:${resultId}`,
+										runId: rid,
+										type: 'result',
+										label: `${employee.displayName} completed task`,
+										description: summaryText,
+										createdAtIso: doneIso,
+										employeeId,
+										source: 'local',
+									});
+									return next;
 								});
-								next = appendTimelineEvent(next, {
-									id: `message:${resultId}`,
-									runId: rid,
-									type: 'result',
-									label: `${employee.displayName} completed task`,
-									description: summaryText,
-									createdAtIso: doneIso,
-									employeeId,
-									source: 'local',
-								});
-								return next;
-							});
-							for (const action of raw.collabActions) {
+							}
+							for (const action of followUpActions) {
 								handleCollabActionRef.current?.(employeeId, rid, action);
 							}
 						} else {
@@ -2051,32 +2192,34 @@ export function useAiEmployeesController() {
 							return;
 						}
 						const raw = (await shell.invoke('aiEmployees:runSubAgent', payload)) as SubAgentIpcOk | SubAgentIpcErr;
-						if (raw.ok && raw.resultText.trim()) {
-							const nowIso = new Date().toISOString();
+						if (raw.ok) {
 							const text = raw.resultText.trim();
-							persistOrchestration((s) => {
-								const message: AiCollabMessage = {
-									id: crypto.randomUUID(),
-									runId: rid,
-									type: 'text',
-									fromEmployeeId: item.employeeId,
-									summary: text.slice(0, 80),
-									body: text,
-									createdAtIso: nowIso,
-								};
-								let next = appendCollabMessage(s, message);
-								next = appendTimelineEvent(next, {
-									id: `message:${message.id}`,
-									runId: rid,
-									type: 'message',
-									label: message.summary,
-									description: message.body,
-									createdAtIso: nowIso,
-									employeeId: item.employeeId,
-									source: 'local',
+							if (text) {
+								const nowIso = new Date().toISOString();
+								persistOrchestration((s) => {
+									const message: AiCollabMessage = {
+										id: crypto.randomUUID(),
+										runId: rid,
+										type: 'text',
+										fromEmployeeId: item.employeeId,
+										summary: text.slice(0, 80),
+										body: text,
+										createdAtIso: nowIso,
+									};
+									let next = appendCollabMessage(s, message);
+									next = appendTimelineEvent(next, {
+										id: `message:${message.id}`,
+										runId: rid,
+										type: 'message',
+										label: message.summary,
+										description: message.body,
+										createdAtIso: nowIso,
+										employeeId: item.employeeId,
+										source: 'local',
+									});
+									return next;
 								});
-								return next;
-							});
+							}
 							for (const action of raw.collabActions) {
 								handleCollabActionRef.current?.(item.employeeId, rid, action);
 							}
@@ -2084,6 +2227,7 @@ export function useAiEmployeesController() {
 					}
 				} finally {
 					activeSubAgentCountRef.current -= 1;
+					activeSubAgentItemsRef.current = activeSubAgentItemsRef.current.filter((activeItem) => activeItem !== item);
 					processSubAgentQueue();
 					maybeTriggerCeoDigest(rid);
 				}
@@ -2097,13 +2241,15 @@ export function useAiEmployeesController() {
 		employeeById,
 		maybeTriggerCeoDigest,
 		persistOrchestration,
+		resolveEmployeeByName,
 		shell,
 	]);
 
 	useLayoutEffect(() => {
 		handleCollabActionRef.current = handleCollabAction;
 		processSubAgentQueueRef.current = processSubAgentQueue;
-	}, [handleCollabAction, processSubAgentQueue]);
+		maybeTriggerPendingCeoDigestsRef.current = maybeTriggerPendingCeoDigests;
+	}, [handleCollabAction, maybeTriggerPendingCeoDigests, processSubAgentQueue]);
 
 	const bindAgentLocalModel = useCallback(
 		(agentId: string, modelEntryId: string) => {
@@ -2532,7 +2678,8 @@ export function useAiEmployeesController() {
 	);
 
 	const listMessagesByRun = useCallback(
-		(runId: string) => orchestration.collabMessages.filter((message) => message.runId === runId),
+		(runId: string) =>
+			orchestration.collabMessages.filter((message) => message.runId === runId && !message.internalOnly),
 		[orchestration.collabMessages]
 	);
 

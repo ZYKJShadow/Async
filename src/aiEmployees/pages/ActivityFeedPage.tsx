@@ -107,7 +107,7 @@ export function ActivityFeedPage({
 	);
 
 	const allMessages = useMemo(() => {
-		const msgs = [...orchestration.collabMessages];
+		const msgs = orchestration.collabMessages.filter((msg) => !msg.internalOnly);
 		msgs.sort((a, b) => Date.parse(b.createdAtIso) - Date.parse(a.createdAtIso));
 		return msgs;
 	}, [orchestration.collabMessages]);

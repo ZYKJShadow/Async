@@ -101,6 +101,8 @@ export type AiCollabMessage = {
 	cardMeta?: AiCollabCardMeta;
 	/** Links a task_assignment / result / blocker row to a sub-agent job. */
 	subAgentJobId?: string;
+	/** Internal context only; persisted for history but hidden from user-facing timelines. */
+	internalOnly?: boolean;
 };
 
 export type AiOrchestrationTimelineEventType =

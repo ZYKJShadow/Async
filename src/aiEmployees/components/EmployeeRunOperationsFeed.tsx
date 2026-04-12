@@ -27,7 +27,7 @@ function mergeRunFeed(orchestration: AiEmployeesOrchestrationState, runIds: Read
 		}
 	}
 	for (const m of orchestration.collabMessages) {
-		if (runIds.has(m.runId)) {
+		if (runIds.has(m.runId) && !m.internalOnly) {
 			out.push({ kind: 'collab', message: m });
 		}
 	}
