@@ -124,6 +124,50 @@ describe('employeeChatHistory group run', () => {
 		expect(h).toEqual([{ role: 'user', content: '[Task assigned] 实现设置页交互优化' }]);
 	});
 
+	it('includes CEO broadcast (no toEmployeeId) as user context for teammates', () => {
+		const messages: AiCollabMessage[] = [
+			msg({
+				id: '1',
+				runId: 'r1',
+				type: 'text',
+				fromEmployeeId: 'ceo1',
+				summary: 'broadcast',
+				body: '全员注意：今天发布窗口提前',
+				createdAtIso: '2020-01-01T00:00:00.000Z',
+			}),
+			msg({
+				id: '2',
+				runId: 'r1',
+				type: 'task_assignment',
+				fromEmployeeId: 'ceo1',
+				toEmployeeId: 'e1',
+				summary: '子任务',
+				body: '完成 A',
+				createdAtIso: '2020-01-01T00:00:01.000Z',
+			}),
+		];
+		const h = buildCollabHistoryForEmployeeInRun(messages, 'r1', eng.id, 'ceo1');
+		expect(h.some((t) => t.role === 'user' && t.content.includes('全员注意'))).toBe(true);
+		expect(h.some((t) => t.role === 'user' && t.content.includes('[Task assigned]'))).toBe(true);
+	});
+
+	it('text message uses summary when body is empty (default branch)', () => {
+		const messages: AiCollabMessage[] = [
+			msg({
+				id: '1',
+				runId: 'r1',
+				type: 'text',
+				fromEmployeeId: 'ceo1',
+				toEmployeeId: 'e1',
+				summary: '仅摘要',
+				body: '',
+				createdAtIso: '2020-01-01T00:00:00.000Z',
+			}),
+		];
+		const h = buildCollabHistoryForEmployeeInRun(messages, 'r1', eng.id, 'ceo1');
+		expect(h).toEqual([{ role: 'user', content: '仅摘要' }]);
+	});
+
 	it('does not leak CEO messages to other teammates into this employee thread', () => {
 		const messages: AiCollabMessage[] = [
 			msg({

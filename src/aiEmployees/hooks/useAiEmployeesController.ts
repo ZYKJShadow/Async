@@ -1079,6 +1079,11 @@ export function useAiEmployeesController(t: TFunction) {
 	const orchestrationDirtyRef = useRef(false);
 	const persistOrchestration = useCallback(
 		(updater: (state: ReturnType<typeof emptyOrchestrationState>) => ReturnType<typeof emptyOrchestrationState>) => {
+			// Eagerly apply to the ref so code running synchronously after this call
+			// (e.g. processSubAgentQueue) sees the freshest orchestration state
+			// instead of waiting for React's async render cycle.
+			orchestrationRef.current = updater(orchestrationRef.current);
+
 			setAiSettings((prev) => {
 				const nextOrchestration = updater(prev.orchestration ?? emptyOrchestrationState());
 				const next = { ...prev, orchestration: nextOrchestration };
