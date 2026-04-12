@@ -170,6 +170,13 @@ type SubAgentIpcErr = {
 };
 
 type ShellUiLike = Record<string, unknown>;
+type CollabActionPayload = { tool: string; [key: string]: unknown };
+type PendingEmployeeChatMeta = {
+	employeeId: string;
+	runId: string;
+	allowStream: boolean;
+	deferredCollabActions: CollabActionPayload[];
+};
 
 function pickTerminalSubAgentAction(
 	actions: readonly SubAgentCollabAction[]
@@ -308,9 +315,7 @@ export function useAiEmployeesController(t: TFunction) {
 	const [chatVersion, setChatVersion] = useState(0);
 	const [employeeChatStreaming, setEmployeeChatStreaming] = useState<Record<string, string>>({});
 	const [employeeChatError, setEmployeeChatError] = useState<Record<string, string | undefined>>({});
-	const pendingEmployeeChatRef = useRef(
-		new Map<string, { employeeId: string; runId: string; allowStream: boolean }>()
-	);
+	const pendingEmployeeChatRef = useRef(new Map<string, PendingEmployeeChatMeta>());
 	const employeeReplyGuardRef = useRef(new Set<string>());
 	/** Exclusive guard so only one employee chat stream renders deltas at a time (across runs). */
 	const activeStreamOwnerRef = useRef<string | null>(null);
@@ -1578,12 +1583,19 @@ export function useAiEmployeesController(t: TFunction) {
 				return;
 			}
 			if (p.kind === 'collab_action' && p.action) {
-				// Collaboration tool called — dispatch to orchestration handler
-				handleCollabAction(employeeId, runId, p.action as { tool: string; [key: string]: unknown });
+				const actionPayload = p.action as CollabActionPayload;
+				if (allowStream) {
+					// Keep streamed chat coherent: show final speaker text first,
+					// then append collab cards underneath in the emitted order.
+					meta.deferredCollabActions.push(actionPayload);
+					return;
+				}
+				handleCollabAction(employeeId, runId, actionPayload);
 				return;
 			}
 			if (p.kind === 'done') {
 				const text = (p.text ?? '').trim();
+				const deferredActions = [...meta.deferredCollabActions];
 				pendingEmployeeChatRef.current.delete(rid);
 				employeeReplyGuardRef.current.delete(employeeId);
 				if (activeStreamOwnerRef.current === rid) {
@@ -1615,6 +1627,9 @@ export function useAiEmployeesController(t: TFunction) {
 						});
 						return next;
 					});
+				}
+				for (const action of deferredActions) {
+					handleCollabAction(employeeId, runId, action);
 				}
 				return;
 			}
@@ -2345,7 +2360,12 @@ export function useAiEmployeesController(t: TFunction) {
 			if (allowStream) {
 				activeStreamOwnerRef.current = requestId;
 			}
-			pendingEmployeeChatRef.current.set(requestId, { employeeId, runId, allowStream });
+			pendingEmployeeChatRef.current.set(requestId, {
+				employeeId,
+				runId,
+				allowStream,
+				deferredCollabActions: [],
+			});
 			setEmployeeChatStreaming((prev) => ({ ...prev, [employeeId]: '' }));
 			setEmployeeChatError((prev) => ({ ...prev, [employeeId]: undefined }));
 
@@ -2356,6 +2376,8 @@ export function useAiEmployeesController(t: TFunction) {
 					error?: string;
 				};
 				if (pendingEmployeeChatRef.current.has(requestId)) {
+					const pendingMeta = pendingEmployeeChatRef.current.get(requestId);
+					const deferredActions = pendingMeta ? [...pendingMeta.deferredCollabActions] : [];
 					pendingEmployeeChatRef.current.delete(requestId);
 					employeeReplyGuardRef.current.delete(employeeId);
 					if (activeStreamOwnerRef.current === requestId) {
@@ -2402,6 +2424,11 @@ export function useAiEmployeesController(t: TFunction) {
 								createdAtIso: nowIso,
 							})
 						);
+					}
+					if (result.ok) {
+						for (const action of deferredActions) {
+							handleCollabAction(employeeId, runId, action);
+						}
 					}
 					maybeTriggerPendingCeoDigestsRef.current();
 				}
