@@ -305,6 +305,17 @@ export function useAiEmployeesController(t: TFunction) {
 	// Streaming-delta throttle: accumulate chunks in a ref, flush to state once per animation frame
 	const streamingDeltaBufferRef = useRef<Record<string, string>>({});
 	const streamingRafRef = useRef<number | null>(null);
+	const clearEmployeeStreamingState = useCallback((employeeId: string) => {
+		delete streamingDeltaBufferRef.current[employeeId];
+		setEmployeeChatStreaming((prev) => {
+			if (!(employeeId in prev)) {
+				return prev;
+			}
+			const next = { ...prev };
+			delete next[employeeId];
+			return next;
+		});
+	}, []);
 	const flushStreamingDeltas = useCallback(() => {
 		streamingRafRef.current = null;
 		const buf = streamingDeltaBufferRef.current;
@@ -1440,11 +1451,7 @@ export function useAiEmployeesController(t: TFunction) {
 				if (activeStreamOwnerRef.current === rid) {
 					activeStreamOwnerRef.current = null;
 				}
-				setEmployeeChatStreaming((prev) => {
-					const next = { ...prev };
-					delete next[employeeId];
-					return next;
-				});
+				clearEmployeeStreamingState(employeeId);
 				if (text) {
 					const nowIso = new Date().toISOString();
 					persistOrchestration((state) => {
@@ -1481,11 +1488,7 @@ export function useAiEmployeesController(t: TFunction) {
 					activeStreamOwnerRef.current = null;
 				}
 				setEmployeeChatError((prev) => ({ ...prev, [employeeId]: err }));
-				setEmployeeChatStreaming((prev) => {
-					const next = { ...prev };
-					delete next[employeeId];
-					return next;
-				});
+				clearEmployeeStreamingState(employeeId);
 				const nowIso = new Date().toISOString();
 				persistOrchestration((state) =>
 					appendCollabMessage(state, {
@@ -1507,7 +1510,7 @@ export function useAiEmployeesController(t: TFunction) {
 				streamingRafRef.current = null;
 			}
 		};
-	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, handleCollabAction, employeeById, flushStreamingDeltas]);
+	}, [shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, handleCollabAction, employeeById, flushStreamingDeltas, clearEmployeeStreamingState]);
 
 	useEffect(() => {
 		if (!shell?.subscribeAiEmployeesSubAgentEvent) {
@@ -1561,11 +1564,7 @@ export function useAiEmployeesController(t: TFunction) {
 				if (activeStreamOwnerRef.current === reqId) {
 					activeStreamOwnerRef.current = null;
 				}
-				setEmployeeChatStreaming((prev) => {
-					const next = { ...prev };
-					delete next[meta.employeeId];
-					return next;
-				});
+				clearEmployeeStreamingState(meta.employeeId);
 				setEmployeeChatError((prev) => {
 					const next = { ...prev };
 					delete next[meta.employeeId];
@@ -1627,7 +1626,7 @@ export function useAiEmployeesController(t: TFunction) {
 
 			processSubAgentQueueRef.current();
 		},
-		[shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, t, setSubAgentToolLiveByJobId]
+		[shell, persistOrchestration, appendCollabMessage, appendTimelineEvent, t, setSubAgentToolLiveByJobId, clearEmployeeStreamingState]
 	);
 
 	const deleteOrchestrationRun = useCallback(
@@ -1644,11 +1643,7 @@ export function useAiEmployeesController(t: TFunction) {
 				if (activeStreamOwnerRef.current === reqId) {
 					activeStreamOwnerRef.current = null;
 				}
-				setEmployeeChatStreaming((prev) => {
-					const next = { ...prev };
-					delete next[meta.employeeId];
-					return next;
-				});
+				clearEmployeeStreamingState(meta.employeeId);
 				setEmployeeChatError((prev) => {
 					const next = { ...prev };
 					delete next[meta.employeeId];
@@ -1670,7 +1665,7 @@ export function useAiEmployeesController(t: TFunction) {
 			persistOrchestration((state) => removeOrchestrationRunFromState(state, runId));
 			processSubAgentQueueRef.current();
 		},
-		[shell, persistOrchestration]
+		[shell, persistOrchestration, clearEmployeeStreamingState]
 	);
 
 	const matchRunForTaskEvent = useCallback(
@@ -2138,11 +2133,7 @@ export function useAiEmployeesController(t: TFunction) {
 					if (activeStreamOwnerRef.current === requestId) {
 						activeStreamOwnerRef.current = null;
 					}
-					setEmployeeChatStreaming((prev) => {
-						const next = { ...prev };
-						delete next[employeeId];
-						return next;
-					});
+					clearEmployeeStreamingState(employeeId);
 					const text = result.text?.trim();
 					if (result.ok && text) {
 						const nowIso = new Date().toISOString();
@@ -2193,11 +2184,7 @@ export function useAiEmployeesController(t: TFunction) {
 				if (activeStreamOwnerRef.current === requestId) {
 					activeStreamOwnerRef.current = null;
 				}
-				setEmployeeChatStreaming((prev) => {
-					const next = { ...prev };
-					delete next[employeeId];
-					return next;
-				});
+				clearEmployeeStreamingState(employeeId);
 				setEmployeeChatError((prev) => ({ ...prev, [employeeId]: msg }));
 				const nowIso = new Date().toISOString();
 				persistOrchestration((state) =>
@@ -2226,6 +2213,7 @@ export function useAiEmployeesController(t: TFunction) {
 			appendTimelineEvent,
 			buildEmployeeChatPayload,
 			ceoEmployeeId,
+			clearEmployeeStreamingState,
 		]
 	);
 	requestEmployeeReplyRef.current = requestEmployeeReply;
