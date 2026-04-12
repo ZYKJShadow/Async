@@ -146,16 +146,7 @@ export function SubAgentExecutionCard({
 			data-sub-agent-job-id={job.id}
 		>
 			<div className="ref-ai-employees-subagent-live-card-head">
-				<button
-					type="button"
-					className={`ref-ai-employees-subagent-live-card-summary ${hasTimeline ? '' : 'is-static'}`}
-					onClick={() => {
-						if (hasTimeline) {
-							setTimelineOpen((value) => !value);
-						}
-					}}
-					aria-expanded={hasTimeline ? timelineOpen : undefined}
-				>
+				<div className="ref-ai-employees-subagent-live-card-summary">
 					<span className="ref-ai-employees-subagent-live-card-avatar" aria-hidden>
 						{job.status === 'done' ? <IconCheckCircle className="ref-ai-employees-subagent-live-card-avatar-icon" /> : <IconBot className="ref-ai-employees-subagent-live-card-avatar-icon" />}
 					</span>
@@ -185,10 +176,7 @@ export function SubAgentExecutionCard({
 							) : null}
 						</span>
 					</span>
-					{hasTimeline ? (
-						<IconChevron className={`ref-ai-employees-subagent-live-card-chevron ${timelineOpen ? 'is-open' : ''}`} />
-					) : null}
-				</button>
+				</div>
 				<button
 					type="button"
 					className="ref-ai-employees-subagent-live-card-open"
@@ -217,6 +205,21 @@ export function SubAgentExecutionCard({
 						</div>
 					</div>
 				</div>
+			) : null}
+			{hasTimeline ? (
+				<button
+					type="button"
+					className="ref-ai-employees-subagent-live-card-expand"
+					onClick={() => setTimelineOpen((value) => !value)}
+					aria-expanded={timelineOpen}
+				>
+					<span className="ref-ai-employees-subagent-live-card-expand-label">
+						{timelineOpen
+							? t('aiEmployees.groupChat.collapseExecutionLog')
+							: t('aiEmployees.groupChat.expandExecutionLog')}
+					</span>
+					<IconChevron className={`ref-ai-employees-subagent-live-card-expand-chevron ${timelineOpen ? 'is-open' : ''}`} />
+				</button>
 			) : null}
 		</article>
 	);

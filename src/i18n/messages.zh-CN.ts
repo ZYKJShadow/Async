@@ -562,6 +562,8 @@ export const messagesZhCN: Record<string, string> = {
 	'aiEmployees.groupChat.finalResult': '最终结果',
 	'aiEmployees.groupChat.toolsCount': '{{count}} 个工具',
 	'aiEmployees.groupChat.timelineEmpty': '暂无执行日志。',
+	'aiEmployees.groupChat.expandExecutionLog': '展开执行记录（工具与时间线）',
+	'aiEmployees.groupChat.collapseExecutionLog': '收起执行记录',
 	'aiEmployees.groupChat.jobQueued': '排队中',
 	'aiEmployees.groupChat.jobRunning': '进行中',
 	'aiEmployees.groupChat.jobDone': '完成',

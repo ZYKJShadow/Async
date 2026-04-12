@@ -568,6 +568,8 @@ export const messagesEn: Record<string, string> = {
 	'aiEmployees.groupChat.finalResult': 'Final result',
 	'aiEmployees.groupChat.toolsCount': '{{count}} tools',
 	'aiEmployees.groupChat.timelineEmpty': 'No execution log yet.',
+	'aiEmployees.groupChat.expandExecutionLog': 'Show execution log',
+	'aiEmployees.groupChat.collapseExecutionLog': 'Hide execution log',
 	'aiEmployees.groupChat.jobQueued': 'Queued',
 	'aiEmployees.groupChat.jobRunning': 'Running',
 	'aiEmployees.groupChat.jobDone': 'Done',
