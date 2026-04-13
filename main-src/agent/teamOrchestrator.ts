@@ -32,6 +32,112 @@ type TeamEmit =
 	| { threadId: string; type: 'team_phase'; phase: TeamPhase }
 	| {
 			threadId: string;
+			type: 'delta';
+			text: string;
+			teamRoleScope: {
+				teamTaskId: string;
+				teamExpertId: string;
+				teamRoleKind: 'specialist' | 'reviewer';
+				teamExpertName: string;
+				teamRoleType: TeamRoleType;
+			};
+	  }
+	| {
+			threadId: string;
+			type: 'tool_input_delta';
+			name: string;
+			partialJson: string;
+			index: number;
+			teamRoleScope: {
+				teamTaskId: string;
+				teamExpertId: string;
+				teamRoleKind: 'specialist' | 'reviewer';
+				teamExpertName: string;
+				teamRoleType: TeamRoleType;
+			};
+	  }
+	| {
+			threadId: string;
+			type: 'thinking_delta';
+			text: string;
+			teamRoleScope: {
+				teamTaskId: string;
+				teamExpertId: string;
+				teamRoleKind: 'specialist' | 'reviewer';
+				teamExpertName: string;
+				teamRoleType: TeamRoleType;
+			};
+	  }
+	| {
+			threadId: string;
+			type: 'tool_progress';
+			name: string;
+			phase: string;
+			detail?: string;
+			teamRoleScope: {
+				teamTaskId: string;
+				teamExpertId: string;
+				teamRoleKind: 'specialist' | 'reviewer';
+				teamExpertName: string;
+				teamRoleType: TeamRoleType;
+			};
+	  }
+	| {
+			threadId: string;
+			type: 'tool_call';
+			name: string;
+			args: string;
+			toolCallId: string;
+			teamRoleScope: {
+				teamTaskId: string;
+				teamExpertId: string;
+				teamRoleKind: 'specialist' | 'reviewer';
+				teamExpertName: string;
+				teamRoleType: TeamRoleType;
+			};
+	  }
+	| {
+			threadId: string;
+			type: 'tool_result';
+			name: string;
+			result: string;
+			success: boolean;
+			toolCallId: string;
+			teamRoleScope: {
+				teamTaskId: string;
+				teamExpertId: string;
+				teamRoleKind: 'specialist' | 'reviewer';
+				teamExpertName: string;
+				teamRoleType: TeamRoleType;
+			};
+	  }
+	| {
+			threadId: string;
+			type: 'done';
+			text: string;
+			usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
+			teamRoleScope: {
+				teamTaskId: string;
+				teamExpertId: string;
+				teamRoleKind: 'specialist' | 'reviewer';
+				teamExpertName: string;
+				teamRoleType: TeamRoleType;
+			};
+	  }
+	| {
+			threadId: string;
+			type: 'error';
+			message: string;
+			teamRoleScope: {
+				teamTaskId: string;
+				teamExpertId: string;
+				teamRoleKind: 'specialist' | 'reviewer';
+				teamExpertName: string;
+				teamRoleType: TeamRoleType;
+			};
+	  }
+	| {
+			threadId: string;
 			type: 'team_task_created';
 			task: {
 				id: string;
@@ -50,6 +156,22 @@ type TeamEmit =
 	| { threadId: string; type: 'team_expert_done'; taskId: string; expertId: string; success: boolean; result: string }
 	| { threadId: string; type: 'team_review'; verdict: 'approved' | 'revision_needed'; summary: string }
 	| { threadId: string; type: 'team_plan_summary'; summary: string };
+
+function createTeamRoleScope(task: TeamTask, roleKind: 'specialist' | 'reviewer'): {
+	teamTaskId: string;
+	teamExpertId: string;
+	teamRoleKind: 'specialist' | 'reviewer';
+	teamExpertName: string;
+	teamRoleType: TeamRoleType;
+} {
+	return {
+		teamTaskId: task.id,
+		teamExpertId: task.expertId,
+		teamRoleKind: roleKind,
+		teamExpertName: task.expertName,
+		teamRoleType: task.roleType,
+	};
+}
 
 export type TeamOrchestratorInput = {
 	settings: ShellSettings;
@@ -260,6 +382,7 @@ function selectSpecialistTasksFallback(userText: string, experts: TeamExpertRunt
 
 async function runReviewerAgent(params: {
 	settings: ShellSettings;
+	threadId: string;
 	reviewer: TeamExpertRuntimeProfile;
 	completedTasks: TeamTask[];
 	messages: ChatMessage[];
@@ -270,10 +393,11 @@ async function runReviewerAgent(params: {
 	workspaceRoot?: string | null;
 	workspaceLspManager?: WorkspaceLspManager | null;
 	baseTools: AgentToolDef[];
+	emit: (evt: TeamEmit) => void;
 }): Promise<{ verdict: 'approved' | 'revision_needed'; summary: string }> {
 	const {
-		settings, reviewer, completedTasks, messages, modelSelection, resolvedModel,
-		signal, thinkingLevel, workspaceRoot, workspaceLspManager, baseTools,
+		settings, threadId, reviewer, completedTasks, messages, modelSelection, resolvedModel,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager, baseTools, emit,
 	} = params;
 
 	const taskSummary = completedTasks.map((t) => [
@@ -297,6 +421,19 @@ async function runReviewerAgent(params: {
 			].join('\n'),
 		},
 	];
+
+	const reviewerTask: TeamTask = {
+		id: `review-${randomUUID()}`,
+		expertId: reviewer.id,
+		expertAssignmentKey: reviewer.assignmentKey,
+		expertName: reviewer.name,
+		roleType: reviewer.roleType,
+		description: 'Review specialist results and provide the final verdict.',
+		status: 'in_progress',
+		dependencies: completedTasks.map((task) => task.id),
+		acceptanceCriteria: ['Review all specialist results', 'Provide a clear final verdict'],
+	};
+	const teamRoleScope = createTeamRoleScope(reviewerTask, 'reviewer');
 
 	let reviewText = '';
 	const specializedTools = buildSpecialistToolPool(baseTools, reviewer);
@@ -332,11 +469,61 @@ async function runReviewerAgent(params: {
 	}
 
 	const handlers: AgentLoopHandlers = {
-		onTextDelta: (text) => { reviewText += text; },
-		onToolCall: () => {},
-		onToolResult: () => {},
-		onDone: (text) => { reviewText = text; },
-		onError: () => {},
+		onTextDelta: (text) => {
+			reviewText += text;
+			emit({ threadId, type: 'delta', text, teamRoleScope });
+		},
+		onToolInputDelta: (payload) => {
+			emit({
+				threadId,
+				type: 'tool_input_delta',
+				name: payload.name,
+				partialJson: payload.partialJson,
+				index: payload.index,
+				teamRoleScope,
+			});
+		},
+		onThinkingDelta: (text) => {
+			emit({ threadId, type: 'thinking_delta', text, teamRoleScope });
+		},
+		onToolProgress: (payload) => {
+			emit({
+				threadId,
+				type: 'tool_progress',
+				name: payload.name,
+				phase: payload.phase,
+				detail: payload.detail,
+				teamRoleScope,
+			});
+		},
+		onToolCall: (name, args, toolCallId) => {
+			emit({
+				threadId,
+				type: 'tool_call',
+				name,
+				args: JSON.stringify(args),
+				toolCallId,
+				teamRoleScope,
+			});
+		},
+		onToolResult: (name, result, success, toolCallId) => {
+			emit({
+				threadId,
+				type: 'tool_result',
+				name,
+				result,
+				success,
+				toolCallId,
+				teamRoleScope,
+			});
+		},
+		onDone: (text, usage) => {
+			reviewText = text;
+			emit({ threadId, type: 'done', text, usage, teamRoleScope });
+		},
+		onError: (message) => {
+			emit({ threadId, type: 'error', message, teamRoleScope });
+		},
 	};
 
 	try {
@@ -401,6 +588,7 @@ async function runOneSpecialist(params: {
 	const specializedToolPool = buildSpecialistToolPool(baseTools, expert);
 	let finalText = '';
 	let success = true;
+	const teamRoleScope = createTeamRoleScope(task, 'specialist');
 
 	const options: AgentLoopOptions = {
 		modelSelection: expert.preferredModelId?.trim() || modelSelection,
@@ -425,13 +613,55 @@ async function runOneSpecialist(params: {
 			finalText += text;
 			emit({
 				threadId,
+				type: 'delta',
+				text,
+				teamRoleScope,
+			});
+			emit({
+				threadId,
 				type: 'team_expert_progress',
 				taskId: task.id,
 				expertId: task.expertId,
 				delta: text,
 			});
 		},
+		onToolInputDelta: (payload) => {
+			emit({
+				threadId,
+				type: 'tool_input_delta',
+				name: payload.name,
+				partialJson: payload.partialJson,
+				index: payload.index,
+				teamRoleScope,
+			});
+		},
+		onThinkingDelta: (text) => {
+			emit({
+				threadId,
+				type: 'thinking_delta',
+				text,
+				teamRoleScope,
+			});
+		},
+		onToolProgress: (payload) => {
+			emit({
+				threadId,
+				type: 'tool_progress',
+				name: payload.name,
+				phase: payload.phase,
+				detail: payload.detail,
+				teamRoleScope,
+			});
+		},
 		onToolCall: (name, _args, _id) => {
+			emit({
+				threadId,
+				type: 'tool_call',
+				name,
+				args: JSON.stringify(_args),
+				toolCallId: _id,
+				teamRoleScope,
+			});
 			emit({
 				threadId,
 				type: 'team_expert_progress',
@@ -443,18 +673,40 @@ async function runOneSpecialist(params: {
 		onToolResult: (name, _result, toolSuccess, _id) => {
 			emit({
 				threadId,
+				type: 'tool_result',
+				name,
+				result: _result,
+				success: toolSuccess,
+				toolCallId: _id,
+				teamRoleScope,
+			});
+			emit({
+				threadId,
 				type: 'team_expert_progress',
 				taskId: task.id,
 				expertId: task.expertId,
 				message: `Tool ${name}: ${toolSuccess ? 'success' : 'failed'}`,
 			});
 		},
-		onDone: (text) => {
+		onDone: (text, usage) => {
 			finalText = text;
+			emit({
+				threadId,
+				type: 'done',
+				text,
+				usage,
+				teamRoleScope,
+			});
 		},
 		onError: (message) => {
 			success = false;
 			finalText = message;
+			emit({
+				threadId,
+				type: 'error',
+				message,
+				teamRoleScope,
+			});
 		},
 	};
 
@@ -684,9 +936,9 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 		if (reviewerExpert) {
 			review = await runReviewerAgent({
-				settings, reviewer: reviewerExpert, completedTasks: completed,
+				settings, threadId, reviewer: reviewerExpert, completedTasks: completed,
 				messages, modelSelection, resolvedModel, signal, thinkingLevel,
-				workspaceRoot, workspaceLspManager, baseTools: baseTeamTools,
+				workspaceRoot, workspaceLspManager, baseTools: baseTeamTools, emit,
 			});
 		} else {
 			const failed = completed.filter((t) => t.status === 'failed' || t.status === 'revision');

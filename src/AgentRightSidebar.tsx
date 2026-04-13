@@ -10,7 +10,6 @@ import {
 	IconRefresh,
 	IconArrowUp,
 	IconArrowUpRight,
-	IconTeam,
 } from './icons';
 import type { TFunction } from './i18n';
 import type { PlanTodoItem, ParsedPlan } from './planParser';
@@ -23,6 +22,8 @@ import type { AgentFilePreviewState } from './hooks/useAgentFileReview';
 import { AgentGitScmChangedCards } from './GitScmVirtualLists';
 import { useAppShellChrome, useAppShellGit, useAppShellSettings } from './app/appShellContexts';
 import type { TeamSessionState } from './hooks/useTeamSession';
+import { TeamRoleWorkflowPanel } from './TeamRoleWorkflowPanel';
+import { buildTeamWorkflowItems } from './teamWorkflowItems';
 
 type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team';
 
@@ -69,7 +70,7 @@ export type AgentRightSidebarProps = {
 	onCommitOnly: () => void;
 	onCommitAndPush: () => void;
 	teamSession: TeamSessionState | null;
-	onSelectTeamExpert: (expertId: string) => void;
+	onSelectTeamExpert: (taskId: string) => void;
 };
 
 type CommitAction = 'commit' | 'commit-push' | 'commit-pr';
@@ -241,33 +242,22 @@ function CommitModal({
 function RightSidebarTabs({
 	t,
 	hasPlan,
-	activeView,
 	openView,
 	closeSidebar,
 }: {
 	t: TFunction;
 	hasPlan: boolean;
-	activeView: AgentRightSidebarView;
 	openView: (view: AgentRightSidebarView) => void;
 	closeSidebar: () => void;
 }) {
 	return (
 		<div className="ref-right-icon-tabs" aria-label={t('app.rightSidebarViews')}>
-			<button
-				type="button"
-				aria-label={t('composer.mode.team')}
-				title={t('composer.mode.team')}
-				className={`ref-right-icon-tab ${activeView === 'team' ? 'is-active' : ''}`}
-				onClick={() => openView('team')}
-			>
-				<IconTeam />
-			</button>
 			{hasPlan ? (
 				<button
 					type="button"
 					aria-label={t('app.tabPlan')}
 					title={t('app.tabPlan')}
-					className={`ref-right-icon-tab ${activeView === 'plan' ? 'is-active' : ''}`}
+					className="ref-right-icon-tab"
 					onClick={() => openView('plan')}
 				>
 					<IconDoc />
@@ -357,7 +347,6 @@ const AgentRightSidebarPlanPanel = memo(function AgentRightSidebarPlanPanel({
 							<RightSidebarTabs
 								t={t}
 								hasPlan={hasAgentPlanSidebarContent}
-								activeView="plan"
 								openView={openView}
 								closeSidebar={closeSidebar}
 							/>
@@ -494,7 +483,6 @@ const AgentRightSidebarPlanPanel = memo(function AgentRightSidebarPlanPanel({
 						<RightSidebarTabs
 							t={t}
 							hasPlan={hasAgentPlanSidebarContent}
-							activeView="plan"
 							openView={openView}
 							closeSidebar={closeSidebar}
 						/>
@@ -542,7 +530,6 @@ const AgentRightSidebarFilePanel = memo(function AgentRightSidebarFilePanel({
 				<RightSidebarTabs
 					t={t}
 					hasPlan={hasAgentPlanSidebarContent}
-					activeView="file"
 					openView={openView}
 					closeSidebar={closeSidebar}
 				/>
@@ -592,7 +579,6 @@ const AgentRightSidebarFilePanel = memo(function AgentRightSidebarFilePanel({
 				<RightSidebarTabs
 					t={t}
 					hasPlan={hasAgentPlanSidebarContent}
-					activeView="file"
 					openView={openView}
 					closeSidebar={closeSidebar}
 				/>
@@ -685,7 +671,6 @@ const AgentRightSidebarGitPanel = memo(function AgentRightSidebarGitPanel({
 					<RightSidebarTabs
 						t={t}
 						hasPlan={hasAgentPlanSidebarContent}
-						activeView="git"
 						openView={openView}
 						closeSidebar={closeSidebar}
 					/>
@@ -858,6 +843,7 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 			/>
 		);
 	} else if (view === 'team') {
+		const workflowItems = buildTeamWorkflowItems(teamSession);
 		content = (
 			<div className="ref-agent-review-shell">
 				<div className="ref-agent-review-head">
@@ -868,22 +854,22 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 					<RightSidebarTabs
 						t={t}
 						hasPlan={hasAgentPlanSidebarContent}
-						activeView="team"
 						openView={openView}
 						closeSidebar={closeSidebar}
 					/>
 				</div>
 				<div className="ref-right-panel-stage">
-					{teamSession?.tasks?.length ? (
-						<div className="ref-team-right-sidebar-list">
-							{teamSession.tasks.map((task) => (
+					{workflowItems.length ? (
+						<div className="ref-team-right-sidebar-layout">
+							<div className="ref-team-right-sidebar-list">
+								{workflowItems.map((task) => (
 								<button
 									key={task.id}
 									type="button"
 									className={`ref-team-right-sidebar-item ${
-										teamSession.selectedExpertId === task.expertId ? 'is-active' : ''
+										teamSession?.selectedTaskId === task.id ? 'is-active' : ''
 									}`}
-									onClick={() => onSelectTeamExpert(task.expertId)}
+									onClick={() => onSelectTeamExpert(task.id)}
 								>
 									<span className={`ref-team-expert-avatar ref-team-expert-avatar--${task.roleType} ref-team-avatar-sm`}>
 										{task.expertName.slice(0, 1).toUpperCase()}
@@ -894,7 +880,15 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 										{task.status}
 									</span>
 								</button>
-							))}
+								))}
+							</div>
+							<TeamRoleWorkflowPanel
+								t={t}
+								session={teamSession}
+								selectedTaskId={teamSession?.selectedTaskId ?? null}
+								onSelectTask={onSelectTeamExpert}
+								layout="agent-sidebar"
+							/>
 						</div>
 					) : (
 						<div className="ref-agent-plan-status-main">

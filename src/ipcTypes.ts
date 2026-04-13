@@ -45,11 +45,26 @@ export type ChatStreamNest = { parentToolCallId?: string; nestingDepth?: number 
 /** 与渲染端 ipcStreamNonceRef 对齐，丢弃被 abort 的前一轮迟到 done/error */
 export type ChatStreamNonce = { streamNonce?: number };
 
+export type TeamRoleScope = {
+	teamTaskId: string;
+	teamExpertId: string;
+	teamRoleKind: 'specialist' | 'reviewer';
+	teamExpertName: string;
+	teamRoleType: 'team_lead' | 'frontend' | 'backend' | 'qa' | 'reviewer' | 'custom';
+};
+
 type ChatStreamPayloadCore =
-	| ({ threadId: string; type: 'delta'; text: string } & ChatStreamNest)
-	| { threadId: string; type: 'done'; text: string; pendingAgentPatches?: AgentPendingPatch[]; usage?: TurnTokenUsage }
-	| { threadId: string; type: 'error'; message: string }
-	| ({ threadId: string; type: 'tool_call'; name: string; args: string; toolCallId: string } & ChatStreamNest)
+	| ({ threadId: string; type: 'delta'; text: string; teamRoleScope?: TeamRoleScope } & ChatStreamNest)
+	| {
+			threadId: string;
+			type: 'done';
+			text: string;
+			pendingAgentPatches?: AgentPendingPatch[];
+			usage?: TurnTokenUsage;
+			teamRoleScope?: TeamRoleScope;
+	  }
+	| { threadId: string; type: 'error'; message: string; teamRoleScope?: TeamRoleScope }
+	| ({ threadId: string; type: 'tool_call'; name: string; args: string; toolCallId: string; teamRoleScope?: TeamRoleScope } & ChatStreamNest)
 	| ({
 			threadId: string;
 			type: 'tool_result';
@@ -57,15 +72,24 @@ type ChatStreamPayloadCore =
 			result: string;
 			success: boolean;
 			toolCallId: string;
+			teamRoleScope?: TeamRoleScope;
 	  } & ChatStreamNest)
-	| ({ threadId: string; type: 'tool_input_delta'; name: string; partialJson: string; index: number } & ChatStreamNest)
-	| ({ threadId: string; type: 'thinking_delta'; text: string } & ChatStreamNest)
+	| ({
+			threadId: string;
+			type: 'tool_input_delta';
+			name: string;
+			partialJson: string;
+			index: number;
+			teamRoleScope?: TeamRoleScope;
+	  } & ChatStreamNest)
+	| ({ threadId: string; type: 'thinking_delta'; text: string; teamRoleScope?: TeamRoleScope } & ChatStreamNest)
 	| ({
 			threadId: string;
 			type: 'tool_progress';
 			name: string;
 			phase: string;
 			detail?: string;
+			teamRoleScope?: TeamRoleScope;
 	  } & ChatStreamNest)
 	| {
 			threadId: string;

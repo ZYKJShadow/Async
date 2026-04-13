@@ -7,7 +7,7 @@ import type { TeamSessionState } from './hooks/useTeamSession';
 type Props = {
 	t: TFunction;
 	session: TeamSessionState;
-	onSelectExpert: (expertId: string) => void;
+	onSelectExpert: (taskId: string) => void;
 	layout: 'agent-center' | 'editor-rail';
 };
 
@@ -39,7 +39,7 @@ export function TeamSessionView({ t, session, onSelectExpert, layout }: Props) {
 	const done = session.tasks.filter((x) => x.status === 'completed').length;
 	const total = session.tasks.length;
 	const selectedTask =
-		session.tasks.find((x) => x.expertId === session.selectedExpertId) ?? session.tasks[0] ?? null;
+		session.tasks.find((x) => x.id === session.selectedTaskId) ?? session.tasks[0] ?? null;
 	const progressText = t('team.taskProgress', {
 		done: String(done),
 		total: String(total),
@@ -91,7 +91,7 @@ export function TeamSessionView({ t, session, onSelectExpert, layout }: Props) {
 						key={task.id}
 						task={task}
 						active={selectedTask?.id === task.id}
-						onSelect={() => onSelectExpert(task.expertId)}
+						onSelect={() => onSelectExpert(task.id)}
 					/>
 				))}
 			</div>

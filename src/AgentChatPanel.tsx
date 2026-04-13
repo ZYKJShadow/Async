@@ -44,7 +44,7 @@ import { IconArrowDown, IconChevron, IconDoc } from './icons';
 import { type ParsedPlan, type PlanQuestion } from './planParser';
 import { type ChatMessage } from './threadTypes';
 import type { TeamSessionState } from './hooks/useTeamSession';
-import { TeamSessionView } from './TeamSessionView';
+import { TeamWorkflowTimelineCard } from './TeamWorkflowTimelineCard';
 
 type SharedComposerProps = Omit<
 	ComponentProps<typeof ChatComposer>,
@@ -140,7 +140,7 @@ export type AgentChatPanelProps = {
 	scrollMessagesToBottom: (behavior?: ScrollBehavior) => void;
 	agentPlanSummaryCard: ReactNode;
 	teamSession: TeamSessionState | null;
-	onSelectTeamExpert: (expertId: string) => void;
+	onSelectTeamExpert: (taskId: string) => void;
 };
 
 /** 未测量行时用于高度预算的估算高度（与旧虚拟列表 estimate 对齐） */
@@ -736,6 +736,25 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		return nodes;
 	};
 
+	const buildTeamTimelineRows = (): ReactNode[] => {
+		const nodes = buildFlatMessageList();
+		if (!teamSession || composerMode !== 'team' || !hasConversation) {
+			return nodes;
+		}
+		nodes.push(
+			<div
+				key={`row-${conversationRenderKey}-team-timeline`}
+				className="ref-msg-row-measure ref-msg-row-measure--team-card"
+				data-msg-index={String(displayMessages.length)}
+			>
+				<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-card">
+					<TeamWorkflowTimelineCard t={t} session={teamSession} onSelectTask={onSelectTeamExpert} />
+				</div>
+			</div>
+		);
+		return nodes;
+	};
+
 	const messagesEl = hasConversation ? (
 		<div className="ref-messages" ref={messagesViewportRef} onScroll={onMessagesScroll}>
 			<div
@@ -750,21 +769,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						aria-hidden
 					/>
 				) : null}
-				{buildFlatMessageList()}
+				{composerMode === 'team' ? buildTeamTimelineRows() : buildFlatMessageList()}
 			</div>
 		</div>
 	) : null;
-
-	const isTeamMode = composerMode === 'team';
-	const teamViewEl =
-		isTeamMode && teamSession ? (
-			<TeamSessionView
-				t={t}
-				session={teamSession}
-				onSelectExpert={onSelectTeamExpert}
-				layout={layout}
-			/>
-		) : null;
 
 	const editorRailHeroComposer =
 		isEditorRail && !hasConversation ? (
@@ -977,7 +985,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 					) : (
 						<>
 							{editorContextStrip}
-							{isTeamMode ? teamViewEl : messagesEl}
+							{messagesEl}
 						</>
 					)}
 				</div>
@@ -989,7 +997,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 	return (
 		<>
-			{isTeamMode ? teamViewEl : messagesEl}
+			{messagesEl}
 			{!hasConversation ? <div className="ref-hero-spacer" /> : null}
 			{sharedOverlays}
 			{commandStack}

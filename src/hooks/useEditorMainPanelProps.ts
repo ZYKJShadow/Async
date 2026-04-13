@@ -85,6 +85,7 @@ export function useEditorMainPanelProps({
 			er.closeEditorTerminalSession,
 			er.editorCenterPlanCanBuild,
 			er.editorCenterPlanMarkdown,
+			er.onSelectTeamTask,
 			er.editorPlanBuildModelId,
 			er.editorPlanFileIsBuilt,
 			er.editorSettings,
@@ -112,9 +113,12 @@ export function useEditorMainPanelProps({
 			er.setActiveEditorTerminalId,
 			er.setEditorPlanBuildModelId,
 			er.setMarkdownPaneMode,
+			er.selectedTeamTaskId,
 			er.showEditorPlanDocumentInCenter,
+			er.showEditorTeamWorkflowInCenter,
 			er.showPlanFileEditorChrome,
 			er.t,
+			er.teamSession,
 		]
 	);
 }

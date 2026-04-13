@@ -21,7 +21,9 @@ import { IconCloseSmall, IconPlus, IconRefresh } from './icons';
 import type { TFunction } from './i18n';
 import type { ModelPickerItem } from './ModelPickerDropdown';
 import { PtyTerminalView } from './PtyTerminalView';
+import { TeamRoleWorkflowPanel } from './TeamRoleWorkflowPanel';
 import { VoidSelect } from './VoidSelect';
+import type { TeamSessionState } from './hooks/useTeamSession';
 
 export type EditorMainPanelProps = {
 	t: TFunction;
@@ -30,6 +32,7 @@ export type EditorMainPanelProps = {
 	onSelectTab: (id: string) => void;
 	onCloseTab: (id: string) => void;
 	showEditorPlanDocumentInCenter: boolean;
+	showEditorTeamWorkflowInCenter: boolean;
 	planFileRelPath: string | null;
 	planFilePath: string | null;
 	editorPlanBuildModelId: string;
@@ -75,6 +78,9 @@ export type EditorMainPanelProps = {
 	appendEditorTerminal: () => void;
 	closeEditorTerminalPanel: () => void;
 	onEditorTerminalSessionExit: (id: string) => void;
+	teamSession: TeamSessionState | null;
+	selectedTeamTaskId: string | null;
+	onSelectTeamTask: (taskId: string) => void;
 };
 
 export const EditorMainPanel = memo(function EditorMainPanel({
@@ -84,6 +90,7 @@ export const EditorMainPanel = memo(function EditorMainPanel({
 	onSelectTab,
 	onCloseTab,
 	showEditorPlanDocumentInCenter,
+	showEditorTeamWorkflowInCenter,
 	planFileRelPath,
 	planFilePath,
 	editorPlanBuildModelId,
@@ -123,6 +130,9 @@ export const EditorMainPanel = memo(function EditorMainPanel({
 	appendEditorTerminal,
 	closeEditorTerminalPanel,
 	onEditorTerminalSessionExit,
+	teamSession,
+	selectedTeamTaskId,
+	onSelectTeamTask,
 }: EditorMainPanelProps) {
 	return (
 		<main
@@ -137,7 +147,17 @@ export const EditorMainPanel = memo(function EditorMainPanel({
 						onSelect={onSelectTab}
 						onClose={onCloseTab}
 					/>
-					{showEditorPlanDocumentInCenter ? (
+					{showEditorTeamWorkflowInCenter ? (
+						<div className="ref-editor-canvas ref-editor-canvas--team-workflow">
+							<TeamRoleWorkflowPanel
+								t={t}
+								session={teamSession}
+								selectedTaskId={selectedTeamTaskId}
+								onSelectTask={onSelectTeamTask}
+								layout="editor-center"
+							/>
+						</div>
+					) : showEditorPlanDocumentInCenter ? (
 						<>
 							<div className="ref-editor-bc-toolbar-row">
 								<div className="ref-editor-bc-toolbar-inner">

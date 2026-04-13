@@ -27,6 +27,7 @@ export const messagesEn: Record<string, string> = {
 	'app.chatSendFailed': 'Could not start this reply (stream was not started). Retry or check the developer console.',
 	'app.chatSendFailedNoWindow': 'Could not start chat: window state is invalid. Retry or restart the app.',
 	'app.chatSendFailedReason': 'Could not start chat: {{reason}}',
+	'team.sendMissingRoleModels': 'Before sending in Team mode, configure a model for these team roles: {{roles}}. Go to Settings → Team and choose models for them first.',
 	'composer.attach.noWorkspace': 'Open a workspace folder to attach images or files.',
 	'composer.attach.saveFailed': 'Could not save attachment to the workspace.',
 	'composer.attach.tooLarge': 'File is too large (max 8MB per file).',

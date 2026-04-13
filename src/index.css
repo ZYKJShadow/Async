@@ -16398,6 +16398,154 @@ select.ref-settings-native-select:focus {
 	border-color: var(--void-accent);
 }
 
+.ref-team-right-sidebar-layout {
+	display: grid;
+	grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+	gap: 12px;
+	height: 100%;
+}
+
+.ref-msg-row-measure--team-card {
+	margin-top: 8px;
+}
+
+.ref-msg-slot--team-card {
+	width: 100%;
+}
+
+.ref-team-timeline-card,
+.ref-team-role-panel {
+	display: grid;
+	gap: 12px;
+	border: 1px solid var(--void-border);
+	border-radius: 14px;
+	background: var(--void-bg-2);
+	padding: 14px;
+}
+
+.ref-team-timeline-head,
+.ref-team-role-panel-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.ref-team-timeline-title-stack,
+.ref-team-role-panel-title-stack {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+
+.ref-team-timeline-kicker,
+.ref-team-role-panel-kicker {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--void-fg-3);
+}
+
+.ref-team-timeline-title,
+.ref-team-role-panel-title {
+	font-size: 15px;
+	line-height: 1.3;
+}
+
+.ref-team-timeline-progress,
+.ref-team-role-panel-subtitle {
+	color: var(--void-fg-2);
+	font-size: 12px;
+}
+
+.ref-team-timeline-summary {
+	margin: 0;
+	color: var(--void-fg-2);
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.ref-team-timeline-list,
+.ref-team-role-panel-switcher {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-team-timeline-item,
+.ref-team-role-switch {
+	border: 1px solid var(--void-border);
+	background: var(--void-bg-1);
+	color: inherit;
+	border-radius: 10px;
+	cursor: pointer;
+}
+
+.ref-team-timeline-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 10px;
+	text-align: left;
+}
+
+.ref-team-timeline-item.is-active,
+.ref-team-role-switch.is-active {
+	border-color: var(--void-accent);
+	background: color-mix(in srgb, var(--void-accent) 8%, var(--void-bg-1));
+}
+
+.ref-team-timeline-item-copy {
+	display: grid;
+	gap: 2px;
+	flex: 1;
+	min-width: 0;
+}
+
+.ref-team-timeline-item-title {
+	font-weight: 600;
+}
+
+.ref-team-timeline-item-body {
+	color: var(--void-fg-2);
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.ref-team-role-panel--agent-sidebar {
+	min-height: 0;
+}
+
+.ref-team-role-panel--editor-center {
+	height: 100%;
+	border-radius: 0;
+	border: 0;
+	background: transparent;
+	padding: 18px;
+}
+
+.ref-team-role-switch {
+	padding: 8px 10px;
+	text-align: left;
+}
+
+.ref-team-role-panel-body {
+	min-height: 0;
+	overflow: auto;
+}
+
+.ref-team-timeline-input-needed {
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px dashed var(--void-border);
+	color: var(--void-fg-2);
+	background: color-mix(in srgb, var(--void-accent) 4%, var(--void-bg-1));
+}
+
+.ref-editor-canvas--team-workflow {
+	padding: 0;
+}
+
 /* Settings panel */
 .ref-settings-team-roles {
 	display: grid;

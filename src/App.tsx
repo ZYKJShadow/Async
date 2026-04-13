@@ -111,6 +111,7 @@ import { useAgentFileReview, type AgentFilePreviewState } from './hooks/useAgent
 import { useComposer } from './hooks/useComposer';
 import { useEditorTabs, type EditorInlineDiffState, clampEditorTerminalHeight } from './hooks/useEditorTabs';
 import { useTeamSession } from './hooks/useTeamSession';
+import { buildTeamWorkflowItems } from './teamWorkflowItems';
 import { AppWorkspaceWelcome } from './app/AppWorkspaceWelcome';
 import { AgentAgentCenterColumn } from './app/AgentAgentCenterColumn';
 import type { ComposerAnchorSlot } from './ChatComposer';
@@ -686,7 +687,7 @@ function AppMainWorkspaceInner() {
 		setStreaming,
 		setAwaitingReply,
 	} = useStreamingChat();
-	const { applyTeamPayload, getTeamSession, setSelectedExpert } = useTeamSession();
+	const { applyTeamPayload, getTeamSession, setSelectedTask } = useTeamSession();
 	const {
 		agentReviewPendingByThread,
 		setAgentReviewPendingByThread,
@@ -821,6 +822,8 @@ function AppMainWorkspaceInner() {
 		refreshThreads,
 		defaultModel,
 		composerMode,
+		teamSettings,
+		modelEntries,
 		ensureWorkspaceFileListLoaded,
 		resendFromUserIndex,
 		setResendFromUserIndex,
@@ -3614,6 +3617,11 @@ function AppMainWorkspaceInner() {
 
 	const showPlanFileEditorChrome =
 		hasConversation && !!currentId && isPlanMdPath(filePath.trim());
+	const teamSession = useMemo(() => getTeamSession(currentId), [getTeamSession, currentId]);
+	const hasActiveTeamSidebarContent = useMemo(
+		() => composerMode === 'team' && buildTeamWorkflowItems(teamSession).length > 0,
+		[composerMode, teamSession]
+	);
 
 	const editorCenterPlanMarkdown = useMemo(() => {
 		if (agentPlanPreviewMarkdown.trim()) {
@@ -3629,6 +3637,11 @@ function AppMainWorkspaceInner() {
 		composerMode === 'plan' &&
 		hasConversation &&
 		(awaitingReply || !!editorCenterPlanMarkdown.trim());
+	const showEditorTeamWorkflowInCenter =
+		layoutMode === 'editor' &&
+		composerMode === 'team' &&
+		hasConversation &&
+		!!teamSession?.selectedTaskId;
 	const editorCenterPlanCanBuild =
 		!awaitingReply && !!agentPlanEffectivePlan && !!editorPlanBuildModelId.trim() && modelPickerItems.length > 0;
 	const agentPlanSidebarAutopenRef = useRef(false);
@@ -3658,6 +3671,13 @@ function AppMainWorkspaceInner() {
 			setAgentRightSidebarView('git');
 		}
 	}, [agentRightSidebarView, hasAgentPlanSidebarContent]);
+
+	useEffect(() => {
+		if (agentRightSidebarView === 'team' && !hasActiveTeamSidebarContent) {
+			setAgentRightSidebarOpen(false);
+			setAgentRightSidebarView(hasAgentPlanSidebarContent ? 'plan' : 'git');
+		}
+	}, [agentRightSidebarView, hasActiveTeamSidebarContent, hasAgentPlanSidebarContent]);
 
 	useEffect(() => {
 		if (!workspace && agentFilePreview) {
@@ -4791,20 +4811,18 @@ function AppMainWorkspaceInner() {
 		}
 	};
 
-	const teamSession = useMemo(() => getTeamSession(currentId), [getTeamSession, currentId]);
-	const onSelectTeamExpert = useCallback(
-		(expertId: string) => {
+	const onSelectTeamTask = useCallback(
+		(taskId: string) => {
 			if (!currentId) {
 				return;
 			}
-			setSelectedExpert(currentId, expertId);
-			if (layoutMode === 'editor') {
-				setLayoutMode('agent');
-			}
+			setSelectedTask(currentId, taskId);
 			setAgentRightSidebarView('team');
-			setAgentRightSidebarOpen(true);
+			if (layoutMode === 'agent') {
+				setAgentRightSidebarOpen(true);
+			}
 		},
-		[currentId, setSelectedExpert, layoutMode]
+		[currentId, setSelectedTask, layoutMode]
 	);
 
 	useEffect(() => {
@@ -5410,7 +5428,7 @@ function AppMainWorkspaceInner() {
 		scrollMessagesToBottom,
 		agentPlanSummaryCard,
 		teamSession,
-		onSelectTeamExpert,
+		onSelectTeamExpert: onSelectTeamTask,
 	});
 
 
@@ -5452,7 +5470,7 @@ function AppMainWorkspaceInner() {
 		onCommitOnly,
 		onCommitAndPush,
 		teamSession,
-		onSelectTeamExpert,
+		onSelectTeamExpert: onSelectTeamTask,
 	});
 
 	const editorMainPanelProps = useEditorMainPanelProps({
@@ -5461,6 +5479,7 @@ function AppMainWorkspaceInner() {
 		activeTabId,
 		onCloseTab,
 		showEditorPlanDocumentInCenter,
+		showEditorTeamWorkflowInCenter,
 		planFileRelPath,
 		planFilePath,
 		editorPlanBuildModelId,
@@ -5502,6 +5521,9 @@ function AppMainWorkspaceInner() {
 		setEditorValue,
 		setOpenTabs,
 		onSelectTab,
+		teamSession,
+		selectedTeamTaskId: teamSession?.selectedTaskId ?? null,
+		onSelectTeamTask,
 	});
 
 	const editorLeftSidebarProps = useMemo(

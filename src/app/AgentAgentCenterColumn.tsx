@@ -1,6 +1,6 @@
 import { memo, type KeyboardEvent } from 'react';
 import { AgentChatPanel, type AgentChatPanelProps } from '../AgentChatPanel';
-import { IconDoc, IconGitSCM, IconTeam } from '../icons';
+import { IconDoc, IconGitSCM } from '../icons';
 import type { TFunction } from '../i18n';
 
 export type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team';
@@ -82,17 +82,6 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 						<IconDoc />
 					</button>
 				) : null}
-				<button
-					type="button"
-					className={`ref-agent-rail-toggle ${agentRightSidebarOpen && agentRightSidebarView === 'team' ? 'is-open' : ''}`}
-					onClick={() => toggleAgentRightSidebarView('team')}
-					title={t('composer.mode.team')}
-					aria-label={t('composer.mode.team')}
-					aria-pressed={agentRightSidebarOpen && agentRightSidebarView === 'team'}
-					aria-controls="agent-right-sidebar"
-				>
-					<IconTeam />
-				</button>
 				<button
 					type="button"
 					className={`ref-agent-rail-toggle ${agentRightSidebarOpen && agentRightSidebarView === 'git' ? 'is-open' : ''}`}

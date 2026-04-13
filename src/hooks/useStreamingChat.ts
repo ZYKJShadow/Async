@@ -8,8 +8,10 @@ import {
 	type SetStateAction,
 } from 'react';
 import type { ComposerMode } from '../ComposerPlusMenu';
+import type { TeamSettings } from '../agentSettingsTypes';
 import { userMessageToSegments, type ComposerSegment } from '../composerSegments';
 import { applyLiveAgentChatPayload, type LiveAgentBlocksState } from '../liveAgentBlocks';
+import type { UserModelEntry } from '../modelCatalog';
 import {
 	type AgentPendingPatch,
 	type ChatPlanExecutePayload,
@@ -17,6 +19,7 @@ import {
 	type TurnTokenUsage,
 } from '../ipcTypes';
 import { parseQuestions, parsePlanDocument, toPlanMd, generatePlanFilename, type ParsedPlan, type PlanQuestion } from '../planParser';
+import { findTeamRolesMissingModels } from '../teamModelValidation';
 import { flattenAssistantTextPartsForSearch } from '../agentStructuredMessage';
 import { clearPersistedAgentFileChanges } from '../agentFileChangesPersist';
 import { translateChatError, type TFunction } from '../i18n';
@@ -40,6 +43,8 @@ type StreamingSendRuntime = {
 	refreshThreads: () => Promise<unknown> | void;
 	defaultModel: string;
 	composerMode: ComposerMode;
+	teamSettings?: TeamSettings;
+	modelEntries: UserModelEntry[];
 	ensureWorkspaceFileListLoaded: () => Promise<string[]>;
 	resendFromUserIndex: number | null;
 	setResendFromUserIndex: Dispatch<SetStateAction<number | null>>;
@@ -270,6 +275,17 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 			rt.flashComposerAttachErr(rt.t('app.noModelSelected'));
 			return;
 		}
+		const effectiveMode = opts?.modeOverride ?? rt.composerMode;
+		if (effectiveMode === 'team') {
+			const missingRoles = findTeamRolesMissingModels(rt.teamSettings, rt.modelEntries);
+			if (missingRoles.length > 0) {
+				const roles = missingRoles
+					.map((role) => role.name.trim() || rt.t(`settings.team.role.${role.roleType}`))
+					.join('、');
+				rt.flashComposerAttachErr(rt.t('team.sendMissingRoleModels', { roles }));
+				return;
+			}
+		}
 
 		rt.clearPlanQuestion();
 
@@ -309,7 +325,7 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 					threadId: targetThreadId,
 					visibleIndex: resendIdx,
 					text,
-					mode: opts?.modeOverride ?? rt.composerMode,
+					mode: effectiveMode,
 					modelId: effectiveModelId,
 					streamNonce,
 				})) as { ok?: boolean };
@@ -343,7 +359,7 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 			const sendResult = (await rt.shell.invoke('chat:send', {
 				threadId: targetThreadId,
 				text,
-				mode: opts?.modeOverride ?? rt.composerMode,
+				mode: effectiveMode,
 				modelId: effectiveModelId,
 				planExecute: opts?.planExecute,
 				streamNonce,
@@ -431,6 +447,10 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 			}
 
 			const visible = payload.threadId === rt.currentIdRef.current;
+			if (payload.teamRoleScope) {
+				rt.applyTeamPayload(payload);
+				return;
+			}
 			const draftRow = () => {
 				const m = rt.offThreadStreamDraftsRef.current;
 				if (!m[payload.threadId]) {

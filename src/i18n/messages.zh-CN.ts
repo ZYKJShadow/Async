@@ -31,6 +31,7 @@ export const messagesZhCN: Record<string, string> = {
 	'app.chatSendFailed': '无法开始本轮对话（主进程未启动流式通道）。请重试或查看开发者工具日志。',
 	'app.chatSendFailedNoWindow': '无法开始对话：窗口状态异常，请重试或重启应用。',
 	'app.chatSendFailedReason': '无法开始对话：{{reason}}',
+	'team.sendMissingRoleModels': 'Team 模式发送前，请先为以下团队角色配置模型：{{roles}}。可前往“设置 → Team”逐个选择模型后再试。',
 	'composer.attach.noWorkspace': '请先打开工作区文件夹，才能将图片或文件附加到输入框。',
 	'composer.attach.saveFailed': '无法保存附件到工作区。',
 	'composer.attach.tooLarge': '文件过大（单文件上限 8MB）。',
