@@ -80,6 +80,7 @@ export function useSettings(
 	const [teamSettings, setTeamSettings] = useState<TeamSettings>({
 		useDefaults: true,
 		maxParallelExperts: 3,
+		presetId: 'engineering',
 		experts: [],
 	});
 
@@ -256,6 +257,7 @@ export function useSettings(
 		setTeamSettings({
 			useDefaults: st?.team?.useDefaults ?? true,
 			maxParallelExperts: st?.team?.maxParallelExperts ?? 3,
+			presetId: st?.team?.presetId ?? 'engineering',
 			experts: Array.isArray(st?.team?.experts) ? st!.team!.experts : [],
 		});
 	}, []);

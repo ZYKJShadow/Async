@@ -106,6 +106,7 @@ type ChatStreamPayloadCore =
 			task: {
 				id: string;
 				expertId: string;
+				expertAssignmentKey?: string;
 				expertName: string;
 				roleType: 'team_lead' | 'frontend' | 'backend' | 'qa' | 'reviewer' | 'custom';
 				description: string;

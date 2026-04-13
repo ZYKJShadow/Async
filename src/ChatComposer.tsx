@@ -145,6 +145,7 @@ export function ChatComposer({
 				? modelPillBottomRef
 				: modelPillInlineRef;
 	const isBottomSlot = slot === 'bottom';
+	const showModelPicker = composerMode !== 'team';
 	const inputPlaceholder =
 		isBottomSlot && hasConversation ? followUpComposerPlaceholder : composerPlaceholder;
 
@@ -213,22 +214,24 @@ export function ChatComposer({
 							<IconChevron className="ref-mode-chip-menu-chev" />
 						</button>
 					</div>
-					<div className="ref-model-pill-anchor" ref={modelRef}>
-						<button
-							type="button"
-							className="ref-model-pill"
-							aria-expanded={modelPickerOpen}
-							aria-haspopup="listbox"
-							onClick={() => {
-								setModelPickerAnchorSlot(slot);
-								setPlusMenuOpen(false);
-								setModelPickerOpen((open) => !open);
-							}}
-						>
-							<span className="ref-model-name">{modelPillLabel}</span>
-							<IconChevron className="ref-model-chev" />
-						</button>
-					</div>
+					{showModelPicker ? (
+						<div className="ref-model-pill-anchor" ref={modelRef}>
+							<button
+								type="button"
+								className="ref-model-pill"
+								aria-expanded={modelPickerOpen}
+								aria-haspopup="listbox"
+								onClick={() => {
+									setModelPickerAnchorSlot(slot);
+									setPlusMenuOpen(false);
+									setModelPickerOpen((open) => !open);
+								}}
+							>
+								<span className="ref-model-name">{modelPillLabel}</span>
+								<IconChevron className="ref-model-chev" />
+							</button>
+						</div>
+					) : null}
 				</div>
 				{isHero ? <div className="ref-capsule-bar-spacer" /> : null}
 				<div className={isHero ? 'ref-editor-rail-bar-right' : 'ref-capsule-bar-end'}>

@@ -276,6 +276,17 @@ export function IconArchive({ className }: { className?: string }) {
 	);
 }
 
+export function IconTeam({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<circle cx="7" cy="9" r="2" />
+			<circle cx="12" cy="7" r="2" />
+			<circle cx="17" cy="9" r="2" />
+			<path d="M4 18a3 3 0 0 1 6 0M9 18a3 3 0 0 1 6 0M14 18a3 3 0 0 1 6 0" strokeLinecap="round" />
+		</svg>
+	);
+}
+
 export function IconImageOutline({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

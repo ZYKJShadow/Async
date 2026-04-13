@@ -8,6 +8,7 @@ export type TeamRoleType = 'team_lead' | 'frontend' | 'backend' | 'qa' | 'review
 export type TeamTask = {
 	id: string;
 	expertId: string;
+	expertAssignmentKey?: string;
 	expertName: string;
 	roleType: TeamRoleType;
 	description: string;
@@ -81,6 +82,7 @@ export function useTeamSession() {
 					const created: TeamTask = {
 						id: payload.task.id,
 						expertId: payload.task.expertId,
+						expertAssignmentKey: payload.task.expertAssignmentKey,
 						expertName: payload.task.expertName,
 						roleType: payload.task.roleType,
 						description: payload.task.description,

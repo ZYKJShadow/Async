@@ -18,6 +18,7 @@ type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'revi
 type TeamTask = {
 	id: string;
 	expertId: string;
+	expertAssignmentKey?: string;
 	expertName: string;
 	roleType: TeamRoleType;
 	description: string;
@@ -35,6 +36,7 @@ type TeamEmit =
 			task: {
 				id: string;
 				expertId: string;
+				expertAssignmentKey?: string;
 				expertName: string;
 				roleType: TeamRoleType;
 				description: string;
@@ -113,9 +115,12 @@ function matchExpert(
 ): TeamExpertRuntimeProfile | undefined {
 	const key = expertKey.toLowerCase().trim();
 	return (
+		specialists.find((s) => s.id.toLowerCase() === key) ??
+		specialists.find((s) => s.assignmentKey.toLowerCase() === key) ??
 		specialists.find((s) => s.roleType === key) ??
 		specialists.find((s) => s.name.toLowerCase() === key) ??
-		specialists.find((s) => s.roleType.includes(key) || key.includes(s.roleType))
+		specialists.find((s) => s.roleType.includes(key) || key.includes(s.roleType)) ??
+		specialists.find((s) => s.assignmentKey.includes(key) || key.includes(s.assignmentKey))
 	);
 }
 
@@ -137,7 +142,7 @@ async function llmPlanTasks(params: {
 		signal, thinkingLevel, workspaceRoot, workspaceLspManager, baseTools,
 	} = params;
 
-	const availableRoles = specialists.map((s) => `- ${s.roleType}: ${s.name}`).join('\n');
+	const availableRoles = specialists.map((s) => `- ${s.assignmentKey}: ${s.name}`).join('\n');
 	const planMessages: ChatMessage[] = [
 		...messages,
 		{
@@ -151,7 +156,7 @@ async function llmPlanTasks(params: {
 				'Respond with:',
 				'1. A brief analysis of the request (2-3 sentences).',
 				'2. A JSON array in a ```json fenced block with the task assignments.',
-				'Each task object must have: "expert" (role id), "task" (clear instruction), optionally "dependencies" and "acceptanceCriteria".',
+				'Each task object must have: "expert" (assignment key), "task" (clear instruction), optionally "dependencies" and "acceptanceCriteria".',
 			].join('\n'),
 		},
 	];
@@ -204,6 +209,19 @@ async function llmPlanTasks(params: {
 // ── Regex fallback when LLM planning fails ───────────────────────────────
 
 function selectSpecialistTasksFallback(userText: string, experts: TeamExpertRuntimeProfile[]): TeamTask[] {
+	if (experts.some((expert) => expert.roleType === 'custom')) {
+		return experts.map((profile) => ({
+			id: `task-${randomUUID()}`,
+			expertId: profile.id,
+			expertAssignmentKey: profile.assignmentKey,
+			expertName: profile.name,
+			roleType: profile.roleType,
+			description: `Contribute your specialty to this request and produce a clear deliverable:\n${userText}`,
+			status: 'pending',
+			dependencies: [],
+			acceptanceCriteria: [],
+		}));
+	}
 	const normalized = userText.toLowerCase();
 	const hasFrontend = /\b(ui|ux|component|css|style|layout|react|tsx|frontend)\b/.test(normalized);
 	const hasBackend = /\b(api|backend|server|service|endpoint|database|schema)\b/.test(normalized);
@@ -215,7 +233,8 @@ function selectSpecialistTasksFallback(userText: string, experts: TeamExpertRunt
 		if (!profile) return;
 		picks.push({
 			id: `task-${randomUUID()}`,
-			expertId: profile.roleType,
+			expertId: profile.id,
+			expertAssignmentKey: profile.assignmentKey,
 			expertName: profile.name,
 			roleType: profile.roleType,
 			description,
@@ -497,9 +516,9 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			mcpToolDenyPrefixes: settings.mcpToolDenyPrefixes,
 		});
 		const experts = resolveTeamExpertProfiles(settings.team, baseTeamTools);
-		const teamLead = experts.find((e) => e.roleType === 'team_lead');
-		const reviewerExpert = experts.find((e) => e.roleType === 'reviewer');
-		const specialists = experts.filter((e) => e.roleType !== 'team_lead' && e.roleType !== 'reviewer');
+		const teamLead = experts.find((e) => e.assignmentKey === 'team_lead') ?? experts.find((e) => e.roleType === 'team_lead');
+		const reviewerExpert = experts.find((e) => e.assignmentKey === 'reviewer') ?? experts.find((e) => e.roleType === 'reviewer');
+		const specialists = experts.filter((e) => e.id !== teamLead?.id && e.id !== reviewerExpert?.id);
 
 		if (!teamLead || specialists.length === 0) {
 			onError('Team mode requires at least one Team Lead and one enabled specialist.');
@@ -534,7 +553,8 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 					taskIdMap.set(pt.expert, taskId);
 					return {
 						id: taskId,
-						expertId: expert.roleType,
+						expertId: expert.id,
+						expertAssignmentKey: expert.assignmentKey,
 						expertName: expert.name,
 						roleType: expert.roleType,
 						description: pt.task,
@@ -569,6 +589,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 				task: {
 					id: task.id,
 					expertId: task.expertId,
+					expertAssignmentKey: task.expertAssignmentKey,
 					expertName: task.expertName,
 					roleType: task.roleType,
 					description: task.description,
@@ -609,7 +630,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 			const results = await Promise.all(
 				batch.map(async (task) => {
-					const expert = specialists.find((s) => s.roleType === task.roleType) ?? specialists[0]!;
+					const expert = specialists.find((s) => s.id === task.expertId) ?? specialists[0]!;
 					emit({ threadId, type: 'team_expert_started', taskId: task.id, expertId: task.expertId });
 					const result = await runOneSpecialist({
 						settings, task, expert, messages, modelSelection, resolvedModel,

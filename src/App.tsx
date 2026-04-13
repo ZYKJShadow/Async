@@ -788,6 +788,11 @@ function AppMainWorkspaceInner() {
 		flashComposerAttachErr,
 		resetComposerState,
 	} = useComposer();
+	useEffect(() => {
+		if (composerMode === 'team') {
+			setModelPickerOpen(false);
+		}
+	}, [composerMode]);
 
 	/** 切回正在后台流式回复的线程时，把离屏累积的正文/思考草稿铺回 UI */
 	const flushOffThreadStreamDraftIfNeeded = useCallback(
@@ -4796,22 +4801,11 @@ function AppMainWorkspaceInner() {
 			if (layoutMode === 'editor') {
 				setLayoutMode('agent');
 			}
-			if (layoutMode === 'agent') {
-				setAgentRightSidebarView('team');
-				setAgentRightSidebarOpen(true);
-			}
+			setAgentRightSidebarView('team');
+			setAgentRightSidebarOpen(true);
 		},
 		[currentId, setSelectedExpert, layoutMode]
 	);
-	useEffect(() => {
-		if (composerMode !== 'team') {
-			return;
-		}
-		if (layoutMode === 'agent') {
-			setAgentRightSidebarView('team');
-			setAgentRightSidebarOpen(true);
-		}
-	}, [composerMode, layoutMode]);
 
 	useEffect(() => {
 		const onResize = () => {

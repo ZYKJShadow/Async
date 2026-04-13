@@ -123,11 +123,13 @@ export type ShellLspSettings = {
 };
 
 export type TeamRoleType = 'team_lead' | 'frontend' | 'backend' | 'qa' | 'reviewer' | 'custom';
+export type TeamPresetId = 'engineering' | 'planning' | 'design';
 
 export type TeamExpertConfig = {
 	id: string;
 	name: string;
 	roleType: TeamRoleType;
+	assignmentKey?: string;
 	systemPrompt: string;
 	preferredModelId?: string;
 	allowedTools?: string[];
@@ -138,6 +140,7 @@ export type TeamSettings = {
 	experts?: TeamExpertConfig[];
 	useDefaults?: boolean;
 	maxParallelExperts?: number;
+	presetId?: TeamPresetId;
 };
 
 export type ShellSettings = {
@@ -222,6 +225,7 @@ const defaultSettings: ShellSettings = {
 	team: {
 		useDefaults: true,
 		maxParallelExperts: 3,
+		presetId: 'engineering',
 		experts: [],
 	},
 };

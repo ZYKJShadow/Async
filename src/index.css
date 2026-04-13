@@ -7066,11 +7066,34 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	align-items: center;
 	gap: 6px;
 	padding: 5px 5px 5px 10px;
+	border: 1px solid transparent;
 	border-radius: var(--void-pill);
+	background-clip: padding-box;
 	font-size: 12px;
 	font-weight: 600;
 	flex-shrink: 0;
 	line-height: 1;
+	font-family: inherit;
+	cursor: pointer;
+	appearance: none;
+	-webkit-appearance: none;
+	box-shadow: none;
+	outline: none;
+	transition:
+		background 0.16s ease,
+		border-color 0.16s ease,
+		box-shadow 0.16s ease,
+		transform 0.16s ease;
+}
+
+.ref-mode-chip:hover {
+	transform: translateY(-1px);
+}
+
+.ref-mode-chip:focus,
+.ref-mode-chip:focus-visible {
+	outline: none;
+	box-shadow: none;
 }
 
 .ref-mode-chip--agent {
@@ -7078,24 +7101,80 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	color: #c4b5fd;
 	border: 1px solid rgba(129, 140, 248, 0.38);
 	padding-right: 10px;
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.04),
+		0 0 16px rgba(129, 140, 248, 0.16);
 }
 
 .ref-mode-chip--plan {
 	background: rgba(154, 78, 42, 0.42);
 	color: #fdba74;
 	border: 1px solid rgba(251, 146, 60, 0.35);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.04),
+		0 0 16px rgba(251, 146, 60, 0.14);
 }
 
 .ref-mode-chip--debug {
 	background: rgba(59, 130, 246, 0.22);
 	color: #93c5fd;
 	border: 1px solid rgba(96, 165, 250, 0.35);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.04),
+		0 0 16px rgba(96, 165, 250, 0.14);
 }
 
 .ref-mode-chip--ask {
 	background: rgba(52, 211, 153, 0.2);
 	color: #6ee7b7;
 	border: 1px solid rgba(52, 211, 153, 0.32);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.04),
+		0 0 16px rgba(52, 211, 153, 0.12);
+}
+
+.ref-mode-chip--team {
+	background: rgba(34, 211, 238, 0.18);
+	color: #a5f3fc;
+	border: 1px solid rgba(34, 211, 238, 0.34);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.04),
+		0 0 16px rgba(34, 211, 238, 0.16);
+}
+
+.ref-mode-chip--agent:hover,
+.ref-mode-chip--agent.is-active {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.05),
+		0 0 18px rgba(129, 140, 248, 0.22);
+}
+
+.ref-mode-chip--plan:hover,
+.ref-mode-chip--plan.is-active {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.05),
+		0 0 18px rgba(251, 146, 60, 0.2);
+}
+
+.ref-mode-chip--debug:hover,
+.ref-mode-chip--debug.is-active {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.05),
+		0 0 18px rgba(96, 165, 250, 0.2);
+}
+
+.ref-mode-chip--ask:hover,
+.ref-mode-chip--ask.is-active {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.05),
+		0 0 18px rgba(52, 211, 153, 0.18);
+}
+
+.ref-mode-chip--team:hover,
+.ref-mode-chip--team.is-active {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.05),
+		0 0 18px rgba(34, 211, 238, 0.24);
 }
 
 .ref-mode-chip-ico {
@@ -16325,18 +16404,164 @@ select.ref-settings-native-select:focus {
 	gap: 12px;
 }
 
-.ref-settings-team-role-card {
+.ref-settings-team-shell {
+	display: grid;
+	gap: 16px;
+	margin-bottom: 18px;
+}
+
+.ref-settings-team-hero,
+.ref-settings-team-config-card {
+	display: grid;
+	gap: 14px;
+	padding: 16px;
 	border: 1px solid var(--void-border);
-	border-radius: 10px;
-	padding: 10px;
-	background: var(--void-bg-2);
+	border-radius: 14px;
+	background: linear-gradient(180deg, color-mix(in srgb, var(--void-accent) 5%, var(--void-bg-2)), var(--void-bg-2));
+}
+
+.ref-settings-team-kicker {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--void-fg-3);
+	margin-bottom: 4px;
+}
+
+.ref-settings-team-title {
+	margin: 0;
+	font-size: 20px;
+	line-height: 1.2;
+}
+
+.ref-settings-team-subtitle {
+	margin: 6px 0 0;
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--void-fg-2);
+}
+
+.ref-settings-team-stats {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+}
+
+.ref-settings-team-stat {
+	padding: 12px;
+	border: 1px solid var(--void-border);
+	border-radius: 12px;
+	background: var(--void-bg-1);
+	display: grid;
+	gap: 4px;
+}
+
+.ref-settings-team-stat-label {
+	font-size: 11px;
+	color: var(--void-fg-3);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.ref-settings-team-presets {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 12px;
+}
+
+.ref-settings-team-preset-card {
 	display: grid;
 	gap: 10px;
+	padding: 14px;
+	border: 1px solid var(--void-border);
+	border-radius: 14px;
+	background: var(--void-bg-2);
+	color: inherit;
+	text-align: left;
+	cursor: pointer;
+	transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ref-settings-team-preset-card:hover {
+	transform: translateY(-1px);
+	border-color: var(--void-fg-2);
+}
+
+.ref-settings-team-preset-card.is-active {
+	border-color: var(--void-accent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--void-accent) 30%, transparent);
+	background: color-mix(in srgb, var(--void-accent) 6%, var(--void-bg-2));
+}
+
+.ref-settings-team-preset-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.ref-settings-team-preset-card p {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--void-fg-2);
+}
+
+.ref-settings-team-config-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+	gap: 12px;
+	align-items: end;
+}
+
+.ref-settings-team-inline-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+	color: var(--void-fg-1);
+}
+
+.ref-settings-team-inline-check input {
+	margin: 0;
+}
+
+.ref-settings-team-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.ref-settings-team-role-card {
+	border: 1px solid var(--void-border);
+	border-radius: 14px;
+	padding: 14px;
+	background: var(--void-bg-2);
+	display: grid;
+	gap: 14px;
+}
+
+.ref-settings-team-role-head {
+	display: flex;
+	align-items: start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.ref-settings-team-role-head strong {
+	display: block;
+	font-size: 15px;
+}
+
+.ref-settings-team-role-head p {
+	margin: 4px 0 0;
+	font-size: 12px;
+	color: var(--void-fg-3);
 }
 
 .ref-settings-team-role-grid {
 	display: grid;
-	grid-template-columns: 1fr 1fr;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 10px;
 }
 
