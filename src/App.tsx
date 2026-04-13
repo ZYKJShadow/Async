@@ -4331,11 +4331,14 @@ function AppMainWorkspaceInner() {
 	};
 
 	const displayMessages = useMemo(() => {
+		if (composerMode === 'team' && awaitingReply && streaming === '') {
+			return messages;
+		}
 		if (!awaitingReply && streaming === '') {
 			return messages;
 		}
 		return [...messages, { role: 'assistant' as const, content: streaming }];
-	}, [messages, streaming, awaitingReply]);
+	}, [messages, streaming, awaitingReply, composerMode]);
 
 	const lastAssistantMessageIndex = useMemo(() => {
 		let idx = -1;
