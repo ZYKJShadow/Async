@@ -6,6 +6,7 @@ import {
 	createEmptyLiveAgentBlocks,
 	type LiveAgentBlocksState,
 } from '../liveAgentBlocks';
+import { flattenAssistantTextPartsForSearch } from '../agentStructuredMessage';
 import { extractTeamLeadNarrative } from '../teamWorkflowText';
 
 export type TeamSessionPhase =
@@ -129,16 +130,13 @@ function emptySession(): TeamSessionState {
 const MAX_TASK_LOGS = 50;
 const FLUSH_INTERVAL_MS = 250;
 
-function buildDefaultLeaderMessage(userRequest: string): string {
-	const hasCjk = /[\u3400-\u9fff]/.test(userRequest);
-	if (!userRequest.trim()) {
-		return hasCjk
-			? '这是一个需要团队协作的复杂任务，我正在拆解需求并分配合适的角色。'
-			: "This request needs coordinated work. I'm breaking it down and assigning the right specialists now.";
+function normalizeTeamSummary(raw: string, fallback = ''): string {
+	const flattened = flattenAssistantTextPartsForSearch(raw).trim();
+	if (flattened) {
+		return flattened;
 	}
-	return hasCjk
-		? '这是一个需要团队协作的复杂任务。我先拆解需求、分配合适的角色，并把每个成员的执行轨迹实时展示给你。'
-		: "This request needs coordinated work. I'm breaking it down, assigning the right specialists, and I'll surface each role's execution trace as it progresses.";
+	const trimmed = raw.trim();
+	return trimmed || fallback;
 }
 
 function ensureRoleWorkflow(
@@ -509,11 +507,11 @@ export function useTeamSession() {
 					break;
 				case 'team_review':
 					session.reviewVerdict = payload.verdict;
-					session.reviewSummary = payload.summary;
+					session.reviewSummary = normalizeTeamSummary(payload.summary);
 					break;
 				case 'team_preflight_review':
 					session.preflightVerdict = payload.verdict;
-					session.preflightSummary = payload.summary;
+					session.preflightSummary = normalizeTeamSummary(payload.summary);
 					break;
 				case 'team_plan_proposed':
 					session.planProposal = {
@@ -527,7 +525,9 @@ export function useTeamSession() {
 							dependencies: t.dependencies ?? [],
 							acceptanceCriteria: t.acceptanceCriteria ?? [],
 						})),
-						preflightSummary: payload.preflightSummary,
+						preflightSummary: payload.preflightSummary
+							? normalizeTeamSummary(payload.preflightSummary)
+							: undefined,
 						preflightVerdict: payload.preflightVerdict,
 						awaitingApproval: true,
 					};
@@ -554,7 +554,6 @@ export function useTeamSession() {
 	const startTeamSession = useCallback((threadId: string, userRequest: string) => {
 		const session = emptySession();
 		session.originalUserRequest = userRequest;
-		session.leaderMessage = buildDefaultLeaderMessage(userRequest);
 		session.updatedAt = Date.now();
 		sessionsRef.current[threadId] = session;
 		setSessionsByThread((prev) => ({
@@ -693,7 +692,7 @@ export function useTeamSession() {
 				leaderMessage: snapshot.leaderMessage,
 				leaderWorkflow: null,
 				planSummary: snapshot.planSummary,
-				reviewSummary: snapshot.reviewSummary,
+				reviewSummary: normalizeTeamSummary(snapshot.reviewSummary),
 				reviewVerdict: snapshot.reviewVerdict,
 				preflightSummary: '',
 				preflightVerdict: null,

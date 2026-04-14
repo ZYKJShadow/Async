@@ -863,6 +863,7 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 							selectedTaskId={teamSession?.selectedTaskId ?? null}
 							onSelectTask={onSelectTeamExpert}
 							layout="agent-sidebar"
+							isVisible={open && view === 'team'}
 						/>
 					</div>
 				) : (

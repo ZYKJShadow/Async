@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { ChatMarkdown } from './ChatMarkdown';
 import type { TFunction } from './i18n';
 import type { ChatMessage } from './threadTypes';
@@ -13,6 +13,7 @@ type Props = {
 	selectedTaskId: string | null;
 	onSelectTask: (taskId: string) => void;
 	layout: 'agent-sidebar' | 'editor-center';
+	isVisible?: boolean;
 };
 
 function renderAssistantMessage(
@@ -51,6 +52,7 @@ export const TeamRoleWorkflowPanel = memo(function TeamRoleWorkflowPanel({
 	selectedTaskId,
 	onSelectTask,
 	layout,
+	isVisible = true,
 }: Props) {
 	if (!session) {
 		return (
@@ -63,7 +65,8 @@ export const TeamRoleWorkflowPanel = memo(function TeamRoleWorkflowPanel({
 		);
 	}
 
-	const item = getTeamWorkflowItemById(session, selectedTaskId ?? session.selectedTaskId);
+	const workflowItems = buildTeamWorkflowItems(session);
+	const item = getTeamWorkflowItemById(session, selectedTaskId ?? session.selectedTaskId) ?? workflowItems[0] ?? null;
 	if (!item) {
 		return (
 			<div className="ref-team-role-stream ref-team-role-stream--empty">
@@ -75,7 +78,6 @@ export const TeamRoleWorkflowPanel = memo(function TeamRoleWorkflowPanel({
 		);
 	}
 
-	const workflowItems = buildTeamWorkflowItems(session);
 	const workflow = item.workflow;
 	const isWorking = workflow?.awaitingReply ?? item.status === 'in_progress';
 	const savedMessages: ChatMessage[] =
@@ -93,6 +95,62 @@ export const TeamRoleWorkflowPanel = memo(function TeamRoleWorkflowPanel({
 					tokenUsage: workflow?.lastTurnUsage ?? null,
 				}
 			: null;
+	const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+	const shouldStickToBottomRef = useRef(true);
+	const lastOpenStateRef = useRef(false);
+	const lastItemIdRef = useRef<string | null>(null);
+	const autoScrollFrameRef = useRef<number | null>(null);
+
+	useEffect(() => {
+		const viewport = scrollViewportRef.current;
+		if (!viewport || !isVisible) {
+			lastOpenStateRef.current = isVisible;
+			return;
+		}
+
+		const openedNow = !lastOpenStateRef.current && isVisible;
+		const changedItem = lastItemIdRef.current !== item.id;
+		const shouldForceBottom = openedNow || changedItem;
+
+		if (shouldForceBottom || shouldStickToBottomRef.current) {
+			shouldStickToBottomRef.current = true;
+			if (autoScrollFrameRef.current !== null) {
+				cancelAnimationFrame(autoScrollFrameRef.current);
+			}
+			autoScrollFrameRef.current = requestAnimationFrame(() => {
+				viewport.scrollTop = viewport.scrollHeight;
+				autoScrollFrameRef.current = null;
+			});
+		}
+
+		lastOpenStateRef.current = isVisible;
+		lastItemIdRef.current = item.id;
+
+		return () => {
+			if (autoScrollFrameRef.current !== null) {
+				cancelAnimationFrame(autoScrollFrameRef.current);
+				autoScrollFrameRef.current = null;
+			}
+		};
+	}, [
+		isVisible,
+		item.id,
+		savedMessages.length,
+		item.result,
+		isWorking,
+		workflow?.streaming,
+		workflow?.streamingThinking,
+		workflow?.lastUpdatedAt,
+	]);
+
+	const onTranscriptScroll = () => {
+		const viewport = scrollViewportRef.current;
+		if (!viewport) {
+			return;
+		}
+		const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+		shouldStickToBottomRef.current = distanceFromBottom <= 24;
+	};
 
 	const transcript = (
 		<div
@@ -160,7 +218,9 @@ export const TeamRoleWorkflowPanel = memo(function TeamRoleWorkflowPanel({
 				) : null}
 			</header>
 
-			<div className="ref-team-role-shell-body">{transcript}</div>
+			<div className="ref-team-role-shell-body" ref={scrollViewportRef} onScroll={onTranscriptScroll}>
+				{transcript}
+			</div>
 		</section>
 	);
 });

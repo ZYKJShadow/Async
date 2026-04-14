@@ -754,8 +754,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		}
 		const workflow = teamSession.leaderWorkflow;
 		const content = teamSession.leaderMessage || '';
-		const isWorking = Boolean(workflow?.awaitingReply);
-		if (!content.trim() && !isWorking && !(workflow?.liveBlocks.blocks.length ?? 0)) {
+		const hasLiveBlocks = (workflow?.liveBlocks.blocks.length ?? 0) > 0;
+		const isBootstrapping = awaitingReply && !workflow && !content.trim();
+		const isWorking = Boolean(workflow?.awaitingReply) || isBootstrapping;
+		if (!content.trim() && !isWorking && !hasLiveBlocks) {
 			return null;
 		}
 		const liveThoughtMeta =

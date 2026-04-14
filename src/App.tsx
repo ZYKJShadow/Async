@@ -3645,7 +3645,7 @@ function AppMainWorkspaceInner() {
 		layoutMode === 'editor' &&
 		composerMode === 'team' &&
 		hasConversation &&
-		!!teamSession?.selectedTaskId;
+		buildTeamWorkflowItems(teamSession).length > 0;
 	const editorCenterPlanCanBuild =
 		!awaitingReply && !!agentPlanEffectivePlan && !!editorPlanBuildModelId.trim() && modelPickerItems.length > 0;
 	const agentPlanSidebarAutopenRef = useRef(false);

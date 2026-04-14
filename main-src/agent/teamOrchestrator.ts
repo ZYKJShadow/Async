@@ -8,6 +8,7 @@ import type { AgentToolDef } from './agentTools.js';
 import { resolveTeamExpertProfiles, type TeamExpertRuntimeProfile } from './teamExpertProfiles.js';
 import { resolveModelRequest, type ResolvedModelRequest } from '../llm/modelResolve.js';
 import { getTeamPreset } from '../../src/teamPresetCatalog.js';
+import { flattenAssistantTextPartsForSearch } from '../../src/agentStructuredMessage.js';
 import {
 	buildTeamPlanProposalId,
 	registerTeamPlanApprovalWaiter,
@@ -199,6 +200,34 @@ function createTeamRoleScope(task: TeamTask, roleKind: 'specialist' | 'reviewer'
 		teamExpertName: task.expertName,
 		teamRoleType: task.roleType,
 	};
+}
+
+function buildReviewerWorkflowTask(
+	reviewer: TeamExpertRuntimeProfile,
+	description: string,
+	dependencies: string[],
+	acceptanceCriteria: string[]
+): TeamTask {
+	return {
+		id: `reviewer-${reviewer.assignmentKey || reviewer.id}`,
+		expertId: reviewer.id,
+		expertAssignmentKey: reviewer.assignmentKey,
+		expertName: reviewer.name,
+		roleType: reviewer.roleType,
+		description,
+		status: 'in_progress',
+		dependencies,
+		acceptanceCriteria,
+	};
+}
+
+function normalizeTeamAgentSummary(raw: string, fallback: string): string {
+	const flattened = flattenAssistantTextPartsForSearch(raw).trim();
+	if (flattened) {
+		return flattened;
+	}
+	const trimmed = raw.trim();
+	return trimmed || fallback;
 }
 
 export type TeamOrchestratorInput = {
@@ -750,9 +779,9 @@ async function runPreflightReviewerAgent(params: {
 	emit: (evt: TeamEmit) => void;
 }): Promise<{ verdict: 'ok' | 'needs_clarification'; summary: string }> {
 	const {
-		settings, reviewer, plannedTasks, userRequest, planSummary, specialists,
+		settings, threadId, reviewer, plannedTasks, userRequest, planSummary, specialists,
 		modelSelection, resolvedModel,
-		signal, thinkingLevel, workspaceRoot, workspaceLspManager, baseTools,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager, baseTools, emit,
 	} = params;
 
 	const messages: ChatMessage[] = [
@@ -765,6 +794,16 @@ async function runPreflightReviewerAgent(params: {
 	];
 
 	let reviewText = '';
+	const reviewerTask = buildReviewerWorkflowTask(
+		reviewer,
+		'Review the user request and the lead proposal before execution begins.',
+		plannedTasks.map((task) => task.id),
+		[
+			'Flag ambiguities or missing requirements before execution starts',
+			'Assess whether the role assignments and task split are sensible',
+		]
+	);
+	const teamRoleScope = createTeamRoleScope(reviewerTask, 'reviewer');
 	const specializedTools = buildSpecialistToolPool(baseTools, reviewer);
 	const options: AgentLoopOptions = {
 		modelSelection: reviewer.preferredModelId?.trim() || modelSelection,
@@ -800,23 +839,66 @@ async function runPreflightReviewerAgent(params: {
 	const handlers: AgentLoopHandlers = {
 		onTextDelta: (text) => {
 			reviewText += text;
+			emit({ threadId, type: 'delta', text, teamRoleScope });
 		},
-		onToolCall: () => {},
-		onToolResult: () => {},
-		onDone: (text) => {
+		onToolInputDelta: ({ name, partialJson, index }) => {
+			emit({ threadId, type: 'tool_input_delta', name, partialJson, index, teamRoleScope });
+		},
+		onThinkingDelta: (text) => {
+			emit({ threadId, type: 'thinking_delta', text, teamRoleScope });
+		},
+		onToolProgress: ({ name, phase, detail }) => {
+			emit({ threadId, type: 'tool_progress', name, phase, detail, teamRoleScope });
+		},
+		onToolCall: (name, args, toolCallId) => {
+			emit({
+				threadId,
+				type: 'tool_call',
+				name,
+				args: JSON.stringify(args),
+				toolCallId,
+				teamRoleScope,
+			});
+		},
+		onToolResult: (name, result, success, toolCallId) => {
+			emit({
+				threadId,
+				type: 'tool_result',
+				name,
+				result,
+				success,
+				toolCallId,
+				teamRoleScope,
+			});
+		},
+		onDone: (text, usage) => {
 			reviewText = text;
+			emit({ threadId, type: 'done', text, usage, teamRoleScope });
 		},
-		onError: () => {},
+		onError: (message) => {
+			emit({ threadId, type: 'error', message, teamRoleScope });
+		},
 	};
 
 	try {
+		emit({
+			threadId,
+			type: 'tool_progress',
+			name: reviewer.name,
+			phase: 'starting',
+			detail: 'Reviewing the request and lead proposal before execution.',
+			teamRoleScope,
+		});
 		await runAgentLoop(settings, messages, options, handlers);
 	} catch {
 		// Degrade gracefully — caller will treat empty review as OK.
 	}
 
 	const needsClarification = /###\s*Verdict:\s*NEEDS_CLARIFICATION/i.test(reviewText);
-	const summary = reviewText.trim() || 'Preflight review not produced; proceeding as OK.';
+	const summary = normalizeTeamAgentSummary(
+		reviewText,
+		'Preflight review not produced; proceeding as OK.'
+	);
 	return {
 		verdict: needsClarification ? 'needs_clarification' : 'ok',
 		summary,
@@ -853,17 +935,12 @@ async function runReviewerAgent(params: {
 		},
 	];
 
-	const reviewerTask: TeamTask = {
-		id: `review-${randomUUID()}`,
-		expertId: reviewer.id,
-		expertAssignmentKey: reviewer.assignmentKey,
-		expertName: reviewer.name,
-		roleType: reviewer.roleType,
-		description: 'Review specialist results and provide the final verdict.',
-		status: 'in_progress',
-		dependencies: completedTasks.map((task) => task.id),
-		acceptanceCriteria: ['Review all specialist results', 'Provide a clear final verdict'],
-	};
+	const reviewerTask = buildReviewerWorkflowTask(
+		reviewer,
+		'Review specialist results and provide the final verdict.',
+		completedTasks.map((task) => task.id),
+		['Review all specialist results', 'Provide a clear final verdict']
+	);
 	const teamRoleScope = createTeamRoleScope(reviewerTask, 'reviewer');
 
 	let reviewText = '';
@@ -955,7 +1032,8 @@ async function runReviewerAgent(params: {
 	const verdict: 'approved' | 'revision_needed' =
 		hasRevisionVerdict || hasFailedTasks ? 'revision_needed' : 'approved';
 
-	const summary = reviewText.trim() || (
+	const summary = normalizeTeamAgentSummary(
+		reviewText,
 		hasFailedTasks
 			? `Review: ${completedTasks.filter((t) => t.status === 'failed').length} task(s) failed.`
 			: `Review: All ${completedTasks.length} task(s) completed successfully.`
