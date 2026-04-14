@@ -7480,6 +7480,181 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	gap: 8px;
 }
 
+.ref-agent-workspace-launcher {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+}
+
+.ref-agent-workspace-launcher-trigger,
+.ref-agent-workspace-launcher-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 34px;
+	border: 1px solid var(--surface-glass-stroke, var(--void-border-soft));
+	background: color-mix(in srgb, var(--surface-control-bg) 86%, transparent);
+	color: var(--void-fg-3);
+	cursor: pointer;
+	box-shadow:
+		var(--shadow-floating, 0 14px 30px color-mix(in srgb, var(--void-fg-0) 14%, transparent)),
+		var(--void-shadow-soft, inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent));
+	backdrop-filter: blur(18px);
+	-webkit-backdrop-filter: blur(18px);
+	transition:
+		color 0.22s var(--void-ease-out-expo),
+		background 0.22s var(--void-ease-out-expo),
+		border-color 0.22s var(--void-ease-out-expo),
+		box-shadow 0.22s var(--void-ease-out-expo),
+		transform 0.18s var(--void-ease-spring);
+}
+
+.ref-agent-workspace-launcher-trigger {
+	width: 38px;
+	padding: 0;
+	border-radius: 10px 0 0 10px;
+	border-right: none;
+}
+
+.ref-agent-workspace-launcher-toggle {
+	width: 24px;
+	padding: 0;
+	border-radius: 0 10px 10px 0;
+}
+
+.ref-agent-workspace-launcher:hover .ref-agent-workspace-launcher-trigger,
+.ref-agent-workspace-launcher:hover .ref-agent-workspace-launcher-toggle,
+.ref-agent-workspace-launcher.is-open .ref-agent-workspace-launcher-trigger,
+.ref-agent-workspace-launcher.is-open .ref-agent-workspace-launcher-toggle {
+	color: var(--void-fg-0);
+	background: color-mix(in srgb, var(--surface-control-bg-hover) 88%, transparent);
+}
+
+.ref-agent-workspace-launcher:hover .ref-agent-workspace-launcher-trigger,
+.ref-agent-workspace-launcher:hover .ref-agent-workspace-launcher-toggle {
+	transform: translateY(-1px);
+}
+
+.ref-agent-workspace-launcher.is-open .ref-agent-workspace-launcher-trigger,
+.ref-agent-workspace-launcher.is-open .ref-agent-workspace-launcher-toggle {
+	border-color: color-mix(in srgb, var(--void-accent) 18%, var(--surface-glass-stroke, var(--void-border-soft)));
+	box-shadow:
+		var(--shadow-floating, 0 14px 30px color-mix(in srgb, var(--void-fg-0) 14%, transparent)),
+		inset 0 0 0 1px color-mix(in srgb, var(--void-accent) 12%, transparent);
+}
+
+.ref-agent-workspace-launcher-trigger:disabled,
+.ref-agent-workspace-launcher-toggle:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+	transform: none;
+}
+
+.ref-agent-workspace-launcher-ico-wrap {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	color: var(--void-fg-1);
+	background: transparent;
+	box-shadow: none;
+}
+
+.ref-agent-workspace-launcher-ico {
+	width: 20px;
+	height: 20px;
+	display: block;
+	object-fit: contain;
+}
+
+.ref-agent-workspace-launcher-ico[src] {
+	filter: none;
+}
+
+.ref-agent-workspace-launcher-toggle-ico {
+	width: 12px;
+	height: 12px;
+}
+
+.ref-agent-workspace-launcher-menu {
+	position: absolute;
+	top: calc(100% + 8px);
+	right: 0;
+	z-index: 8;
+	display: grid;
+	gap: 4px;
+	min-width: 214px;
+	padding: 8px;
+	border: 1px solid var(--surface-glass-stroke, var(--void-border-soft));
+	border-radius: 16px;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--surface-panel-bg-strong) 94%, transparent) 0%,
+			color-mix(in srgb, var(--surface-popover-bg) 96%, transparent) 100%
+		);
+	box-shadow:
+		var(--shadow-floating, 0 24px 70px color-mix(in srgb, var(--void-fg-0) 14%, transparent)),
+		var(--void-shadow-soft, inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent));
+	backdrop-filter: blur(18px);
+	-webkit-backdrop-filter: blur(18px);
+}
+
+.ref-agent-workspace-launcher-option {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	padding: 8px 10px;
+	border: none;
+	border-radius: 12px;
+	background: transparent;
+	color: var(--void-fg-1);
+	cursor: pointer;
+	transition:
+		background 0.18s var(--void-ease-out-expo),
+		color 0.18s var(--void-ease-out-expo),
+		transform 0.18s var(--void-ease-spring);
+}
+
+.ref-agent-workspace-launcher-option:hover {
+	background: color-mix(in srgb, var(--surface-control-bg-hover) 88%, transparent);
+	color: var(--void-fg-0);
+	transform: translateX(1px);
+}
+
+.ref-agent-workspace-launcher-option.is-selected {
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--surface-tint-strong) 70%, var(--surface-control-bg-hover)) 0%,
+			color-mix(in srgb, var(--surface-panel-bg-soft) 92%, transparent) 100%
+		);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--void-accent) 14%, transparent);
+}
+
+.ref-agent-workspace-launcher-option-main {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.ref-agent-workspace-launcher-option-label {
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.3;
+	white-space: nowrap;
+}
+
+.ref-agent-workspace-launcher-option-check {
+	width: 14px;
+	height: 14px;
+	color: var(--void-accent-assist, var(--void-accent));
+	flex-shrink: 0;
+}
+
 .ref-agent-rail-toggle {
 	display: inline-flex;
 	align-items: center;

@@ -40,6 +40,22 @@ export type TeamPlanProposalState = {
 };
 export type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'revision';
 export type TeamRoleType = 'team_lead' | 'frontend' | 'backend' | 'qa' | 'reviewer' | 'custom';
+export type TeamTimelineEntry =
+	| {
+			id: string;
+			kind: 'leader_message';
+			content: string;
+	  }
+	| {
+			id: string;
+			kind: 'plan_proposal';
+			proposalId: string;
+	  }
+	| {
+			id: string;
+			kind: 'task_card';
+			taskId: string;
+	  };
 
 export type TeamSessionSnapshot = {
 	phase: TeamSessionPhase;
@@ -59,6 +75,7 @@ export type TeamSessionSnapshot = {
 	leaderMessage: string;
 	reviewSummary: string;
 	reviewVerdict: 'approved' | 'revision_needed' | null;
+	timelineEntries?: TeamTimelineEntry[];
 };
 
 export type TeamTask = {
@@ -105,6 +122,7 @@ export type TeamSessionState = {
 	selectedTaskId: string | null;
 	reviewerTaskId: string | null;
 	roleWorkflowByTaskId: Record<string, TeamRoleWorkflowState>;
+	timelineEntries: TeamTimelineEntry[];
 	updatedAt: number;
 };
 
@@ -124,6 +142,7 @@ function emptySession(): TeamSessionState {
 		selectedTaskId: null,
 		reviewerTaskId: null,
 		roleWorkflowByTaskId: {},
+		timelineEntries: [],
 		updatedAt: Date.now(),
 	};
 }
@@ -138,6 +157,66 @@ function normalizeTeamSummary(raw: string, fallback = ''): string {
 	}
 	const trimmed = raw.trim();
 	return trimmed || fallback;
+}
+
+function normalizeLeaderTimelineText(raw: string): string {
+	return extractTeamLeadNarrative(raw) || normalizeTeamSummary(raw);
+}
+
+function buildLeaderTimelineEntryId(session: TeamSessionState): string {
+	return `team-leader-msg-${session.timelineEntries.length + 1}`;
+}
+
+function appendLeaderTimelineEntry(session: TeamSessionState, rawText: string): void {
+	const content = normalizeLeaderTimelineText(rawText);
+	if (!content) {
+		return;
+	}
+	const lastLeaderEntry = [...session.timelineEntries]
+		.reverse()
+		.find((entry): entry is Extract<TeamTimelineEntry, { kind: 'leader_message' }> => entry.kind === 'leader_message');
+	if (lastLeaderEntry?.content === content) {
+		return;
+	}
+	session.timelineEntries = [
+		...session.timelineEntries,
+		{
+			id: buildLeaderTimelineEntryId(session),
+			kind: 'leader_message',
+			content,
+		},
+	];
+}
+
+function ensurePlanProposalTimelineEntry(session: TeamSessionState, proposalId: string): void {
+	if (session.timelineEntries.some((entry) => entry.kind === 'plan_proposal' && entry.proposalId === proposalId)) {
+		return;
+	}
+	session.timelineEntries = [
+		...session.timelineEntries,
+		{
+			id: `team-plan-proposal-${proposalId}`,
+			kind: 'plan_proposal',
+			proposalId,
+		},
+	];
+}
+
+function ensureTaskTimelineEntry(session: TeamSessionState, taskId: string): void {
+	if (!taskId) {
+		return;
+	}
+	if (session.timelineEntries.some((entry) => entry.kind === 'task_card' && entry.taskId === taskId)) {
+		return;
+	}
+	session.timelineEntries = [
+		...session.timelineEntries,
+		{
+			id: `team-task-card-${taskId}`,
+			kind: 'task_card',
+			taskId,
+		},
+	];
 }
 
 function ensureRoleWorkflow(
@@ -214,6 +293,7 @@ function mutateRoleWorkflowPayload(
 	}
 	if (scope.teamRoleKind === 'reviewer') {
 		session.reviewerTaskId = scope.teamTaskId;
+		ensureTaskTimelineEntry(session, scope.teamTaskId);
 	}
 
 	switch (payload.type) {
@@ -294,6 +374,7 @@ function mutateRoleWorkflowPayload(
 			workflow.lastUpdatedAt = Date.now();
 			if (isLead) {
 				session.leaderMessage = nextMessage.content;
+				appendLeaderTimelineEntry(session, nextMessage.content);
 			}
 			return true;
 		}
@@ -310,6 +391,7 @@ function mutateRoleWorkflowPayload(
 			workflow.lastUpdatedAt = Date.now();
 			if (isLead) {
 				session.leaderMessage = nextMessage.content;
+				appendLeaderTimelineEntry(session, nextMessage.content);
 			}
 			return true;
 		}
@@ -382,6 +464,7 @@ function snapshotSession(session: TeamSessionState): TeamSessionState {
 			? { ...session.planProposal, tasks: session.planProposal.tasks.map((t) => ({ ...t })) }
 			: null,
 		roleWorkflowByTaskId,
+		timelineEntries: session.timelineEntries.map((entry) => ({ ...entry })),
 	};
 }
 
@@ -481,6 +564,7 @@ export function useTeamSession() {
 						logs: [],
 					};
 					session.tasks = upsertTask(session.tasks, created);
+					ensureTaskTimelineEntry(session, created.id);
 					if (!session.selectedTaskId) {
 						session.selectedTaskId = created.id;
 					}
@@ -519,15 +603,22 @@ export function useTeamSession() {
 				}
 				case 'team_plan_summary':
 					session.planSummary = payload.summary;
-					session.leaderMessage = extractTeamLeadNarrative(payload.summary) || session.leaderMessage;
+					session.leaderMessage = normalizeLeaderTimelineText(payload.summary) || session.leaderMessage;
+					appendLeaderTimelineEntry(session, session.leaderMessage);
 					break;
 				case 'team_review':
 					session.reviewVerdict = payload.verdict;
 					session.reviewSummary = normalizeTeamSummary(payload.summary);
+					if (session.reviewerTaskId) {
+						ensureTaskTimelineEntry(session, session.reviewerTaskId);
+					}
 					break;
 				case 'team_preflight_review':
 					session.preflightVerdict = payload.verdict;
 					session.preflightSummary = normalizeTeamSummary(payload.summary);
+					if (session.reviewerTaskId) {
+						ensureTaskTimelineEntry(session, session.reviewerTaskId);
+					}
 					break;
 				case 'team_plan_proposed':
 					session.planProposal = {
@@ -547,6 +638,7 @@ export function useTeamSession() {
 						preflightVerdict: payload.preflightVerdict,
 						awaitingApproval: true,
 					};
+					ensurePlanProposalTimelineEntry(session, payload.proposalId);
 					break;
 				case 'team_plan_decision':
 					if (session.planProposal && session.planProposal.proposalId === payload.proposalId) {
@@ -716,6 +808,24 @@ export function useTeamSession() {
 				selectedTaskId: snapshot.tasks[0]?.id ?? null,
 				reviewerTaskId: null,
 				roleWorkflowByTaskId: {},
+				timelineEntries:
+					snapshot.timelineEntries?.map((entry) => ({ ...entry })) ??
+					[
+						...(normalizeLeaderTimelineText(snapshot.leaderMessage)
+							? [
+									{
+										id: 'team-leader-msg-restored',
+										kind: 'leader_message' as const,
+										content: normalizeLeaderTimelineText(snapshot.leaderMessage),
+									},
+								]
+							: []),
+						...snapshot.tasks.map((task) => ({
+							id: `team-task-card-${task.id}`,
+							kind: 'task_card' as const,
+							taskId: task.id,
+						})),
+					],
 				updatedAt: Date.now(),
 			};
 			sessionsRef.current[threadId] = session;

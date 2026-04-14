@@ -342,6 +342,185 @@ function reverseUnifiedPatch(chunk: string): string | null {
 	}
 }
 
+type ExternalWorkspaceTool = 'vscode' | 'cursor' | 'antigravity' | 'explorer' | 'terminal';
+
+function isExternalWorkspaceTool(value: unknown): value is ExternalWorkspaceTool {
+	return (
+		value === 'vscode' ||
+		value === 'cursor' ||
+		value === 'antigravity' ||
+		value === 'explorer' ||
+		value === 'terminal'
+	);
+}
+
+async function commandOnPath(command: string): Promise<boolean> {
+	try {
+		if (process.platform === 'win32') {
+			await execFileAsync('where.exe', [command], { windowsHide: true });
+		} else {
+			await execFileAsync('which', [command], { windowsHide: true });
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function windowsEditorExecutableFallbacks(tool: Extract<ExternalWorkspaceTool, 'vscode' | 'cursor' | 'antigravity'>): string[] {
+	if (process.platform !== 'win32') {
+		return [];
+	}
+	const localAppData = process.env.LOCALAPPDATA;
+	const programFiles = process.env.ProgramFiles;
+	const programFilesX86 = process.env['ProgramFiles(x86)'];
+	switch (tool) {
+		case 'vscode':
+			return [
+				localAppData ? path.join(localAppData, 'Programs', 'Microsoft VS Code', 'Code.exe') : null,
+				programFiles ? path.join(programFiles, 'Microsoft VS Code', 'Code.exe') : null,
+				programFilesX86 ? path.join(programFilesX86, 'Microsoft VS Code', 'Code.exe') : null,
+			].filter((candidate): candidate is string => Boolean(candidate));
+		case 'cursor':
+			return [
+				localAppData ? path.join(localAppData, 'Programs', 'Cursor', 'Cursor.exe') : null,
+				programFiles ? path.join(programFiles, 'Cursor', 'Cursor.exe') : null,
+				programFilesX86 ? path.join(programFilesX86, 'Cursor', 'Cursor.exe') : null,
+			].filter((candidate): candidate is string => Boolean(candidate));
+		case 'antigravity':
+			return [
+				localAppData ? path.join(localAppData, 'Programs', 'Antigravity', 'Antigravity.exe') : null,
+				programFiles ? path.join(programFiles, 'Antigravity', 'Antigravity.exe') : null,
+				programFilesX86 ? path.join(programFilesX86, 'Antigravity', 'Antigravity.exe') : null,
+			].filter((candidate): candidate is string => Boolean(candidate));
+		default:
+			return [];
+	}
+}
+
+type LaunchCommand = {
+	command: string;
+	useShell: boolean;
+};
+
+async function resolveLaunchCommand(candidates: string[]): Promise<LaunchCommand | null> {
+	for (const candidate of candidates) {
+		if (!candidate) {
+			continue;
+		}
+		if (path.isAbsolute(candidate)) {
+			if (fs.existsSync(candidate)) {
+				return { command: candidate, useShell: /\.(cmd|bat)$/i.test(candidate) };
+			}
+			continue;
+		}
+		if (await commandOnPath(candidate)) {
+			return { command: candidate, useShell: process.platform === 'win32' };
+		}
+	}
+	return null;
+}
+
+async function spawnDetachedLaunch(
+	command: string,
+	args: string[],
+	opts?: { cwd?: string; useShell?: boolean; windowsHide?: boolean }
+): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		const child = spawn(command, args, {
+			cwd: opts?.cwd,
+			detached: true,
+			stdio: 'ignore',
+			shell: opts?.useShell ?? false,
+			windowsHide: opts?.windowsHide ?? true,
+		});
+		child.once('error', reject);
+		child.once('spawn', () => {
+			child.unref();
+			resolve();
+		});
+	});
+}
+
+async function launchWorkspaceInExternalEditor(
+	tool: Extract<ExternalWorkspaceTool, 'vscode' | 'cursor' | 'antigravity'>,
+	workspaceRoot: string
+): Promise<boolean> {
+	const commandCandidates = {
+		vscode: ['code'],
+		cursor: ['cursor'],
+		antigravity: ['antigravity'],
+	}[tool];
+	const resolved = await resolveLaunchCommand([
+		...commandCandidates,
+		...windowsEditorExecutableFallbacks(tool),
+	]);
+	if (!resolved) {
+		return false;
+	}
+	await spawnDetachedLaunch(resolved.command, ['-n', workspaceRoot], {
+		cwd: workspaceRoot,
+		useShell: resolved.useShell,
+		windowsHide: true,
+	});
+	return true;
+}
+
+function escapePowerShellLiteral(value: string): string {
+	return value.replace(/'/g, "''");
+}
+
+async function launchWorkspaceInExternalTerminal(workspaceRoot: string): Promise<boolean> {
+	if (process.platform === 'win32') {
+		const wt = await resolveLaunchCommand(['wt']);
+		if (wt) {
+			await spawnDetachedLaunch(wt.command, ['-d', workspaceRoot], {
+				cwd: workspaceRoot,
+				useShell: wt.useShell,
+				windowsHide: true,
+			});
+			return true;
+		}
+		await spawnDetachedLaunch(
+			'powershell.exe',
+			['-NoExit', '-Command', `Set-Location -LiteralPath '${escapePowerShellLiteral(workspaceRoot)}'`],
+			{
+				cwd: workspaceRoot,
+				useShell: false,
+				windowsHide: false,
+			}
+		);
+		return true;
+	}
+	if (process.platform === 'darwin') {
+		await spawnDetachedLaunch('open', ['-a', 'Terminal', workspaceRoot], {
+			cwd: workspaceRoot,
+			useShell: false,
+			windowsHide: true,
+		});
+		return true;
+	}
+	const candidates: Array<{ command: string; args: string[] }> = [
+		{ command: 'x-terminal-emulator', args: ['--working-directory', workspaceRoot] },
+		{ command: 'gnome-terminal', args: [`--working-directory=${workspaceRoot}`] },
+		{ command: 'konsole', args: ['--workdir', workspaceRoot] },
+		{ command: 'xfce4-terminal', args: ['--working-directory', workspaceRoot] },
+	];
+	for (const candidate of candidates) {
+		const resolved = await resolveLaunchCommand([candidate.command]);
+		if (!resolved) {
+			continue;
+		}
+		await spawnDetachedLaunch(resolved.command, candidate.args, {
+			cwd: workspaceRoot,
+			useShell: resolved.useShell,
+			windowsHide: true,
+		});
+		return true;
+	}
+	return false;
+}
+
 function recordTurnTokenUsageStats(
 	modelSelection: string,
 	mode: ComposerMode,
@@ -854,6 +1033,41 @@ export function registerIpc(): void {
 			return { ok: true as const, path: resolved };
 		} catch (e) {
 			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	ipcMain.handle('workspace:openInExternalTool', async (event, payload: unknown) => {
+		const root = senderWorkspaceRoot(event);
+		if (!root) {
+			return { ok: false as const, code: 'no-workspace' as const };
+		}
+		const tool = (payload as { tool?: unknown } | null | undefined)?.tool;
+		if (!isExternalWorkspaceTool(tool)) {
+			return { ok: false as const, code: 'unsupported-tool' as const, error: 'unsupported tool' };
+		}
+		try {
+			if (tool === 'explorer') {
+				const err = await shell.openPath(root);
+				return err
+					? ({ ok: false as const, code: 'launch-failed' as const, error: err } as const)
+					: ({ ok: true as const } as const);
+			}
+			if (tool === 'terminal') {
+				const ok = await launchWorkspaceInExternalTerminal(root);
+				return ok
+					? ({ ok: true as const } as const)
+					: ({ ok: false as const, code: 'tool-unavailable' as const } as const);
+			}
+			const ok = await launchWorkspaceInExternalEditor(tool, root);
+			return ok
+				? ({ ok: true as const } as const)
+				: ({ ok: false as const, code: 'tool-unavailable' as const } as const);
+		} catch (e) {
+			return {
+				ok: false as const,
+				code: 'launch-failed' as const,
+				error: e instanceof Error ? e.message : String(e),
+			};
 		}
 	});
 

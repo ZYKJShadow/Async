@@ -2,6 +2,8 @@ import { memo, type KeyboardEvent } from 'react';
 import { AgentChatPanel, type AgentChatPanelProps } from '../AgentChatPanel';
 import { IconDoc, IconGitSCM } from '../icons';
 import type { TFunction } from '../i18n';
+import { AgentWorkspaceLauncher } from './AgentWorkspaceLauncher';
+import type { WorkspaceLauncherTool } from './workspaceLaunchers';
 
 export type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team';
 
@@ -16,6 +18,7 @@ export type AgentAgentCenterColumnProps = {
 	agentRightSidebarOpen: boolean;
 	agentRightSidebarView: AgentRightSidebarView;
 	toggleAgentRightSidebarView: (view: AgentRightSidebarView) => void;
+	onLaunchWorkspaceWithTool: (tool: WorkspaceLauncherTool) => void;
 	chatPanelProps: Omit<AgentChatPanelProps, 'layout'>;
 };
 
@@ -31,6 +34,7 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 	agentRightSidebarOpen,
 	agentRightSidebarView,
 	toggleAgentRightSidebarView,
+	onLaunchWorkspaceWithTool,
 	chatPanelProps,
 }: AgentAgentCenterColumnProps) {
 	const threadMessagesPending =
@@ -82,6 +86,11 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 						<IconDoc />
 					</button>
 				) : null}
+				<AgentWorkspaceLauncher
+					t={t}
+					workspace={workspace}
+					onLaunchTool={onLaunchWorkspaceWithTool}
+				/>
 				<button
 					type="button"
 					className={`ref-agent-rail-toggle ${agentRightSidebarOpen && agentRightSidebarView === 'git' ? 'is-open' : ''}`}

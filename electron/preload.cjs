@@ -6,6 +6,7 @@ const INVOKE_CHANNELS = new Set([
 	'app:getPaths',
 	'workspace:pickFolder',
 	'workspace:openPath',
+	'workspace:openInExternalTool',
 	'workspace:listRecents',
 	'workspace:get',
 	'workspace:listDiskSkills',

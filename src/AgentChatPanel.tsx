@@ -46,8 +46,7 @@ import { IconArrowDown, IconChevron, IconDoc } from './icons';
 import { type ParsedPlan, type PlanQuestion } from './planParser';
 import { type ChatMessage } from './threadTypes';
 import type { TeamSessionState } from './hooks/useTeamSession';
-import { buildTeamWorkflowItems } from './teamWorkflowItems';
-import { buildTeamLeaderTimeline, shouldHideTeamPlanProposalSummary } from './teamChatTimeline';
+import { buildTeamConversationTimeline } from './teamChatTimeline';
 
 type SharedComposerProps = Omit<
 	ComponentProps<typeof ChatComposer>,
@@ -753,7 +752,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		return nodes;
 	};
 
-	const buildTeamLeaderRow = (contentOverride?: string): ReactNode | null => {
+	const buildTeamLeaderRow = (contentOverride?: string, rowIndex = displayMessages.length): ReactNode | null => {
 		if (!teamSession || composerMode !== 'team' || !hasConversation) {
 			return null;
 		}
@@ -789,7 +788,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			<div
 				key={`row-${conversationRenderKey}-team-leader`}
 				className="ref-msg-row-measure ref-msg-row-measure--team-leader"
-				data-msg-index={String(displayMessages.length)}
+				data-msg-index={String(rowIndex)}
 			>
 				<div className="ref-msg-slot ref-msg-slot--assistant">
 					<div className="ref-msg-assistant-body">
@@ -839,65 +838,77 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		</div>
 	);
 
+	const buildTeamTaskRow = (
+		item: {
+			id: string;
+			roleType: Parameters<typeof TeamRoleAvatar>[0]['roleType'];
+			expertAssignmentKey?: string;
+			roleKind: 'specialist' | 'reviewer';
+			expertName: string;
+			description: string;
+			status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'revision';
+		},
+		rowIndex: number
+	): ReactNode => (
+		<div
+			key={`row-${conversationRenderKey}-team-item-${item.id}`}
+			className="ref-msg-row-measure ref-msg-row-measure--team-item"
+			data-msg-index={String(rowIndex)}
+		>
+			<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-item">
+				<button
+					type="button"
+					className={`ref-team-timeline-item ${teamSession?.selectedTaskId === item.id ? 'is-active' : ''}`}
+					onClick={() => onSelectTeamExpert(item.id)}
+				>
+					<TeamRoleAvatar roleType={item.roleType} assignmentKey={item.expertAssignmentKey} />
+					<span className="ref-team-timeline-item-copy">
+						<span className="ref-team-timeline-item-meta">{t(`team.timeline.role.${item.roleKind}`)}</span>
+						<span className="ref-team-timeline-item-title">{item.expertName}</span>
+						<span className="ref-team-timeline-item-body">{item.description}</span>
+					</span>
+					<span className={`ref-team-expert-status ref-team-expert-status--${item.status}`}>
+						{item.status === 'in_progress' ? <span className="ref-team-pulse" /> : null}
+						{t(`team.timeline.status.${item.status}`)}
+					</span>
+				</button>
+			</div>
+		</div>
+	);
+
 	const buildTeamTimelineRows = (): ReactNode[] => {
 		const nodes = buildFlatMessageList();
 		if (!teamSession || composerMode !== 'team' || !hasConversation) {
 			return nodes;
 		}
-		const workflowItems = buildTeamWorkflowItems(teamSession);
-		const leaderTimeline = buildTeamLeaderTimeline(teamSession, displayMessages);
+		const teamTimeline = buildTeamConversationTimeline(teamSession, displayMessages);
 		let syntheticIndex = displayMessages.length;
 		const nextSyntheticIndex = () => syntheticIndex++;
-		const leaderHistoryRows = leaderTimeline.history.map((content, idx) =>
-			buildHistoricalTeamLeaderRow(content, `team-leader-history-${idx}`, nextSyntheticIndex())
-		);
-		const leaderRow = buildTeamLeaderRow(leaderTimeline.current);
-		const planProposal = teamSession.planProposal;
-		const hidePlanProposalSummary = shouldHideTeamPlanProposalSummary(planProposal, leaderTimeline);
-		const planProposalRow: ReactNode | null = planProposal ? (
-			<div
-				key={`row-${conversationRenderKey}-team-plan-proposal`}
-				className="ref-msg-row-measure ref-msg-row-measure--team-plan"
-				data-msg-index={String(nextSyntheticIndex())}
-			>
-				<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-plan">
-					<TeamPlanReviewPanel
-						proposal={planProposal}
-						hideSummary={hidePlanProposalSummary}
-						onApprove={(fb) => onTeamPlanApprove(planProposal.proposalId, fb)}
-						onReject={(fb) => onTeamPlanReject(planProposal.proposalId, fb)}
-					/>
-				</div>
-			</div>
-		) : null;
-		const timelineItemRows = workflowItems.map((item) => (
-			<div
-				key={`row-${conversationRenderKey}-team-item-${item.id}`}
-				className="ref-msg-row-measure ref-msg-row-measure--team-item"
-				data-msg-index={String(nextSyntheticIndex())}
-			>
-				<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-item">
-					<button
-						type="button"
-						className={`ref-team-timeline-item ${teamSession.selectedTaskId === item.id ? 'is-active' : ''}`}
-						onClick={() => onSelectTeamExpert(item.id)}
+		const timelineRows = teamTimeline.entries.map((entry) => {
+			if (entry.kind === 'leader_message') {
+				return buildHistoricalTeamLeaderRow(entry.content, entry.id, nextSyntheticIndex());
+			}
+			if (entry.kind === 'plan_proposal') {
+				return (
+					<div
+						key={`row-${conversationRenderKey}-${entry.id}`}
+						className="ref-msg-row-measure ref-msg-row-measure--team-plan"
+						data-msg-index={String(nextSyntheticIndex())}
 					>
-						<TeamRoleAvatar roleType={item.roleType} assignmentKey={item.expertAssignmentKey} />
-						<span className="ref-team-timeline-item-copy">
-							<span className="ref-team-timeline-item-meta">
-								{t(`team.timeline.role.${item.roleKind}`)}
-							</span>
-							<span className="ref-team-timeline-item-title">{item.expertName}</span>
-							<span className="ref-team-timeline-item-body">{item.description}</span>
-						</span>
-						<span className={`ref-team-expert-status ref-team-expert-status--${item.status}`}>
-							{item.status === 'in_progress' ? <span className="ref-team-pulse" /> : null}
-							{t(`team.timeline.status.${item.status}`)}
-						</span>
-					</button>
-				</div>
-			</div>
-		));
+						<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-plan">
+							<TeamPlanReviewPanel
+								proposal={entry.proposal}
+								hideSummary={entry.hideSummary}
+								onApprove={(fb) => onTeamPlanApprove(entry.proposal.proposalId, fb)}
+								onReject={(fb) => onTeamPlanReject(entry.proposal.proposalId, fb)}
+							/>
+						</div>
+					</div>
+				);
+			}
+			return buildTeamTaskRow(entry.item, nextSyntheticIndex());
+		});
+		const currentLeaderRow = buildTeamLeaderRow(teamTimeline.currentLeaderMessage, nextSyntheticIndex());
 		const isTrailingDeliveryMessage =
 			!awaitingReply &&
 			lastAssistantMessageIndex === displayMessages.length - 1 &&
@@ -906,17 +917,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 		if (isTrailingDeliveryMessage) {
 			const trailingAssistant = nodes.pop();
-			if (leaderTimeline.placeCurrentAfterCards) {
-				nodes.push(...leaderHistoryRows);
-			} else if (leaderRow) {
-				nodes.push(leaderRow);
-			}
-			if (planProposalRow) {
-				nodes.push(planProposalRow);
-			}
-			nodes.push(...timelineItemRows);
-			if (leaderTimeline.placeCurrentAfterCards && leaderRow) {
-				nodes.push(leaderRow);
+			nodes.push(...timelineRows);
+			if (currentLeaderRow) {
+				nodes.push(currentLeaderRow);
 			}
 			if (trailingAssistant) {
 				nodes.push(trailingAssistant);
@@ -924,17 +927,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			return nodes;
 		}
 
-		if (leaderTimeline.placeCurrentAfterCards) {
-			nodes.push(...leaderHistoryRows);
-		} else if (leaderRow) {
-			nodes.push(leaderRow);
-		}
-		if (planProposalRow) {
-			nodes.push(planProposalRow);
-		}
-		nodes.push(...timelineItemRows);
-		if (leaderTimeline.placeCurrentAfterCards && leaderRow) {
-			nodes.push(leaderRow);
+		nodes.push(...timelineRows);
+		if (currentLeaderRow) {
+			nodes.push(currentLeaderRow);
 		}
 		return nodes;
 	};

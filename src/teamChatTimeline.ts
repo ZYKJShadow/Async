@@ -1,67 +1,24 @@
-import type { TeamPlanProposalState, TeamSessionState } from './hooks/useTeamSession';
+import type {
+	TeamPlanProposalState,
+	TeamSessionState,
+	TeamTimelineEntry,
+} from './hooks/useTeamSession';
 import type { ChatMessage } from './threadTypes';
+import type { TeamWorkflowListItem } from './teamWorkflowItems';
+import { buildTeamWorkflowItems } from './teamWorkflowItems';
 import { extractTeamLeadNarrative } from './teamWorkflowText';
 
 function normalizeLeaderText(text: string): string {
 	return extractTeamLeadNarrative(text) || String(text ?? '').trim();
 }
 
-function dedupeConsecutive(items: string[]): string[] {
-	const next: string[] = [];
-	for (const item of items) {
-		if (!item) {
-			continue;
-		}
-		if (next[next.length - 1] === item) {
-			continue;
-		}
-		next.push(item);
-	}
-	return next;
-}
-
-export type TeamLeaderTimeline = {
-	history: string[];
-	current: string;
-	placeCurrentAfterCards: boolean;
-};
-
-export function buildTeamLeaderTimeline(
-	session: TeamSessionState | null,
-	displayMessages: ChatMessage[]
-): TeamLeaderTimeline {
-	if (!session) {
-		return { history: [], current: '', placeCurrentAfterCards: false };
-	}
-
-	const lastAssistantContent =
-		[...displayMessages].reverse().find((message) => message.role === 'assistant')?.content?.trim() || '';
-	const hideTerminalDuplicate = session.phase === 'delivering' && session.tasks.length === 0;
-
-	const rawHistory = (session.leaderWorkflow?.messages ?? [])
-		.filter((message) => message.role === 'assistant')
-		.map((message) => normalizeLeaderText(message.content))
-		.filter(Boolean);
-	const history = dedupeConsecutive(rawHistory).filter(
-		(content) => !(hideTerminalDuplicate && content === lastAssistantContent)
-	);
-
-	const current = normalizeLeaderText(session.leaderMessage);
-	const lastHistory = history[history.length - 1] ?? '';
-	const currentIsDuplicate =
-		(current.length > 0 && current === lastHistory) ||
-		(hideTerminalDuplicate && current.length > 0 && current === lastAssistantContent);
-
-	return {
-		history,
-		current: currentIsDuplicate ? '' : current,
-		placeCurrentAfterCards: history.length > 0,
-	};
+export function normalizeTeamLeaderText(text: string): string {
+	return normalizeLeaderText(text);
 }
 
 export function shouldHideTeamPlanProposalSummary(
 	proposal: TeamPlanProposalState | null,
-	leaderTimeline: TeamLeaderTimeline
+	seenLeaderTexts: Set<string>
 ): boolean {
 	if (!proposal) {
 		return false;
@@ -70,10 +27,153 @@ export function shouldHideTeamPlanProposalSummary(
 	if (!summary) {
 		return true;
 	}
-	const seenLeaderTexts = new Set([...leaderTimeline.history, leaderTimeline.current].filter(Boolean));
 	return seenLeaderTexts.has(summary);
 }
 
-export function normalizeTeamLeaderText(text: string): string {
-	return normalizeLeaderText(text);
+export type TeamConversationTimelineEntry =
+	| {
+			id: string;
+			kind: 'leader_message';
+			content: string;
+	  }
+	| {
+			id: string;
+			kind: 'plan_proposal';
+			proposal: TeamPlanProposalState;
+			hideSummary: boolean;
+	  }
+	| {
+			id: string;
+			kind: 'task_card';
+			item: TeamWorkflowListItem;
+	  };
+
+export type TeamConversationTimeline = {
+	entries: TeamConversationTimelineEntry[];
+	currentLeaderMessage: string;
+};
+
+function isLeaderMessageEntry(
+	entry: TeamTimelineEntry
+): entry is Extract<TeamTimelineEntry, { kind: 'leader_message' }> {
+	return entry.kind === 'leader_message';
+}
+
+function lastVisibleAssistantContent(displayMessages: ChatMessage[]): string {
+	return [...displayMessages].reverse().find((message) => message.role === 'assistant')?.content?.trim() || '';
+}
+
+export function buildTeamConversationTimeline(
+	session: TeamSessionState | null,
+	displayMessages: ChatMessage[]
+): TeamConversationTimeline {
+	if (!session) {
+		return { entries: [], currentLeaderMessage: '' };
+	}
+
+	const workflowItems = buildTeamWorkflowItems(session);
+	const itemsById = new Map(workflowItems.map((item) => [item.id, item]));
+	const seenLeaderTexts = new Set<string>();
+	const seenTaskIds = new Set<string>();
+	const entries: TeamConversationTimelineEntry[] = [];
+	const trailingAssistant = lastVisibleAssistantContent(displayMessages);
+	const hideTerminalDuplicate = session.phase === 'delivering' && session.tasks.length === 0;
+	let hasPlanProposalEntry = false;
+
+	const pushLeaderEntry = (id: string, rawContent: string) => {
+		const content = normalizeLeaderText(rawContent);
+		if (!content) {
+			return;
+		}
+		if (hideTerminalDuplicate && content === trailingAssistant) {
+			return;
+		}
+		if (seenLeaderTexts.has(content)) {
+			return;
+		}
+		seenLeaderTexts.add(content);
+		entries.push({
+			id,
+			kind: 'leader_message',
+			content,
+		});
+	};
+
+	for (const timelineEntry of session.timelineEntries) {
+		if (isLeaderMessageEntry(timelineEntry)) {
+			pushLeaderEntry(timelineEntry.id, timelineEntry.content);
+			continue;
+		}
+		if (timelineEntry.kind === 'plan_proposal') {
+			if (!session.planProposal || session.planProposal.proposalId !== timelineEntry.proposalId) {
+				continue;
+			}
+			entries.push({
+				id: timelineEntry.id,
+				kind: 'plan_proposal',
+				proposal: session.planProposal,
+				hideSummary: shouldHideTeamPlanProposalSummary(session.planProposal, seenLeaderTexts),
+			});
+			hasPlanProposalEntry = true;
+			continue;
+		}
+		const item = itemsById.get(timelineEntry.taskId);
+		if (!item || seenTaskIds.has(item.id)) {
+			continue;
+		}
+		seenTaskIds.add(item.id);
+		entries.push({
+			id: timelineEntry.id,
+			kind: 'task_card',
+			item,
+		});
+	}
+
+	if (!hasPlanProposalEntry && session.planProposal) {
+		entries.push({
+			id: `team-plan-proposal-${session.planProposal.proposalId}`,
+			kind: 'plan_proposal',
+			proposal: session.planProposal,
+			hideSummary: shouldHideTeamPlanProposalSummary(session.planProposal, seenLeaderTexts),
+		});
+	}
+
+	for (const item of workflowItems) {
+		if (seenTaskIds.has(item.id)) {
+			continue;
+		}
+		seenTaskIds.add(item.id);
+		entries.push({
+			id: `team-task-fallback-${item.id}`,
+			kind: 'task_card',
+			item,
+		});
+	}
+
+	const hasLeaderEntry = entries.some((entry) => entry.kind === 'leader_message');
+	const workflow = session.leaderWorkflow;
+	const hasActiveLeaderStream =
+		Boolean(workflow?.awaitingReply) ||
+		(workflow?.liveBlocks.blocks.length ?? 0) > 0 ||
+		Boolean(workflow?.streamingThinking);
+	let currentLeaderMessage = normalizeLeaderText(session.leaderMessage);
+	if (hideTerminalDuplicate && currentLeaderMessage === trailingAssistant) {
+		currentLeaderMessage = '';
+	}
+	if (currentLeaderMessage && seenLeaderTexts.has(currentLeaderMessage)) {
+		currentLeaderMessage = '';
+	}
+	if (!hasLeaderEntry && currentLeaderMessage && !hasActiveLeaderStream) {
+		entries.unshift({
+			id: 'team-leader-fallback-current',
+			kind: 'leader_message',
+			content: currentLeaderMessage,
+		});
+		currentLeaderMessage = '';
+	}
+
+	return {
+		entries,
+		currentLeaderMessage,
+	};
 }

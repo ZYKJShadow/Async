@@ -77,6 +77,7 @@ import { type AgentRuleScope } from './agentSettingsTypes';
 import { normalizeIndexingSettings, type IndexingSettingsState } from './indexingSettingsTypes';
 
 const EMPTY_AGENT_PENDING_PATCHES: AgentPendingPatch[] = [];
+const EMPTY_SNAPSHOT_PATHS: ReadonlySet<string> = new Set<string>();
 import { tabIdFromPath, type MarkdownTabView } from './EditorTabBar';
 import {
 	isMarkdownEditorPath,
@@ -142,6 +143,10 @@ import { AppShellOverlays } from './app/AppShellOverlays';
 import type { ShellLeftRailGroupProps, ShellCenterRightGroupProps } from './app/ShellWorkspaceColumns';
 import { ShellWorkspaceGrid } from './app/ShellWorkspaceGrid';
 import { formatThreadRowSubtitle, threadRowTitle } from './app/threadRowUi';
+import {
+	type WorkspaceLauncherTool,
+	workspaceLauncherLabel,
+} from './app/workspaceLaunchers';
 
 const EditorMainPanel = lazy(() => import('./EditorMainPanel').then((m) => ({ default: m.EditorMainPanel })));
 
@@ -1316,7 +1321,6 @@ function AppMainWorkspaceInner() {
 		};
 	}, [uiZoom]);
 
-
 	const {
 		workspaceMenuPath,
 		workspaceMenuPosition,
@@ -2338,6 +2342,40 @@ function AppMainWorkspaceInner() {
 		}
 		toggleAgentRightSidebarView('git');
 	}, [layoutMode, toggleAgentRightSidebarView]);
+
+	const launchWorkspaceWithTool = useCallback(
+		async (tool: WorkspaceLauncherTool) => {
+			if (!shell || !workspace) {
+				flashComposerAttachErr(t('app.noWorkspace'));
+				return;
+			}
+			try {
+				const r = (await shell.invoke('workspace:openInExternalTool', { tool })) as {
+					ok?: boolean;
+					code?: string;
+					error?: string;
+				};
+				if (!r?.ok) {
+					if (r?.code === 'tool-unavailable') {
+						flashComposerAttachErr(
+							t('app.workspaceLauncher.toolUnavailable', { app: workspaceLauncherLabel(t, tool) })
+						);
+						return;
+					}
+					if (r?.code === 'no-workspace') {
+						flashComposerAttachErr(t('app.noWorkspace'));
+						return;
+					}
+					flashComposerAttachErr(
+						r?.error ?? t('app.workspaceLauncher.openFailed', { app: workspaceLauncherLabel(t, tool) })
+					);
+				}
+			} catch (e) {
+				flashComposerAttachErr(e instanceof Error ? e.message : String(e));
+			}
+		},
+		[shell, workspace, flashComposerAttachErr, t]
+	);
 
 	const zoomInUi = useCallback(() => {
 		setUiZoom((value) => Math.min(1.6, Math.round((value + 0.1) * 10) / 10));
@@ -5458,6 +5496,7 @@ function AppMainWorkspaceInner() {
 		onPlanTodoToggle,
 		toolApprovalRequest,
 		respondToolApproval,
+		snapshotPaths: EMPTY_SNAPSHOT_PATHS,
 		dismissedFiles,
 		fileChangesDismissed,
 		onKeepAllEdits,
@@ -5513,6 +5552,10 @@ function AppMainWorkspaceInner() {
 		onCommitAndPush,
 		teamSession,
 		onSelectTeamExpert: onSelectTeamTask,
+		workspaceRoot: workspace,
+		onOpenTeamAgentFile: onAgentConversationOpenFile,
+		revertedPaths: revertedFiles,
+		revertedChangeKeys,
 	});
 
 	const editorMainPanelProps = useEditorMainPanelProps({
@@ -5566,6 +5609,10 @@ function AppMainWorkspaceInner() {
 		teamSession,
 		selectedTeamTaskId: teamSession?.selectedTaskId ?? null,
 		onSelectTeamTask,
+		workspaceRoot: workspace,
+		onOpenTeamAgentFile: onAgentConversationOpenFile,
+		revertedPaths: revertedFiles,
+		revertedChangeKeys,
 	});
 
 	const editorLeftSidebarProps = useMemo(
@@ -5633,6 +5680,9 @@ function AppMainWorkspaceInner() {
 					agentRightSidebarOpen={agentRightSidebarOpen}
 					agentRightSidebarView={agentRightSidebarView}
 					toggleAgentRightSidebarView={toggleAgentRightSidebarView}
+					onLaunchWorkspaceWithTool={(tool) => {
+						void launchWorkspaceWithTool(tool);
+					}}
 					chatPanelProps={agentChatPanelProps}
 				/>
 			);
@@ -5664,6 +5714,7 @@ function AppMainWorkspaceInner() {
 		agentRightSidebarOpen,
 		agentRightSidebarView,
 		toggleAgentRightSidebarView,
+		launchWorkspaceWithTool,
 		agentChatPanelProps,
 		editorMainPanelProps,
 	]);
