@@ -1,6 +1,3 @@
-/** 暂停方块：在 24×24 viewBox 内几何居中，与圆角发送钮内对齐一致 */
-const STOP_ICON_VIEWBOX_CENTER = 'translate(12 12)';
-
 export function IconArrowUp({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -21,10 +18,8 @@ export function IconArrowDown({ className }: { className?: string }) {
 
 export function IconStop({ className }: { className?: string }) {
 	return (
-		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-			<g transform={STOP_ICON_VIEWBOX_CENTER}>
-				<rect x="-6" y="-6" width="12" height="12" rx="2" />
-			</g>
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+			<rect x="6" y="6" width="12" height="12" rx="2" />
 		</svg>
 	);
 }

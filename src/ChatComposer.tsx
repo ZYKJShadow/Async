@@ -149,18 +149,6 @@ export function ChatComposer({
 	const inputPlaceholder =
 		isBottomSlot && hasConversation ? followUpComposerPlaceholder : composerPlaceholder;
 	const sendTitle = awaitingReply ? t('app.stopGeneration') : t('app.send');
-	const sendButton = (
-		<button
-			type="button"
-			className={`ref-send-btn ${awaitingReply ? 'is-stop' : ''}`}
-			title={sendTitle}
-			aria-label={sendTitle}
-			disabled={!awaitingReply && !canSend}
-			onClick={() => (awaitingReply ? onAbortFn() : onSendFn())}
-		>
-			{awaitingReply ? <IconStop className="ref-send-icon" /> : <IconArrowUp className="ref-send-icon" />}
-		</button>
-	);
 
 	const onComposerKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
 		if (slashCommandKeyDown(e)) return;
@@ -206,14 +194,7 @@ export function ChatComposer({
 					onKeyDown={onComposerKeyDown}
 				/>
 			</div>
-			<div
-				className={[
-					isHero ? 'ref-capsule-bar ref-capsule-bar--editor-rail' : 'ref-capsule-bar ref-capsule-bar--stacked',
-					awaitingReply ? 'is-awaiting-reply' : '',
-				]
-					.filter(Boolean)
-					.join(' ')}
-			>
+			<div className={isHero ? 'ref-capsule-bar ref-capsule-bar--editor-rail' : 'ref-capsule-bar ref-capsule-bar--stacked'}>
 				<div className={isHero ? 'ref-editor-rail-bar-left' : 'ref-capsule-bar-start'}>
 					<div className="ref-plus-anchor ref-editor-rail-mode-cluster" ref={plusRef}>
 						<button
@@ -253,44 +234,38 @@ export function ChatComposer({
 						</div>
 					) : null}
 				</div>
-				{awaitingReply ? (
-					<div className="ref-capsule-stop-slot">{sendButton}</div>
-				) : isHero ? (
-					<div className="ref-capsule-bar-spacer" />
-				) : null}
-				<div
-					className={[
-						isHero ? 'ref-editor-rail-bar-right' : 'ref-capsule-bar-end',
-						awaitingReply ? 'is-idle-hidden' : '',
-					]
-						.filter(Boolean)
-						.join(' ')}
-				>
-					{awaitingReply ? null : (
-						<>
-							{isHero ? (
-								<button
-									type="button"
-									className="ref-mic-btn"
-									disabled
-									title={t('app.comingSoon')}
-									aria-label={t('app.comingSoon')}
-								>
-									<IconImageOutline className="ref-mic-btn-svg" />
-								</button>
-							) : null}
-							<button
-								type="button"
-								className="ref-mic-btn"
-								disabled
-								title={t('app.voiceSoonTitle')}
-								aria-label={t('app.voiceSoonAria')}
-							>
-								<IconMic className="ref-mic-btn-svg" />
-							</button>
-							{sendButton}
-						</>
-					)}
+				{isHero ? <div className="ref-capsule-bar-spacer" /> : null}
+				<div className={isHero ? 'ref-editor-rail-bar-right' : 'ref-capsule-bar-end'}>
+					{isHero ? (
+						<button
+							type="button"
+							className="ref-mic-btn"
+							disabled
+							title={t('app.comingSoon')}
+							aria-label={t('app.comingSoon')}
+						>
+							<IconImageOutline className="ref-mic-btn-svg" />
+						</button>
+					) : null}
+					<button
+						type="button"
+						className="ref-mic-btn"
+						disabled
+						title={t('app.voiceSoonTitle')}
+						aria-label={t('app.voiceSoonAria')}
+					>
+						<IconMic className="ref-mic-btn-svg" />
+					</button>
+					<button
+						type="button"
+						className={`ref-send-btn ${awaitingReply ? 'is-stop' : ''}`}
+						title={sendTitle}
+						aria-label={sendTitle}
+						disabled={!awaitingReply && !canSend}
+						onClick={() => (awaitingReply ? onAbortFn() : onSendFn())}
+					>
+						{awaitingReply ? <IconStop className="ref-send-icon" /> : <IconArrowUp className="ref-send-icon" />}
+					</button>
 				</div>
 			</div>
 		</div>
