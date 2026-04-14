@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { extractTeamLeadNarrative } from './teamWorkflowText';
 
 describe('extractTeamLeadNarrative', () => {
@@ -36,5 +37,19 @@ MODE: CLARIFY
 请先明确你要优化的是性能、代码质量还是用户体验。`;
 
 		expect(extractTeamLeadNarrative(input)).toBe('请先明确你要优化的是性能、代码质量还是用户体验。');
+	});
+
+	it('strips MODE markers even when they are wrapped in markdown formatting', () => {
+		const summary = [
+			'**MODE: PLAN**',
+			'',
+			'我会先安排前端和后端分别处理各自的改动。',
+			'',
+			'```json',
+			'[{"expert":"frontend","task":"..." }]',
+			'```',
+		].join('\n');
+
+		expect(extractTeamLeadNarrative(summary)).toBe('我会先安排前端和后端分别处理各自的改动。');
 	});
 });

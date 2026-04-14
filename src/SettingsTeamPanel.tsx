@@ -7,6 +7,7 @@ import {
 	TEAM_PRESET_LIBRARY,
 	buildTeamPresetExperts,
 	getTeamPreset,
+	getTeamPresetDefaults,
 	mergeTeamPresetSavedRows,
 } from './teamPresetCatalog';
 import { VoidSelect } from './VoidSelect';
@@ -41,6 +42,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 	const experts = value.experts ?? [];
 	const roleList = experts.length > 0 ? experts : buildTeamPresetExperts(value.presetId);
 	const currentPreset = getTeamPreset(value.presetId);
+	const presetDefaults = getTeamPresetDefaults(value.presetId);
 
 	const [editingRole, setEditingRole] = useState<TeamExpertConfig | null>(null);
 
@@ -50,6 +52,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 			presetId: 'engineering',
 			experts: [],
 			presetExpertSnapshots: undefined,
+			...getTeamPresetDefaults('engineering'),
 		});
 	};
 	const applyPreset = (nextPresetId: TeamPresetId) => {
@@ -74,6 +77,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 			useDefaults: true,
 			presetExpertSnapshots: snapshots,
 			experts: nextExperts,
+			...getTeamPresetDefaults(nextPresetId),
 		});
 	};
 	const modelOptions = useMemo(
@@ -185,7 +189,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 						<label className="ref-settings-team-inline-check">
 							<input
 								type="checkbox"
-								checked={value.requirePlanApproval !== false}
+								checked={value.requirePlanApproval ?? presetDefaults.requirePlanApproval}
 								onChange={(e) => onChange({ ...value, requirePlanApproval: e.target.checked })}
 							/>
 							<span>{t('settings.team.requirePlanApproval')}</span>
@@ -193,7 +197,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 						<label className="ref-settings-team-inline-check">
 							<input
 								type="checkbox"
-								checked={value.enablePreflightReview !== false}
+								checked={value.enablePreflightReview ?? presetDefaults.enablePreflightReview}
 								onChange={(e) => onChange({ ...value, enablePreflightReview: e.target.checked })}
 							/>
 							<span>{t('settings.team.enablePreflightReview')}</span>
@@ -201,7 +205,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 						<label className="ref-settings-team-inline-check">
 							<input
 								type="checkbox"
-								checked={value.enableResearchPhase !== false}
+								checked={value.enableResearchPhase ?? presetDefaults.enableResearchPhase}
 								onChange={(e) => onChange({ ...value, enableResearchPhase: e.target.checked })}
 							/>
 							<span>{t('settings.team.enableResearchPhase')}</span>

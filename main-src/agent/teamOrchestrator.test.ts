@@ -15,7 +15,7 @@ vi.mock('./agentToolPool.js', () => ({
 
 import { buildReviewerTaskPacket, buildSpecialistTaskPacket, runTeamSession, type TeamTask } from './teamOrchestrator.js';
 import type { TeamExpertRuntimeProfile } from './teamExpertProfiles.js';
-import { resolvePlanQuestionTool } from './planQuestionTool.js';
+import { executeAskPlanQuestionTool, resolvePlanQuestionTool } from './planQuestionTool.js';
 import { setPlanQuestionRuntime } from './planQuestionRuntime.js';
 
 function makeExpert(
@@ -220,7 +220,7 @@ describe('runTeamSession clarification gates', () => {
 		expect(options?.toolPoolOverride?.map((tool) => tool.name)).toEqual(['ask_plan_question']);
 	});
 
-	it('opens the clarification dialog and replans with the answer', async () => {
+	it('propagates ask_plan_question answers into downstream team context', async () => {
 		const questionEvents: Array<Record<string, unknown>> = [];
 		setPlanQuestionRuntime({
 			threadId: 'thread-test',
@@ -237,13 +237,24 @@ describe('runTeamSession clarification gates', () => {
 			},
 		});
 
-		let secondPlanningMessagesText = '';
+		let specialistPacketText = '';
 		runAgentLoopMock
 			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
-				handlers.onDone('MODE: CLARIFY\n请先明确优化目标。');
-			})
-			.mockImplementationOnce(async (_settings, messagesArg, _options, handlers) => {
-				secondPlanningMessagesText = messagesArg.map((message) => String(message.content ?? '')).join('\n');
+				const answer = await executeAskPlanQuestionTool({
+					id: 'lead-q1',
+					name: 'ask_plan_question',
+					arguments: {
+						question: '你想优先从哪个方向优化这个项目？我会根据你的选择重新分配团队专家。',
+						options: [
+							{ id: 'performance', label: '性能与响应速度（启动、渲染、接口耗时）' },
+							{ id: 'quality', label: '代码质量与架构（可维护性、模块边界、技术债）' },
+							{ id: 'ux', label: '用户体验与产品流程（交互、设置、Team 模式体验）' },
+							{ id: 'custom', label: '其他（请填写）' },
+						],
+					},
+				});
+				expect(answer.isError).toBe(false);
+				handlers.onToolResult('ask_plan_question', String(answer.content ?? ''), true, 'lead-q1');
 				handlers.onDone(`MODE: PLAN
 我会按你选择的代码质量方向分配专家。
 
@@ -256,6 +267,10 @@ describe('runTeamSession clarification gates', () => {
   }
 ]
 \`\`\``);
+			})
+			.mockImplementationOnce(async (_settings, messagesArg, _options, handlers) => {
+				specialistPacketText = messagesArg.map((message) => String(message.content ?? '')).join('\n');
+				handlers.onDone('已完成前端质量审查。');
 			});
 
 		const experts = [
@@ -275,8 +290,8 @@ describe('runTeamSession clarification gates', () => {
 				text: expect.stringContaining('你想优先从哪个方向优化这个项目'),
 			}),
 		});
-		expect(secondPlanningMessagesText).toContain('[TEAM CLARIFICATION ANSWER]');
-		expect(secondPlanningMessagesText).toContain('代码质量与架构');
+		expect(specialistPacketText).toContain('[TEAM CLARIFICATION ANSWER]');
+		expect(specialistPacketText).toContain('代码质量与架构');
 		expect(events.some((evt) => evt.type === 'team_task_created')).toBe(true);
 		expect(doneCalls).toHaveLength(1);
 		expect(doneCalls[0]?.text).not.toContain('MODE:');

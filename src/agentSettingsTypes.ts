@@ -91,11 +91,11 @@ export type TeamSettings = {
 	presetId?: TeamPresetId;
 	/** 切换团队模板时按 preset 缓存角色列表（含模型等），切回时可恢复 */
 	presetExpertSnapshots?: Partial<Record<TeamPresetId, TeamExpertConfig[]>>;
-	/** Lead 出方案后先等用户确认再派发专家；默认 true */
+	/** Lead 出方案后先等用户确认再派发专家；默认值随 preset 决定 */
 	requirePlanApproval?: boolean;
-	/** 执行前先让评审专家评估需求/方案；默认 true（需有 reviewer 角色） */
+	/** 执行前先让评审专家评估需求/方案；默认值随 preset 决定（engineering 默认 false） */
 	enablePreflightReview?: boolean;
-	/** 规划前先让调研员调研代码库、澄清需求；默认 true（需有 researcher 角色） */
+	/** 规划前先让调研员调研代码库、澄清需求；默认值随 preset 决定 */
 	enableResearchPhase?: boolean;
 };
 

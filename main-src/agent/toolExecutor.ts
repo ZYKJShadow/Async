@@ -302,10 +302,10 @@ export async function executeTool(
 				return executeGlob(call, execCtx);
 			case 'list_dir':
 				return executeListDir(call, execCtx);
-			case 'Grep':
-				return await executeGrepTool(call, execCtx);
+		case 'Grep':
+			return await executeGrepTool(call, execCtx);
 		case 'Bash':
-			return await executeCommand(call, execCtx);
+			return await executeCommand(call, hooks, execCtx);
 		case 'LSP':
 			return await executeLspTool(call, execCtx);
 		case 'Agent':
@@ -1169,7 +1169,11 @@ async function recordBashWorkspaceSnapshots(
 	}
 }
 
-async function executeCommand(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
+async function executeCommand(
+	call: ToolCall,
+	hooks: ToolExecutionHooks,
+	execCtx: ToolExecutionContext
+): Promise<ToolResult> {
 	throwIfToolAbortRequested(execCtx.signal, call.name, 'command:start');
 	const root = requireWorkspace(execCtx);
 	const command = String(call.arguments.command ?? '').trim();

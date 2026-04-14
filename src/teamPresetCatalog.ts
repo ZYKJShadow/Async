@@ -1,4 +1,4 @@
-import type { TeamExpertConfig, TeamPresetId } from './agentSettingsTypes';
+import type { TeamExpertConfig, TeamPresetId, TeamSettings } from './agentSettingsTypes';
 
 export type TeamPresetCatalogId = 'engineering' | 'planning' | 'design';
 export type TeamPresetCatalogRoleType = 'team_lead' | 'frontend' | 'backend' | 'qa' | 'reviewer' | 'custom';
@@ -483,6 +483,28 @@ export const TEAM_PRESET_LIBRARY: TeamPresetDefinition[] = [
 
 export function getTeamPreset(presetId?: string): TeamPresetDefinition {
 	return TEAM_PRESET_LIBRARY.find((item) => item.id === presetId) ?? TEAM_PRESET_LIBRARY[0]!;
+}
+
+export function getTeamPresetDefaults(
+	presetId?: string
+): Pick<TeamSettings, 'requirePlanApproval' | 'enablePreflightReview' | 'enableResearchPhase'> {
+	const preset = getTeamPreset(presetId);
+	switch (preset.id) {
+		case 'engineering':
+			return {
+				requirePlanApproval: true,
+				enablePreflightReview: false,
+				enableResearchPhase: true,
+			};
+		case 'planning':
+		case 'design':
+		default:
+			return {
+				requirePlanApproval: true,
+				enablePreflightReview: true,
+				enableResearchPhase: true,
+			};
+	}
 }
 
 export function buildTeamPresetExperts(presetId?: string) {

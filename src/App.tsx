@@ -2574,10 +2574,28 @@ function AppMainWorkspaceInner() {
 		return onAbortRef.current();
 	}, [currentId, abortTeamSession]);
 
+	const formatPlanQuestionReply = useCallback(
+		(answer: string) => {
+			const questionText = planQuestion?.text?.trim();
+			const normalizedAnswer = answer.trim();
+			if (!questionText) {
+				return `我选择：${normalizedAnswer}`;
+			}
+			return [
+				'[PLAN QUESTION]',
+				questionText,
+				'',
+				'[USER ANSWER]',
+				normalizedAnswer,
+			].join('\n');
+		},
+		[planQuestion]
+	);
+
 	const onPlanQuestionSubmit = useCallback(
 		(answer: string) => {
 			const rid = planQuestionRequestId;
-			const reply = `我选择：${answer}`;
+			const reply = formatPlanQuestionReply(answer);
 			if (rid && shell) {
 				setPlanQuestion(null);
 				setPlanQuestionRequestId(null);
@@ -2590,7 +2608,7 @@ function AppMainWorkspaceInner() {
 			setPlanQuestionRequestId(null);
 			void onSend(reply);
 		},
-		[planQuestionRequestId, shell, setPlanQuestion, setPlanQuestionRequestId, onSend]
+		[formatPlanQuestionReply, planQuestionRequestId, shell, setPlanQuestion, setPlanQuestionRequestId, onSend]
 	);
 
 	const onPlanQuestionSkip = useCallback(() => {

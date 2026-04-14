@@ -7,7 +7,7 @@ import { assembleAgentToolPool } from './agentToolPool.js';
 import { AGENT_TOOLS, type AgentToolDef } from './agentTools.js';
 import { resolveTeamExpertProfiles, type TeamExpertRuntimeProfile } from './teamExpertProfiles.js';
 import { resolveModelRequest, type ResolvedModelRequest } from '../llm/modelResolve.js';
-import { getTeamPreset } from '../../src/teamPresetCatalog.js';
+import { getTeamPreset, getTeamPresetDefaults } from '../../src/teamPresetCatalog.js';
 import { buildAutoReplyLanguageRuleBlock } from '../../src/autoReplyLanguageRule.js';
 import { flattenAssistantTextPartsForSearch } from '../../src/agentStructuredMessage.js';
 import {
@@ -16,7 +16,6 @@ import {
 	unregisterTeamPlanApprovalWaiter,
 	type TeamPlanApprovalPayload,
 } from './teamPlanApprovalTool.js';
-import { executeAskPlanQuestionTool } from './planQuestionTool.js';
 import type { ToolExecutionHooks } from './toolExecutor.js';
 
 type TeamPhase =
@@ -318,7 +317,6 @@ function matchExpert(
 
 const TEAM_PACKET_TEXT_LIMIT = 4000;
 const TEAM_HANDOFF_TEXT_LIMIT = 2200;
-const MAX_TEAM_CLARIFICATION_ATTEMPTS = 2;
 
 function stripFencedBlocks(text: string): string {
 	const closed = text.replace(/```[\s\S]*?```/g, '');
@@ -340,6 +338,8 @@ function stripTrailingRawJson(text: string): string {
 	return lines.slice(0, rawJsonStart).join('\n').trim();
 }
 
+const TEAM_LEAD_MODE_PREFIX_RE = /^\s*(?:[*_`>#-]+\s*)*MODE\s*:\s*(?:ANSWER|PLAN|CLARIFY)\s*(?:[*_`]+)?\s*$/i;
+const TEAM_LEAD_MODE_EXTRACT_RE = /^\s*(?:[*_`>#-]+\s*)*MODE\s*:\s*(ANSWER|PLAN|CLARIFY)\b/i;
 const MODE_MARKER_VARIANTS = [
 	'MODE: ANSWER',
 	'MODE:ANSWER',
@@ -352,10 +352,10 @@ const MODE_MARKER_VARIANTS = [
 function isStreamingModeMarkerPrefix(text: string): boolean {
 	const trimmed = text.trimStart();
 	if (!trimmed || trimmed.includes('\n')) {
-		return false;
+		return TEAM_LEAD_MODE_PREFIX_RE.test(trimmed);
 	}
 	const up = trimmed.toUpperCase();
-	return MODE_MARKER_VARIANTS.some((v) => v.startsWith(up));
+	return TEAM_LEAD_MODE_PREFIX_RE.test(trimmed) || MODE_MARKER_VARIANTS.some((v) => v.startsWith(up));
 }
 
 function extractTeamLeadNarrative(text: string): string {
@@ -395,57 +395,6 @@ function buildTeamLeadPlanningToolPool(): AgentToolDef[] {
 	return AGENT_TOOLS.filter((tool) => tool.name === 'ask_plan_question');
 }
 
-function buildTeamClarificationQuestion(hasCjk: boolean): { question: string; options: Array<{ id: string; label: string }> } {
-	return hasCjk
-		? {
-				question: '你想优先从哪个方向优化这个项目？我会根据你的选择重新分配团队专家。',
-				options: [
-					{ id: 'performance', label: '性能与响应速度（启动、渲染、接口耗时）' },
-					{ id: 'quality', label: '代码质量与架构（可维护性、模块边界、技术债）' },
-					{ id: 'ux', label: '用户体验与产品流程（交互、设置、Team 模式体验）' },
-					{ id: 'custom', label: '其他（请填写）' },
-				],
-			}
-		: {
-				question: 'Which direction should the team optimize first? I will use your choice to route the right specialists.',
-				options: [
-					{ id: 'performance', label: 'Performance and responsiveness (startup, rendering, API latency)' },
-					{ id: 'quality', label: 'Code quality and architecture (maintainability, boundaries, tech debt)' },
-					{ id: 'ux', label: 'User experience and product flow (interactions, settings, Team mode UX)' },
-					{ id: 'custom', label: 'Other (please specify)' },
-				],
-			};
-}
-
-async function askTeamClarificationQuestion(params: {
-	threadId: string;
-	hasCjk: boolean;
-	signal: AbortSignal;
-	teamRoleScope: ReturnType<typeof createTeamRoleScope>;
-}): Promise<string | null> {
-	const { threadId, hasCjk, signal, teamRoleScope } = params;
-	if (signal.aborted) {
-		throw new Error('Team session aborted by user.');
-	}
-	const q = buildTeamClarificationQuestion(hasCjk);
-	const result = await executeAskPlanQuestionTool(
-		{
-			id: `team-clarify-${randomUUID()}`,
-			name: 'ask_plan_question',
-			arguments: q,
-		},
-		{ teamRoleScope }
-	);
-	if (signal.aborted) {
-		throw new Error('Team session aborted by user.');
-	}
-	if (result.isError) {
-		return null;
-	}
-	const answer = result.content.trim();
-	return answer || null;
-}
-
 function appendTeamClarificationMessage(messages: ChatMessage[], answer: string): ChatMessage[] {
 	return [
 		...messages,
@@ -468,6 +417,24 @@ function appendEffectiveTeamClarification(userText: string, answer: string): str
 		'[TEAM CLARIFICATION ANSWER]',
 		answer.trim(),
 	].join('\n').trim();
+}
+
+function applyTeamClarificationAnswers(
+	userText: string,
+	messages: ChatMessage[],
+	answers: string[]
+): { userText: string; messages: ChatMessage[] } {
+	let nextUserText = userText;
+	let nextMessages = messages;
+	for (const rawAnswer of answers) {
+		const answer = rawAnswer.trim();
+		if (!answer) {
+			continue;
+		}
+		nextUserText = appendEffectiveTeamClarification(nextUserText, answer);
+		nextMessages = appendTeamClarificationMessage(nextMessages, answer);
+	}
+	return { userText: nextUserText, messages: nextMessages };
 }
 
 async function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
@@ -608,7 +575,7 @@ async function llmPlanTasks(params: {
 	workspaceLspManager?: WorkspaceLspManager | null;
 	toolHooks?: ToolExecutionHooks;
 	emit: (evt: TeamEmit) => void;
-}): Promise<{ tasks: LLMPlannedTask[]; planSummary: string; mode: LeadPlanMode }> {
+}): Promise<{ tasks: LLMPlannedTask[]; planSummary: string; mode: LeadPlanMode; clarificationAnswers: string[] }> {
 	const {
 		settings, threadId, teamLead, specialists, messages, modelSelection, resolvedModel,
 		signal, thinkingLevel, workspaceRoot, toolHooks, emit,
@@ -639,6 +606,9 @@ async function llmPlanTasks(params: {
 				planningTools.length > 0
 					? 'Before using MODE: CLARIFY, prefer calling `ask_plan_question` to collect the most important missing decision through the built-in UI. You may ask multiple clarification questions over multiple turns, but only one tool question per turn.'
 					: 'If the request is ambiguous and no clarification tool is available, use MODE: CLARIFY.',
+				planningTools.length > 0
+					? 'Only finish with MODE: CLARIFY when the remaining ambiguity cannot be resolved as a single `ask_plan_question`, or when the user needs to reply in free-form outside the multiple-choice UI.'
+					: 'If the request is ambiguous and no clarification tool is available, use MODE: CLARIFY.',
 				'Pick PLAN only when you can assign concrete specialist tasks without guessing.',
 				'',
 				'Each PLAN task object: { "expert": "<assignment_key>", "task": "<clear instruction for the specialist>", "dependencies": [...], "acceptanceCriteria": [...] }',
@@ -647,6 +617,7 @@ async function llmPlanTasks(params: {
 				availableRoles,
 				'',
 				'If you call `ask_plan_question`, do not repeat the same options or raw tool protocol in markdown.',
+				'If the user answers an `ask_plan_question`, absorb that answer and continue planning in the same turn whenever possible.',
 				'Never invent a generic frontend/backend/qa split just to keep the workflow moving.',
 				'In PLAN mode: delegate ALL investigation and implementation to the specialists — do not include analysis, code, or file paths outside the JSON.',
 				'Respond in the same language as the user.',
@@ -656,6 +627,7 @@ async function llmPlanTasks(params: {
 
 	let planText = '';
 	let visiblePlanText = '';
+	const clarificationAnswers: string[] = [];
 	const teamLeadScope = createTeamRoleScope(
 		{
 			id: 'team-lead',
@@ -738,6 +710,12 @@ async function llmPlanTasks(params: {
 			});
 		},
 		onToolResult: (name, result, success, toolCallId) => {
+			if (name === 'ask_plan_question' && success) {
+				const answer = String(result ?? '').trim();
+				if (answer && !clarificationAnswers.includes(answer)) {
+					clarificationAnswers.push(answer);
+				}
+			}
 			emit({
 				threadId,
 				type: 'tool_result',
@@ -752,7 +730,8 @@ async function llmPlanTasks(params: {
 			planText = text;
 			const finalMode = parseLeadMode(text);
 			const finalVisible =
-				(finalMode === 'CLARIFY' ? buildTeamClarificationIntro(hasCjk) : extractTeamLeadNarrative(text)) ||
+				extractTeamLeadNarrative(text) ||
+				(finalMode === 'CLARIFY' ? buildTeamClarificationIntro(hasCjk) : '') ||
 				visiblePlanText ||
 				buildFallbackTeamLeadNarrative(hasCjk);
 			visiblePlanText = finalVisible;
@@ -768,12 +747,13 @@ async function llmPlanTasks(params: {
 		tasks: mode === 'PLAN' ? tasks : [],
 		planSummary: extractTeamLeadNarrative(planText) || buildFallbackTeamLeadNarrative(hasCjk),
 		mode,
+		clarificationAnswers,
 	};
 }
 
 function parseLeadMode(text: string): LeadPlanMode {
 	const head = String(text ?? '').trimStart();
-	const match = /^MODE:\s*(ANSWER|PLAN|CLARIFY)/i.exec(head);
+	const match = TEAM_LEAD_MODE_EXTRACT_RE.exec(head);
 	if (match && match[1]) {
 		const mode = match[1].toUpperCase();
 		if (mode === 'PLAN' || mode === 'CLARIFY') {
@@ -796,8 +776,8 @@ function parseLeadMode(text: string): LeadPlanMode {
 
 function stripLeadModeMarker(text: string): string {
 	return String(text ?? '')
-		.replace(/^\s*MODE:\s*(?:ANSWER|PLAN|CLARIFY)\s*\n?/i, '')
-		.replace(/^\s*MODE:\s*(?:ANSWER|PLAN|CLARIFY)\s*$/gim, '')
+		.replace(/^\s*(?:[*_`>#-]+\s*)*MODE\s*:\s*(?:ANSWER|PLAN|CLARIFY)\s*(?:[*_`]+)?\s*\n?/i, '')
+		.replace(/^\s*(?:[*_`>#-]+\s*)*MODE\s*:\s*(?:ANSWER|PLAN|CLARIFY)\s*(?:[*_`]+)?\s*$/gim, '')
 		.trim();
 }
 
@@ -1597,7 +1577,8 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		const hasCjkRequest = /[\u3400-\u9fff]/.test(effectiveUserText);
 
 		// ── Phase 0: Researcher investigation ────────────────────────
-		const enableResearchPhase = settings.team?.enableResearchPhase !== false;
+		const presetDefaults = getTeamPresetDefaults(settings.team?.presetId);
+		const enableResearchPhase = settings.team?.enableResearchPhase ?? presetDefaults.enableResearchPhase;
 		let researchSummary = '';
 		let planningMessages = messages;
 
@@ -1673,21 +1654,6 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		let planSummary = '';
 		let preflightSummary = '';
 		let preflightVerdict: 'ok' | 'needs_clarification' | undefined;
-		let clarificationAttempts = 0;
-		const teamLeadClarifyScope = createTeamRoleScope(
-			{
-				id: 'team-lead',
-				expertId: teamLead.id,
-				expertAssignmentKey: teamLead.assignmentKey,
-				expertName: teamLead.name,
-				roleType: teamLead.roleType,
-				description: 'Plan the team workflow and assign specialist tasks.',
-				status: 'in_progress',
-				dependencies: [],
-				acceptanceCriteria: [],
-			},
-			'lead'
-		);
 
 		while (true) {
 			checkAbort();
@@ -1703,6 +1669,15 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 					settings, threadId, teamLead, specialists, messages: planningMessages, modelSelection,
 					resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, toolHooks, emit,
 				});
+				if (planResult.clarificationAnswers.length > 0) {
+					const propagated = applyTeamClarificationAnswers(
+						effectiveUserText,
+						planningMessages,
+						planResult.clarificationAnswers
+					);
+					effectiveUserText = propagated.userText;
+					planningMessages = propagated.messages;
+				}
 				planSummary = planResult.planSummary;
 
 				if (planResult.mode === 'ANSWER') {
@@ -1721,24 +1696,8 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 				}
 
 				if (planResult.mode === 'CLARIFY') {
-					const intro = buildTeamClarificationIntro(hasCjkRequest);
-					emit({ threadId, type: 'team_plan_summary', summary: intro });
-					if (clarificationAttempts < MAX_TEAM_CLARIFICATION_ATTEMPTS) {
-						clarificationAttempts += 1;
-						const answer = await askTeamClarificationQuestion({
-							threadId,
-							hasCjk: hasCjkRequest,
-							signal,
-							teamRoleScope: teamLeadClarifyScope,
-						});
-						if (answer) {
-							effectiveUserText = appendEffectiveTeamClarification(effectiveUserText, answer);
-							planningMessages = appendTeamClarificationMessage(planningMessages, answer);
-							continue;
-						}
-					}
-
 					const deliveryText = planSummary.trim() || buildClarificationNeededNarrative(hasCjkRequest);
+					emit({ threadId, type: 'team_plan_summary', summary: deliveryText });
 					emit({ threadId, type: 'team_phase', phase: 'delivering' });
 					onDone(deliveryText, undefined, {
 						phase: 'delivering',
@@ -1786,24 +1745,8 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			}
 
 			if (plannedTasks.length === 0) {
-				const intro = buildTeamClarificationIntro(hasCjkRequest);
-				emit({ threadId, type: 'team_plan_summary', summary: intro });
-				if (clarificationAttempts < MAX_TEAM_CLARIFICATION_ATTEMPTS) {
-					clarificationAttempts += 1;
-					const answer = await askTeamClarificationQuestion({
-						threadId,
-						hasCjk: hasCjkRequest,
-						signal,
-						teamRoleScope: teamLeadClarifyScope,
-					});
-					if (answer) {
-						effectiveUserText = appendEffectiveTeamClarification(effectiveUserText, answer);
-						planningMessages = appendTeamClarificationMessage(planningMessages, answer);
-						continue;
-					}
-				}
-
 				const clarificationText = buildClarificationNeededNarrative(hasCjkRequest);
+				emit({ threadId, type: 'team_plan_summary', summary: clarificationText });
 				emit({ threadId, type: 'team_phase', phase: 'delivering' });
 				onDone(clarificationText, undefined, {
 					phase: 'delivering',
@@ -1820,7 +1763,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 			// ── Phase 1.25: Preflight requirement/plan review ────────────
 
-			const enablePreflightReview = settings.team?.enablePreflightReview !== false;
+			const enablePreflightReview = settings.team?.enablePreflightReview ?? presetDefaults.enablePreflightReview;
 			if (enablePreflightReview && reviewerExpert) {
 				checkAbort();
 				emit({ threadId, type: 'team_phase', phase: 'preflight' });
@@ -1844,24 +1787,8 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			}
 
 			if (preflightVerdict === 'needs_clarification') {
-				const intro = buildTeamClarificationIntro(hasCjkRequest);
-				emit({ threadId, type: 'team_plan_summary', summary: intro });
-				if (clarificationAttempts < MAX_TEAM_CLARIFICATION_ATTEMPTS) {
-					clarificationAttempts += 1;
-					const answer = await askTeamClarificationQuestion({
-						threadId,
-						hasCjk: hasCjkRequest,
-						signal,
-						teamRoleScope: teamLeadClarifyScope,
-					});
-					if (answer) {
-						effectiveUserText = appendEffectiveTeamClarification(effectiveUserText, answer);
-						planningMessages = appendTeamClarificationMessage(planningMessages, answer);
-						continue;
-					}
-				}
-
 				const deliveryText = preflightSummary.trim() || buildClarificationNeededNarrative(hasCjkRequest);
+				emit({ threadId, type: 'team_plan_summary', summary: deliveryText });
 				emit({ threadId, type: 'team_phase', phase: 'delivering' });
 				onDone(deliveryText, undefined, {
 					phase: 'delivering',
@@ -1879,7 +1806,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 		// ── Phase 1.5: Plan proposal — await user approval ───────────
 
-		const requirePlanApproval = settings.team?.requirePlanApproval !== false;
+		const requirePlanApproval = settings.team?.requirePlanApproval ?? presetDefaults.requirePlanApproval;
 		if (requirePlanApproval) {
 			checkAbort();
 			emit({ threadId, type: 'team_phase', phase: 'proposing' });

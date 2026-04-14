@@ -27,8 +27,9 @@ function stripTrailingRawJson(text: string): string {
 	return lines.slice(0, rawJsonStart).join('\n').trim();
 }
 
-const TEAM_LEAD_MODE_MARKER_RE = /^\s*MODE:\s*(?:ANSWER|PLAN|CLARIFY)\s*\n?/i;
-const TEAM_LEAD_MODE_MARKER_LINE_RE = /^\s*MODE:\s*(?:ANSWER|PLAN|CLARIFY)\s*$/gim;
+const TEAM_LEAD_MODE_MARKER_RE = /^\s*(?:[*_`>#-]+\s*)*MODE\s*:\s*(?:ANSWER|PLAN|CLARIFY)\s*(?:[*_`]+)?\s*\n?/i;
+const TEAM_LEAD_MODE_MARKER_LINE_RE =
+	/^\s*(?:[*_`>#-]+\s*)*MODE\s*:\s*(?:ANSWER|PLAN|CLARIFY)\s*(?:[*_`]+)?\s*$/gim;
 
 export function extractTeamLeadNarrative(summary: string): string {
 	const text = String(summary ?? '').trim();
