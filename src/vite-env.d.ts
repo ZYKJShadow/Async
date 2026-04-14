@@ -26,6 +26,7 @@ declare global {
 		setUserAgent(userAgent: string): void;
 		stop(): void;
 		getURL(): string;
+		loadURL(url: string, options?: Record<string, unknown>): Promise<void>;
 	}
 
 	namespace JSX {

@@ -7750,6 +7750,161 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	background: var(--void-bg-1);
 }
 
+.ref-browser-tabstrip {
+	display: flex;
+	align-items: stretch;
+	gap: 4px;
+	padding: 6px 10px 0;
+	min-height: 34px;
+}
+
+.ref-browser-tabstrip-scroll {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: stretch;
+	gap: 4px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: thin;
+}
+
+.ref-browser-tabstrip-scroll::-webkit-scrollbar {
+	height: 4px;
+}
+
+.ref-browser-tabstrip-scroll::-webkit-scrollbar-thumb {
+	background: var(--void-border-soft);
+	border-radius: 999px;
+}
+
+.ref-browser-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 8px 0 10px;
+	height: 28px;
+	min-width: 96px;
+	max-width: 180px;
+	border-radius: 10px 10px 0 0;
+	border: 1px solid transparent;
+	border-bottom: none;
+	background: transparent;
+	color: var(--void-fg-2);
+	cursor: pointer;
+	font: inherit;
+	font-size: 12px;
+	user-select: none;
+	transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.ref-browser-tab:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 80%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-browser-tab.is-active {
+	background: var(--void-bg-0);
+	border-color: var(--void-border-soft);
+	color: var(--void-fg-0);
+	box-shadow: 0 -1px 0 0 color-mix(in srgb, var(--void-accent, #6aa5ff) 40%, transparent) inset;
+}
+
+.ref-browser-tab:focus-visible {
+	outline: 2px solid var(--void-accent, #6aa5ff);
+	outline-offset: -2px;
+}
+
+.ref-browser-tab-indicator {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 14px;
+	height: 14px;
+	flex-shrink: 0;
+	color: var(--void-fg-3);
+}
+
+.ref-browser-tab.is-active .ref-browser-tab-indicator {
+	color: var(--void-fg-1);
+}
+
+.ref-browser-tab-favicon {
+	width: 14px;
+	height: 14px;
+}
+
+.ref-browser-tab-spinner {
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	border: 1.5px solid color-mix(in srgb, var(--void-fg-3) 60%, transparent);
+	border-top-color: var(--void-fg-0);
+	animation: ref-browser-tab-spin 700ms linear infinite;
+}
+
+@keyframes ref-browser-tab-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.ref-browser-tab-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-browser-tab-close {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--void-fg-3);
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.ref-browser-tab:hover .ref-browser-tab-close,
+.ref-browser-tab.is-active .ref-browser-tab-close,
+.ref-browser-tab:focus-within .ref-browser-tab-close {
+	opacity: 1;
+}
+
+.ref-browser-tab-close:hover {
+	background: color-mix(in srgb, var(--void-bg-3) 85%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-browser-tabstrip-add {
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--void-fg-2);
+	cursor: pointer;
+	align-self: center;
+	transition: background 120ms ease, color 120ms ease;
+}
+
+.ref-browser-tabstrip-add:hover {
+	background: var(--void-bg-2);
+	color: var(--void-fg-0);
+}
+
 .ref-browser-toolbar {
 	gap: 10px;
 	align-items: center;
@@ -7817,6 +7972,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	height: 100%;
 	min-height: 0;
 	background: white;
+}
+
+.ref-browser-webview.is-hidden {
+	display: none !important;
 }
 
 .ref-browser-preparing {

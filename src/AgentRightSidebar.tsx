@@ -2,10 +2,12 @@ import {
 	memo,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 	type Dispatch,
 	type FormEvent,
+	type KeyboardEvent as ReactKeyboardEvent,
 	type ReactNode,
 	type RefObject,
 	type SetStateAction,
@@ -21,6 +23,7 @@ import {
 	IconDoc,
 	IconGitSCM,
 	IconGlobe,
+	IconPlus,
 	IconRefresh,
 	IconSettings,
 	IconStop,
@@ -52,6 +55,11 @@ type BrowserFailEvent = Event & {
 	errorDescription?: string;
 	validatedURL?: string;
 	isMainFrame?: boolean;
+};
+type BrowserNewWindowEvent = Event & {
+	url?: string;
+	disposition?: string;
+	preventDefault?: () => void;
 };
 
 type BrowserSidebarConfig = {
@@ -945,6 +953,168 @@ const AgentRightSidebarFilePanel = memo(function AgentRightSidebarFilePanel({
 	);
 });
 
+type BrowserTab = {
+	id: string;
+	requestedUrl: string;
+	currentUrl: string;
+	draftUrl: string;
+	pageTitle: string;
+	isLoading: boolean;
+	canGoBack: boolean;
+	canGoForward: boolean;
+	loadError: { message: string; url: string } | null;
+};
+
+let browserTabSeq = 0;
+function createBrowserTab(url: string = BROWSER_HOME_URL): BrowserTab {
+	browserTabSeq += 1;
+	return {
+		id: `browser-tab-${Date.now().toString(36)}-${browserTabSeq}`,
+		requestedUrl: url,
+		currentUrl: url,
+		draftUrl: url,
+		pageTitle: '',
+		isLoading: true,
+		canGoBack: false,
+		canGoForward: false,
+		loadError: null,
+	};
+}
+
+const BrowserTabView = memo(function BrowserTabView({
+	tab,
+	partition,
+	userAgent,
+	active,
+	t,
+	onNavigate,
+	onTitle,
+	onLoading,
+	onFailLoad,
+	onNewWindow,
+	onRegisterWebview,
+}: {
+	tab: BrowserTab;
+	partition: string;
+	userAgent?: string;
+	active: boolean;
+	t: TFunction;
+	onNavigate: (id: string, patch: { currentUrl: string; canGoBack: boolean; canGoForward: boolean }) => void;
+	onTitle: (id: string, title: string) => void;
+	onLoading: (id: string, isLoading: boolean, currentUrl?: string) => void;
+	onFailLoad: (id: string, error: { message: string; url: string }) => void;
+	onNewWindow: (url: string) => void;
+	onRegisterWebview: (id: string, node: AsyncShellWebviewElement | null) => void;
+}) {
+	const webviewRef = useRef<AsyncShellWebviewElement | null>(null);
+	const tabIdRef = useRef(tab.id);
+	tabIdRef.current = tab.id;
+
+	const assignWebviewRef = useCallback(
+		(node: AsyncShellWebviewElement | null) => {
+			webviewRef.current = node;
+			onRegisterWebview(tabIdRef.current, node);
+		},
+		[onRegisterWebview]
+	);
+
+	useEffect(() => {
+		const node = webviewRef.current;
+		if (!node) {
+			return;
+		}
+
+		const readNavState = () => {
+			try {
+				return {
+					canGoBack: Boolean(node.canGoBack?.()),
+					canGoForward: Boolean(node.canGoForward?.()),
+				};
+			} catch {
+				return { canGoBack: false, canGoForward: false };
+			}
+		};
+
+		const handleStartLoading = () => {
+			onLoading(tabIdRef.current, true);
+		};
+		const handleStopLoading = () => {
+			onLoading(tabIdRef.current, false, safeGetWebviewUrl(node));
+		};
+		const handleNavigate = (event: Event) => {
+			const navEvent = event as BrowserNavEvent;
+			if (navEvent.isMainFrame === false) {
+				return;
+			}
+			const url = String(navEvent.url ?? safeGetWebviewUrl(node) ?? '').trim();
+			const { canGoBack, canGoForward } = readNavState();
+			onNavigate(tabIdRef.current, { currentUrl: url, canGoBack, canGoForward });
+		};
+		const handleTitleUpdated = (event: Event) => {
+			onTitle(tabIdRef.current, String((event as BrowserTitleEvent).title ?? '').trim());
+		};
+		const handleDomReady = () => {
+			const { canGoBack, canGoForward } = readNavState();
+			onNavigate(tabIdRef.current, {
+				currentUrl: safeGetWebviewUrl(node),
+				canGoBack,
+				canGoForward,
+			});
+		};
+		const handleFailLoad = (event: Event) => {
+			const failEvent = event as BrowserFailEvent;
+			if (failEvent.isMainFrame === false || failEvent.errorCode === -3) {
+				return;
+			}
+			const failedUrl = String(failEvent.validatedURL ?? safeGetWebviewUrl(node) ?? '').trim();
+			onFailLoad(tabIdRef.current, {
+				message: String(failEvent.errorDescription ?? t('app.browserLoadFailed')),
+				url: failedUrl,
+			});
+		};
+		const handleNewWindow = (event: Event) => {
+			const newWinEvent = event as BrowserNewWindowEvent;
+			const targetUrl = String(newWinEvent.url ?? '').trim();
+			if (!targetUrl) {
+				return;
+			}
+			newWinEvent.preventDefault?.();
+			onNewWindow(targetUrl);
+		};
+
+		node.addEventListener('dom-ready', handleDomReady);
+		node.addEventListener('did-start-loading', handleStartLoading);
+		node.addEventListener('did-stop-loading', handleStopLoading);
+		node.addEventListener('did-navigate', handleNavigate);
+		node.addEventListener('did-navigate-in-page', handleNavigate);
+		node.addEventListener('page-title-updated', handleTitleUpdated);
+		node.addEventListener('did-fail-load', handleFailLoad);
+		node.addEventListener('new-window', handleNewWindow);
+
+		return () => {
+			node.removeEventListener('dom-ready', handleDomReady);
+			node.removeEventListener('did-start-loading', handleStartLoading);
+			node.removeEventListener('did-stop-loading', handleStopLoading);
+			node.removeEventListener('did-navigate', handleNavigate);
+			node.removeEventListener('did-navigate-in-page', handleNavigate);
+			node.removeEventListener('page-title-updated', handleTitleUpdated);
+			node.removeEventListener('did-fail-load', handleFailLoad);
+			node.removeEventListener('new-window', handleNewWindow);
+		};
+	}, [partition, onLoading, onNavigate, onTitle, onFailLoad, onNewWindow, t]);
+
+	return (
+		<webview
+			ref={assignWebviewRef}
+			className={`ref-browser-webview${active ? '' : ' is-hidden'}`}
+			src={tab.requestedUrl}
+			partition={partition}
+			allowpopups={true}
+			useragent={userAgent}
+		/>
+	);
+});
+
 const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPanel({
 	hasAgentPlanSidebarContent,
 	closeSidebar,
@@ -955,15 +1125,18 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	openView: (view: AgentRightSidebarView) => void;
 }) {
 	const { t, shell } = useAppShellChrome();
-	const webviewRef = useRef<AsyncShellWebviewElement | null>(null);
+	const webviewsRef = useRef<Map<string, AsyncShellWebviewElement>>(new Map());
+	const addressInputRef = useRef<HTMLInputElement | null>(null);
 	const defaultUserAgentRef = useRef('');
-	const [pageTitle, setPageTitle] = useState('');
-	const [currentUrl, setCurrentUrl] = useState(BROWSER_HOME_URL);
-	const [draftUrl, setDraftUrl] = useState(BROWSER_HOME_URL);
-	const [isLoading, setIsLoading] = useState(true);
-	const [canGoBack, setCanGoBack] = useState(false);
-	const [canGoForward, setCanGoForward] = useState(false);
-	const [loadError, setLoadError] = useState<{ message: string; url: string } | null>(null);
+
+	const initialTab = useMemo(() => createBrowserTab(), []);
+	const [tabs, setTabs] = useState<BrowserTab[]>([initialTab]);
+	const [activeTabId, setActiveTabId] = useState<string>(initialTab.id);
+	const tabsRef = useRef(tabs);
+	tabsRef.current = tabs;
+	const activeTabIdRef = useRef(activeTabId);
+	activeTabIdRef.current = activeTabId;
+
 	const [browserPartition, setBrowserPartition] = useState('');
 	const [browserConfigReady, setBrowserConfigReady] = useState(false);
 	const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
@@ -971,12 +1144,6 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	const [browserSettingsError, setBrowserSettingsError] = useState<string | null>(null);
 	const [browserConfig, setBrowserConfig] = useState<BrowserSidebarConfig>(DEFAULT_BROWSER_SIDEBAR_CONFIG);
 	const [browserDraft, setBrowserDraft] = useState<BrowserSidebarConfig>(DEFAULT_BROWSER_SIDEBAR_CONFIG);
-
-	const syncLocation = useCallback((nextUrl?: string) => {
-		const resolved = String(nextUrl ?? '').trim() || BROWSER_HOME_URL;
-		setCurrentUrl((prev) => (prev === resolved ? prev : resolved));
-		setDraftUrl((prev) => (prev === resolved ? prev : resolved));
-	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -1022,51 +1189,9 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 		};
 	}, [shell]);
 
-	const refreshNavState = useCallback(() => {
-		const node = webviewRef.current;
-		if (!node) {
-			setCanGoBack(false);
-			setCanGoForward(false);
-			return;
-		}
-		try {
-			setCanGoBack(Boolean(node.canGoBack?.()));
-			setCanGoForward(Boolean(node.canGoForward?.()));
-		} catch {
-			setCanGoBack(false);
-			setCanGoForward(false);
-		}
-	}, []);
-
-	useEffect(() => {
-		const node = webviewRef.current;
-		if (!node) {
-			return;
-		}
-
-		const handleStartLoading = () => {
-			setIsLoading(true);
-			setLoadError(null);
-			refreshNavState();
-		};
-		const handleStopLoading = () => {
-			setIsLoading(false);
-			syncLocation(safeGetWebviewUrl(node));
-			refreshNavState();
-		};
-		const handleNavigate = (event: Event) => {
-			const navEvent = event as BrowserNavEvent;
-			if (navEvent.isMainFrame === false) {
-				return;
-			}
-			setLoadError(null);
-			syncLocation(navEvent.url ?? safeGetWebviewUrl(node));
-			refreshNavState();
-		};
-		const handleTitleUpdated = (event: Event) => {
-			setPageTitle(String((event as BrowserTitleEvent).title ?? '').trim());
-		};
-		const handleDomReady = () => {
+	const handleRegisterWebview = useCallback((id: string, node: AsyncShellWebviewElement | null) => {
+		if (node) {
+			webviewsRef.current.set(id, node);
 			if (!defaultUserAgentRef.current) {
 				try {
 					defaultUserAgentRef.current = String(node.getUserAgent?.() ?? '').trim();
@@ -1074,59 +1199,177 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 					/* ignore */
 				}
 			}
-			refreshNavState();
-		};
-		const handleFailLoad = (event: Event) => {
-			const failEvent = event as BrowserFailEvent;
-			if (failEvent.isMainFrame === false || failEvent.errorCode === -3) {
-				return;
-			}
-			setIsLoading(false);
-			const failedUrl = String(failEvent.validatedURL ?? safeGetWebviewUrl(node) ?? '').trim();
-			syncLocation(failedUrl);
-			setLoadError({
-				message: String(failEvent.errorDescription ?? t('app.browserLoadFailed')),
-				url: failedUrl,
-			});
-			refreshNavState();
-		};
+		} else {
+			webviewsRef.current.delete(id);
+		}
+	}, []);
 
-		node.addEventListener('dom-ready', handleDomReady);
-		node.addEventListener('did-start-loading', handleStartLoading);
-		node.addEventListener('did-stop-loading', handleStopLoading);
-		node.addEventListener('did-navigate', handleNavigate);
-		node.addEventListener('did-navigate-in-page', handleNavigate);
-		node.addEventListener('page-title-updated', handleTitleUpdated);
-		node.addEventListener('did-fail-load', handleFailLoad);
-		refreshNavState();
+	const handleTabNavigate = useCallback(
+		(id: string, patch: { currentUrl: string; canGoBack: boolean; canGoForward: boolean }) => {
+			const addressFocused =
+				typeof document !== 'undefined' && document.activeElement === addressInputRef.current;
+			const keepDraft = id === activeTabIdRef.current && addressFocused;
+			setTabs((prev) =>
+				prev.map((tab) => {
+					if (tab.id !== id) {
+						return tab;
+					}
+					const resolvedUrl = patch.currentUrl || tab.currentUrl;
+					return {
+						...tab,
+						currentUrl: resolvedUrl,
+						draftUrl: keepDraft ? tab.draftUrl : resolvedUrl,
+						canGoBack: patch.canGoBack,
+						canGoForward: patch.canGoForward,
+						loadError: null,
+					};
+				})
+			);
+		},
+		[]
+	);
 
-		return () => {
-			node.removeEventListener('dom-ready', handleDomReady);
-			node.removeEventListener('did-start-loading', handleStartLoading);
-			node.removeEventListener('did-stop-loading', handleStopLoading);
-			node.removeEventListener('did-navigate', handleNavigate);
-			node.removeEventListener('did-navigate-in-page', handleNavigate);
-			node.removeEventListener('page-title-updated', handleTitleUpdated);
-			node.removeEventListener('did-fail-load', handleFailLoad);
-		};
-	}, [browserConfigReady, browserPartition, refreshNavState, syncLocation, t]);
+	const handleTabTitle = useCallback((id: string, title: string) => {
+		setTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, pageTitle: title } : tab)));
+	}, []);
+
+	const handleTabLoading = useCallback((id: string, isLoading: boolean, currentUrl?: string) => {
+		setTabs((prev) =>
+			prev.map((tab) => {
+				if (tab.id !== id) {
+					return tab;
+				}
+				const next: BrowserTab = { ...tab, isLoading };
+				if (isLoading) {
+					next.loadError = null;
+				} else if (currentUrl && currentUrl !== tab.currentUrl) {
+					const addressFocused =
+						typeof document !== 'undefined' && document.activeElement === addressInputRef.current;
+					const keepDraft = id === activeTabIdRef.current && addressFocused;
+					next.currentUrl = currentUrl;
+					if (!keepDraft) {
+						next.draftUrl = currentUrl;
+					}
+				}
+				return next;
+			})
+		);
+	}, []);
+
+	const handleTabFailLoad = useCallback((id: string, error: { message: string; url: string }) => {
+		setTabs((prev) =>
+			prev.map((tab) => {
+				if (tab.id !== id) {
+					return tab;
+				}
+				return {
+					...tab,
+					isLoading: false,
+					currentUrl: error.url || tab.currentUrl,
+					loadError: error,
+				};
+			})
+		);
+	}, []);
+
+	const openInNewTab = useCallback((url: string) => {
+		const tab = createBrowserTab(url);
+		setTabs((prev) => [...prev, tab]);
+		setActiveTabId(tab.id);
+	}, []);
+
+	const addNewTab = useCallback(() => {
+		const tab = createBrowserTab();
+		setTabs((prev) => [...prev, tab]);
+		setActiveTabId(tab.id);
+		window.setTimeout(() => {
+			addressInputRef.current?.focus();
+			addressInputRef.current?.select();
+		}, 50);
+	}, []);
+
+	const closeTab = useCallback((id: string) => {
+		const prev = tabsRef.current;
+		const closedIndex = prev.findIndex((tab) => tab.id === id);
+		if (closedIndex < 0) {
+			return;
+		}
+		webviewsRef.current.delete(id);
+		if (prev.length <= 1) {
+			const fresh = createBrowserTab();
+			setTabs([fresh]);
+			setActiveTabId(fresh.id);
+			return;
+		}
+		const nextTabs = prev.filter((tab) => tab.id !== id);
+		setTabs(nextTabs);
+		if (activeTabIdRef.current === id) {
+			const nextActive = nextTabs[Math.min(closedIndex, nextTabs.length - 1)];
+			setActiveTabId(nextActive.id);
+		}
+	}, []);
+
+	const activateTab = useCallback((id: string) => {
+		setActiveTabId(id);
+	}, []);
+
+	const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+	const activeWebview = () => (activeTab ? webviewsRef.current.get(activeTab.id) ?? null : null);
+
+	const onAddressChange = useCallback(
+		(value: string) => {
+			setTabs((prev) => prev.map((tab) => (tab.id === activeTabId ? { ...tab, draftUrl: value } : tab)));
+		},
+		[activeTabId]
+	);
 
 	const onAddressSubmit = useCallback(
 		(event: FormEvent<HTMLFormElement>) => {
 			event.preventDefault();
-			const nextUrl = normalizeBrowserTarget(draftUrl);
-			setLoadError(null);
-			setPageTitle('');
-			if (nextUrl === currentUrl) {
-				webviewRef.current?.reload();
+			if (!activeTab) {
 				return;
 			}
-			setCanGoBack(false);
-			setCanGoForward(false);
-			setCurrentUrl(nextUrl);
-			setDraftUrl(nextUrl);
+			const nextUrl = normalizeBrowserTarget(activeTab.draftUrl);
+			const sameAsRequested = nextUrl === activeTab.requestedUrl;
+			addressInputRef.current?.blur();
+			setTabs((prev) =>
+				prev.map((tab) => {
+					if (tab.id !== activeTabId) {
+						return tab;
+					}
+					return {
+						...tab,
+						requestedUrl: nextUrl,
+						currentUrl: nextUrl,
+						draftUrl: nextUrl,
+						pageTitle: '',
+						isLoading: true,
+						canGoBack: false,
+						canGoForward: false,
+						loadError: null,
+					};
+				})
+			);
+			if (sameAsRequested) {
+				webviewsRef.current.get(activeTabId)?.reload();
+			}
 		},
-		[currentUrl, draftUrl]
+		[activeTab, activeTabId]
+	);
+
+	const onAddressKeyDown = useCallback(
+		(event: ReactKeyboardEvent<HTMLInputElement>) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				if (activeTab) {
+					setTabs((prev) =>
+						prev.map((tab) => (tab.id === activeTabId ? { ...tab, draftUrl: tab.currentUrl } : tab))
+					);
+				}
+				event.currentTarget.blur();
+			}
+		},
+		[activeTab, activeTabId]
 	);
 
 	const openBrowserSettings = useCallback(() => {
@@ -1179,9 +1422,8 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			setBrowserConfig(nextConfig);
 			setBrowserDraft(nextConfig);
 			setBrowserSettingsOpen(false);
-			const node = webviewRef.current;
-			if (node) {
-				const nextUserAgent = nextConfig.userAgent.trim() || defaultUserAgentRef.current;
+			const nextUserAgent = nextConfig.userAgent.trim() || defaultUserAgentRef.current;
+			webviewsRef.current.forEach((node) => {
 				if (nextUserAgent) {
 					try {
 						node.setUserAgent(nextUserAgent);
@@ -1189,23 +1431,33 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 						/* ignore */
 					}
 				}
-				setLoadError(null);
-				node.reload();
-			}
+				try {
+					node.reload();
+				} catch {
+					/* ignore */
+				}
+			});
+			setTabs((prev) => prev.map((tab) => ({ ...tab, loadError: null })));
 		} finally {
 			setBrowserSettingsSaving(false);
 		}
 	}, [browserDraft, shell, t]);
 
-	const pageLabel = pageTitle || currentUrl.replace(/^https?:\/\//i, '') || t('app.tabBrowser');
+	const headerLabel = activeTab
+		? activeTab.isLoading
+			? t('app.browserLoading')
+			: activeTab.pageTitle || activeTab.currentUrl.replace(/^https?:\/\//i, '') || t('app.tabBrowser')
+		: t('app.tabBrowser');
+	const headerUrl = activeTab?.currentUrl ?? '';
+	const userAgentProp = browserConfig.userAgent.trim() || undefined;
 
 	return (
 		<div className="ref-agent-review-shell">
 			<div className="ref-agent-review-head">
 				<div className="ref-agent-review-title-stack">
 					<span className="ref-agent-review-kicker">{t('app.tabBrowser')}</span>
-					<span className="ref-agent-review-title" title={currentUrl}>
-						{isLoading ? t('app.browserLoading') : pageLabel}
+					<span className="ref-agent-review-title" title={headerUrl}>
+						{headerLabel}
 					</span>
 				</div>
 				<RightSidebarTabs
@@ -1228,15 +1480,82 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			</div>
 			<div className="ref-right-panel-stage">
 				<div className="ref-right-panel-view ref-right-panel-view--agent ref-browser-panel">
+					{browserConfigReady ? (
+						<div className="ref-browser-tabstrip" role="tablist" aria-label={t('app.tabBrowser')}>
+							<div className="ref-browser-tabstrip-scroll">
+								{tabs.map((tab) => {
+									const tabActive = tab.id === activeTabId;
+									const tabLabel =
+										(tab.pageTitle && tab.pageTitle.trim()) ||
+										(tab.currentUrl ? tab.currentUrl.replace(/^https?:\/\//i, '') : '') ||
+										t('app.browserUntitled');
+									return (
+										<div
+											key={tab.id}
+											role="tab"
+											aria-selected={tabActive}
+											tabIndex={0}
+											className={`ref-browser-tab${tabActive ? ' is-active' : ''}`}
+											title={tab.currentUrl || tabLabel}
+											onClick={() => activateTab(tab.id)}
+											onKeyDown={(event) => {
+												if (event.key === 'Enter' || event.key === ' ') {
+													event.preventDefault();
+													activateTab(tab.id);
+												}
+											}}
+											onMouseDown={(event) => {
+												// middle-click closes tab, like real browsers
+												if (event.button === 1) {
+													event.preventDefault();
+													closeTab(tab.id);
+												}
+											}}
+										>
+											<span className="ref-browser-tab-indicator" aria-hidden="true">
+												{tab.isLoading ? (
+													<span className="ref-browser-tab-spinner" />
+												) : (
+													<IconGlobe className="ref-browser-tab-favicon" />
+												)}
+											</span>
+											<span className="ref-browser-tab-label">{tabLabel}</span>
+											<button
+												type="button"
+												className="ref-browser-tab-close"
+												aria-label={t('app.browserCloseTab')}
+												title={t('app.browserCloseTab')}
+												onClick={(event) => {
+													event.stopPropagation();
+													closeTab(tab.id);
+												}}
+											>
+												<IconCloseSmall />
+											</button>
+										</div>
+									);
+								})}
+							</div>
+							<button
+								type="button"
+								className="ref-browser-tabstrip-add"
+								aria-label={t('app.browserNewTab')}
+								title={t('app.browserNewTab')}
+								onClick={addNewTab}
+							>
+								<IconPlus />
+							</button>
+						</div>
+					) : null}
 					<div className="ref-right-toolbar ref-browser-toolbar">
 						<button
 							type="button"
 							className="ref-icon-tile ref-browser-tool-btn"
 							aria-label={t('common.back')}
 							title={t('common.back')}
-							disabled={!canGoBack}
+							disabled={!activeTab?.canGoBack}
 							onClick={() => {
-								const node = webviewRef.current;
+								const node = activeWebview();
 								if (!node?.canGoBack()) {
 									return;
 								}
@@ -1250,9 +1569,9 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 							className="ref-icon-tile ref-browser-tool-btn"
 							aria-label={t('app.browserForward')}
 							title={t('app.browserForward')}
-							disabled={!canGoForward}
+							disabled={!activeTab?.canGoForward}
 							onClick={() => {
-								const node = webviewRef.current;
+								const node = activeWebview();
 								if (!node?.canGoForward()) {
 									return;
 								}
@@ -1264,67 +1583,84 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 						<form className="ref-browser-address-form" onSubmit={onAddressSubmit}>
 							<IconGlobe className="ref-browser-address-icon" />
 							<input
+								ref={addressInputRef}
 								type="text"
 								className="ref-browser-address-input"
-								value={draftUrl}
+								value={activeTab?.draftUrl ?? ''}
 								placeholder={t('app.browserAddressPlaceholder')}
 								spellCheck={false}
 								autoCapitalize="none"
 								autoCorrect="off"
-								onChange={(event) => setDraftUrl(event.target.value)}
+								onChange={(event) => onAddressChange(event.target.value)}
+								onFocus={(event) => event.currentTarget.select()}
+								onKeyDown={onAddressKeyDown}
 							/>
 						</form>
 						<button
 							type="button"
 							className="ref-icon-tile ref-browser-tool-btn"
-							aria-label={isLoading ? t('app.browserStop') : t('common.refresh')}
-							title={isLoading ? t('app.browserStop') : t('common.refresh')}
+							aria-label={activeTab?.isLoading ? t('app.browserStop') : t('common.refresh')}
+							title={activeTab?.isLoading ? t('app.browserStop') : t('common.refresh')}
 							onClick={() => {
-								const node = webviewRef.current;
+								const node = activeWebview();
 								if (!node) {
 									return;
 								}
-								if (isLoading) {
+								if (activeTab?.isLoading) {
 									node.stop();
 									return;
 								}
-								setLoadError(null);
+								setTabs((prev) =>
+									prev.map((tab) => (tab.id === activeTabId ? { ...tab, loadError: null } : tab))
+								);
 								node.reload();
 							}}
 						>
-							{isLoading ? <IconStop /> : <IconRefresh />}
+							{activeTab?.isLoading ? <IconStop /> : <IconRefresh />}
 						</button>
 					</div>
 					<div className="ref-browser-webview-wrap">
-						{browserConfigReady ? (
-							<webview
-								ref={webviewRef}
-								className="ref-browser-webview"
-								src={currentUrl}
-								partition={browserPartition}
-								useragent={browserConfig.userAgent.trim() || undefined}
-							/>
+						{browserConfigReady && browserPartition ? (
+							tabs.map((tab) => (
+								<BrowserTabView
+									key={tab.id}
+									tab={tab}
+									partition={browserPartition}
+									userAgent={userAgentProp}
+									active={tab.id === activeTabId}
+									t={t}
+									onNavigate={handleTabNavigate}
+									onTitle={handleTabTitle}
+									onLoading={handleTabLoading}
+									onFailLoad={handleTabFailLoad}
+									onNewWindow={openInNewTab}
+									onRegisterWebview={handleRegisterWebview}
+								/>
+							))
 						) : (
 							<div className="ref-browser-preparing">
 								<div className="ref-agent-plan-status-title">{t('app.browserPreparing')}</div>
 								<p className="ref-agent-plan-status-body">{t('app.browserSettingsDescription')}</p>
 							</div>
 						)}
-						{loadError ? (
+						{activeTab?.loadError ? (
 							<div className="ref-browser-error-card" role="status">
 								<div className="ref-browser-error-title">{t('app.browserLoadFailed')}</div>
-								<p className="ref-browser-error-body">{loadError.message}</p>
-								{loadError.url ? (
-									<p className="ref-browser-error-url" title={loadError.url}>
-										{loadError.url}
+								<p className="ref-browser-error-body">{activeTab.loadError.message}</p>
+								{activeTab.loadError.url ? (
+									<p className="ref-browser-error-url" title={activeTab.loadError.url}>
+										{activeTab.loadError.url}
 									</p>
 								) : null}
 								<button
 									type="button"
 									className="ref-browser-error-btn"
 									onClick={() => {
-										setLoadError(null);
-										webviewRef.current?.reload();
+										const tabId = activeTabId;
+										setTabs((prev) =>
+											prev.map((tab) => (tab.id === tabId ? { ...tab, loadError: null } : tab))
+										);
+										webviewsRef.current.get(tabId)?.reload();
 									}}
 								>
 									{t('common.refresh')}
