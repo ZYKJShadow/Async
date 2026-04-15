@@ -215,6 +215,8 @@ export type AgentLoopOptions = {
 	workspaceLspManager?: WorkspaceLspManager | null;
 	/** 当前会话线程 ID，用于 TodoWrite 等按线程隔离状态的工具 */
 	threadId?: string | null;
+	/** 发起本轮 Agent 的宿主渲染进程 webContents id，用于控制当前窗口的内置浏览器等 UI 能力 */
+	hostWebContentsId?: number | null;
 	/**
 	 * Team 子循环：与流式 `teamRoleScope` 对齐，供 `ask_plan_question` 把澄清题挂到对应角色工作流。
 	 */
@@ -638,6 +640,7 @@ async function runOpenAILoop(
 			workspaceRoot: options.workspaceRoot ?? null,
 			workspaceLspManager: options.workspaceLspManager ?? null,
 			threadId: options.threadId ?? null,
+			hostWebContentsId: options.hostWebContentsId ?? null,
 			signal: options.signal,
 			teamToolRoleScope: options.teamToolRoleScope,
 		});
@@ -1062,6 +1065,7 @@ async function runAnthropicLoop(
 			workspaceRoot: options.workspaceRoot ?? null,
 			workspaceLspManager: options.workspaceLspManager ?? null,
 			threadId: options.threadId ?? null,
+			hostWebContentsId: options.hostWebContentsId ?? null,
 			signal: options.signal,
 			teamToolRoleScope: options.teamToolRoleScope,
 		});

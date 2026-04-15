@@ -65,6 +65,52 @@ type BrowserSidebarConfig = {
 	proxyBypassRules: string;
 };
 
+type BrowserControlPayload =
+	| {
+			commandId: string;
+			type: 'navigate';
+			target: string;
+			newTab?: boolean;
+	  }
+	| {
+			commandId: string;
+			type: 'reload' | 'stop' | 'goBack' | 'goForward' | 'closeTab';
+			tabId?: string;
+	  }
+	| {
+			commandId: string;
+			type: 'readPage';
+			tabId?: string;
+			selector?: string;
+			includeHtml?: boolean;
+			maxChars?: number;
+			waitForLoad?: boolean;
+	  }
+	| {
+			commandId: string;
+			type: 'screenshotPage';
+			tabId?: string;
+			waitForLoad?: boolean;
+	  }
+	| {
+			commandId: string;
+			type: 'applyConfig';
+			config: Partial<BrowserSidebarConfig>;
+			defaultUserAgent?: string;
+	  };
+
+type BrowserCommandResultPayload =
+	| {
+			commandId: string;
+			ok: true;
+			result: unknown;
+	  }
+	| {
+			commandId: string;
+			ok: false;
+			error: string;
+	  };
+
 const DEFAULT_BROWSER_SIDEBAR_CONFIG: BrowserSidebarConfig = {
 	userAgent: '',
 	acceptLanguage: '',
@@ -86,6 +132,43 @@ function normalizeBrowserSidebarConfig(raw?: Partial<BrowserSidebarConfig> | nul
 		proxyRules: String(raw?.proxyRules ?? '').trim(),
 		proxyBypassRules: String(raw?.proxyBypassRules ?? '').trim(),
 	};
+}
+
+function isBrowserControlPayload(raw: unknown): raw is BrowserControlPayload {
+	if (!raw || typeof raw !== 'object') {
+		return false;
+	}
+	const obj = raw as Record<string, unknown>;
+	if (typeof obj.commandId !== 'string' || typeof obj.type !== 'string') {
+		return false;
+	}
+	switch (obj.type) {
+		case 'navigate':
+			return typeof obj.target === 'string';
+		case 'reload':
+		case 'stop':
+		case 'goBack':
+		case 'goForward':
+		case 'closeTab':
+			return obj.tabId === undefined || typeof obj.tabId === 'string';
+		case 'readPage':
+			return (
+				(obj.tabId === undefined || typeof obj.tabId === 'string') &&
+				(obj.selector === undefined || typeof obj.selector === 'string') &&
+				(obj.includeHtml === undefined || typeof obj.includeHtml === 'boolean') &&
+				(obj.maxChars === undefined || typeof obj.maxChars === 'number') &&
+				(obj.waitForLoad === undefined || typeof obj.waitForLoad === 'boolean')
+			);
+		case 'screenshotPage':
+			return (
+				(obj.tabId === undefined || typeof obj.tabId === 'string') &&
+				(obj.waitForLoad === undefined || typeof obj.waitForLoad === 'boolean')
+			);
+		case 'applyConfig':
+			return Boolean(obj.config && typeof obj.config === 'object');
+		default:
+			return false;
+	}
 }
 
 function parseBrowserExtraHeadersText(raw: string): { ok: true; headers: Array<[string, string]> } | { ok: false; line: number } {
@@ -138,6 +221,31 @@ function normalizeBrowserTarget(raw: string): string {
 		return /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(text) ? text : `https://${text}`;
 	}
 	return `https://www.bing.com/search?q=${encodeURIComponent(text)}`;
+}
+
+function normalizeBrowserExtractedText(raw: string, maxChars: number): string {
+	const compact = String(raw ?? '')
+		.replace(/\r/g, '')
+		.replace(/\u00a0/g, ' ')
+		.replace(/[ \t]+\n/g, '\n')
+		.replace(/\n{3,}/g, '\n\n')
+		.replace(/[ \t]{2,}/g, ' ')
+		.trim();
+	return compact.length > maxChars ? `${compact.slice(0, maxChars)}\n\n... (truncated)` : compact;
+}
+
+async function notifyBrowserCommandResult(
+	shell: NonNullable<Window['asyncShell']> | undefined,
+	payload: BrowserCommandResultPayload
+): Promise<void> {
+	if (!shell) {
+		return;
+	}
+	try {
+		await shell.invoke('browser:commandResult', payload);
+	} catch {
+		/* ignore */
+	}
 }
 
 function BrowserSettingsModal({
@@ -1123,10 +1231,14 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	hasAgentPlanSidebarContent,
 	closeSidebar,
 	openView,
+	pendingCommand,
+	onCommandHandled,
 }: {
 	hasAgentPlanSidebarContent: boolean;
 	closeSidebar: () => void;
 	openView: (view: AgentRightSidebarView) => void;
+	pendingCommand: BrowserControlPayload | null;
+	onCommandHandled: (commandId: string) => void;
 }) {
 	const { t, shell } = useAppShellChrome();
 	const webviewsRef = useRef<Map<string, AsyncShellWebviewElement>>(new Map());
@@ -1148,6 +1260,169 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	const [browserSettingsError, setBrowserSettingsError] = useState<string | null>(null);
 	const [browserConfig, setBrowserConfig] = useState<BrowserSidebarConfig>(DEFAULT_BROWSER_SIDEBAR_CONFIG);
 	const [browserDraft, setBrowserDraft] = useState<BrowserSidebarConfig>(DEFAULT_BROWSER_SIDEBAR_CONFIG);
+
+	const applyBrowserConfigLocally = useCallback((rawConfig: Partial<BrowserSidebarConfig>, defaultUserAgent?: string) => {
+		const nextConfig = normalizeBrowserSidebarConfig(rawConfig);
+		setBrowserConfig(nextConfig);
+		setBrowserDraft(nextConfig);
+		if (typeof defaultUserAgent === 'string') {
+			defaultUserAgentRef.current = defaultUserAgent.trim();
+		}
+		const nextUserAgent = nextConfig.userAgent.trim() || defaultUserAgentRef.current;
+		webviewsRef.current.forEach((node) => {
+			if (nextUserAgent) {
+				try {
+					node.setUserAgent(nextUserAgent);
+				} catch {
+					/* ignore */
+				}
+			}
+			try {
+				node.reload();
+			} catch {
+				/* ignore */
+			}
+		});
+		setTabs((prev) => prev.map((tab) => ({ ...tab, loadError: null })));
+	}, []);
+
+	const waitForWebviewNode = useCallback((tabId: string, timeoutMs: number = 10_000): Promise<AsyncShellWebviewElement> => {
+		const startedAt = Date.now();
+		return new Promise((resolve, reject) => {
+			const tick = () => {
+				const node = webviewsRef.current.get(tabId);
+				if (node) {
+					resolve(node);
+					return;
+				}
+				if (Date.now() - startedAt >= timeoutMs) {
+					reject(new Error('Timed out waiting for browser tab to become ready.'));
+					return;
+				}
+				window.setTimeout(tick, 50);
+			};
+			tick();
+		});
+	}, []);
+
+	const waitForWebviewSettled = useCallback(
+		(node: AsyncShellWebviewElement, tabId: string, timeoutMs: number = 15_000): Promise<void> => {
+			const currentTab = tabsRef.current.find((tab) => tab.id === tabId);
+			if (!currentTab?.isLoading) {
+				return Promise.resolve();
+			}
+			return new Promise((resolve, reject) => {
+				const cleanup = () => {
+					window.clearTimeout(timer);
+					node.removeEventListener('did-stop-loading', handleStopLoading);
+					node.removeEventListener('did-fail-load', handleFailLoad);
+				};
+				const handleStopLoading = () => {
+					cleanup();
+					resolve();
+				};
+				const handleFailLoad = (event: Event) => {
+					const failEvent = event as BrowserFailEvent;
+					if (failEvent.isMainFrame === false || failEvent.errorCode === -3) {
+						return;
+					}
+					cleanup();
+					reject(new Error(String(failEvent.errorDescription ?? t('app.browserLoadFailed'))));
+				};
+				const timer = window.setTimeout(() => {
+					cleanup();
+					reject(new Error('Timed out waiting for page load to finish.'));
+				}, timeoutMs);
+				node.addEventListener('did-stop-loading', handleStopLoading);
+				node.addEventListener('did-fail-load', handleFailLoad);
+			});
+		},
+		[t]
+	);
+
+	const readPageFromWebview = useCallback(
+		async (
+			node: AsyncShellWebviewElement,
+			options: { selector?: string; includeHtml?: boolean; maxChars?: number }
+		): Promise<Record<string, unknown>> => {
+			const maxChars = Math.min(Math.max(500, Math.floor(options.maxChars ?? 12_000)), 50_000);
+			const script = `
+				(() => {
+					const args = ${JSON.stringify({
+						selector: options.selector ?? '',
+						includeHtml: options.includeHtml === true,
+						maxChars,
+					})};
+					const root = args.selector ? document.querySelector(args.selector) : (document.body || document.documentElement);
+					if (!root) {
+						return {
+							ok: false,
+							error: args.selector ? 'Selector did not match any element.' : 'Page body is unavailable.',
+						};
+					}
+					const rawText = String(root.innerText || root.textContent || '');
+					const htmlText = args.includeHtml
+						? String(root.outerHTML || root.innerHTML || '').slice(0, Math.min(args.maxChars, 30000))
+						: '';
+					const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
+						.map((el) => String(el.textContent || '').trim())
+						.filter(Boolean)
+						.slice(0, 20);
+					const links = Array.from(root.querySelectorAll('a[href]'))
+						.map((el) => ({
+							text: String(el.textContent || '').trim(),
+							href: String(el.getAttribute('href') || '').trim(),
+						}))
+						.filter((item) => item.href)
+						.slice(0, 20);
+					const metaDescription = document.querySelector('meta[name=\"description\"]')?.getAttribute('content') || '';
+					return {
+						ok: true,
+						url: location.href,
+						title: document.title || '',
+						lang: document.documentElement?.lang || '',
+						selector: args.selector || null,
+						metaDescription: metaDescription || '',
+						text: rawText,
+						totalTextLength: rawText.length,
+						headings,
+						links,
+						html: htmlText || undefined,
+					};
+				})()
+			`;
+			const result = await node.executeJavaScript<Record<string, unknown>>(script, true);
+			if (result?.ok === false) {
+				throw new Error(String(result.error ?? 'Failed to read page content.'));
+			}
+			const text = normalizeBrowserExtractedText(String(result?.text ?? ''), maxChars);
+			return {
+				url: String(result?.url ?? safeGetWebviewUrl(node)),
+				title: String(result?.title ?? ''),
+				lang: String(result?.lang ?? ''),
+				selector: result?.selector ?? null,
+				metaDescription: String(result?.metaDescription ?? ''),
+				totalTextLength: Number(result?.totalTextLength ?? text.length) || text.length,
+				text,
+				headings: Array.isArray(result?.headings) ? result.headings : [],
+				links: Array.isArray(result?.links) ? result.links : [],
+				...(options.includeHtml ? { html: String(result?.html ?? '') } : {}),
+			};
+		},
+		[]
+	);
+
+	const captureWebviewScreenshot = useCallback(async (node: AsyncShellWebviewElement): Promise<Record<string, unknown>> => {
+		const image = await node.capturePage();
+		const size = image.getSize();
+		return {
+			url: safeGetWebviewUrl(node),
+			title: tabsRef.current.find((tab) => webviewsRef.current.get(tab.id) === node)?.pageTitle ?? '',
+			width: size.width,
+			height: size.height,
+			dataUrl: image.toDataURL(),
+		};
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -1286,6 +1561,34 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 		setActiveTabId(tab.id);
 	}, []);
 
+	const navigateTab = useCallback((tabId: string, rawTarget: string) => {
+		const nextUrl = normalizeBrowserTarget(rawTarget);
+		const prevTab = tabsRef.current.find((tab) => tab.id === tabId) ?? null;
+		const sameAsRequested = prevTab?.requestedUrl === nextUrl;
+		setActiveTabId(tabId);
+		setTabs((prev) =>
+			prev.map((tab) => {
+				if (tab.id !== tabId) {
+					return tab;
+				}
+				return {
+					...tab,
+					requestedUrl: nextUrl,
+					currentUrl: nextUrl,
+					draftUrl: nextUrl,
+					pageTitle: '',
+					isLoading: true,
+					canGoBack: false,
+					canGoForward: false,
+					loadError: null,
+				};
+			})
+		);
+		if (sameAsRequested) {
+			webviewsRef.current.get(tabId)?.reload();
+		}
+	}, []);
+
 	// Subscribe to main-process forwarded new-window events for webview contents.
 	// Electron 12+ deprecated the 'new-window' event; the host (this webContents)
 	// receives 'async-shell:browserNewWindow' from web-contents-created hook in main.
@@ -1353,32 +1656,10 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			if (!activeTab) {
 				return;
 			}
-			const nextUrl = normalizeBrowserTarget(activeTab.draftUrl);
-			const sameAsRequested = nextUrl === activeTab.requestedUrl;
 			addressInputRef.current?.blur();
-			setTabs((prev) =>
-				prev.map((tab) => {
-					if (tab.id !== activeTabId) {
-						return tab;
-					}
-					return {
-						...tab,
-						requestedUrl: nextUrl,
-						currentUrl: nextUrl,
-						draftUrl: nextUrl,
-						pageTitle: '',
-						isLoading: true,
-						canGoBack: false,
-						canGoForward: false,
-						loadError: null,
-					};
-				})
-			);
-			if (sameAsRequested) {
-				webviewsRef.current.get(activeTabId)?.reload();
-			}
+			navigateTab(activeTabId, activeTab.draftUrl);
 		},
-		[activeTab, activeTabId]
+		[activeTab, activeTabId, navigateTab]
 	);
 
 	const onAddressKeyDown = useCallback(
@@ -1421,7 +1702,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 		setBrowserSettingsSaving(true);
 		setBrowserSettingsError(null);
 		try {
-			let nextConfig = normalizeBrowserSidebarConfig(browserDraft);
+			const nextConfig = normalizeBrowserSidebarConfig(browserDraft);
 			if (shell) {
 				const payload = (await shell.invoke('browser:setConfig', nextConfig)) as {
 					ok?: boolean;
@@ -1440,32 +1721,155 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 					}
 					return;
 				}
-				nextConfig = normalizeBrowserSidebarConfig(payload.config ?? nextConfig);
-				defaultUserAgentRef.current = String(payload.defaultUserAgent ?? defaultUserAgentRef.current ?? '').trim();
+				applyBrowserConfigLocally(
+					payload.config ?? nextConfig,
+					String(payload.defaultUserAgent ?? defaultUserAgentRef.current ?? '')
+				);
+			} else {
+				applyBrowserConfigLocally(nextConfig);
 			}
-			setBrowserConfig(nextConfig);
-			setBrowserDraft(nextConfig);
 			setBrowserSettingsOpen(false);
-			const nextUserAgent = nextConfig.userAgent.trim() || defaultUserAgentRef.current;
-			webviewsRef.current.forEach((node) => {
-				if (nextUserAgent) {
-					try {
-						node.setUserAgent(nextUserAgent);
-					} catch {
-						/* ignore */
-					}
-				}
-				try {
-					node.reload();
-				} catch {
-					/* ignore */
-				}
-			});
-			setTabs((prev) => prev.map((tab) => ({ ...tab, loadError: null })));
 		} finally {
 			setBrowserSettingsSaving(false);
 		}
-	}, [browserDraft, shell, t]);
+	}, [applyBrowserConfigLocally, browserDraft, shell, t]);
+
+	useEffect(() => {
+		if (!shell) {
+			return;
+		}
+		const payload = {
+			activeTabId,
+			tabs: tabs.map((tab) => ({
+				id: tab.id,
+				requestedUrl: tab.requestedUrl,
+				currentUrl: tab.currentUrl,
+				pageTitle: tab.pageTitle,
+				isLoading: tab.isLoading,
+				canGoBack: tab.canGoBack,
+				canGoForward: tab.canGoForward,
+				loadError: tab.loadError,
+			})),
+			updatedAt: Date.now(),
+		};
+		const timer = window.setTimeout(() => {
+			void shell.invoke('browser:syncState', payload).catch(() => {
+				/* ignore */
+			});
+		}, 40);
+		return () => {
+			window.clearTimeout(timer);
+		};
+	}, [activeTabId, shell, tabs]);
+
+	useEffect(() => {
+		if (!pendingCommand) {
+			return;
+		}
+		const command = pendingCommand;
+		const finish = () => onCommandHandled(command.commandId);
+		if (command.type === 'navigate') {
+			const activeId = activeTabIdRef.current;
+			const hasActiveTab = Boolean(activeId && tabsRef.current.some((tab) => tab.id === activeId));
+			if (command.newTab || !hasActiveTab || !activeId) {
+				openInNewTab(normalizeBrowserTarget(command.target));
+			} else {
+				navigateTab(activeId, command.target);
+			}
+			finish();
+			return;
+		}
+		if (command.type === 'applyConfig') {
+			applyBrowserConfigLocally(command.config, command.defaultUserAgent);
+			finish();
+			return;
+		}
+		void (async () => {
+			const targetTabId =
+				command.tabId && tabsRef.current.some((tab) => tab.id === command.tabId)
+					? command.tabId
+					: activeTabIdRef.current;
+			if (!targetTabId) {
+				if (command.type === 'readPage' || command.type === 'screenshotPage') {
+					await notifyBrowserCommandResult(shell, {
+						commandId: command.commandId,
+						ok: false,
+						error: 'No active browser tab is available.',
+					});
+				}
+				finish();
+				return;
+			}
+			if (command.type === 'closeTab') {
+				closeTab(targetTabId);
+				finish();
+				return;
+			}
+			setActiveTabId(targetTabId);
+			if (command.type === 'readPage' || command.type === 'screenshotPage') {
+				try {
+					const node = await waitForWebviewNode(targetTabId);
+					if (command.waitForLoad !== false) {
+						await waitForWebviewSettled(node, targetTabId);
+					}
+					if (command.type === 'readPage') {
+						const result = await readPageFromWebview(node, {
+							selector: command.selector,
+							includeHtml: command.includeHtml,
+							maxChars: command.maxChars,
+						});
+						await notifyBrowserCommandResult(shell, {
+							commandId: command.commandId,
+							ok: true,
+							result,
+						});
+					} else {
+						const result = await captureWebviewScreenshot(node);
+						await notifyBrowserCommandResult(shell, {
+							commandId: command.commandId,
+							ok: true,
+							result,
+						});
+					}
+				} catch (error) {
+					await notifyBrowserCommandResult(shell, {
+						commandId: command.commandId,
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				} finally {
+					finish();
+				}
+				return;
+			}
+			const node = webviewsRef.current.get(targetTabId);
+			if (command.type === 'reload') {
+				setTabs((prev) => prev.map((tab) => (tab.id === targetTabId ? { ...tab, loadError: null } : tab)));
+				node?.reload();
+			} else if (command.type === 'stop') {
+				node?.stop();
+			} else if (command.type === 'goBack') {
+				if (node?.canGoBack()) {
+					node.goBack();
+				}
+			} else if (command.type === 'goForward' && node?.canGoForward()) {
+				node.goForward();
+			}
+			finish();
+		})();
+	}, [
+		applyBrowserConfigLocally,
+		captureWebviewScreenshot,
+		closeTab,
+		navigateTab,
+		onCommandHandled,
+		openInNewTab,
+		pendingCommand,
+		readPageFromWebview,
+		shell,
+		waitForWebviewNode,
+		waitForWebviewSettled,
+	]);
 
 	const headerLabel = activeTab
 		? activeTab.isLoading
@@ -1918,7 +2322,29 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 	revertedPaths,
 	revertedChangeKeys,
 }: AgentRightSidebarProps) {
-	const { t } = useAppShellChrome();
+	const { t, shell } = useAppShellChrome();
+	const [pendingBrowserCommands, setPendingBrowserCommands] = useState<BrowserControlPayload[]>([]);
+
+	useEffect(() => {
+		const subscribe = shell?.subscribeBrowserControl;
+		if (!subscribe) {
+			return;
+		}
+		const unsubscribe = subscribe((payload) => {
+			if (!isBrowserControlPayload(payload)) {
+				return;
+			}
+			setPendingBrowserCommands((prev) => [...prev, payload]);
+			openView('browser');
+		});
+		return () => {
+			unsubscribe?.();
+		};
+	}, [openView, shell]);
+
+	const handleBrowserCommandHandled = useCallback((commandId: string) => {
+		setPendingBrowserCommands((prev) => prev.filter((command) => command.commandId !== commandId));
+	}, []);
 
 	let content: ReactNode;
 
@@ -1970,6 +2396,8 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 				hasAgentPlanSidebarContent={hasAgentPlanSidebarContent}
 				closeSidebar={closeSidebar}
 				openView={openView}
+				pendingCommand={pendingBrowserCommands[0] ?? null}
+				onCommandHandled={handleBrowserCommandHandled}
 			/>
 		);
 	} else if (view === 'team') {

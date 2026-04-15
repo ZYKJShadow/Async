@@ -19,3 +19,16 @@ describe('executeTool Bash', () => {
 		expect(result.content).not.toContain('hooks is not defined');
 	});
 });
+
+describe('executeTool Browser', () => {
+	it('fails gracefully when no host window is attached', async () => {
+		const result = await executeTool({
+			id: 'browser-1',
+			name: 'Browser',
+			arguments: { action: 'get_config' },
+		});
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain('attached to an app window');
+	});
+});

@@ -3,6 +3,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
@@ -34,6 +35,18 @@ import { extractMemoriesToDir } from '../services/extractMemories/extractMemorie
 import { setTodos, type TodoItem } from './todoStore.js';
 import { minimatch } from 'minimatch';
 import * as gitService from '../gitService.js';
+import {
+	awaitBrowserCommandResult,
+	dispatchBrowserControlToHostId,
+	getBrowserRuntimeStateForHostId,
+	getBrowserSidebarConfigPayloadForHostId,
+	getDefaultBrowserSidebarConfig,
+	getOrCreateBrowserSidebarConfigForHostId,
+	setBrowserSidebarConfigForHostId,
+	browserSidebarConfigToPayload,
+	type BrowserControlCommand,
+	type BrowserSidebarConfigPayload,
+} from '../browser/browserController.js';
 
 /** @deprecated 已由 WorkspaceLspManager 取代 */
 export function setToolLspSession(_session: unknown): void {
@@ -153,6 +166,372 @@ const MAX_MCP_RESOURCE_LIST_CHARS = 100_000;
 const MAX_MCP_RESOURCE_READ_CHARS = 100_000;
 /** Bash：与 Claude `BashTool.maxResultSizeChars` 一致 */
 const MAX_BASH_OUTPUT_CHARS = 30_000;
+
+function makeBrowserCommandId(): string {
+	return `browser-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function looksLikeBrowserDirectUrl(raw: string): boolean {
+	if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw)) {
+		return true;
+	}
+	return /^(localhost|(?:\d{1,3}\.){3}\d{1,3}|(?:[\w-]+\.)+[a-z]{2,})(?::\d+)?(?:[/?#].*)?$/i.test(raw);
+}
+
+function normalizeBrowserNavigateTarget(raw: string): string {
+	const text = raw.trim();
+	if (!text) {
+		return 'https://www.bing.com/';
+	}
+	if (looksLikeBrowserDirectUrl(text)) {
+		return /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(text) ? text : `https://${text}`;
+	}
+	return `https://www.bing.com/search?q=${encodeURIComponent(text)}`;
+}
+
+function browserControlDeliveryNote(sent: boolean, mode: 'command-only' | 'config-persisted'): string {
+	if (sent) {
+		return '';
+	}
+	return mode === 'config-persisted'
+		? ' The browser UI was not live in this window, but the config was saved and will apply next time the built-in browser opens.'
+		: ' The browser UI was not live in this window, so the command could not be delivered.';
+}
+
+function hasOwnBrowserArg(args: Record<string, unknown>, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(args, key);
+}
+
+function firstBrowserArg(args: Record<string, unknown>, ...keys: string[]): unknown {
+	for (const key of keys) {
+		if (hasOwnBrowserArg(args, key)) {
+			return args[key];
+		}
+	}
+	return undefined;
+}
+
+function parseDataUrlPng(dataUrl: string): Buffer {
+	const match = /^data:image\/png;base64,(.+)$/i.exec(dataUrl.trim());
+	if (!match?.[1]) {
+		throw new Error('Browser screenshot did not return a PNG data URL.');
+	}
+	return Buffer.from(match[1], 'base64');
+}
+
+function buildDefaultBrowserScreenshotPath(execCtx: ToolExecutionContext): { full: string; rel: string | null } {
+	const fileName = `browser-${new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, 'Z')}.png`;
+	if (execCtx.workspaceRoot) {
+		const rel = path.posix.join('.async', 'browser-captures', fileName);
+		const full = resolveWorkspacePath(rel, execCtx.workspaceRoot);
+		return { full, rel };
+	}
+	const full = path.join(os.tmpdir(), 'async-browser-captures', fileName);
+	return { full, rel: null };
+}
+
+async function executeBrowserTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
+	throwIfToolAbortRequested(execCtx.signal, call.name, 'browser:start');
+	const hostId = execCtx.hostWebContentsId ?? null;
+	if (!hostId) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'Browser tool is unavailable because this run is not attached to an app window.',
+			isError: true,
+		};
+	}
+
+	const action = String(call.arguments.action ?? '').trim();
+	if (!action) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'Error: action is required',
+			isError: true,
+		};
+	}
+
+	const dispatch = (command: BrowserControlCommand): boolean => dispatchBrowserControlToHostId(hostId, command);
+
+	switch (action) {
+		case 'get_config': {
+			const payload = await getBrowserSidebarConfigPayloadForHostId(hostId);
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: JSON.stringify(
+					{
+						partition: payload.partition,
+						defaultUserAgent: payload.defaultUserAgent,
+						config: payload.config,
+					},
+					null,
+					2
+				),
+				isError: false,
+			};
+		}
+		case 'get_state': {
+			const state = getBrowserRuntimeStateForHostId(hostId);
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: JSON.stringify(
+					state ?? {
+						activeTabId: null,
+						tabs: [],
+						note: 'No live browser state has been synced yet. Open or use the built-in browser first.',
+					},
+					null,
+					2
+				),
+				isError: false,
+			};
+		}
+		case 'navigate': {
+			const target = String(call.arguments.url ?? call.arguments.target ?? '').trim();
+			if (!target) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: 'Error: url is required for navigate',
+					isError: true,
+				};
+			}
+			const resolvedUrl = normalizeBrowserNavigateTarget(target);
+			const sent = dispatch({
+				commandId: makeBrowserCommandId(),
+				type: 'navigate',
+				target,
+				newTab: call.arguments.new_tab === true || call.arguments.newTab === true,
+			});
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: `Opened built-in browser at ${resolvedUrl}.${browserControlDeliveryNote(sent, 'command-only')}`.trim(),
+				isError: false,
+			};
+		}
+		case 'read_page': {
+			const timeoutMsRaw = Number(firstBrowserArg(call.arguments, 'timeout_ms', 'timeoutMs'));
+			const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 20_000;
+			const result = await awaitBrowserCommandResult(
+				hostId,
+				{
+					commandId: makeBrowserCommandId(),
+					type: 'readPage',
+					tabId:
+						typeof firstBrowserArg(call.arguments, 'tab_id', 'tabId') === 'string'
+							? String(firstBrowserArg(call.arguments, 'tab_id', 'tabId'))
+							: undefined,
+					selector:
+						typeof firstBrowserArg(call.arguments, 'selector') === 'string'
+							? String(firstBrowserArg(call.arguments, 'selector'))
+							: undefined,
+					includeHtml:
+						firstBrowserArg(call.arguments, 'include_html', 'includeHtml') === true ||
+						firstBrowserArg(call.arguments, 'include_html', 'includeHtml') === 'true',
+					maxChars: Number(firstBrowserArg(call.arguments, 'max_chars', 'maxChars')) || undefined,
+					waitForLoad:
+						firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === undefined
+							? true
+							: firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === true ||
+								firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === 'true',
+				},
+				timeoutMs
+			);
+			if (!result.ok) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: `Browser read_page failed: ${result.error}`,
+					isError: true,
+				};
+			}
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: JSON.stringify(result.result, null, 2),
+				isError: false,
+			};
+		}
+		case 'screenshot_page': {
+			const timeoutMsRaw = Number(firstBrowserArg(call.arguments, 'timeout_ms', 'timeoutMs'));
+			const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 25_000;
+			const result = await awaitBrowserCommandResult(
+				hostId,
+				{
+					commandId: makeBrowserCommandId(),
+					type: 'screenshotPage',
+					tabId:
+						typeof firstBrowserArg(call.arguments, 'tab_id', 'tabId') === 'string'
+							? String(firstBrowserArg(call.arguments, 'tab_id', 'tabId'))
+							: undefined,
+					waitForLoad:
+						firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === undefined
+							? true
+							: firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === true ||
+								firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === 'true',
+				},
+				timeoutMs
+			);
+			if (!result.ok) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: `Browser screenshot_page failed: ${result.error}`,
+					isError: true,
+				};
+			}
+			const payload = result.result && typeof result.result === 'object' ? (result.result as Record<string, unknown>) : {};
+			const png = parseDataUrlPng(String(payload.dataUrl ?? ''));
+			let saveTarget: { full: string; rel: string | null };
+			const rawFilePath = String(firstBrowserArg(call.arguments, 'file_path', 'filePath') ?? '').trim();
+			if (rawFilePath) {
+				const resolved = resolveAgentFilePath(rawFilePath, execCtx);
+				saveTarget = { full: resolved.full, rel: resolved.rel };
+			} else {
+				saveTarget = buildDefaultBrowserScreenshotPath(execCtx);
+			}
+			fs.mkdirSync(path.dirname(saveTarget.full), { recursive: true });
+			fs.writeFileSync(saveTarget.full, png);
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: JSON.stringify(
+					{
+						path: saveTarget.full,
+						relPath: saveTarget.rel,
+						format: 'png',
+						capture: 'viewport',
+						sizeBytes: png.length,
+						width: Number(payload.width ?? 0) || 0,
+						height: Number(payload.height ?? 0) || 0,
+						url: String(payload.url ?? ''),
+						title: String(payload.title ?? ''),
+					},
+					null,
+					2
+				),
+				isError: false,
+			};
+		}
+		case 'reload':
+		case 'stop':
+		case 'go_back':
+		case 'go_forward':
+		case 'close_tab': {
+			const commandType =
+				action === 'go_back'
+					? 'goBack'
+					: action === 'go_forward'
+						? 'goForward'
+						: action === 'close_tab'
+							? 'closeTab'
+							: (action as 'reload' | 'stop');
+			const sent = dispatch({
+				commandId: makeBrowserCommandId(),
+				type: commandType,
+				tabId:
+					typeof firstBrowserArg(call.arguments, 'tab_id', 'tabId') === 'string'
+						? String(firstBrowserArg(call.arguments, 'tab_id', 'tabId'))
+						: undefined,
+			});
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: `Browser command "${action}" dispatched.${browserControlDeliveryNote(sent, 'command-only')}`.trim(),
+				isError: false,
+			};
+		}
+		case 'reset_config': {
+			const nextConfig = browserSidebarConfigToPayload(getDefaultBrowserSidebarConfig());
+			const result = await setBrowserSidebarConfigForHostId(hostId, nextConfig);
+			if (!result.ok) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content:
+						result.error === 'invalid-header-line'
+							? `Invalid extra header format on line ${result.line}.`
+							: 'Proxy rules are required when proxyMode is custom.',
+					isError: true,
+				};
+			}
+			const sent = dispatch({
+				commandId: makeBrowserCommandId(),
+				type: 'applyConfig',
+				config: result.config,
+				defaultUserAgent: result.defaultUserAgent,
+			});
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: `Browser config reset to defaults.${browserControlDeliveryNote(sent, 'config-persisted')}`.trim(),
+				isError: false,
+			};
+		}
+		case 'set_config': {
+			const current = browserSidebarConfigToPayload(getOrCreateBrowserSidebarConfigForHostId(hostId));
+			const next: BrowserSidebarConfigPayload = {
+				...current,
+			};
+			if (hasOwnBrowserArg(call.arguments, 'userAgent') || hasOwnBrowserArg(call.arguments, 'user_agent')) {
+				next.userAgent = String(firstBrowserArg(call.arguments, 'userAgent', 'user_agent') ?? '').trim();
+			}
+			if (hasOwnBrowserArg(call.arguments, 'acceptLanguage') || hasOwnBrowserArg(call.arguments, 'accept_language')) {
+				next.acceptLanguage = String(firstBrowserArg(call.arguments, 'acceptLanguage', 'accept_language') ?? '').trim();
+			}
+			if (hasOwnBrowserArg(call.arguments, 'extraHeadersText') || hasOwnBrowserArg(call.arguments, 'extra_headers_text')) {
+				next.extraHeadersText = String(firstBrowserArg(call.arguments, 'extraHeadersText', 'extra_headers_text') ?? '').replace(/\r/g, '');
+			}
+			if (hasOwnBrowserArg(call.arguments, 'proxyMode') || hasOwnBrowserArg(call.arguments, 'proxy_mode')) {
+				const proxyMode = String(firstBrowserArg(call.arguments, 'proxyMode', 'proxy_mode') ?? '').trim();
+				next.proxyMode =
+					proxyMode === 'direct' || proxyMode === 'custom' || proxyMode === 'system' ? proxyMode : current.proxyMode;
+			}
+			if (hasOwnBrowserArg(call.arguments, 'proxyRules') || hasOwnBrowserArg(call.arguments, 'proxy_rules')) {
+				next.proxyRules = String(firstBrowserArg(call.arguments, 'proxyRules', 'proxy_rules') ?? '').trim();
+			}
+			if (hasOwnBrowserArg(call.arguments, 'proxyBypassRules') || hasOwnBrowserArg(call.arguments, 'proxy_bypass_rules')) {
+				next.proxyBypassRules = String(firstBrowserArg(call.arguments, 'proxyBypassRules', 'proxy_bypass_rules') ?? '').trim();
+			}
+			const result = await setBrowserSidebarConfigForHostId(hostId, next);
+			if (!result.ok) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content:
+						result.error === 'invalid-header-line'
+							? `Invalid extra header format on line ${result.line}.`
+							: 'Proxy rules are required when proxyMode is custom.',
+					isError: true,
+				};
+			}
+			const sent = dispatch({
+				commandId: makeBrowserCommandId(),
+				type: 'applyConfig',
+				config: result.config,
+				defaultUserAgent: result.defaultUserAgent,
+			});
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: `Browser config updated:\n${JSON.stringify(result.config, null, 2)}${browserControlDeliveryNote(sent, 'config-persisted')}`,
+				isError: false,
+			};
+		}
+		default:
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content:
+					'Unknown Browser action. Supported actions: get_config, get_state, navigate, read_page, screenshot_page, reload, stop, go_back, go_forward, close_tab, set_config, reset_config.',
+				isError: true,
+			};
+	}
+}
 
 async function executeListMcpResources(call: ToolCall): Promise<ToolResult> {
 	const filter = String(call.arguments.server ?? '').trim();
@@ -277,6 +656,7 @@ export type ToolExecutionContext = {
 	workspaceRoot?: string | null;
 	workspaceLspManager?: WorkspaceLspManager | null;
 	threadId?: string | null;
+	hostWebContentsId?: number | null;
 	signal?: AbortSignal;
 	/** Team 子循环：随 ask_plan_question 一并下发，供聊天区挂到对应角色 */
 	teamToolRoleScope?: TeamPlanQuestionRoleScope;
@@ -311,6 +691,8 @@ export async function executeTool(
 			return await executeGrepTool(call, execCtx);
 		case 'Bash':
 			return await executeCommand(call, hooks, execCtx);
+		case 'Browser':
+			return await executeBrowserTool(call, execCtx);
 		case 'LSP':
 			return await executeLspTool(call, execCtx);
 		case 'Agent':

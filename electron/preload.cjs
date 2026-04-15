@@ -15,6 +15,9 @@ const INVOKE_CHANNELS = new Set([
 	'workspace:searchFiles',
 	'browser:getConfig',
 	'browser:setConfig',
+	'browser:syncState',
+	'browser:getState',
+	'browser:commandResult',
 	'workspace:saveComposerAttachment',
 	'workspace:searchSymbols',
 	'lsp:ts:start',
@@ -194,6 +197,19 @@ ipcRenderer.on('async-shell:browserNewWindow', (_event, payload) => {
 	}
 });
 
+const browserControlHandlers = new Map();
+let browserControlSeq = 0;
+
+ipcRenderer.on('async-shell:browserControl', (_event, payload) => {
+	for (const fn of browserControlHandlers.values()) {
+		try {
+			fn(payload);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
 contextBridge.exposeInMainWorld('asyncShell', {
 	invoke(channel, ...args) {
 		if (!INVOKE_CHANNELS.has(channel)) {
@@ -249,5 +265,10 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++browserNewWindowSeq;
 		browserNewWindowHandlers.set(id, callback);
 		return () => browserNewWindowHandlers.delete(id);
+	},
+	subscribeBrowserControl(callback) {
+		const id = ++browserControlSeq;
+		browserControlHandlers.set(id, callback);
+		return () => browserControlHandlers.delete(id);
 	},
 });

@@ -228,6 +228,101 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 		},
 	},
 	{
+		name: 'Browser',
+		description:
+			'Control the app\'s built-in browser sidebar in the current Async window. Use this to open or steer pages, read visible page content, capture webpage screenshots, and inspect/update browser networking settings such as User-Agent, Accept-Language, extra request headers, and proxy configuration.',
+		parameters: {
+			type: 'object',
+			properties: {
+				action: {
+					type: 'string',
+					enum: [
+						'get_config',
+						'get_state',
+						'navigate',
+						'read_page',
+						'screenshot_page',
+						'reload',
+						'stop',
+						'go_back',
+						'go_forward',
+						'close_tab',
+						'set_config',
+						'reset_config',
+					],
+					description: 'Browser action to perform.',
+				},
+				url: {
+					type: 'string',
+					description:
+						'For navigate: a URL or plain search text. Search text is opened as a Bing search, matching the browser UI behavior.',
+				},
+				new_tab: {
+					type: 'boolean',
+					description: 'For navigate: open the target in a new tab instead of reusing the active tab.',
+				},
+				tab_id: {
+					type: 'string',
+					description:
+						'Optional tab id for reload/stop/go_back/go_forward/close_tab/read_page/screenshot_page. Omit to target the active tab.',
+				},
+				selector: {
+					type: 'string',
+					description: 'For read_page: optional CSS selector to extract from instead of the whole page body.',
+				},
+				include_html: {
+					type: 'boolean',
+					description: 'For read_page: include truncated HTML for the selected root element in addition to visible text.',
+				},
+				max_chars: {
+					type: 'number',
+					description: 'For read_page: maximum visible text characters to return. Default about 12000, capped by the app.',
+				},
+				wait_for_load: {
+					type: 'boolean',
+					description:
+						'For read_page and screenshot_page: wait for the current page load to settle before extracting. Default true.',
+				},
+				file_path: {
+					type: 'string',
+					description:
+						'For screenshot_page: optional output path. Workspace-relative or absolute inside the workspace. If omitted, the app saves to `.async/browser-captures/` when a workspace is open, otherwise to a temp folder.',
+				},
+				timeout_ms: {
+					type: 'number',
+					description: 'For read_page and screenshot_page: optional timeout for the browser-side operation.',
+				},
+				userAgent: {
+					type: 'string',
+					description: 'For set_config: override User-Agent. Pass an empty string to clear it.',
+				},
+				acceptLanguage: {
+					type: 'string',
+					description: 'For set_config: override Accept-Language. Pass an empty string to clear it.',
+				},
+				extraHeadersText: {
+					type: 'string',
+					description:
+						'For set_config: extra request headers as plain text, one `Header-Name: value` per line. Pass an empty string to clear all custom headers.',
+				},
+				proxyMode: {
+					type: 'string',
+					enum: ['system', 'direct', 'custom'],
+					description: 'For set_config: choose system proxy, no proxy, or custom proxy rules.',
+				},
+				proxyRules: {
+					type: 'string',
+					description: 'For set_config: Electron proxyRules string. Required when the resulting proxyMode is custom.',
+				},
+				proxyBypassRules: {
+					type: 'string',
+					description: 'For set_config: optional Electron proxyBypassRules string.',
+				},
+			},
+			required: ['action'],
+		},
+	},
+	{
 		name: 'LSP',
 		description:
 			'Language-server intelligence for the workspace, routed by **file extension** to LSP servers declared in plugin dirs under `<asyncData>/plugins/<name>/` or `<workspace>/.async/plugins/<name>/` with **`.lsp.json`** or **`plugin.json` → `lspServers`** (each server: **command**, optional **args**, required **extensionToLanguage** map). Legacy **`lsp.servers`** in settings.json is still merged. TS/JS additionally works if **typescript-language-server** is discoverable under the app or workspace `node_modules` (optional).\n\nOperations: goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls, getDiagnostics. Use **filePath** plus 1-based **line**/**character** except **getDiagnostics**/**workspaceSymbol** (optional line/char).\n\nIf nothing matches the file extension, add a plugin or legacy server entry. If an LSP method fails, fall back to **Read** / **Grep** / **Bash**.',

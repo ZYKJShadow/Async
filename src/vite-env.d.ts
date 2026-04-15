@@ -40,11 +40,18 @@ export interface AsyncShellAPI {
 	subscribeTerminalPtyExit?(callback: (id: string, code: unknown) => void): () => void;
 	/** webview 请求打开新窗口（由主进程 web-contents-created 钩子转发） */
 	subscribeBrowserNewWindow?(callback: (payload: { url: string; disposition?: string }) => void): () => void;
+	/** 主进程转发给内置浏览器面板的控制命令 */
+	subscribeBrowserControl?(callback: (payload: unknown) => void): () => void;
 }
 declare global {
-	interface AsyncShellWebviewElement extends HTMLElement {
+interface AsyncShellWebviewElement extends HTMLElement {
 		canGoBack(): boolean;
 		canGoForward(): boolean;
+		capturePage(): Promise<{
+			toDataURL(): string;
+			getSize(): { width: number; height: number };
+		}>;
+		executeJavaScript<T = unknown>(code: string, userGesture?: boolean): Promise<T>;
 		goBack(): void;
 		goForward(): void;
 		getUserAgent(): string;
