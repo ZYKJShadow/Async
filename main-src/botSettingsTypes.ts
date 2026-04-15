@@ -33,6 +33,8 @@ export type FeishuBotConfig = {
 	streamingCard?: boolean;
 };
 
+export type BotPermissionPolicy = 'strict' | 'readonly_auto' | 'permissive';
+
 export type BotIntegrationConfig = {
 	id: string;
 	name: string;
@@ -45,6 +47,7 @@ export type BotIntegrationConfig = {
 	allowedReplyChatIds?: string[];
 	allowedReplyUserIds?: string[];
 	systemPrompt?: string;
+	permissionPolicy?: BotPermissionPolicy;
 	telegram?: TelegramBotConfig;
 	slack?: SlackBotConfig;
 	discord?: DiscordBotConfig;

@@ -12,28 +12,106 @@ export type BotTodoListItem = {
 	activeForm?: string;
 };
 
+export type BotStreamChannel = 'leader' | 'worker';
+
 export type StreamReplyCallbacks = {
 	onStart: () => Promise<void>;
-	onDelta: (fullText: string) => Promise<void>;
+	onDelta: (fullText: string, channel?: BotStreamChannel) => Promise<void>;
 	onToolStatus: (name: string, state: 'running' | 'completed' | 'error', detail?: string) => void;
 	onTodoUpdate: (todos: BotTodoListItem[]) => void;
 	onDone: (fullText: string) => Promise<void>;
 	onError: (error: string) => Promise<void>;
 };
 
+export type BotInboundAttachment = {
+	kind: 'image' | 'file';
+	localPath: string;
+	name?: string;
+};
+
 export type PlatformInboundEnvelope = BotInboundMessage & {
+	messageId?: string;
+	attachments?: BotInboundAttachment[];
 	reply: (text: string) => Promise<void>;
 	replyImage?: (filePath: string) => Promise<void>;
 	replyFile?: (filePath: string) => Promise<void>;
+	sendTyping?: () => Promise<void>;
 	streamReply?: StreamReplyCallbacks;
 };
 
 export type PlatformMessageHandler = (message: PlatformInboundEnvelope) => Promise<void>;
 
 export type BotPlatformAdapter = {
+	platform: 'telegram' | 'slack' | 'discord' | 'feishu';
 	start(onMessage: PlatformMessageHandler): Promise<void>;
 	stop(): Promise<void>;
 };
+
+const CANCEL_INTENT_PATTERNS = [
+	/^\s*\/(stop|cancel|abort)\b/i,
+	/^\s*(stop|cancel|abort|halt)\b[!.。]?$/i,
+	/^\s*(停|取消|别做了|别再|中止|停一下|打断)[!。.!]?$/,
+];
+
+export function looksLikeCancelIntent(text: string): boolean {
+	const trimmed = String(text ?? '').trim();
+	if (!trimmed) {
+		return false;
+	}
+	return CANCEL_INTENT_PATTERNS.some((re) => re.test(trimmed));
+}
+
+export type BotSlashCommand =
+	| { kind: 'stop' }
+	| { kind: 'reset' }
+	| { kind: 'help' }
+	| { kind: 'status' }
+	| { kind: 'model'; value: string }
+	| { kind: 'workspace'; value: string }
+	| { kind: 'mode'; value: string }
+	| { kind: 'approve'; value: string }
+	| { kind: 'deny'; value: string };
+
+export function parseBotSlashCommand(text: string): BotSlashCommand | null {
+	const trimmed = String(text ?? '').trim();
+	if (!trimmed.startsWith('/')) {
+		return null;
+	}
+	const firstSpace = trimmed.search(/\s/);
+	const head = (firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace)).toLowerCase();
+	const rest = firstSpace === -1 ? '' : trimmed.slice(firstSpace + 1).trim();
+	switch (head) {
+		case '/stop':
+		case '/cancel':
+		case '/abort':
+			return { kind: 'stop' };
+		case '/reset':
+		case '/new':
+		case '/clear':
+			return { kind: 'reset' };
+		case '/help':
+			return { kind: 'help' };
+		case '/status':
+		case '/state':
+			return { kind: 'status' };
+		case '/model':
+			return { kind: 'model', value: rest };
+		case '/workspace':
+		case '/ws':
+			return { kind: 'workspace', value: rest };
+		case '/mode':
+			return { kind: 'mode', value: rest };
+		case '/y':
+		case '/approve':
+		case '/allow':
+			return { kind: 'approve', value: rest };
+		case '/n':
+		case '/deny':
+			return { kind: 'deny', value: rest };
+		default:
+			return null;
+	}
+}
 
 export function splitPlainText(text: string, maxLength: number): string[] {
 	const normalized = String(text ?? '').replace(/\r\n/g, '\n').trim();

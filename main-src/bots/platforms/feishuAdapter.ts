@@ -1,10 +1,18 @@
+import { app } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as lark from '@larksuiteoapi/node-sdk';
 import type { BotIntegrationConfig } from '../../botSettingsTypes.js';
-import type { BotPlatformAdapter, BotTodoListItem, PlatformMessageHandler, StreamReplyCallbacks } from './common.js';
+import type {
+	BotInboundAttachment,
+	BotPlatformAdapter,
+	BotTodoListItem,
+	PlatformMessageHandler,
+	StreamReplyCallbacks,
+} from './common.js';
 import { createJsonHttpInstance, createProxyAgent, resolveIntegrationProxyUrl, splitPlainText } from './common.js';
 import { FeishuCardKitClient, FeishuStreamingSession } from './feishuCardKit.js';
+import { renderForPlatform } from './platformMarkdown.js';
 
 const FEISHU_MESSAGE_DEDUP_TTL_MS = 10 * 60 * 1000;
 
@@ -95,6 +103,7 @@ export function extractFeishuMessageEvent(
 }
 
 export class FeishuBotAdapter implements BotPlatformAdapter {
+	readonly platform = 'feishu' as const;
 	private wsClient: lark.WSClient | null = null;
 	private client: lark.Client | null = null;
 	private cardKitClient: FeishuCardKitClient | null = null;
@@ -157,7 +166,11 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 			'im.message.receive_v1': async (data) => {
 				const event = extractFeishuMessageEvent(data);
 				const message = event?.message;
-				if (!message || message.message_type !== 'text') {
+				if (!message) {
+					return;
+				}
+				const messageType = String(message.message_type ?? '').trim();
+				if (messageType !== 'text' && messageType !== 'image' && messageType !== 'file') {
 					return;
 				}
 				const chatId = String(message.chat_id ?? '').trim();
@@ -171,8 +184,9 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 				if (isGroupChat && !this.isAllowedChat(chatId)) {
 					return;
 				}
-				const text = parseFeishuText(message.content);
-				if (!text) {
+				const text = messageType === 'text' ? parseFeishuText(message.content) : '';
+				const attachments = messageType === 'text' ? [] : await this.downloadInboundAttachments(message);
+				if (!text && attachments.length === 0) {
 					return;
 				}
 
@@ -221,11 +235,13 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 
 				void onMessage({
 					conversationKey: chatId,
+					messageId,
 					text,
+					attachments,
 					senderId: senderId || undefined,
 					senderName: String(event?.sender?.sender_type ?? '').trim() || undefined,
 					reply: async (replyText) => {
-						await this.replyPlainText(messageId, replyText);
+						await this.replyPlainText(messageId, renderForPlatform(replyText, 'feishu'));
 					},
 					replyImage: async (filePath) => {
 						await this.replyImage(messageId, filePath);
@@ -248,6 +264,56 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 			agent: proxyAgent,
 		});
 		this.wsClient.start({ eventDispatcher });
+	}
+
+	private async downloadInboundAttachments(message: FeishuMessage): Promise<BotInboundAttachment[]> {
+		if (!this.client || !message.message_id) {
+			return [];
+		}
+		const parsed = (() => {
+			try {
+				return JSON.parse(String(message.content ?? '')) as {
+					image_key?: string;
+					file_key?: string;
+					file_name?: string;
+				};
+			} catch {
+				return {} as { image_key?: string; file_key?: string; file_name?: string };
+			}
+		})();
+		const messageType = String(message.message_type ?? '').trim();
+		const key =
+			messageType === 'image' ? parsed.image_key?.trim() : parsed.file_key?.trim();
+		if (!key) {
+			return [];
+		}
+		try {
+			const fileResponse = await this.client.im.messageResource.get({
+				path: { message_id: message.message_id, file_key: key },
+				params: { type: messageType === 'image' ? 'image' : 'file' },
+			} as unknown as Parameters<typeof this.client.im.messageResource.get>[0]);
+			const tmpDir = path.join(app.getPath('temp'), 'async-bot-feishu');
+			fs.mkdirSync(tmpDir, { recursive: true });
+			const suggestedName = parsed.file_name || `${messageType}-${key}`;
+			const ext = path.extname(suggestedName) || (messageType === 'image' ? '.png' : '');
+			const localName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+			const target = path.join(tmpDir, localName);
+			if (fileResponse && typeof (fileResponse as { writeFile?: unknown }).writeFile === 'function') {
+				await (fileResponse as { writeFile: (p: string) => Promise<void> }).writeFile(target);
+			} else {
+				return [];
+			}
+			return [
+				{
+					kind: messageType === 'image' ? 'image' : 'file',
+					localPath: target,
+					name: suggestedName,
+				},
+			];
+		} catch (error) {
+			console.warn('[bots][feishu] inbound attachment download failed', error instanceof Error ? error.message : error);
+			return [];
+		}
 	}
 
 	private async replyPlainText(messageId: string, text: string): Promise<void> {

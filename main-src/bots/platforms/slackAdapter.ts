@@ -8,6 +8,7 @@ import {
 	splitPlainText,
 	websocketMessageToText,
 } from './common.js';
+import { renderForPlatform } from './platformMarkdown.js';
 import WebSocket from 'ws';
 
 type SlackEventEnvelope = {
@@ -23,14 +24,20 @@ type SlackEventEnvelope = {
 			channel?: string;
 			channel_type?: string;
 			thread_ts?: string;
+			ts?: string;
+			client_msg_id?: string;
 		};
 	};
 };
 
+const DEDUP_TTL_MS = 10 * 60 * 1000;
+
 export class SlackBotAdapter implements BotPlatformAdapter {
+	readonly platform = 'slack' as const;
 	private socket: WebSocket | null = null;
 	private stopRequested = false;
 	private botUserId = '';
+	private readonly seenEventIds = new Map<string, number>();
 
 	constructor(private readonly integration: BotIntegrationConfig) {}
 
@@ -40,6 +47,24 @@ export class SlackBotAdapter implements BotPlatformAdapter {
 
 	private get appToken(): string {
 		return this.integration.slack?.appToken?.trim() ?? '';
+	}
+
+	private hasSeen(eventId: string): boolean {
+		const trimmed = eventId.trim();
+		if (!trimmed) {
+			return false;
+		}
+		const now = Date.now();
+		for (const [id, ts] of this.seenEventIds) {
+			if (now - ts > DEDUP_TTL_MS) {
+				this.seenEventIds.delete(id);
+			}
+		}
+		if (this.seenEventIds.has(trimmed)) {
+			return true;
+		}
+		this.seenEventIds.set(trimmed, now);
+		return false;
 	}
 
 	private async api<T>(method: string, token: string, body?: Record<string, unknown>): Promise<T> {
@@ -115,21 +140,44 @@ export class SlackBotAdapter implements BotPlatformAdapter {
 			if (!isDirect && evt.type !== 'app_mention') {
 				return;
 			}
+			const dedupKey = String(evt.client_msg_id || evt.ts || '');
+			if (this.hasSeen(dedupKey)) {
+				return;
+			}
 			const cleaned = this.normalizeEventText(evt.text);
 			if (!cleaned) {
 				return;
 			}
+			const channelId = evt.channel;
+			const threadTs = evt.thread_ts;
 			void onMessage({
-				conversationKey: evt.thread_ts ? `${evt.channel}:${evt.thread_ts}` : evt.channel,
+				conversationKey: threadTs ? `${channelId}:${threadTs}` : channelId,
+				messageId: evt.ts,
 				text: cleaned,
 				senderId: evt.user,
 				reply: async (text) => {
-					for (const chunk of splitPlainText(text, 35000)) {
+					const rendered = renderForPlatform(text, 'slack');
+					for (const chunk of splitPlainText(rendered, 35000)) {
 						await this.api('chat.postMessage', this.botToken, {
-							channel: evt.channel,
+							channel: channelId,
 							text: chunk,
-							...(evt.thread_ts ? { thread_ts: evt.thread_ts } : {}),
+							mrkdwn: true,
+							...(threadTs ? { thread_ts: threadTs } : {}),
 						});
+					}
+				},
+				sendTyping: async () => {
+					if (this.socket?.readyState === WebSocket.OPEN) {
+						try {
+							this.socket.send(
+								JSON.stringify({
+									type: 'user_typing',
+									channel: channelId,
+								})
+							);
+						} catch {
+							/* ignore */
+						}
 					}
 				},
 			});
@@ -165,5 +213,6 @@ export class SlackBotAdapter implements BotPlatformAdapter {
 		this.stopRequested = true;
 		this.socket?.close();
 		this.socket = null;
+		this.seenEventIds.clear();
 	}
 }

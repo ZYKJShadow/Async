@@ -8,6 +8,7 @@ import { registerIpc } from './ipc/register.js';
 import { configureAppWindowIcon, createAppWindow } from './appWindow.js';
 import { initAutoUpdate } from './autoUpdate.js';
 import { disposeBotController, initBotController, syncBotControllerFromSettings } from './bots/botController.js';
+import { flushBotSessionStore, initBotSessionStore } from './bots/botSessionStore.js';
 
 function resolveAppIconPath(): string | undefined {
 	const iconsDir = path.join(app.getAppPath(), 'resources', 'icons');
@@ -50,6 +51,7 @@ app.on('before-quit', (e) => {
 	}
 	quittingAfterThreadStoreFlush = true;
 	e.preventDefault();
+	flushBotSessionStore();
 	void Promise.allSettled([flushPendingSave(), disposeBotController()]).finally(() => {
 		app.quit();
 	});
@@ -80,6 +82,8 @@ app.whenReady().then(() => {
 	const userData = app.getPath('userData');
 	initSettingsStore(userData);
 	lap('settingsStore init');
+	initBotSessionStore(userData);
+	lap('botSessionStore init');
 	initBotController(getSettings);
 	void syncBotControllerFromSettings(getSettings());
 	lap('botController init');
