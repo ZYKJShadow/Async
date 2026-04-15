@@ -81,6 +81,17 @@ Async IDE is an open-source AI-native desktop application designed as your comma
   <img src="docs/assets/setting_3.png" width="1829" alt="Async Cursor Theme" />
 </p>
 
+### Browser tool invocation (with customizable request headers)
+
+<p align="center">
+  <img src="docs/assets/browser_1.png" width="2868" alt="Async 模型设置" />
+</p>
+
+### Multi-Agent Collaborative Expert Group
+
+<p align="center">
+  <img src="docs/assets/multi_agent_1.png" width="2871" alt="Async 模型设置" />
+</p>
 
 ---
 

@@ -794,16 +794,19 @@ function AppMainWorkspaceInner() {
 		}
 	}, [composerMode]);
 
-	/** 切回正在后台流式回复的线程时，把离屏累积的正文/思考草稿铺回 UI */
-	const flushOffThreadStreamDraftIfNeeded = useCallback(
+	/** 切回仍在后台运行的线程时，恢复暂停态；若有离屏累积草稿则一并铺回 UI */
+	const restoreInFlightThreadUiIfNeeded = useCallback(
 		(threadId: string) => {
+			if (ipcInFlightChatThreadIdRef.current !== threadId) {
+				return;
+			}
 			const draft = offThreadStreamDraftsRef.current[threadId];
-			if (draft && ipcInFlightChatThreadIdRef.current === threadId) {
+			if (draft) {
 				setStreaming(draft.streaming);
 				setStreamingThinking(draft.streamingThinking);
-				setAwaitingReply(true);
 				delete offThreadStreamDraftsRef.current[threadId];
 			}
+			setAwaitingReply(true);
 		},
 		[setStreaming, setStreamingThinking, setAwaitingReply]
 	);
@@ -1888,13 +1891,13 @@ function AppMainWorkspaceInner() {
 			// 间接触发导致多出一帧空白 render。去重 ref 确保 effect 不会发起重复 IPC。
 			if (threadId) {
 				await loadMessages(threadId, onMessagesLoaded);
-				flushOffThreadStreamDraftIfNeeded(threadId);
+				restoreInFlightThreadUiIfNeeded(threadId);
 				mark('messages-done');
 				measure('void-ws:apply-path:messages', 'threads-done', 'messages-done');
 				console.log(`[perf][renderer] loadMessages done in ${(performance.now() - t0).toFixed(1)}ms`);
 			}
 		},
-		[clearWorkspaceConversationState, refreshThreads, loadMessages, onMessagesLoaded, flushOffThreadStreamDraftIfNeeded]
+		[clearWorkspaceConversationState, refreshThreads, loadMessages, onMessagesLoaded, restoreInFlightThreadUiIfNeeded]
 	);
 
 	const openWorkspaceByPath = useCallback(
@@ -2222,7 +2225,7 @@ function AppMainWorkspaceInner() {
 				}
 				await loadMessages(id, onMessagesLoaded);
 			}
-			flushOffThreadStreamDraftIfNeeded(id);
+			restoreInFlightThreadUiIfNeeded(id);
 
 			if (dev) {
 				const tAfterLoad = performance.now();
@@ -2248,7 +2251,7 @@ function AppMainWorkspaceInner() {
 			clearStreamingToolPreviewNow,
 			resetLiveAgentBlocks,
 			setAgentFilePreview,
-			flushOffThreadStreamDraftIfNeeded,
+			restoreInFlightThreadUiIfNeeded,
 		]
 	);
 
