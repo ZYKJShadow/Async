@@ -74,6 +74,10 @@ type BrowserControlPayload =
 	  }
 	| {
 			commandId: string;
+			type: 'closeSidebar';
+	  }
+	| {
+			commandId: string;
 			type: 'reload' | 'stop' | 'goBack' | 'goForward' | 'closeTab';
 			tabId?: string;
 	  }
@@ -145,6 +149,8 @@ function isBrowserControlPayload(raw: unknown): raw is BrowserControlPayload {
 	switch (obj.type) {
 		case 'navigate':
 			return typeof obj.target === 'string';
+		case 'closeSidebar':
+			return true;
 		case 'reload':
 		case 'stop':
 		case 'goBack':
@@ -1784,6 +1790,10 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			finish();
 			return;
 		}
+		if (command.type === 'closeSidebar') {
+			finish();
+			return;
+		}
 		void (async () => {
 			const targetTabId =
 				command.tabId && tabsRef.current.some((tab) => tab.id === command.tabId)
@@ -2334,13 +2344,17 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 			if (!isBrowserControlPayload(payload)) {
 				return;
 			}
+			if (payload.type === 'closeSidebar') {
+				closeSidebar();
+				return;
+			}
 			setPendingBrowserCommands((prev) => [...prev, payload]);
 			openView('browser');
 		});
 		return () => {
 			unsubscribe?.();
 		};
-	}, [openView, shell]);
+	}, [closeSidebar, openView, shell]);
 
 	const handleBrowserCommandHandled = useCallback((commandId: string) => {
 		setPendingBrowserCommands((prev) => prev.filter((command) => command.commandId !== commandId));

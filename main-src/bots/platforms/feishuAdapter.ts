@@ -4,6 +4,8 @@ import type { BotPlatformAdapter, PlatformMessageHandler, StreamReplyCallbacks }
 import { createJsonHttpInstance, createProxyAgent, resolveIntegrationProxyUrl, splitPlainText } from './common.js';
 import { FeishuCardKitClient, FeishuStreamingSession } from './feishuCardKit.js';
 
+const FEISHU_MESSAGE_DEDUP_TTL_MS = 10 * 60 * 1000;
+
 type FeishuSenderId = {
 	open_id?: string;
 	user_id?: string;
@@ -70,6 +72,7 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 	private wsClient: lark.WSClient | null = null;
 	private client: lark.Client | null = null;
 	private cardKitClient: FeishuCardKitClient | null = null;
+	private readonly recentMessageIds = new Map<string, number>();
 
 	constructor(private readonly integration: BotIntegrationConfig) {}
 
@@ -83,6 +86,24 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 	private isAllowedUser(userIds: string[]): boolean {
 		const allowed = this.integration.allowedReplyUserIds ?? [];
 		return allowed.length === 0 || userIds.some((userId) => allowed.includes(userId));
+	}
+
+	private shouldProcessMessage(messageId: string): boolean {
+		const trimmed = messageId.trim();
+		if (!trimmed) {
+			return true;
+		}
+		const now = Date.now();
+		for (const [knownId, ts] of this.recentMessageIds.entries()) {
+			if (now - ts > FEISHU_MESSAGE_DEDUP_TTL_MS) {
+				this.recentMessageIds.delete(knownId);
+			}
+		}
+		if (this.recentMessageIds.has(trimmed)) {
+			return false;
+		}
+		this.recentMessageIds.set(trimmed, now);
+		return true;
 	}
 
 	async start(onMessage: PlatformMessageHandler): Promise<void> {
@@ -130,6 +151,9 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 				}
 
 				const messageId = String(message.message_id ?? '');
+				if (!this.shouldProcessMessage(messageId)) {
+					return;
+				}
 
 				// Build streaming callbacks if CardKit is enabled
 				let streamReply: StreamReplyCallbacks | undefined;
@@ -165,7 +189,7 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 					};
 				}
 
-				await onMessage({
+				void onMessage({
 					conversationKey: chatId,
 					text,
 					senderId: senderId || undefined,
@@ -174,6 +198,8 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 						await this.replyPlainText(messageId, replyText);
 					},
 					streamReply,
+				}).catch((error) => {
+					console.warn('[bots][feishu] async message handling failed', error instanceof Error ? error.message : error);
 				});
 			},
 		});
@@ -200,5 +226,6 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 		this.wsClient = null;
 		this.client = null;
 		this.cardKitClient = null;
+		this.recentMessageIds.clear();
 	}
 }

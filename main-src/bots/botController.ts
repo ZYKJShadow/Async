@@ -38,6 +38,19 @@ class BotController {
 		this.lspManager = createBotWorkspaceLspManager(getSettings);
 	}
 
+	private clearIntegrationState(integrationId: string): void {
+		for (const key of [...this.sessions.keys()]) {
+			if (key.startsWith(`${integrationId}::`)) {
+				this.sessions.delete(key);
+			}
+		}
+		for (const key of [...this.sessionTails.keys()]) {
+			if (key.startsWith(`${integrationId}::`)) {
+				this.sessionTails.delete(key);
+			}
+		}
+	}
+
 	private async handleInbound(
 		integration: BotIntegrationConfig,
 		message: PlatformInboundEnvelope
@@ -127,6 +140,7 @@ class BotController {
 				await adapter.stop().catch(() => {});
 				this.adapters.delete(id);
 				this.adapterFingerprints.delete(id);
+				this.clearIntegrationState(id);
 			}
 		}
 
@@ -141,6 +155,7 @@ class BotController {
 				this.adapters.delete(id);
 				this.adapterFingerprints.delete(id);
 			}
+			this.clearIntegrationState(id);
 			const adapter = createAdapter(integration);
 			if (!adapter) {
 				continue;

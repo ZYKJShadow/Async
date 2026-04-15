@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentToolDef, ToolCall, ToolResult } from '../agent/agentTools.js';
@@ -139,6 +139,15 @@ function normalizeWorkspaceRoot(value: string | null | undefined): string | null
 
 function normalizeWorkspaceKey(root: string | null | undefined): string {
 	return (normalizeWorkspaceRoot(root) ?? '__global__').replace(/\\/g, '/').toLowerCase();
+}
+
+function resolveBotHostWebContentsId(): number | null {
+	const focused = BrowserWindow.getFocusedWindow();
+	if (focused && !focused.isDestroyed()) {
+		return focused.webContents.id;
+	}
+	const fallback = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
+	return fallback?.webContents.id ?? null;
 }
 
 function collectAvailableWorkspaceRoots(integration: BotIntegrationConfig): string[] {
@@ -445,6 +454,7 @@ function ensureThreadForSession(session: BotSessionState): string {
 async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 	const { settings, integration, session, task, workspaceLspManager, signal } = args;
 	const threadId = ensureThreadForSession(session);
+	const hostWebContentsId = resolveBotHostWebContentsId();
 	const mode = session.mode;
 	const modelSelection = session.modelId.trim();
 	if (!modelSelection) {
@@ -592,6 +602,7 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 						workspaceRoot: session.workspaceRoot,
 						workspaceLspManager,
 						threadId,
+						hostWebContentsId,
 						toolHooks: {
 							beforeWrite: ({ path: relPath, previousContent }) => {
 								touchFileInThread(

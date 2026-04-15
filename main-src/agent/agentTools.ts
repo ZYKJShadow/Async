@@ -242,6 +242,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 						'navigate',
 						'read_page',
 						'screenshot_page',
+						'close_sidebar',
 						'reload',
 						'stop',
 						'go_back',

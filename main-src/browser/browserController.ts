@@ -45,6 +45,10 @@ export type BrowserControlCommand =
 	  }
 	| {
 			commandId: string;
+			type: 'closeSidebar';
+	  }
+	| {
+			commandId: string;
 			type: 'reload' | 'stop' | 'goBack' | 'goForward' | 'closeTab';
 			tabId?: string;
 	  }

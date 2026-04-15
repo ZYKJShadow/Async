@@ -74,6 +74,7 @@ import { textBeforeCaretForAt } from './composerRichDom';
 import { useComposerAtMention, type AtComposerSlot } from './useComposerAtMention';
 import { useComposerSlashCommand } from './useComposerSlashCommand';
 import { type AgentRuleScope } from './agentSettingsTypes';
+import type { BotIntegrationConfig } from './botSettingsTypes';
 
 const EMPTY_AGENT_PENDING_PATCHES: AgentPendingPatch[] = [];
 const EMPTY_SNAPSHOT_PATHS: ReadonlySet<string> = new Set<string>();
@@ -2925,6 +2926,19 @@ function AppMainWorkspaceInner() {
 		layoutMode,
 		layoutPinnedBySurface,
 	]);
+
+	const onChangeBotIntegrations = useCallback(
+		(next: BotIntegrationConfig[]) => {
+			setBotIntegrations(next);
+			if (!shell) {
+				return;
+			}
+			void shell.invoke('settings:set', {
+				bots: { integrations: next },
+			});
+		},
+		[shell, setBotIntegrations]
+	);
 
 	/** 离开设置页时写入磁盘（返回、点遮罩、Esc 等） */
 	const closeSettingsPage = useCallback(async () => {
@@ -5928,7 +5942,7 @@ function AppMainWorkspaceInner() {
 			teamSettings,
 			onChangeTeamSettings: setTeamSettings,
 			botIntegrations,
-			onChangeBotIntegrations: setBotIntegrations,
+			onChangeBotIntegrations,
 			editorSettings,
 			onChangeEditorSettings: setEditorSettings,
 			onPersistLanguage: (loc) => void onPersistLanguage(loc),
