@@ -1,6 +1,30 @@
 /// <reference types="vite/client" />
 import type * as React from 'react';
 
+// Override React's WebViewHTMLAttributes to allow string for allowpopups
+declare global {
+	namespace React {
+		interface WebViewHTMLAttributes<T> {
+			allowFullScreen?: boolean | undefined;
+			allowpopups?: string | boolean | undefined;
+			autosize?: boolean | undefined;
+			blinkfeatures?: string | undefined;
+			disableblinkfeatures?: string | undefined;
+			disableguestresize?: boolean | undefined;
+			disablewebsecurity?: boolean | undefined;
+			guestinstance?: string | undefined;
+			httpreferrer?: string | undefined;
+			nodeintegration?: boolean | undefined;
+			partition?: string | undefined;
+			plugins?: boolean | undefined;
+			preload?: string | undefined;
+			src?: string | undefined;
+			useragent?: string | undefined;
+			webpreferences?: string | undefined;
+		}
+	}
+}
+
 export interface AsyncShellAPI {
 	invoke(channel: string, ...args: unknown[]): Promise<unknown>;
 	subscribeChat(callback: (payload: unknown) => void): () => void;
@@ -14,6 +38,8 @@ export interface AsyncShellAPI {
 	/** PTY 终端输出（按 session id 区分） */
 	subscribeTerminalPtyData?(callback: (id: string, data: string) => void): () => void;
 	subscribeTerminalPtyExit?(callback: (id: string, code: unknown) => void): () => void;
+	/** webview 请求打开新窗口（由主进程 web-contents-created 钩子转发） */
+	subscribeBrowserNewWindow?(callback: (payload: { url: string; disposition?: string }) => void): () => void;
 }
 declare global {
 	interface AsyncShellWebviewElement extends HTMLElement {
@@ -31,12 +57,7 @@ declare global {
 
 	namespace JSX {
 		interface IntrinsicElements {
-			webview: React.DetailedHTMLProps<React.HTMLAttributes<AsyncShellWebviewElement>, AsyncShellWebviewElement> & {
-				src?: string;
-				partition?: string;
-				allowpopups?: boolean | 'true' | 'false';
-				useragent?: string;
-			};
+			webview: React.DetailedHTMLProps<React.WebViewHTMLAttributes<AsyncShellWebviewElement>, AsyncShellWebviewElement>;
 		}
 	}
 

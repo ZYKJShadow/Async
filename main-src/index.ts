@@ -27,6 +27,21 @@ function resolveAppIconPath(): string | undefined {
 
 initWindowsConsoleUtf8();
 
+// Intercept webview new-window requests and forward to host renderer
+// (Electron 12+ deprecated the new-window event; use setWindowOpenHandler instead)
+app.on('web-contents-created', (_event, contents) => {
+	if (contents.getType() !== 'webview') {
+		return;
+	}
+	contents.setWindowOpenHandler(({ url, disposition }) => {
+		const host = contents.hostWebContents;
+		if (host && !host.isDestroyed()) {
+			host.send('async-shell:browserNewWindow', { url, disposition });
+		}
+		return { action: 'deny' };
+	});
+});
+
 let quittingAfterThreadStoreFlush = false;
 app.on('before-quit', (e) => {
 	if (quittingAfterThreadStoreFlush) {

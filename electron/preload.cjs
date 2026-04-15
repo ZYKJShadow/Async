@@ -181,6 +181,19 @@ ipcRenderer.on('auto-update:status', (_event, payload) => {
 	}
 });
 
+const browserNewWindowHandlers = new Map();
+let browserNewWindowSeq = 0;
+
+ipcRenderer.on('async-shell:browserNewWindow', (_event, payload) => {
+	for (const fn of browserNewWindowHandlers.values()) {
+		try {
+			fn(payload);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
 contextBridge.exposeInMainWorld('asyncShell', {
 	invoke(channel, ...args) {
 		if (!INVOKE_CHANNELS.has(channel)) {
@@ -231,5 +244,10 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++autoUpdateStatusSeq;
 		autoUpdateStatusHandlers.set(id, callback);
 		return () => autoUpdateStatusHandlers.delete(id);
+	},
+	subscribeBrowserNewWindow(callback) {
+		const id = ++browserNewWindowSeq;
+		browserNewWindowHandlers.set(id, callback);
+		return () => browserNewWindowHandlers.delete(id);
 	},
 });

@@ -56,12 +56,6 @@ type BrowserFailEvent = Event & {
 	validatedURL?: string;
 	isMainFrame?: boolean;
 };
-type BrowserNewWindowEvent = Event & {
-	url?: string;
-	disposition?: string;
-	preventDefault?: () => void;
-};
-
 type BrowserSidebarConfig = {
 	userAgent: string;
 	acceptLanguage: string;
@@ -981,31 +975,30 @@ function createBrowserTab(url: string = BROWSER_HOME_URL): BrowserTab {
 	};
 }
 
-const BrowserTabView = memo(function BrowserTabView({
-	tab,
-	partition,
-	userAgent,
-	active,
-	t,
-	onNavigate,
-	onTitle,
-	onLoading,
-	onFailLoad,
-	onNewWindow,
-	onRegisterWebview,
-}: {
-	tab: BrowserTab;
-	partition: string;
-	userAgent?: string;
-	active: boolean;
-	t: TFunction;
-	onNavigate: (id: string, patch: { currentUrl: string; canGoBack: boolean; canGoForward: boolean }) => void;
-	onTitle: (id: string, title: string) => void;
-	onLoading: (id: string, isLoading: boolean, currentUrl?: string) => void;
-	onFailLoad: (id: string, error: { message: string; url: string }) => void;
-	onNewWindow: (url: string) => void;
-	onRegisterWebview: (id: string, node: AsyncShellWebviewElement | null) => void;
-}) {
+const BrowserTabView = memo(
+	function BrowserTabView({
+		tab,
+		partition,
+		userAgent,
+		active,
+		t,
+		onNavigate,
+		onTitle,
+		onLoading,
+		onFailLoad,
+		onRegisterWebview,
+	}: {
+		tab: BrowserTab;
+		partition: string;
+		userAgent?: string;
+		active: boolean;
+		t: TFunction;
+		onNavigate: (id: string, patch: { currentUrl: string; canGoBack: boolean; canGoForward: boolean }) => void;
+		onTitle: (id: string, title: string) => void;
+		onLoading: (id: string, isLoading: boolean, currentUrl?: string) => void;
+		onFailLoad: (id: string, error: { message: string; url: string }) => void;
+		onRegisterWebview: (id: string, node: AsyncShellWebviewElement | null) => void;
+	}) {
 	const webviewRef = useRef<AsyncShellWebviewElement | null>(null);
 	const tabIdRef = useRef(tab.id);
 	tabIdRef.current = tab.id;
@@ -1013,7 +1006,11 @@ const BrowserTabView = memo(function BrowserTabView({
 	const assignWebviewRef = useCallback(
 		(node: AsyncShellWebviewElement | null) => {
 			webviewRef.current = node;
-			onRegisterWebview(tabIdRef.current, node);
+			try {
+				onRegisterWebview(tabIdRef.current, node);
+			} catch (err) {
+				console.error('[BrowserTab] error in onRegisterWebview:', err);
+			}
 		},
 		[onRegisterWebview]
 	);
@@ -1072,16 +1069,6 @@ const BrowserTabView = memo(function BrowserTabView({
 				url: failedUrl,
 			});
 		};
-		const handleNewWindow = (event: Event) => {
-			const newWinEvent = event as BrowserNewWindowEvent;
-			const targetUrl = String(newWinEvent.url ?? '').trim();
-			if (!targetUrl) {
-				return;
-			}
-			newWinEvent.preventDefault?.();
-			onNewWindow(targetUrl);
-		};
-
 		node.addEventListener('dom-ready', handleDomReady);
 		node.addEventListener('did-start-loading', handleStartLoading);
 		node.addEventListener('did-stop-loading', handleStopLoading);
@@ -1089,7 +1076,6 @@ const BrowserTabView = memo(function BrowserTabView({
 		node.addEventListener('did-navigate-in-page', handleNavigate);
 		node.addEventListener('page-title-updated', handleTitleUpdated);
 		node.addEventListener('did-fail-load', handleFailLoad);
-		node.addEventListener('new-window', handleNewWindow);
 
 		return () => {
 			node.removeEventListener('dom-ready', handleDomReady);
@@ -1099,21 +1085,39 @@ const BrowserTabView = memo(function BrowserTabView({
 			node.removeEventListener('did-navigate-in-page', handleNavigate);
 			node.removeEventListener('page-title-updated', handleTitleUpdated);
 			node.removeEventListener('did-fail-load', handleFailLoad);
-			node.removeEventListener('new-window', handleNewWindow);
 		};
-	}, [partition, onLoading, onNavigate, onTitle, onFailLoad, onNewWindow, t]);
+	}, [partition, onLoading, onNavigate, onTitle, onFailLoad]);
 
-	return (
-		<webview
-			ref={assignWebviewRef}
-			className={`ref-browser-webview${active ? '' : ' is-hidden'}`}
-			src={tab.requestedUrl}
-			partition={partition}
-			allowpopups={true}
-			useragent={userAgent}
-		/>
-	);
-});
+	const webviewProps = {
+		ref: assignWebviewRef,
+		className: `ref-browser-webview${active ? '' : ' is-hidden'}`,
+		src: tab.requestedUrl,
+		partition: partition,
+		useragent: userAgent,
+		onLoad: () => console.log('[BrowserTab] webview onLoad event fired'),
+		allowpopups: 'true' as any,  // Electron webview expects string, not boolean
+	};
+	return <webview {...webviewProps} />;
+},
+(prevProps, nextProps) => {
+	// 自定义比较：忽略 t 的变化，只比较关键属性，防止频繁卸载
+	const comparisons = {
+		tabIdSame: prevProps.tab.id === nextProps.tab.id,
+		requestedUrlSame: prevProps.tab.requestedUrl === nextProps.tab.requestedUrl,
+		currentUrlSame: prevProps.tab.currentUrl === nextProps.tab.currentUrl,
+		isLoadingSame: prevProps.tab.isLoading === nextProps.tab.isLoading,
+		canGoBackSame: prevProps.tab.canGoBack === nextProps.tab.canGoBack,
+		canGoForwardSame: prevProps.tab.canGoForward === nextProps.tab.canGoForward,
+		partitionSame: prevProps.partition === nextProps.partition,
+		userAgentSame: prevProps.userAgent === nextProps.userAgent,
+		activeSame: prevProps.active === nextProps.active,
+	};
+
+	const same = Object.values(comparisons).every(Boolean);
+
+	return same;
+}
+);
 
 const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPanel({
 	hasAgentPlanSidebarContent,
@@ -1273,10 +1277,30 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	}, []);
 
 	const openInNewTab = useCallback((url: string) => {
-		const tab = createBrowserTab(url);
+		const trimmed = String(url ?? '').trim();
+		if (!trimmed) {
+			return;
+		}
+		const tab = createBrowserTab(trimmed);
 		setTabs((prev) => [...prev, tab]);
 		setActiveTabId(tab.id);
 	}, []);
+
+	// Subscribe to main-process forwarded new-window events for webview contents.
+	// Electron 12+ deprecated the 'new-window' event; the host (this webContents)
+	// receives 'async-shell:browserNewWindow' from web-contents-created hook in main.
+	useEffect(() => {
+		const subscribe = shell?.subscribeBrowserNewWindow;
+		if (!subscribe) {
+			return;
+		}
+		const unsubscribe = subscribe((payload) => {
+			openInNewTab(String(payload?.url ?? ''));
+		});
+		return () => {
+			unsubscribe?.();
+		};
+	}, [shell, openInNewTab]);
 
 	const addNewTab = useCallback(() => {
 		const tab = createBrowserTab();
@@ -1623,19 +1647,18 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 						{browserConfigReady && browserPartition ? (
 							tabs.map((tab) => (
 								<BrowserTabView
-									key={tab.id}
-									tab={tab}
-									partition={browserPartition}
-									userAgent={userAgentProp}
-									active={tab.id === activeTabId}
-									t={t}
-									onNavigate={handleTabNavigate}
-									onTitle={handleTabTitle}
-									onLoading={handleTabLoading}
-									onFailLoad={handleTabFailLoad}
-									onNewWindow={openInNewTab}
-									onRegisterWebview={handleRegisterWebview}
-								/>
+										key={tab.id}
+										tab={tab}
+										partition={browserPartition}
+										userAgent={userAgentProp}
+										active={tab.id === activeTabId}
+										t={t}
+										onNavigate={handleTabNavigate}
+										onTitle={handleTabTitle}
+										onLoading={handleTabLoading}
+										onFailLoad={handleTabFailLoad}
+										onRegisterWebview={handleRegisterWebview}
+									/>
 							))
 						) : (
 							<div className="ref-browser-preparing">
