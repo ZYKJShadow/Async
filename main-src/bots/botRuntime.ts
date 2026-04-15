@@ -1,8 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { AgentToolDef, ToolCall, ToolResult } from '../agent/agentTools.js';
-import { assembleAgentToolPool } from '../agent/agentToolPool.js';
+import { AGENT_TOOLS, type AgentToolDef, ToolCall, ToolResult } from '../agent/agentTools.js';
 import { runAgentLoop } from '../agent/agentLoop.js';
 import { compressForSend } from '../agent/conversationCompress.js';
 import { type ToolExecutionContext, type ToolExecutionHooks } from '../agent/toolExecutor.js';
@@ -330,6 +329,11 @@ const BOT_TOOL_DEFS: AgentToolDef[] = [
 	},
 ];
 
+const BOT_LEADER_NATIVE_TOOL_NAMES = new Set([
+	'Browser',
+	'TodoWrite',
+]);
+
 
 function renderSessionSnapshot(
 	settings: ShellSettings,
@@ -375,11 +379,11 @@ export function buildBotOrchestratorPrompt(
 			? 'You are the Async global leader bot. You directly manage the Async app, its tools, and its worker sessions.'
 			: '你是 Async 的全局 Leader Bot。你直接管理整个 Async 应用、它的工具能力以及内部 worker 会话。',
 		language === 'en'
-			? 'This leader loop has the full Async toolset available, including browser/app controls, file tools, shell, MCP, and the custom bot session tools below.'
-			: '这个 Leader 循环可直接使用完整的 Async 工具集，包括浏览器/应用控制、文件工具、Shell、MCP，以及下面的 bot 会话工具。',
+			? 'This leader loop is for app-level orchestration. It can directly use app/browser controls plus the custom bot session tools below.'
+			: '这个 Leader 循环用于应用级调度。它可以直接使用应用/浏览器控制工具，以及下面的 bot 会话工具。',
 		language === 'en'
-			? 'Do not treat every user message as a detached worker task. Use your own tools directly whenever you can solve the request yourself.'
-			: '不要把每条用户消息都当成需要派给 worker 的任务。只要你自己直接用工具就能解决，就优先直接处理。',
+			? 'Do not treat every user message as a detached worker task, but also do not directly inspect or modify workspace project files in the leader loop.'
+			: '不要把每条用户消息都当成需要派给 worker 的任务，但也不要在 Leader 循环里直接检查或修改工作区项目文件。',
 		language === 'en'
 			? 'Use run_async_task only when you intentionally want to start an internal worker session or a specialist workflow. When delegating, choose the worker mode yourself and summarize the result back to the user.'
 			: '只有当你明确想启动内部 worker 会话或专家工作流时，才使用 run_async_task。发生委派时，由你自己判断合适的 worker 模式，并把结果总结反馈给用户。',
@@ -387,8 +391,20 @@ export function buildBotOrchestratorPrompt(
 			? 'If the user asks about current model, workspace, browser state, git state, or other app state, inspect and answer directly instead of launching a worker by default.'
 			: '如果用户在问当前模型、工作区、浏览器状态、Git 状态或其他应用状态，优先直接检查并回答，而不是默认启动 worker。',
 		language === 'en'
+			? 'Any request about a workspace project, repository, source files, tests, builds, architecture, code changes, or reading/modifying files MUST go through run_async_task so the work is preserved in an internal Async conversation record.'
+			: '任何关于工作区项目、仓库、源文件、测试、构建、架构、代码修改，或读取/修改文件的请求，都必须通过 run_async_task 处理，这样工作会被保存在内部 Async 对话记录里。',
+		language === 'en'
+			? 'File-changing requests must never be performed directly by the leader loop. Always delegate them through run_async_task.'
+			: '涉及改文件的请求绝对不能由 Leader 循环直接执行，必须始终通过 run_async_task 委派处理。',
+		language === 'en'
+			? 'Choose worker mode automatically: use agent for direct project inspection/implementation/debugging, plan for plan-only analysis, team for larger or cross-cutting project work, and ask for lightweight Q&A that still needs a recorded worker conversation.'
+			: '自动判断 worker 模式：直接项目排查/实现/调试用 agent，只做方案分析用 plan，较大或跨领域项目工作用 team，需要保留记录的轻量问答可用 ask。',
+		language === 'en'
 			? 'When the user asks to search the web, open a page, read a webpage, take a screenshot, or close the built-in browser, use the Browser tool directly (for example: navigate, read_page, screenshot_page, close_sidebar).'
 			: '当用户要求搜索网页、打开页面、读取网页内容、截屏，或关闭内置浏览器时，直接使用 Browser 工具（例如：navigate、read_page、screenshot_page、close_sidebar）。',
+		language === 'en'
+			? 'For user-visible replies on external platforms like Feishu, be explicit and reasonably detailed. For substantial work, summarize what was checked, what was done, key findings, affected areas, and the next step.'
+			: '在飞书这类外部平台上给用户回复时，要明确且信息量充足。只要工作不算特别轻，就总结：检查了什么、做了什么、关键发现、影响范围，以及下一步建议。',
 		language === 'en'
 			? `Current bot user: ${userName}`
 			: `当前外部用户：${userName}`,
@@ -858,7 +874,7 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 	let errorMessage = '';
 	let streamFull = '';
 	const leaderToolPool = [
-		...assembleAgentToolPool('agent', { mcpToolDenyPrefixes: settings.mcpToolDenyPrefixes }),
+		...AGENT_TOOLS.filter((tool) => BOT_LEADER_NATIVE_TOOL_NAMES.has(tool.name)),
 		...BOT_TOOL_DEFS,
 	];
 	const leaderMessages = [...session.leaderMessages, { role: 'user', content: inbound.text } satisfies ChatMessage];

@@ -5,6 +5,7 @@ export type BrowserSidebarConfig = {
 	acceptLanguage: string;
 	extraHeadersText: string;
 	extraHeaders: Array<[string, string]>;
+	blockTrackers: boolean;
 	proxyMode: 'system' | 'direct' | 'custom';
 	proxyRules: string;
 	proxyBypassRules: string;
@@ -14,6 +15,7 @@ export type BrowserSidebarConfigPayload = {
 	userAgent: string;
 	acceptLanguage: string;
 	extraHeadersText: string;
+	blockTrackers: boolean;
 	proxyMode: 'system' | 'direct' | 'custom';
 	proxyRules: string;
 	proxyBypassRules: string;
@@ -91,10 +93,67 @@ const DEFAULT_BROWSER_SIDEBAR_CONFIG: BrowserSidebarConfig = {
 	acceptLanguage: '',
 	extraHeadersText: '',
 	extraHeaders: [],
+	blockTrackers: true,
 	proxyMode: 'system',
 	proxyRules: '',
 	proxyBypassRules: '',
 };
+
+const TRACKER_BLOCKED_DOMAIN_SUFFIXES = [
+	'2mdn.net',
+	'addthis.com',
+	'adnxs.com',
+	'adsafeprotected.com',
+	'adsrvr.org',
+	'amazon-adsystem.com',
+	'bidr.io',
+	'bluekai.com',
+	'bounceexchange.com',
+	'casalemedia.com',
+	'connatix.com',
+	'criteo.com',
+	'criteo.net',
+	'demdex.net',
+	'doubleclick.net',
+	'everesttech.net',
+	'google-analytics.com',
+	'googleadservices.com',
+	'googlesyndication.com',
+	'googletagmanager.com',
+	'googletagservices.com',
+	'lijit.com',
+	'mathtag.com',
+	'moatads.com',
+	'omtrdc.net',
+	'openx.net',
+	'ottadvisors.com',
+	'outbrain.com',
+	'pubmatic.com',
+	'quantserve.com',
+	'rubiconproject.com',
+	'scorecardresearch.com',
+	'serving-sys.com',
+	'sharethrough.com',
+	'smartadserver.com',
+	'taboola.com',
+	'teads.tv',
+	'zemanta.com',
+] as const;
+
+const BROWSER_TRACKER_BLOCKED_RESOURCE_TYPES = new Set([
+	'image',
+	'imageset',
+	'media',
+	'object',
+	'other',
+	'ping',
+	'script',
+	'stylesheet',
+	'subFrame',
+	'webSocket',
+	'webTransport',
+	'xmlhttprequest',
+]);
 
 const browserSidebarConfigsByHost = new Map<number, BrowserSidebarConfig>();
 const browserSidebarConfigsByPartition = new Map<string, BrowserSidebarConfig>();
@@ -123,6 +182,7 @@ export function browserSidebarConfigToPayload(config: BrowserSidebarConfig): Bro
 		userAgent: config.userAgent,
 		acceptLanguage: config.acceptLanguage,
 		extraHeadersText: config.extraHeadersText,
+		blockTrackers: config.blockTrackers,
 		proxyMode: config.proxyMode,
 		proxyRules: config.proxyRules,
 		proxyBypassRules: config.proxyBypassRules,
@@ -138,6 +198,7 @@ export function cloneBrowserSidebarConfig(config?: BrowserSidebarConfig | null):
 		extraHeaders: Array.isArray(src.extraHeaders)
 			? src.extraHeaders.map(([key, value]) => [String(key), String(value)])
 			: [],
+		blockTrackers: src.blockTrackers !== false,
 		proxyMode:
 			src.proxyMode === 'direct' || src.proxyMode === 'custom' || src.proxyMode === 'system'
 				? src.proxyMode
@@ -191,6 +252,7 @@ export function normalizeBrowserSidebarConfig(raw: unknown):
 			acceptLanguage: String(obj.acceptLanguage ?? '').trim(),
 			extraHeadersText: parsedHeaders.extraHeadersText,
 			extraHeaders: parsedHeaders.extraHeaders,
+			blockTrackers: obj.blockTrackers !== false,
 			proxyMode:
 				obj.proxyMode === 'direct' || obj.proxyMode === 'custom' || obj.proxyMode === 'system'
 					? obj.proxyMode
@@ -199,6 +261,32 @@ export function normalizeBrowserSidebarConfig(raw: unknown):
 			proxyBypassRules: String(obj.proxyBypassRules ?? '').trim(),
 		},
 	};
+}
+
+export function shouldBlockBrowserRequest(
+	urlRaw: string,
+	resourceTypeRaw: string | undefined,
+	config: Pick<BrowserSidebarConfig, 'blockTrackers'>
+): boolean {
+	if (config.blockTrackers === false) {
+		return false;
+	}
+	const resourceType = String(resourceTypeRaw ?? '').trim();
+	if (!BROWSER_TRACKER_BLOCKED_RESOURCE_TYPES.has(resourceType)) {
+		return false;
+	}
+	let hostname = '';
+	try {
+		hostname = new URL(urlRaw).hostname.toLowerCase();
+	} catch {
+		return false;
+	}
+	if (!hostname) {
+		return false;
+	}
+	return TRACKER_BLOCKED_DOMAIN_SUFFIXES.some(
+		(suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`)
+	);
 }
 
 function upsertRequestHeader(headers: Record<string, string>, name: string, value: string): void {
@@ -217,6 +305,14 @@ function ensureBrowserSidebarSessionHook(partition: string) {
 	if (browserSidebarHookedPartitions.has(partition)) {
 		return ses;
 	}
+	ses.webRequest.onBeforeRequest((details, callback) => {
+		const config = browserSidebarConfigsByPartition.get(partition);
+		if (config && shouldBlockBrowserRequest(details.url, details.resourceType, config)) {
+			callback({ cancel: true });
+			return;
+		}
+		callback({});
+	});
 	ses.webRequest.onBeforeSendHeaders((details, callback) => {
 		const config = browserSidebarConfigsByPartition.get(partition);
 		if (!config) {

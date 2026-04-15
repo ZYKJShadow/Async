@@ -498,6 +498,11 @@ async function executeBrowserTool(call: ToolCall, execCtx: ToolExecutionContext)
 			if (hasOwnBrowserArg(call.arguments, 'extraHeadersText') || hasOwnBrowserArg(call.arguments, 'extra_headers_text')) {
 				next.extraHeadersText = String(firstBrowserArg(call.arguments, 'extraHeadersText', 'extra_headers_text') ?? '').replace(/\r/g, '');
 			}
+			if (hasOwnBrowserArg(call.arguments, 'blockTrackers') || hasOwnBrowserArg(call.arguments, 'block_trackers')) {
+				next.blockTrackers =
+					firstBrowserArg(call.arguments, 'blockTrackers', 'block_trackers') === true ||
+					firstBrowserArg(call.arguments, 'blockTrackers', 'block_trackers') === 'true';
+			}
 			if (hasOwnBrowserArg(call.arguments, 'proxyMode') || hasOwnBrowserArg(call.arguments, 'proxy_mode')) {
 				const proxyMode = String(firstBrowserArg(call.arguments, 'proxyMode', 'proxy_mode') ?? '').trim();
 				next.proxyMode =

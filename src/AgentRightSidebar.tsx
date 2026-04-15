@@ -60,6 +60,7 @@ type BrowserSidebarConfig = {
 	userAgent: string;
 	acceptLanguage: string;
 	extraHeadersText: string;
+	blockTrackers: boolean;
 	proxyMode: 'system' | 'direct' | 'custom';
 	proxyRules: string;
 	proxyBypassRules: string;
@@ -119,6 +120,7 @@ const DEFAULT_BROWSER_SIDEBAR_CONFIG: BrowserSidebarConfig = {
 	userAgent: '',
 	acceptLanguage: '',
 	extraHeadersText: '',
+	blockTrackers: true,
 	proxyMode: 'system',
 	proxyRules: '',
 	proxyBypassRules: '',
@@ -129,6 +131,7 @@ function normalizeBrowserSidebarConfig(raw?: Partial<BrowserSidebarConfig> | nul
 		userAgent: String(raw?.userAgent ?? '').trim(),
 		acceptLanguage: String(raw?.acceptLanguage ?? '').trim(),
 		extraHeadersText: String(raw?.extraHeadersText ?? '').replace(/\r/g, ''),
+		blockTrackers: raw?.blockTrackers !== false,
 		proxyMode:
 			raw?.proxyMode === 'direct' || raw?.proxyMode === 'custom' || raw?.proxyMode === 'system'
 				? raw.proxyMode
@@ -332,6 +335,24 @@ function BrowserSettingsModal({
 
 				<div className="ref-browser-settings-body">
 					<p className="ref-browser-settings-note">{t('app.browserSettingsDescription')}</p>
+
+					<label className="ref-browser-settings-toggle" aria-label={t('app.browserBlockTrackers')}>
+						<input
+							type="checkbox"
+							checked={draft.blockTrackers}
+							onChange={(event) =>
+								setDraft((prev) => ({
+									...prev,
+									blockTrackers: event.target.checked,
+								}))
+							}
+						/>
+						<span className="ref-browser-settings-toggle-slider" aria-hidden="true" />
+						<span className="ref-browser-settings-toggle-copy">
+							<strong>{t('app.browserBlockTrackers')}</strong>
+							<small>{t('app.browserBlockTrackersHint')}</small>
+						</span>
+					</label>
 
 					<label className="ref-browser-settings-field">
 						<span className="ref-browser-settings-label">{t('app.browserUserAgent')}</span>

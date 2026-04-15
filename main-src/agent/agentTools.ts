@@ -306,6 +306,10 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 					description:
 						'For set_config: extra request headers as plain text, one `Header-Name: value` per line. Pass an empty string to clear all custom headers.',
 				},
+				blockTrackers: {
+					type: 'boolean',
+					description: 'For set_config: enable or disable blocking of common ad and tracking domains. Default true.',
+				},
 				proxyMode: {
 					type: 'string',
 					enum: ['system', 'direct', 'custom'],
