@@ -268,7 +268,10 @@ export function getThread(id: string): ThreadRecord | undefined {
 	return findBucketByThreadId(id)?.thread;
 }
 
-export function createThread(workspaceRoot: string | null | undefined = null): ThreadRecord {
+export function createThread(
+	workspaceRoot: string | null | undefined = null,
+	options?: { select?: boolean }
+): ThreadRecord {
 	const bucket = ensureBucket(workspaceRoot);
 	const id = randomUUID();
 	const now = Date.now();
@@ -280,7 +283,9 @@ export function createThread(workspaceRoot: string | null | undefined = null): T
 		messages: [{ role: 'system', content: SYSTEM_PROMPT }],
 	};
 	bucket.threads[id] = thread;
-	bucket.currentThreadId = id;
+	if (options?.select !== false) {
+		bucket.currentThreadId = id;
+	}
 	save();
 	return thread;
 }

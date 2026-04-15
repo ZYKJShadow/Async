@@ -2,11 +2,12 @@ import { app, BrowserWindow } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { initWindowsConsoleUtf8 } from './winUtf8.js';
-import { initSettingsStore, getRestorableWorkspace } from './settingsStore.js';
+import { initSettingsStore, getRestorableWorkspace, getSettings } from './settingsStore.js';
 import { ensureDefaultThread, flushPendingSave, initThreadStore } from './threadStore.js';
 import { registerIpc } from './ipc/register.js';
 import { configureAppWindowIcon, createAppWindow } from './appWindow.js';
 import { initAutoUpdate } from './autoUpdate.js';
+import { disposeBotController, initBotController, syncBotControllerFromSettings } from './bots/botController.js';
 
 function resolveAppIconPath(): string | undefined {
 	const iconsDir = path.join(app.getAppPath(), 'resources', 'icons');
@@ -49,7 +50,7 @@ app.on('before-quit', (e) => {
 	}
 	quittingAfterThreadStoreFlush = true;
 	e.preventDefault();
-	void flushPendingSave().finally(() => {
+	void Promise.allSettled([flushPendingSave(), disposeBotController()]).finally(() => {
 		app.quit();
 	});
 });
@@ -79,6 +80,9 @@ app.whenReady().then(() => {
 	const userData = app.getPath('userData');
 	initSettingsStore(userData);
 	lap('settingsStore init');
+	initBotController(getSettings);
+	void syncBotControllerFromSettings(getSettings());
+	lap('botController init');
 
 	const restored = getRestorableWorkspace();
 	lap('restorableWorkspace resolved');

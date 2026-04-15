@@ -660,6 +660,10 @@ export type ToolExecutionContext = {
 	signal?: AbortSignal;
 	/** Team 子循环：随 ask_plan_question 一并下发，供聊天区挂到对应角色 */
 	teamToolRoleScope?: TeamPlanQuestionRoleScope;
+	customToolHandlers?: Record<
+		string,
+		(call: ToolCall, hooks: ToolExecutionHooks, execCtx: ToolExecutionContext) => Promise<ToolResult> | ToolResult
+	>;
 };
 
 function throwIfToolAbortRequested(signal: AbortSignal | undefined, toolName: string, phase: string): void {
@@ -676,6 +680,10 @@ export async function executeTool(
 ): Promise<ToolResult> {
 	try {
 		throwIfToolAbortRequested(execCtx.signal, call.name, 'executeTool:start');
+		const customHandler = execCtx.customToolHandlers?.[call.name];
+		if (customHandler) {
+			return await customHandler(call, hooks, execCtx);
+		}
 		switch (call.name) {
 			case 'Read':
 				return executeReadFile(call, execCtx);

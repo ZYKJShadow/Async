@@ -322,6 +322,8 @@ export default function App({ appSurface }: { appSurface?: LayoutMode } = {}) {
 		applyLoadedSettings,
 		teamSettings,
 		setTeamSettings,
+		botIntegrations,
+		setBotIntegrations,
 	} = useSettings(shell, workspace, t);
 
 	const chromeSlice = useMemo(
@@ -422,6 +424,8 @@ export default function App({ appSurface }: { appSurface?: LayoutMode } = {}) {
 			onChangeMergedAgentCustomization,
 			teamSettings,
 			setTeamSettings,
+			botIntegrations,
+			setBotIntegrations,
 			editorSettings,
 			setEditorSettings,
 			mcpServers,
@@ -457,6 +461,8 @@ export default function App({ appSurface }: { appSurface?: LayoutMode } = {}) {
 			refreshWorkspaceDiskSkills,
 			mergedAgentCustomization,
 			onChangeMergedAgentCustomization,
+			botIntegrations,
+			setBotIntegrations,
 			editorSettings,
 			setEditorSettings,
 			mcpServers,
@@ -478,6 +484,8 @@ export default function App({ appSurface }: { appSurface?: LayoutMode } = {}) {
 			applyLoadedSettings,
 			teamSettings,
 			setTeamSettings,
+			botIntegrations,
+			setBotIntegrations,
 		]
 	);
 
@@ -585,6 +593,8 @@ function AppMainWorkspaceInner() {
 		applyLoadedSettings,
 		teamSettings,
 		setTeamSettings,
+		botIntegrations,
+		setBotIntegrations,
 	} = useAppShellSettings();
 
 	const {
@@ -2878,6 +2888,7 @@ function AppMainWorkspaceInner() {
 			},
 			editor: editorSettings,
 			team: teamSettings,
+			bots: { integrations: botIntegrations },
 			mcp: { servers: mcpServers },
 			ui: {
 				colorMode,
@@ -2908,6 +2919,7 @@ function AppMainWorkspaceInner() {
 		locale,
 		mcpServers,
 		teamSettings,
+		botIntegrations,
 		colorMode,
 		appearanceSettings,
 		layoutMode,
@@ -5915,6 +5927,8 @@ function AppMainWorkspaceInner() {
 			onChangeAgentCustomization: onChangeMergedAgentCustomization,
 			teamSettings,
 			onChangeTeamSettings: setTeamSettings,
+			botIntegrations,
+			onChangeBotIntegrations: setBotIntegrations,
 			editorSettings,
 			onChangeEditorSettings: setEditorSettings,
 			onPersistLanguage: (loc) => void onPersistLanguage(loc),
@@ -5947,6 +5961,10 @@ function AppMainWorkspaceInner() {
 			onPickDefaultModel,
 			mergedAgentCustomization,
 			onChangeMergedAgentCustomization,
+			teamSettings,
+			setTeamSettings,
+			botIntegrations,
+			setBotIntegrations,
 			editorSettings,
 			setEditorSettings,
 			onPersistLanguage,

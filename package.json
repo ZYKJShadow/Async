@@ -97,6 +97,7 @@
     "@chenglou/pretext": "^0.0.3",
     "@fontsource/inter": "^5.2.5",
     "@google/generative-ai": "^0.21.0",
+    "@larksuiteoapi/node-sdk": "^1.60.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@monaco-editor/react": "^4.6.0",
     "@tanstack/react-virtual": "^3.13.23",

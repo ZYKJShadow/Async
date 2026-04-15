@@ -103,6 +103,8 @@ export type AppShellSettingsValue = Pick<
 	| 'applyLoadedSettings'
 	| 'teamSettings'
 	| 'setTeamSettings'
+	| 'botIntegrations'
+	| 'setBotIntegrations'
 > & { openSettingsPageBase: SettingsHook['openSettingsPage'] };
 
 export type AppShellFoundationMerged = AppShellChromeValue &

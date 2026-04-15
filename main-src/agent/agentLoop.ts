@@ -44,9 +44,10 @@ import {
 	toAnthropicTools,
 	type AgentToolDef,
 	type ToolCall,
+	type ToolResult,
 } from './agentTools.js';
 import type { TeamPlanQuestionRoleScope } from './planQuestionTool.js';
-import { executeTool, type ToolExecutionHooks } from './toolExecutor.js';
+import { executeTool, type ToolExecutionContext, type ToolExecutionHooks } from './toolExecutor.js';
 import type { WorkspaceLspManager } from '../lsp/workspaceLspManager.js';
 import { getMcpManager } from '../mcp/index.js';
 import { getMcpServerConfigs } from '../settingsStore.js';
@@ -197,6 +198,14 @@ export type AgentLoopOptions = {
 	toolPoolOverride?: AgentToolDef[];
 	agentSystemAppend?: string;
 	toolHooks?: ToolExecutionHooks;
+	customToolHandlers?: Record<
+		string,
+		(
+			call: ToolCall,
+			hooks: ToolExecutionHooks,
+			execCtx: ToolExecutionContext
+		) => Promise<ToolResult> | ToolResult
+	>;
 	/** 在 executeTool 之前调用；用于 shell 写入等需用户确认的闸门 */
 	beforeExecuteTool?: (call: ToolCall) => Promise<BeforeExecuteToolResult>;
 	thinkingLevel?: ThinkingLevel;
@@ -643,6 +652,7 @@ async function runOpenAILoop(
 			hostWebContentsId: options.hostWebContentsId ?? null,
 			signal: options.signal,
 			teamToolRoleScope: options.teamToolRoleScope,
+			customToolHandlers: options.customToolHandlers,
 		});
 		console.log(`[AgentLoop] tool=${tc.name} — executeTool done (${Date.now() - execStart}ms, error=${result.isError})`);
 		if (mistakeLimitEnabled) {
@@ -1068,6 +1078,7 @@ async function runAnthropicLoop(
 			hostWebContentsId: options.hostWebContentsId ?? null,
 			signal: options.signal,
 			teamToolRoleScope: options.teamToolRoleScope,
+			customToolHandlers: options.customToolHandlers,
 		});
 		console.log(`[AgentLoop/A] tool=${tu.name} — executeTool done (${Date.now() - execStart}ms, error=${result.isError})`);
 		if (mistakeLimitEnabled) {

@@ -20,6 +20,7 @@ import {
 	type AgentSkill,
 	type AgentSubagent,
 } from '../agentSettingsTypes';
+import type { BotIntegrationConfig } from '../botSettingsTypes';
 import { coerceThinkingByModelId, type ThinkingLevel } from '../ipcTypes';
 import type { ModelPickerItem } from '../ModelPickerDropdown';
 import type { TFunction } from '../i18n';
@@ -46,6 +47,9 @@ export type LoadedSettingsSnapshot = {
 	agent?: AgentCustomization;
 	editor?: Partial<EditorSettings>;
 	team?: TeamSettings;
+	bots?: {
+		integrations?: BotIntegrationConfig[];
+	};
 };
 
 export function tagProjectOrigin<T extends { origin?: 'user' | 'project' }>(items: T[] | undefined): T[] {
@@ -82,6 +86,7 @@ export function useSettings(
 		experts: [],
 		...getTeamPresetDefaults('engineering'),
 	});
+	const [botIntegrations, setBotIntegrations] = useState<BotIntegrationConfig[]>([]);
 
 	// ── Settings page UI ──
 	const [settingsPageOpen, setSettingsPageOpen] = useState(false);
@@ -260,6 +265,7 @@ export function useSettings(
 			planReviewer: st?.team?.planReviewer ?? null,
 			deliveryReviewer: st?.team?.deliveryReviewer ?? null,
 		});
+		setBotIntegrations(Array.isArray(st?.bots?.integrations) ? st!.bots!.integrations : []);
 	}, []);
 
 	useEffect(() => {
@@ -343,6 +349,7 @@ export function useSettings(
 		mcpServers, setMcpServers,
 		mcpStatuses, setMcpStatuses,
 		teamSettings, setTeamSettings,
+		botIntegrations, setBotIntegrations,
 		// Settings page
 		settingsPageOpen, setSettingsPageOpen,
 		settingsInitialNav,

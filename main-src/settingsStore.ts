@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentCustomization } from './agentSettingsTypes.js';
+import type { BotIntegrationConfig } from './botSettingsTypes.js';
 import type { McpServerConfig } from './mcp/mcpTypes.js';
 import { resolveAsyncDataDir } from './dataDir.js';
 import { normalizeThinkingLevel, type ThinkingLevel } from './llm/thinkingLevel.js';
@@ -17,6 +18,7 @@ export type {
 	ToolPermissionBehavior,
 } from './agentSettingsTypes.js';
 export type { McpServerConfig } from './mcp/mcpTypes.js';
+export type { BotIntegrationConfig } from './botSettingsTypes.js';
 
 /** 单条用户模型实际请求时使用的协议（与适配器一致） */
 export type ModelRequestParadigm = 'openai-compatible' | 'anthropic' | 'gemini';
@@ -204,6 +206,10 @@ export type ShellSettings = {
 	};
 	/** Team 模式角色配置 */
 	team?: TeamSettings;
+	/** 外部机器人接入 */
+	bots?: {
+		integrations?: BotIntegrationConfig[];
+	};
 };
 
 const defaultSettings: ShellSettings = {
@@ -219,6 +225,9 @@ const defaultSettings: ShellSettings = {
 		enablePreflightReview: false,
 		planReviewer: null,
 		deliveryReviewer: null,
+	},
+	bots: {
+		integrations: [],
 	},
 };
 
@@ -601,6 +610,17 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 			? { ...(cached.autoUpdate ?? {}), ...partialAutoUpdate }
 			: cached.autoUpdate;
 
+	const partialBotsRaw = (partial as Partial<ShellSettings> & { bots?: { integrations?: BotIntegrationConfig[] } }).bots;
+	const mergedBots =
+		partialBotsRaw !== undefined
+			? {
+					integrations:
+						Array.isArray(partialBotsRaw?.integrations)
+							? partialBotsRaw.integrations
+							: (cached.bots?.integrations ?? []),
+				}
+			: cached.bots;
+
 	const { indexing: _legacyIndexing, ...cachedWithoutLegacyIndexing } = cached as LegacyShellSettings;
 
 	cached = {
@@ -616,6 +636,7 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 		mcpServers: mergedMcp,
 		usageStats: mergedUsageStats,
 		autoUpdate: mergedAutoUpdate,
+		bots: mergedBots,
 	};
 	cached = migrateDefaultModelRemoveAuto(cached).next;
 	cached = migrateProviderModelLayout(cached).next;

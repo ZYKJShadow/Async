@@ -51,6 +51,7 @@ import {
 import { checkForUpdates, downloadUpdate, quitAndInstall, getStatus, type AutoUpdateStatus } from '../autoUpdate.js';
 import { getMcpManager, destroyMcpManager } from '../mcp';
 import type { McpServerConfig } from '../mcp';
+import { syncBotControllerFromSettings } from '../bots/botController.js';
 import {
 	appendMessage,
 	createThread,
@@ -1433,6 +1434,7 @@ export function registerIpc(): void {
 
 	ipcMain.handle('settings:set', (_e, partial: Record<string, unknown>) => {
 		const next = patchSettings(partial as Parameters<typeof patchSettings>[0]);
+		void syncBotControllerFromSettings(next);
 		const syncedColorMode = next.ui?.colorMode;
 		if (syncedColorMode === 'light' || syncedColorMode === 'dark' || syncedColorMode === 'system') {
 			for (const win of BrowserWindow.getAllWindows()) {
