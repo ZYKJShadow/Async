@@ -39,6 +39,7 @@ describe('buildBotOrchestratorPrompt', () => {
 			modelId: 'model-1',
 			mode: 'agent',
 			threadIdsByWorkspace: {},
+			leaderMessages: [],
 		};
 		const inbound: BotInboundMessage = {
 			conversationKey: 'conv-1',
@@ -53,5 +54,7 @@ describe('buildBotOrchestratorPrompt', () => {
 		expect(prompt).toContain('Always reply in Japanese.');
 		expect(prompt).not.toContain('#### Rule（路径匹配）: TypeScript Only');
 		expect(prompt).toContain('#### Rule: 自动语言：默认使用简体中文回复');
+		expect(prompt).toContain('screenshot_page');
+		expect(prompt).toContain('close_sidebar');
 	});
 });

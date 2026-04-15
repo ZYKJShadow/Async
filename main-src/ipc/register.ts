@@ -653,6 +653,7 @@ function runChatStream(
 						thinkingLevel,
 						workspaceRoot,
 						workspaceLspManager,
+						hostWebContentsId: win.webContents.id,
 						emit: (evt) => send(evt),
 						onDone: (full, usage, teamSnapshot) => {
 							updateLastAssistant(threadId, full);

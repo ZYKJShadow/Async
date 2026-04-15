@@ -316,6 +316,7 @@ export type TeamOrchestratorInput = {
 	thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'max';
 	workspaceRoot?: string | null;
 	workspaceLspManager?: WorkspaceLspManager | null;
+	hostWebContentsId?: number | null;
 	toolHooks?: ToolExecutionHooks;
 	emit: (evt: TeamEmit) => void;
 	onDone: (fullText: string, usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }, teamSnapshot?: TeamSessionSnapshot) => void;
@@ -813,6 +814,7 @@ async function llmPlanTasks(params: {
 		thinkingLevel,
 		workspaceRoot: workspaceRoot ?? null,
 		workspaceLspManager,
+		hostWebContentsId: params.hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
 		teamToolRoleScope: teamLeadScope,
@@ -1145,6 +1147,7 @@ async function runPreflightReviewerAgent(params: {
 		thinkingLevel,
 		workspaceRoot,
 		workspaceLspManager,
+		hostWebContentsId: params.hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
 		teamToolRoleScope: teamRoleScope,
@@ -1288,6 +1291,7 @@ async function runReviewerAgent(params: {
 		thinkingLevel,
 		workspaceRoot,
 		workspaceLspManager,
+		hostWebContentsId: params.hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
 		teamToolRoleScope: teamRoleScope,
@@ -1451,6 +1455,7 @@ async function runOneSpecialist(params: {
 		thinkingLevel,
 		workspaceRoot,
 		workspaceLspManager,
+		hostWebContentsId: params.hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
 		teamToolRoleScope: teamRoleScope,

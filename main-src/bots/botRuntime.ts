@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentToolDef, ToolCall, ToolResult } from '../agent/agentTools.js';
+import { assembleAgentToolPool } from '../agent/agentToolPool.js';
 import { runAgentLoop } from '../agent/agentLoop.js';
 import { compressForSend } from '../agent/conversationCompress.js';
 import { type ToolExecutionContext, type ToolExecutionHooks } from '../agent/toolExecutor.js';
@@ -51,6 +52,7 @@ export type BotSessionState = {
 	modelId: string;
 	mode: BotComposerMode;
 	threadIdsByWorkspace: Record<string, string>;
+	leaderMessages: ChatMessage[];
 	lastUserId?: string;
 	lastUserName?: string;
 };
@@ -150,6 +152,17 @@ function resolveBotHostWebContentsId(): number | null {
 	return fallback?.webContents.id ?? null;
 }
 
+function trimBotLeaderMessages(messages: ChatMessage[], maxMessages = 24): ChatMessage[] {
+	if (messages.length <= maxMessages) {
+		return messages;
+	}
+	return messages.slice(messages.length - maxMessages);
+}
+
+function workerThreadMapKey(root: string | null | undefined, mode: BotComposerMode): string {
+	return `${normalizeWorkspaceKey(root)}::${mode}`;
+}
+
 function collectAvailableWorkspaceRoots(integration: BotIntegrationConfig): string[] {
 	const out: string[] = [];
 	const seen = new Set<string>();
@@ -223,8 +236,9 @@ export function createInitialBotSession(
 		conversationKey,
 		workspaceRoot,
 		modelId,
-		mode: 'agent' as BotComposerMode,
+		mode: integration.defaultMode ?? ('agent' as BotComposerMode),
 		threadIdsByWorkspace: {},
+		leaderMessages: [],
 		lastUserId: senderId,
 		lastUserName: senderName,
 	};
@@ -246,6 +260,8 @@ type RunBotAsyncTaskArgs = {
 	integration: BotIntegrationConfig;
 	session: BotSessionState;
 	task: string;
+	modeOverride?: BotComposerMode;
+	startNewThread?: boolean;
 	workspaceLspManager: WorkspaceLspManager;
 	signal: AbortSignal;
 	onInnerTextDelta?: (fullText: string) => void;
@@ -282,7 +298,7 @@ const BOT_TOOL_DEFS: AgentToolDef[] = [
 	},
 	{
 		name: 'new_async_thread',
-		description: 'Start a new Async thread in the current workspace while keeping the current workspace, model, and mode.',
+		description: 'Start a fresh internal Async worker thread for the current workspace. Use this before run_async_task when you intentionally want a clean worker context.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -294,11 +310,20 @@ const BOT_TOOL_DEFS: AgentToolDef[] = [
 	{
 		name: 'run_async_task',
 		description:
-			'Run the actual Async task in the current workspace/model/mode using the same capabilities as the desktop app, then return the result.',
+			'Launch an internal Async worker session when you intentionally want a detached worker or specialist workflow. Prefer using your own tools directly unless you explicitly want a worker session. Choose mode automatically: agent for direct execution, ask for lightweight Q&A, plan for planning-only work, team for delegated multi-role work.',
 		parameters: {
 			type: 'object',
 			properties: {
 				task: { type: 'string', description: 'The task or user request to execute.' },
+				mode: {
+					type: 'string',
+					enum: ['agent', 'ask', 'plan', 'team'],
+					description: 'Optional worker mode override. Omit to use the current default worker mode.',
+				},
+				new_thread: {
+					type: 'boolean',
+					description: 'When true, force a fresh internal worker thread for this run. Recommended when delegating a brand-new task.',
+				},
 			},
 			required: ['task'],
 		},
@@ -323,7 +348,8 @@ function renderSessionSnapshot(
 			current: {
 				workspaceRoot: session.workspaceRoot,
 				modelId: session.modelId,
-				mode: session.mode,
+				defaultWorkerMode: session.mode,
+				leaderContextTurns: Math.floor((session.leaderMessages?.length ?? 0) / 2),
 			},
 			availableModels: models,
 			availableWorkspaces: workspaces,
@@ -346,17 +372,23 @@ export function buildBotOrchestratorPrompt(
 	const globalRuleAppend = buildAgentGlobalRuleAppend(settings.agent, language);
 	const lines = [
 		language === 'en'
-			? 'You are the Async bot bridge. You orchestrate the user conversation by switching Async session state and then calling run_async_task.'
-			: '你是 Async 机器人桥接层。你的职责是先切换 Async 会话状态，再调用 run_async_task 执行真正的工作。',
+			? 'You are the Async global leader bot. You directly manage the Async app, its tools, and its worker sessions.'
+			: '你是 Async 的全局 Leader Bot。你直接管理整个 Async 应用、它的工具能力以及内部 worker 会话。',
 		language === 'en'
-			? 'Only the custom bot tools are available in this loop. Do not pretend to have already executed Async work unless run_async_task returned it.'
-			: '当前循环里只有机器人会话工具。没有调用 run_async_task 之前，不要假装已经执行了 Async 内部任务。',
+			? 'This leader loop has the full Async toolset available, including browser/app controls, file tools, shell, MCP, and the custom bot session tools below.'
+			: '这个 Leader 循环可直接使用完整的 Async 工具集，包括浏览器/应用控制、文件工具、Shell、MCP，以及下面的 bot 会话工具。',
 		language === 'en'
-			? 'When the user wants a different workspace or model, call the matching switch tool first. If the user asks to reset context, call new_async_thread.'
-			: '当用户要求切换工作区或模型时，先调用对应的 switch 工具；如果用户要求开启新话题或清空上下文，调用 new_async_thread。',
+			? 'Do not treat every user message as a detached worker task. Use your own tools directly whenever you can solve the request yourself.'
+			: '不要把每条用户消息都当成需要派给 worker 的任务。只要你自己直接用工具就能解决，就优先直接处理。',
 		language === 'en'
-			? 'After changing session state, call run_async_task in the same turn whenever the user also expects actual execution or an answer from Async.'
-			: '切换完会话状态后，只要用户还期待 Async 继续执行任务或给出结果，就在同一轮里调用 run_async_task。',
+			? 'Use run_async_task only when you intentionally want to start an internal worker session or a specialist workflow. When delegating, choose the worker mode yourself and summarize the result back to the user.'
+			: '只有当你明确想启动内部 worker 会话或专家工作流时，才使用 run_async_task。发生委派时，由你自己判断合适的 worker 模式，并把结果总结反馈给用户。',
+		language === 'en'
+			? 'If the user asks about current model, workspace, browser state, git state, or other app state, inspect and answer directly instead of launching a worker by default.'
+			: '如果用户在问当前模型、工作区、浏览器状态、Git 状态或其他应用状态，优先直接检查并回答，而不是默认启动 worker。',
+		language === 'en'
+			? 'When the user asks to search the web, open a page, read a webpage, take a screenshot, or close the built-in browser, use the Browser tool directly (for example: navigate, read_page, screenshot_page, close_sidebar).'
+			: '当用户要求搜索网页、打开页面、读取网页内容、截屏，或关闭内置浏览器时，直接使用 Browser 工具（例如：navigate、read_page、screenshot_page、close_sidebar）。',
 		language === 'en'
 			? `Current bot user: ${userName}`
 			: `当前外部用户：${userName}`,
@@ -440,10 +472,10 @@ function createHeadlessBeforeExecuteTool(settings: ShellSettings) {
 	};
 }
 
-function ensureThreadForSession(session: BotSessionState): string {
-	const key = normalizeWorkspaceKey(session.workspaceRoot);
+function ensureThreadForSession(session: BotSessionState, mode: BotComposerMode, forceNewThread = false): string {
+	const key = workerThreadMapKey(session.workspaceRoot, mode);
 	const existing = session.threadIdsByWorkspace[key];
-	if (existing && getThread(existing)) {
+	if (!forceNewThread && existing && getThread(existing)) {
 		return existing;
 	}
 	const created = createThread(session.workspaceRoot, { select: false });
@@ -453,9 +485,9 @@ function ensureThreadForSession(session: BotSessionState): string {
 
 async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 	const { settings, integration, session, task, workspaceLspManager, signal } = args;
-	const threadId = ensureThreadForSession(session);
+	const mode = args.modeOverride ?? session.mode;
+	const threadId = ensureThreadForSession(session, mode, args.startNewThread === true);
 	const hostWebContentsId = resolveBotHostWebContentsId();
-	const mode = session.mode;
 	const modelSelection = session.modelId.trim();
 	if (!modelSelection) {
 		throw new Error('当前机器人会话没有可用的模型。请先在设置里为该机器人配置可用模型。');
@@ -548,6 +580,7 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 	if (mode === 'team') {
 		return await new Promise<string>(async (resolve, reject) => {
 			try {
+				let teamStreamFull = '';
 				await runTeamSession({
 					settings: effectiveSettings,
 					threadId,
@@ -559,7 +592,21 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 					thinkingLevel,
 					workspaceRoot: session.workspaceRoot,
 					workspaceLspManager,
-					emit: () => {},
+					hostWebContentsId,
+					emit: (evt) => {
+						if (evt.type === 'delta') {
+							teamStreamFull += evt.text;
+							args.onInnerTextDelta?.(teamStreamFull);
+							return;
+						}
+						if (evt.type === 'tool_call') {
+							args.onInnerToolStatus?.(evt.name, 'running');
+							return;
+						}
+						if (evt.type === 'tool_result') {
+							args.onInnerToolStatus?.(evt.name, evt.success ? 'completed' : 'error');
+						}
+					},
 					onDone: (full, usage, teamSnapshot) => {
 						finish(full, usage);
 						if (teamSnapshot) {
@@ -743,7 +790,7 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 		},
 		new_async_thread: async (call) => {
 			const created = createThread(session.workspaceRoot, { select: false });
-			session.threadIdsByWorkspace[normalizeWorkspaceKey(session.workspaceRoot)] = created.id;
+			session.threadIdsByWorkspace[workerThreadMapKey(session.workspaceRoot, session.mode)] = created.id;
 			const reason = String(call.arguments.reason ?? '').trim();
 			return {
 				toolCallId: call.id,
@@ -765,11 +812,18 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 				};
 			}
 			try {
+				const rawMode = String(call.arguments.mode ?? '').trim();
+				const modeOverride =
+					rawMode === 'agent' || rawMode === 'ask' || rawMode === 'plan' || rawMode === 'team'
+						? rawMode
+						: undefined;
 				const result = await runBotAsyncTask({
 					settings,
 					integration,
 					session,
 					task,
+					modeOverride,
+					startNewThread: call.arguments.new_thread === true,
 					workspaceLspManager,
 					signal,
 					onInnerTextDelta: args.onStreamDelta,
@@ -780,7 +834,7 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 					name: call.name,
 					content: [
 						`workspace=${session.workspaceRoot ?? '(none)'}`,
-						`mode=${session.mode}`,
+						`mode=${modeOverride ?? session.mode}`,
 						`model=${session.modelId}`,
 						'',
 						result,
@@ -802,11 +856,17 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 	const systemAppend = buildBotOrchestratorPrompt(settings, integration, session, inbound);
 	let full = '';
 	let errorMessage = '';
+	let streamFull = '';
+	const leaderToolPool = [
+		...assembleAgentToolPool('agent', { mcpToolDenyPrefixes: settings.mcpToolDenyPrefixes }),
+		...BOT_TOOL_DEFS,
+	];
+	const leaderMessages = [...session.leaderMessages, { role: 'user', content: inbound.text } satisfies ChatMessage];
 
 	try {
 		await runAgentLoop(
 			settings,
-			[{ role: 'user', content: inbound.text }],
+			leaderMessages,
 			{
 				modelSelection: session.modelId.trim(),
 				requestModelId: resolved.requestModelId,
@@ -820,18 +880,26 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 				thinkingLevel,
 				workspaceRoot: session.workspaceRoot,
 				workspaceLspManager,
-				toolPoolOverride: BOT_TOOL_DEFS,
+				hostWebContentsId: resolveBotHostWebContentsId(),
+				toolPoolOverride: leaderToolPool,
 				customToolHandlers: handlers,
 				agentSystemAppend: systemAppend,
-				beforeExecuteTool: async () => ({ proceed: true }),
-				mistakeLimitEnabled: false,
+				beforeExecuteTool: createHeadlessBeforeExecuteTool(settings),
+				mistakeLimitEnabled: settings.agent?.mistakeLimitEnabled,
+				maxConsecutiveMistakes: settings.agent?.maxConsecutiveMistakes,
 			},
 			{
 				onTextDelta: (text) => {
-					full += text;
+					streamFull += text;
+					full = streamFull;
+					args.onStreamDelta?.(streamFull);
 				},
-				onToolCall: () => {},
-				onToolResult: () => {},
+				onToolCall: (name) => {
+					args.onToolStatus?.(name, 'running');
+				},
+				onToolResult: (name, _result, success) => {
+					args.onToolStatus?.(name, success ? 'completed' : 'error');
+				},
 				onDone: (text) => {
 					full = text;
 				},
@@ -847,6 +915,10 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 	if (errorMessage) {
 		throw new Error(errorMessage);
 	}
+	session.leaderMessages = trimBotLeaderMessages([
+		...leaderMessages,
+		{ role: 'assistant', content: full.trim() } satisfies ChatMessage,
+	]);
 	return full.trim();
 }
 
