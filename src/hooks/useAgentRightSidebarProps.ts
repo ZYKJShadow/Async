@@ -83,6 +83,7 @@ export function useAgentRightSidebarProps(p: UseAgentRightSidebarPropsParams): A
 			rest.currentThreadId,
 			rest.onSelectAgentSession,
 			rest.onSendAgentInput,
+			rest.onSubmitAgentUserInput,
 			rest.onWaitAgent,
 			rest.onResumeAgent,
 			rest.onCloseAgent,

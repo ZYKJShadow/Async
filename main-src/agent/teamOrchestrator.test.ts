@@ -266,7 +266,11 @@ describe('runTeamSession clarification gates', () => {
 		});
 
 		const options = runAgentLoopMock.mock.calls[0]?.[2] as { toolPoolOverride?: Array<{ name: string }> } | undefined;
-		expect(options?.toolPoolOverride?.map((tool) => tool.name)).toEqual(['ask_plan_question', 'team_plan_decide']);
+		expect(options?.toolPoolOverride?.map((tool) => tool.name)).toEqual([
+			'ask_plan_question',
+			'request_user_input',
+			'team_plan_decide',
+		]);
 	});
 
 	it('propagates ask_plan_question answers into downstream team context', async () => {

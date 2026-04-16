@@ -14,6 +14,7 @@ import type {
 	AgentSessionMessage,
 	AgentSessionSnapshot,
 	AgentSessionSnapshotAgent,
+	AgentUserInputRequest,
 } from '../../src/agentSessionTypes.js';
 import type { ShellSettings } from '../settingsStore.js';
 import type { NestedAgentStreamEmit } from '../ipc/nestedAgentStream.js';
@@ -26,6 +27,7 @@ import { buildRelevantMemoryContextBlock } from '../memdir/findRelevantMemories.
 import { extractMemoriesToDir } from '../services/extractMemories/extractMemories.js';
 import type { ToolExecutionHooks } from './toolExecutor.js';
 import type { ToolCall, ToolResult } from './agentTools.js';
+import { createRequestUserInputToolHandler } from './requestUserInputTool.js';
 
 export type ManagedAgentUiEvent =
 	| {
@@ -65,6 +67,7 @@ type ManagedAgentRuntime = {
 	emit?: ManagedAgentEmitter;
 	runAbortController: AbortController | null;
 	runPromise: Promise<void> | null;
+	pendingUserInput: AgentUserInputRequest | null;
 	lastUsage?: ThreadTokenUsage;
 	lastError: string | null;
 	closedAt: number | null;
@@ -139,7 +142,13 @@ function snapshotFromRuntime(runtime: ManagedAgentRuntime): AgentSessionSnapshot
 		subagentType: runtime.subagentType,
 		runProfile: runtime.runProfile,
 		background: runtime.background,
-		status: runtime.closedAt ? 'closed' : runtime.runPromise ? 'running' : inferStoppedStatus(runtime),
+		status: runtime.closedAt
+			? 'closed'
+			: runtime.pendingUserInput
+				? 'waiting_input'
+				: runtime.runPromise
+					? 'running'
+					: inferStoppedStatus(runtime),
 		lastOutputSummary: summaryText(
 			runtime.messages
 				.filter((message) => message.role === 'assistant')
@@ -169,11 +178,30 @@ function inferStoppedStatus(runtime: ManagedAgentRuntime): AgentLifecycleStatus 
 	if (runtime.closedAt) {
 		return 'closed';
 	}
+	if (runtime.pendingUserInput) {
+		return 'waiting_input';
+	}
 	if (runtime.lastError) {
 		return 'failed';
 	}
 	const last = runtime.messages[runtime.messages.length - 1];
 	return last?.role === 'assistant' ? 'completed' : 'completed';
+}
+
+function findPendingUserInput(threadId: string): AgentUserInputRequest | null {
+	for (const agentId of ensureThreadAgentIds(threadId)) {
+		const runtime = runtimes.get(agentId);
+		if (runtime?.pendingUserInput) {
+			return {
+				...runtime.pendingUserInput,
+				questions: runtime.pendingUserInput.questions.map((question) => ({
+					...question,
+					options: question.options.map((option) => ({ ...option })),
+				})),
+			};
+		}
+	}
+	return null;
 }
 
 function getPersistedSession(threadId: string): AgentSessionSnapshot {
@@ -199,10 +227,9 @@ function collectChildAgentIds(threadId: string, parentAgentId: string): string[]
 }
 
 function persistThreadSession(threadId: string, emit?: ManagedAgentEmitter): AgentSessionSnapshot {
-	const persisted = getPersistedSession(threadId);
 	const next: AgentSessionSnapshot = {
-		agents: { ...persisted.agents },
-		pendingUserInput: persisted.pendingUserInput ?? null,
+		agents: { ...getPersistedSession(threadId).agents },
+		pendingUserInput: findPendingUserInput(threadId),
 	};
 	for (const agentId of ensureThreadAgentIds(threadId)) {
 		const runtime = runtimes.get(agentId);
@@ -275,6 +302,7 @@ export function spawnManagedAgent(ctx: ManagedAgentSpawnContext): ManagedAgentRu
 		emit: ctx.emit,
 		runAbortController: null,
 		runPromise: null,
+		pendingUserInput: null,
 		lastUsage: undefined,
 		lastError: null,
 		closedAt: null,
@@ -347,6 +375,23 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 		]
 			.filter(Boolean)
 			.join('\n\n');
+		const customToolHandlers = {
+			...runtime.options.customToolHandlers,
+			request_user_input: createRequestUserInputToolHandler({
+				threadId: runtime.threadId,
+				signal: abortController.signal,
+				emit: (evt) => {
+					runtime.emit?.({ threadId: runtime.threadId, ...evt });
+				},
+				agentId: runtime.agentId,
+				agentTitle: runtime.title,
+				onPendingChange: (request) => {
+					runtime.pendingUserInput = request;
+					runtime.updatedAt = Date.now();
+					persistThreadSession(runtime.threadId, runtime.emit);
+				},
+			}),
+		};
 		const handlers: AgentLoopHandlers = {
 			onTextDelta: (text) => {
 				output += text;
@@ -437,6 +482,7 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 					signal: abortController.signal,
 					composerMode: runtime.runProfile === 'explore' ? 'plan' : runtime.options.composerMode,
 					toolPoolOverride: baseToolDefs,
+					customToolHandlers,
 					delegateExecutionDepth: 1,
 					toolHooks:
 						runtime.runProfile === 'full' || !runtime.toolHooks
@@ -475,7 +521,7 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 			runtime.runAbortController = null;
 			runtime.runPromise = null;
 			if (errorMsg) {
-			runtime.lastError = errorMsg;
+				runtime.lastError = errorMsg;
 			}
 			if (!runtime.closedAt && runtime.queuedInputs.length === 0 && !errorMsg) {
 				runtime.lastError = null;
@@ -528,6 +574,7 @@ function hydrateRuntimeFromSnapshot(
 	if (!snapshot) {
 		return null;
 	}
+	const persistedSession = getPersistedSession(threadId);
 	const runtime: ManagedAgentRuntime = {
 		threadId,
 		agentId,
@@ -550,6 +597,10 @@ function hydrateRuntimeFromSnapshot(
 		runAbortController: null,
 		runPromise: null,
 		lastUsage: undefined,
+		pendingUserInput:
+			persistedSession.pendingUserInput?.agentId === agentId
+				? persistedSession.pendingUserInput
+				: null,
 		lastError: snapshot.lastError,
 		closedAt: snapshot.closedAt,
 		startedAt: snapshot.startedAt,
@@ -584,6 +635,7 @@ export async function sendInputToManagedAgent(params: {
 	if (runtime.closedAt) {
 		return { ok: false, error: 'Agent is closed.' };
 	}
+	runtime.pendingUserInput = null;
 	const nextMessage: ChatMessage = { role: 'user', content: text };
 	if (runtime.runPromise) {
 		if (params.interrupt) {
@@ -618,6 +670,7 @@ export async function resumeManagedAgent(params: {
 	}
 	runtime.emit = params.emit ?? runtime.emit;
 	runtime.closedAt = null;
+	runtime.pendingUserInput = null;
 	runtime.updatedAt = Date.now();
 	if (runtime.runPromise) {
 		return { ok: true };
@@ -638,6 +691,7 @@ export function closeManagedAgent(params: {
 	runtime.emit = params.emit ?? runtime.emit;
 	runtime.closedAt = Date.now();
 	runtime.updatedAt = runtime.closedAt;
+	runtime.pendingUserInput = null;
 	runtime.queuedInputs.length = 0;
 	runtime.runAbortController?.abort();
 	persistThreadSession(runtime.threadId, runtime.emit);

@@ -24,6 +24,7 @@ function buildSession(overrides: Partial<TeamSessionState> = {}): TeamSessionSta
 		planRevisions: [],
 		pendingQuestion: null,
 		pendingQuestionRequestId: null,
+		pendingUserInput: null,
 		selectedTaskId: null,
 		reviewerTaskId: null,
 		roleWorkflowByTaskId: {},

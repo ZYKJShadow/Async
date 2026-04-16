@@ -1,5 +1,5 @@
 import type { ComposerMode } from './ComposerPlusMenu';
-import type { AgentSessionSnapshot } from './agentSessionTypes';
+import type { AgentSessionSnapshot, AgentUserInputRequest } from './agentSessionTypes';
 
 /** 与 main-src/llm/types.ts TurnTokenUsage 保持一致（渲染端独立定义，避免跨进程 import） */
 export type TurnTokenUsage = {
@@ -105,6 +105,12 @@ type ChatStreamPayloadCore =
 			type: 'plan_question_request';
 			requestId: string;
 			question: { text: string; options: { id: string; label: string }[]; freeform?: boolean };
+			teamRoleScope?: TeamRoleScope;
+	  }
+	| {
+			threadId: string;
+			type: 'user_input_request';
+			request: AgentUserInputRequest;
 			teamRoleScope?: TeamRoleScope;
 	  }
 	| {

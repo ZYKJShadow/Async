@@ -45,7 +45,13 @@ export function agentToolsForComposerMode(
 	all: AgentToolDef[] = AGENT_TOOLS
 ): AgentToolDef[] {
 	if (mode === 'plan') {
-		return all.filter((d) => isReadOnlyAgentTool(d.name) || d.name === 'ask_plan_question' || d.name === 'plan_submit_draft');
+		return all.filter(
+			(d) =>
+				isReadOnlyAgentTool(d.name) ||
+				d.name === 'ask_plan_question' ||
+				d.name === 'request_user_input' ||
+				d.name === 'plan_submit_draft'
+		);
 	}
 	return all.filter((d) => d.name !== 'ask_plan_question');
 }
@@ -472,6 +478,57 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				},
 			},
 			required: ['target'],
+		},
+	},
+	{
+		name: 'request_user_input',
+		description:
+			'Ask the user for 1-3 short structured answers. Each question must include an id, a short header, the question text, and 2-3 recommended options. The UI automatically adds a freeform "Other" field for each question, and the tool result returns a JSON object mapping question ids to the user\'s final answers.',
+		parameters: {
+			type: 'object',
+			properties: {
+				questions: {
+					type: 'array',
+					description: '1-3 structured questions to ask the user.',
+					items: {
+						type: 'object',
+						properties: {
+							id: {
+								type: 'string',
+								description: 'Stable snake_case id used in the returned answers object.',
+							},
+							header: {
+								type: 'string',
+								description: 'Short header label shown in the UI.',
+							},
+							question: {
+								type: 'string',
+								description: 'Single user-facing question.',
+							},
+							options: {
+								type: 'array',
+								description: '2-3 recommended options shown before the automatic Other field.',
+								items: {
+									type: 'object',
+									properties: {
+										label: {
+											type: 'string',
+											description: 'Short option label.',
+										},
+										description: {
+											type: 'string',
+											description: 'One sentence explaining the tradeoff or impact of selecting it.',
+										},
+									},
+									required: ['label', 'description'],
+								},
+							},
+						},
+						required: ['id', 'header', 'question', 'options'],
+					},
+				},
+			},
+			required: ['questions'],
 		},
 	},
 	{

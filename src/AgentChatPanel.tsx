@@ -19,6 +19,7 @@ import { AgentReviewPanel } from './AgentReviewPanel';
 import { AgentFileChangesPanel } from './AgentFileChanges';
 import { ChatComposer } from './ChatComposer';
 import { PlanQuestionDialog } from './PlanQuestionDialog';
+import { UserInputRequestDialog } from './UserInputRequestDialog';
 import { SkillScopeDialog } from './SkillScopeDialog';
 import { RuleWizardDialog } from './RuleWizardDialog';
 import { SubagentScopeDialog } from './SubagentScopeDialog';
@@ -47,6 +48,7 @@ import { IconArrowDown, IconChevron, IconDoc } from './icons';
 import { type ParsedPlan, type PlanQuestion } from './planParser';
 import { type ChatMessage } from './threadTypes';
 import type { TeamSessionState } from './hooks/useTeamSession';
+import type { AgentUserInputRequest } from './agentSessionTypes';
 import { buildTeamConversationTimeline } from './teamChatTimeline';
 
 type SharedComposerProps = Omit<
@@ -108,6 +110,8 @@ export type AgentChatPanelProps = {
 	planQuestion: PlanQuestion | null;
 	onPlanQuestionSubmit: (answer: string) => void;
 	onPlanQuestionSkip: () => void;
+	userInputRequest: AgentUserInputRequest | null;
+	onUserInputSubmit: (answers: Record<string, string>) => Promise<void>;
 	wizardPending: WizardPending | null;
 	setWizardPending: Dispatch<SetStateAction<WizardPending | null>>;
 	executeSkillCreatorSend: (scope: 'user' | 'project', pending: WizardPending) => void;
@@ -246,6 +250,8 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	planQuestion,
 	onPlanQuestionSubmit,
 	onPlanQuestionSkip,
+	userInputRequest,
+	onUserInputSubmit,
 	wizardPending,
 	setWizardPending,
 	executeSkillCreatorSend,
@@ -1024,6 +1030,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 					onSubmit={onPlanQuestionSubmit}
 					onSkip={onPlanQuestionSkip}
 				/>
+			) : null}
+			{hasConversation && userInputRequest ? (
+				<UserInputRequestDialog request={userInputRequest} onSubmit={onUserInputSubmit} />
 			) : null}
 
 			{wizardPending?.kind === 'create-skill' ? (

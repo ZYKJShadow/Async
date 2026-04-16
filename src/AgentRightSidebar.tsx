@@ -563,6 +563,7 @@ export type AgentRightSidebarProps = {
 	currentThreadId: string | null;
 	onSelectAgentSession: (agentId: string | null) => void;
 	onSendAgentInput: (agentId: string, message: string, interrupt: boolean) => Promise<void>;
+	onSubmitAgentUserInput: (requestId: string, answers: Record<string, string>) => Promise<void>;
 	onWaitAgent: (agentId: string) => Promise<void>;
 	onResumeAgent: (agentId: string) => Promise<void>;
 	onCloseAgent: (agentId: string) => Promise<void>;
@@ -2366,6 +2367,7 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 	currentThreadId,
 	onSelectAgentSession,
 	onSendAgentInput,
+	onSubmitAgentUserInput,
 	onWaitAgent,
 	onResumeAgent,
 	onCloseAgent,
@@ -2462,6 +2464,7 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 				onClose={closeSidebar}
 				onSelectAgent={onSelectAgentSession}
 				onSendInput={onSendAgentInput}
+				onSubmitUserInput={onSubmitAgentUserInput}
 				onWaitAgent={onWaitAgent}
 				onResumeAgent={onResumeAgent}
 				onCloseAgent={onCloseAgent}

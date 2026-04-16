@@ -4,6 +4,7 @@ import type { TFunction } from './i18n';
 import { ChatMarkdown } from './ChatMarkdown';
 import { IconCloseSmall, IconRefresh, IconArrowUpRight } from './icons';
 import type { AgentSessionState } from './hooks/useAgentSession';
+import { UserInputRequestInlineCard } from './UserInputRequestDialog';
 
 type Props = {
 	t: TFunction;
@@ -16,6 +17,7 @@ type Props = {
 	onResumeAgent: (agentId: string) => Promise<void>;
 	onCloseAgent: (agentId: string) => Promise<void>;
 	onOpenTranscript: (absPath: string) => void;
+	onSubmitUserInput: (requestId: string, answers: Record<string, string>) => Promise<void>;
 };
 
 type AgentTreeRow = {
@@ -66,6 +68,7 @@ export const AgentSessionPanel = memo(function AgentSessionPanel({
 	onResumeAgent,
 	onCloseAgent,
 	onOpenTranscript,
+	onSubmitUserInput,
 }: Props) {
 	const [draft, setDraft] = useState('');
 	const [interrupt, setInterrupt] = useState(false);
@@ -79,6 +82,8 @@ export const AgentSessionPanel = memo(function AgentSessionPanel({
 	}, [session]);
 	const selectedAgent =
 		(session?.selectedAgentId ? session.agentsById[session.selectedAgentId] : null) ?? rows[0]?.agent ?? null;
+	const pendingInputRequest =
+		selectedAgent && session?.pendingUserInput?.agentId === selectedAgent.id ? session.pendingUserInput : null;
 
 	const runAction = async (key: string, action: () => Promise<void>) => {
 		setBusyAction(key);
@@ -120,6 +125,11 @@ export const AgentSessionPanel = memo(function AgentSessionPanel({
 					<div className="ref-agent-session-list">
 						{rows.map(({ agent, depth }) => {
 							const active = selectedAgent?.id === agent.id;
+							const waitingForInput = session?.pendingUserInput?.agentId === agent.id;
+							const rowSummary = waitingForInput
+								? session.pendingUserInput?.questions.map((question) => question.header).join(' · ') ||
+									session.pendingUserInput?.agentTitle
+								: agent.lastResultSummary || agent.lastInputSummary;
 							return (
 								<button
 									key={agent.id}
@@ -132,7 +142,7 @@ export const AgentSessionPanel = memo(function AgentSessionPanel({
 										{statusLabel(t, agent.status)}
 									</span>
 									<span className="ref-agent-session-row-title">{agent.title}</span>
-									<span className="ref-agent-session-row-summary">{agent.lastResultSummary || agent.lastInputSummary}</span>
+									<span className="ref-agent-session-row-summary">{rowSummary}</span>
 									{agent.background ? <span className="ref-agent-session-row-chip">{t('agent.session.background')}</span> : null}
 								</button>
 							);
@@ -172,7 +182,7 @@ export const AgentSessionPanel = memo(function AgentSessionPanel({
 										<IconArrowUpRight />
 										<span>{t('agent.session.openTranscript')}</span>
 									</button>
-									{selectedAgent.status !== 'running' ? (
+									{selectedAgent.status !== 'running' && selectedAgent.status !== 'waiting_input' ? (
 										<button
 											type="button"
 											className="ref-browser-error-btn"
@@ -191,6 +201,16 @@ export const AgentSessionPanel = memo(function AgentSessionPanel({
 										{t('agent.session.close')}
 									</button>
 								</div>
+								{pendingInputRequest ? (
+									<UserInputRequestInlineCard
+										request={pendingInputRequest}
+										onSubmit={(answers) =>
+											runAction(`reply:${pendingInputRequest.requestId}`, () =>
+												onSubmitUserInput(pendingInputRequest.requestId, answers)
+											)
+										}
+									/>
+								) : null}
 								<div className="ref-agent-session-transcript">
 									{selectedAgent.messages.map((message, index) => (
 										<div key={`${selectedAgent.id}-msg-${index}`} className={`ref-agent-session-msg ref-agent-session-msg--${message.role}`}>

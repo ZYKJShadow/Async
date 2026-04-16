@@ -82,6 +82,7 @@ const INVOKE_CHANNELS = new Set([
 	'agent:revertFileHunk',
 	'agent:getSession',
 	'agent:sendInput',
+	'agent:userInputRespond',
 	'agent:wait',
 	'agent:resume',
 	'agent:close',

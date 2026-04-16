@@ -14217,6 +14217,97 @@ select.ref-settings-native-select:focus {
 	font-size: 11px;
 }
 
+.ref-user-input-shell {
+	display: grid;
+	gap: 0;
+}
+
+.ref-user-input-shell--compact {
+	border: 1px solid color-mix(in srgb, var(--void-border) 78%, transparent);
+	border-radius: 14px;
+	background: color-mix(in srgb, var(--void-bg-2) 88%, transparent);
+	overflow: hidden;
+}
+
+.ref-user-input-head {
+	padding: 12px 16px 8px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
+}
+
+.ref-user-input-head-main {
+	display: grid;
+	gap: 4px;
+}
+
+.ref-user-input-agent {
+	font-size: 13px;
+	color: var(--void-fg-0);
+}
+
+.ref-user-input-body {
+	display: grid;
+	gap: 14px;
+	padding: 12px 16px 8px;
+}
+
+.ref-user-input-question {
+	display: grid;
+	gap: 10px;
+}
+
+.ref-user-input-question-head {
+	display: flex;
+	gap: 10px;
+	align-items: flex-start;
+}
+
+.ref-user-input-question-index {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--void-accent) 18%, var(--void-bg-3));
+	color: var(--void-fg-0);
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.ref-user-input-question-copy {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+
+.ref-user-input-question-header {
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--void-fg-2);
+}
+
+.ref-user-input-question-text {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.55;
+	color: var(--void-fg-0);
+}
+
+.ref-user-input-option-copy {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+	flex: 1;
+}
+
+.ref-user-input-option-description {
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--void-fg-2);
+}
+
 :root[data-color-scheme='light'] .ref-plan-q {
 	background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 248, 251, 0.98) 100%);
 	border-color: rgba(15, 23, 42, 0.12);
@@ -19081,6 +19172,11 @@ select.ref-settings-native-select:focus {
 .ref-agent-session-input .ref-browser-settings-textarea {
 	min-height: 108px;
 	margin-bottom: 0;
+}
+
+.ref-agent-session-user-input {
+	display: grid;
+	gap: 10px;
 }
 
 @media (max-width: 1180px) {

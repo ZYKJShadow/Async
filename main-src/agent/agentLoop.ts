@@ -85,6 +85,7 @@ const READ_TOOLS_SKIP_INPUT_DELTA = new Set([
 	'ListMcpResourcesTool',
 	'ReadMcpResourceTool',
 	'ask_plan_question',
+	'request_user_input',
 	'plan_submit_draft',
 	'team_plan_decide',
 	'team_escalate_to_lead',
@@ -288,6 +289,7 @@ function inferOpenAIToolNameFromPartialArguments(partial: string): string {
 	if (c.includes('"command"')) return 'Bash';
 	if (c.includes('"run_in_background"')) return 'Agent';
 	if (c.includes('"prompt"') || c.includes('"subagent_type"')) return 'Agent';
+	if (c.includes('"questions"') && c.includes('"header"') && c.includes('"description"')) return 'request_user_input';
 	if (c.includes('"offset"') || c.includes('"limit"') || c.includes('"start_line"') || c.includes('"end_line"')) return 'Read';
 	if (c.includes('"file_path"')) return 'Read';
 	if (c.includes('"path"')) return 'Read';

@@ -37,7 +37,11 @@ export function useAgentSession() {
 		const nextAgentsById = snapshot?.agents ?? {};
 		setSessionsByThread((prev) => {
 			const current = prev[threadId] ?? emptyAgentSession();
-			const selectedAgentId = normalizeSelectedAgentId(current.selectedAgentId, nextAgentsById);
+			const pendingAgentId =
+				snapshot?.pendingUserInput?.agentId && nextAgentsById[snapshot.pendingUserInput.agentId]
+					? snapshot.pendingUserInput.agentId
+					: null;
+			const selectedAgentId = pendingAgentId ?? normalizeSelectedAgentId(current.selectedAgentId, nextAgentsById);
 			return {
 				...prev,
 				[threadId]: {
@@ -94,4 +98,3 @@ export function useAgentSession() {
 		[sessionsByThread, restoreAgentSession, clearAgentSession, setSelectedAgent, getAgentSession]
 	);
 }
-

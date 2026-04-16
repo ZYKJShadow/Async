@@ -18,7 +18,7 @@ import {
 	type ChatStreamPayload,
 	type TurnTokenUsage,
 } from '../ipcTypes';
-import type { AgentSessionSnapshot } from '../agentSessionTypes';
+import type { AgentSessionSnapshot, AgentUserInputRequest } from '../agentSessionTypes';
 import { parseQuestions, parsePlanDocument, toPlanMd, generatePlanFilename, type ParsedPlan, type PlanQuestion } from '../planParser';
 import { findTeamRolesMissingModels } from '../teamModelValidation';
 import { flattenAssistantTextPartsForSearch } from '../agentStructuredMessage';
@@ -74,6 +74,7 @@ type StreamingSendRuntime = {
 	flashComposerAttachErr: (msg: string) => void;
 	t: TFunction;
 	clearAgentReviewForThread: (threadId: string) => void;
+	clearRootUserInputRequest: (threadId?: string | null) => void;
 	startTeamSession: (threadId: string, userRequest: string) => void;
 	clearPlanQuestion: () => void;
 	clearMistakeLimitRequest: () => void;
@@ -100,6 +101,8 @@ type StreamingSubscriptionRuntime = {
 	setToolApprovalRequest: Dispatch<
 		SetStateAction<{ approvalId: string; toolName: string; command?: string; path?: string } | null>
 	>;
+	setRootUserInputRequest: (threadId: string, request: AgentUserInputRequest | null) => void;
+	clearRootUserInputRequest: (threadId?: string | null) => void;
 	setPlanQuestion: Dispatch<SetStateAction<PlanQuestion | null>>;
 	setPlanQuestionRequestId: Dispatch<SetStateAction<string | null>>;
 	setMistakeLimitRequest: Dispatch<
@@ -309,6 +312,7 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 		}
 
 		rt.clearPlanQuestion();
+		rt.clearRootUserInputRequest(targetThreadId);
 
 		if (opts?.threadId && opts.threadId !== rt.currentId) {
 			await rt.shell.invoke('threads:select', opts.threadId);
@@ -454,6 +458,7 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 		rt.clearInFlightIpcRouting(threadToAbort);
 		rt.clearStreamingToolPreviewNow();
 		rt.resetLiveAgentBlocks();
+		rt.clearRootUserInputRequest(threadToAbort);
 		rt.setAwaitingReply(false);
 	}, []);
 
@@ -516,6 +521,14 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 				}
 				if ('teamRoleScope' in payload && payload.teamRoleScope) {
 					rt.applyTeamPayload(payload);
+				}
+				return;
+			}
+			if (payload.type === 'user_input_request') {
+				if ('teamRoleScope' in payload && payload.teamRoleScope) {
+					rt.applyTeamPayload(payload);
+				} else if (visible) {
+					rt.setRootUserInputRequest(payload.threadId, payload.request);
 				}
 				return;
 			}
@@ -786,6 +799,7 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 					rt.setFileChangesDismissed(false);
 					rt.setDismissedFiles(new Set());
 				}
+				rt.clearRootUserInputRequest(payload.threadId);
 
 				const pendingPlan = rt.planBuildPendingMarkerRef.current;
 				if (pendingPlan && pendingPlan.threadId === payload.threadId) {
@@ -871,6 +885,7 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 				rt.planBuildPendingMarkerRef.current = null;
 				delete rt.offThreadStreamDraftsRef.current[payload.threadId];
 				rt.ipcInFlightChatThreadIdRef.current = null;
+				rt.clearRootUserInputRequest(payload.threadId);
 				if (visible) {
 					rt.resetStreamingSession({ clearThread: false });
 					rt.setStreamingThinking('');

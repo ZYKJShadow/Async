@@ -751,6 +751,13 @@ export async function executeTool(
 			return await executeAgentResume(call, execCtx);
 		case 'close_agent':
 			return await executeAgentClose(call, execCtx);
+		case 'request_user_input':
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: 'request_user_input is not available in this context.',
+				isError: true,
+			};
 		case 'ListMcpResourcesTool':
 			return await executeListMcpResources(call);
 		case 'ReadMcpResourceTool':

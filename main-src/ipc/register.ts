@@ -115,6 +115,11 @@ import {
 	abortPlanQuestionWaitersForThread,
 	resolvePlanQuestionTool,
 } from '../agent/planQuestionTool.js';
+import {
+	abortRequestUserInputWaitersForThread,
+	createRequestUserInputToolHandler,
+	resolveRequestUserInput,
+} from '../agent/requestUserInputTool.js';
 import { setPlanDraftRuntime } from '../agent/planDraftTool.js';
 import {
 	abortTeamPlanApprovalForThread,
@@ -753,6 +758,15 @@ function runChatStream(
 					mistakeLimitWaiters
 				);
 			const ag = getSettings().agent;
+			const customToolHandlers = {
+					request_user_input: createRequestUserInputToolHandler({
+						threadId,
+						signal: ac.signal,
+						emit: (evt) => send({ threadId, ...evt }),
+						agentId: 'root',
+						agentTitle: mode === 'plan' ? 'Plan Assistant' : 'Root Agent',
+					}),
+				};
 			const agentOptions = {
 					modelSelection,
 					requestModelId: resolved.requestModelId,
@@ -768,6 +782,7 @@ function runChatStream(
 					maxConsecutiveMistakes: ag?.maxConsecutiveMistakes,
 					mistakeLimitEnabled: ag?.mistakeLimitEnabled,
 					onMistakeLimitReached,
+					customToolHandlers,
 					workspaceRoot,
 					workspaceLspManager,
 					hostWebContentsId: win.webContents.id,
@@ -834,6 +849,7 @@ function runChatStream(
 						maxConsecutiveMistakes: ag?.maxConsecutiveMistakes,
 						mistakeLimitEnabled: ag?.mistakeLimitEnabled,
 						onMistakeLimitReached,
+						customToolHandlers,
 						workspaceRoot,
 						workspaceLspManager,
 						threadId,
@@ -2225,6 +2241,7 @@ export function registerIpc(): void {
 
 	ipcMain.handle('chat:abort', (_e, threadId: string) => {
 		abortPlanQuestionWaitersForThread(threadId);
+		abortRequestUserInputWaitersForThread(threadId);
 		abortTeamPlanApprovalForThread(threadId);
 		preflightAbortByThread.get(threadId)?.abort();
 		preflightAbortByThread.delete(threadId);
@@ -2350,6 +2367,20 @@ export function registerIpc(): void {
 		const result = closeManagedAgent({ threadId, agentId, emit: send });
 		return result.ok ? { ok: true as const } : { ok: false as const, error: result.error };
 	});
+
+	ipcMain.handle(
+		'agent:userInputRespond',
+		(_e, payload: { requestId?: string; answers?: Record<string, unknown> }) => {
+			const requestId = String(payload?.requestId ?? '');
+			if (!requestId) {
+				return { ok: false as const, error: 'missing requestId' as const };
+			}
+			const ok = resolveRequestUserInput(requestId, {
+				answers: payload?.answers,
+			});
+			return ok ? ({ ok: true as const } as const) : ({ ok: false as const, error: 'unknown request' as const });
+		}
+	);
 
 	ipcMain.handle(
 		'agent:toolApprovalRespond',

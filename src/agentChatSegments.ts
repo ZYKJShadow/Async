@@ -1028,6 +1028,21 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 				mk
 			);
 		}
+		case 'request_user_input': {
+			return withNestActivity(
+				{
+					type: 'activity',
+					text: inProgress
+						? t('agent.userInput.toolActivityPending')
+						: failed
+							? t('agent.userInput.toolActivityFailed')
+							: t('agent.userInput.toolActivityDone'),
+					status: inProgress ? 'pending' : failed ? 'error' : 'success',
+					detail,
+				},
+				mk
+			);
+		}
 		case 'plan_submit_draft': {
 			return withNestActivity(
 				{

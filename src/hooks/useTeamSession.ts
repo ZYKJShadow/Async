@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage } from '../threadTypes';
 import type { ChatStreamPayload, TeamRoleScope, TurnTokenUsage } from '../ipcTypes';
+import type { AgentUserInputRequest } from '../agentSessionTypes';
 import {
 	applyLiveAgentChatPayload,
 	createEmptyLiveAgentBlocks,
@@ -145,6 +146,7 @@ export type TeamSessionState = {
 	planRevisions: TeamPlanRevisionState[];
 	pendingQuestion: PlanQuestion | null;
 	pendingQuestionRequestId: string | null;
+	pendingUserInput: AgentUserInputRequest | null;
 	selectedTaskId: string | null;
 	reviewerTaskId: string | null;
 	roleWorkflowByTaskId: Record<string, TeamRoleWorkflowState>;
@@ -168,6 +170,7 @@ function emptySession(): TeamSessionState {
 		planRevisions: [],
 		pendingQuestion: null,
 		pendingQuestionRequestId: null,
+		pendingUserInput: null,
 		selectedTaskId: null,
 		reviewerTaskId: null,
 		roleWorkflowByTaskId: {},
@@ -265,6 +268,20 @@ function ensureTaskTimelineEntry(session: TeamSessionState, taskId: string): voi
 function clearPendingQuestionState(session: TeamSessionState): void {
 	session.pendingQuestion = null;
 	session.pendingQuestionRequestId = null;
+}
+
+function clearPendingUserInputState(session: TeamSessionState): void {
+	session.pendingUserInput = null;
+}
+
+function clonePendingUserInput(request: AgentUserInputRequest): AgentUserInputRequest {
+	return {
+		...request,
+		questions: request.questions.map((question) => ({
+			...question,
+			options: question.options.map((option) => ({ ...option })),
+		})),
+	};
 }
 
 function ensureRoleWorkflow(
@@ -397,6 +414,9 @@ function mutateRoleWorkflowPayload(
 			if (payload.name === 'ask_plan_question') {
 				clearPendingQuestionState(session);
 			}
+			if (payload.name === 'request_user_input') {
+				clearPendingUserInputState(session);
+			}
 			workflow.liveBlocks = applyLiveAgentChatPayload(workflow.liveBlocks, {
 				type: 'tool_result',
 				name: payload.name,
@@ -460,6 +480,24 @@ function mutateRoleWorkflowPayload(
 			};
 			session.pendingQuestionRequestId = payload.requestId;
 			if (!isLead) {
+				const nextMessage: ChatMessage = { role: 'assistant', content };
+				const lastMessage = workflow.messages[workflow.messages.length - 1];
+				if (!(lastMessage?.role === nextMessage.role && lastMessage?.content === nextMessage.content)) {
+					workflow.messages = [...workflow.messages, nextMessage];
+				}
+			}
+			workflow.awaitingReply = true;
+			workflow.lastUpdatedAt = Date.now();
+			return true;
+		}
+		case 'user_input_request': {
+			session.pendingUserInput = clonePendingUserInput(payload.request);
+			if (!isLead) {
+				const content = [
+					`**${payload.request.agentTitle}**`,
+					'',
+					...payload.request.questions.map((question) => `- ${question.header}: ${question.question}`),
+				].join('\n');
 				const nextMessage: ChatMessage = { role: 'assistant', content };
 				const lastMessage = workflow.messages[workflow.messages.length - 1];
 				if (!(lastMessage?.role === nextMessage.role && lastMessage?.content === nextMessage.content)) {
@@ -538,6 +576,7 @@ function snapshotSession(session: TeamSessionState): TeamSessionState {
 				}
 			: null,
 		pendingQuestionRequestId: session.pendingQuestionRequestId,
+		pendingUserInput: session.pendingUserInput ? clonePendingUserInput(session.pendingUserInput) : null,
 		roleWorkflowByTaskId,
 		timelineEntries: session.timelineEntries.map((entry) => ({ ...entry })),
 	};
@@ -626,6 +665,7 @@ export function useTeamSession() {
 					session.phase = payload.phase;
 					if (payload.phase === 'delivering' || payload.phase === 'cancelled') {
 						clearPendingQuestionState(session);
+						clearPendingUserInputState(session);
 					}
 					break;
 				case 'team_task_created': {
@@ -860,6 +900,10 @@ export function useTeamSession() {
 				clearPendingQuestionState(session);
 				changed = true;
 			}
+			if (session.pendingUserInput) {
+				clearPendingUserInputState(session);
+				changed = true;
+			}
 			if (changed) {
 				session.updatedAt = Date.now();
 				scheduleFlush(threadId, true);
@@ -894,6 +938,19 @@ export function useTeamSession() {
 				return;
 			}
 			clearPendingQuestionState(session);
+			session.updatedAt = Date.now();
+			scheduleFlush(threadId, true);
+		},
+		[scheduleFlush]
+	);
+
+	const clearPendingUserInput = useCallback(
+		(threadId: string) => {
+			const session = sessionsRef.current[threadId];
+			if (!session?.pendingUserInput) {
+				return;
+			}
+			clearPendingUserInputState(session);
 			session.updatedAt = Date.now();
 			scheduleFlush(threadId, true);
 		},
@@ -959,6 +1016,7 @@ export function useTeamSession() {
 				planRevisions: [],
 				pendingQuestion: null,
 				pendingQuestionRequestId: null,
+				pendingUserInput: null,
 				selectedTaskId: snapshot.tasks[0]?.id ?? null,
 				reviewerTaskId: null,
 				roleWorkflowByTaskId: {},
@@ -999,6 +1057,7 @@ export function useTeamSession() {
 			setSelectedTask,
 			clearTeamSession,
 			clearPendingQuestion,
+			clearPendingUserInput,
 			abortTeamSession,
 			getTeamSession,
 			restoreTeamSession,
@@ -1011,6 +1070,7 @@ export function useTeamSession() {
 			setSelectedTask,
 			clearTeamSession,
 			clearPendingQuestion,
+			clearPendingUserInput,
 			abortTeamSession,
 			getTeamSession,
 			restoreTeamSession,

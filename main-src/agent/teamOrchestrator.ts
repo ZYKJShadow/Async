@@ -6,6 +6,10 @@ import { runAgentLoop, type AgentLoopHandlers, type AgentLoopOptions } from './a
 import { assembleAgentToolPool } from './agentToolPool.js';
 import { AGENT_TOOLS, isReadOnlyAgentTool, type AgentToolDef } from './agentTools.js';
 import { executeAskPlanQuestionTool } from './planQuestionTool.js';
+import {
+	createRequestUserInputToolHandler,
+	extractRequestUserInputAnswers,
+} from './requestUserInputTool.js';
 import { resolveTeamExpertProfiles, type TeamExpertRuntimeProfile } from './teamExpertProfiles.js';
 import { resolveModelRequest, type ResolvedModelRequest } from '../llm/modelResolve.js';
 import { getTeamPreset, getTeamPresetDefaults } from '../../src/teamPresetCatalog.js';
@@ -407,11 +411,35 @@ function buildClarificationNeededNarrative(hasCjk: boolean): string {
 function buildPlannerToolPool(baseTools: AgentToolDef[]): AgentToolDef[] {
 	const readOnly = baseTools.filter((tool) => isReadOnlyAgentTool(tool.name));
 	const askPlanQuestion = AGENT_TOOLS.find((tool) => tool.name === 'ask_plan_question');
+	const requestUserInput = AGENT_TOOLS.find((tool) => tool.name === 'request_user_input');
 	return [
 		...readOnly,
 		...(askPlanQuestion ? [askPlanQuestion] : []),
+		...(requestUserInput ? [requestUserInput] : []),
 		teamPlanDecideTool,
 	];
+}
+
+function buildTeamUserInputHandlers(params: {
+	threadId: string;
+	signal: AbortSignal;
+	emit: (evt: TeamEmit) => void;
+	teamRoleScope: ReturnType<typeof createTeamRoleScope>;
+	agentId: string;
+	agentTitle: string;
+}) {
+	return {
+		request_user_input: createRequestUserInputToolHandler(
+			{
+				threadId: params.threadId,
+				signal: params.signal,
+				emit: (evt) => params.emit({ threadId: params.threadId, ...evt }),
+				agentId: params.agentId,
+				agentTitle: params.agentTitle,
+			},
+			{ teamRoleScope: params.teamRoleScope }
+		),
+	};
 }
 
 function normalizeTeamTaskKey(value: string): string {
@@ -761,6 +789,7 @@ async function llmPlanTasks(params: {
 				'You may inspect the repository with read-only tools before planning, but you must not modify files yourself.',
 				'Use read-only investigation to verify assumptions before assigning work.',
 				'Use `ask_plan_question` only when a key user decision cannot be discovered from the code or existing context.',
+				'Use `request_user_input` when you need 1-3 structured answers instead of a single multiple-choice picker; its tool result is a JSON object keyed by question id.',
 				'You MUST call `team_plan_decide` exactly once before the turn ends.',
 				'Do NOT put control markers, raw JSON plans, or tool protocol text in your plain-text reply.',
 				'',
@@ -838,6 +867,14 @@ async function llmPlanTasks(params: {
 		let visiblePlanText = '';
 		let decision: TeamPlanDecision | null = null;
 		const clarificationCountBeforeTurn = clarificationAnswers.length;
+		options.customToolHandlers = buildTeamUserInputHandlers({
+			threadId,
+			signal,
+			emit,
+			teamRoleScope: teamLeadScope,
+			agentId: teamLeadScope.teamTaskId,
+			agentTitle: teamLeadScope.teamExpertName,
+		});
 		const handlers: AgentLoopHandlers = {
 			onTextDelta: (text) => {
 				planText += text;
@@ -877,6 +914,13 @@ async function llmPlanTasks(params: {
 					const answer = String(result ?? '').trim();
 					if (answer && !clarificationAnswers.includes(answer)) {
 						clarificationAnswers.push(answer);
+					}
+				}
+				if (name === 'request_user_input' && success) {
+					for (const answer of extractRequestUserInputAnswers(String(result ?? ''))) {
+						if (answer && !clarificationAnswers.includes(answer)) {
+							clarificationAnswers.push(answer);
+						}
 					}
 				}
 				emit({
@@ -1219,6 +1263,14 @@ async function runPreflightReviewerAgent(params: {
 			detail: 'Reviewing the request and lead proposal before execution.',
 			teamRoleScope,
 		});
+		options.customToolHandlers = buildTeamUserInputHandlers({
+			threadId,
+			signal,
+			emit,
+			teamRoleScope,
+			agentId: teamRoleScope.teamTaskId,
+			agentTitle: teamRoleScope.teamExpertName,
+		});
 		await runAgentLoop(settings, messages, options, handlers);
 	} catch {
 		// Degrade gracefully — caller will treat empty review as OK.
@@ -1355,6 +1407,14 @@ async function runReviewerAgent(params: {
 	};
 
 	try {
+		options.customToolHandlers = buildTeamUserInputHandlers({
+			threadId,
+			signal,
+			emit,
+			teamRoleScope,
+			agentId: teamRoleScope.teamTaskId,
+			agentTitle: teamRoleScope.teamExpertName,
+		});
 		await runAgentLoop(settings, reviewMessages, options, handlers);
 	} catch {
 		// fall through to deterministic fallback
@@ -1552,6 +1612,14 @@ async function runOneSpecialist(params: {
 			},
 		});
 		try {
+			options.customToolHandlers = buildTeamUserInputHandlers({
+				threadId,
+				signal,
+				emit,
+				teamRoleScope,
+				agentId: teamRoleScope.teamTaskId,
+				agentTitle: teamRoleScope.teamExpertName,
+			});
 			await runAgentLoop(settings, subMessages, options, handlers);
 		} finally {
 			setTeamEscalationRuntime(teamRoleScope.teamTaskId, null);

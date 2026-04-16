@@ -113,6 +113,7 @@ import { useComposer } from './hooks/useComposer';
 import { useEditorTabs, type EditorInlineDiffState, clampEditorTerminalHeight } from './hooks/useEditorTabs';
 import { useTeamSession } from './hooks/useTeamSession';
 import { useAgentSession } from './hooks/useAgentSession';
+import type { AgentUserInputRequest } from './agentSessionTypes';
 import { buildTeamWorkflowItems } from './teamWorkflowItems';
 import { AppWorkspaceWelcome } from './app/AppWorkspaceWelcome';
 import { AgentAgentCenterColumn } from './app/AgentAgentCenterColumn';
@@ -695,6 +696,7 @@ function AppMainWorkspaceInner() {
 		setSelectedTask,
 		clearTeamSession,
 		clearPendingQuestion: clearTeamPendingQuestion,
+		clearPendingUserInput: clearTeamPendingUserInput,
 		abortTeamSession,
 		startTeamSession,
 		restoreTeamSession,
@@ -769,6 +771,9 @@ function AppMainWorkspaceInner() {
 		resetPlanState,
 	} = usePlanSystem(shell, currentId, currentIdRef, messages, messagesThreadId, messagesRef, workspace, streaming, defaultModel);
 
+	const [rootUserInputRequestsByThread, setRootUserInputRequestsByThread] = useState<
+		Record<string, AgentUserInputRequest>
+	>({});
 	const { wizardPending, setWizardPending } = useWizardPending();
 	const [agentRightSidebarOpen, setAgentRightSidebarOpen] = useState(false);
 	const [agentRightSidebarView, setAgentRightSidebarView] = useState<AgentRightSidebarView>('git');
@@ -835,6 +840,34 @@ function AppMainWorkspaceInner() {
 		setPlanQuestionRequestId(null);
 	}, [setPlanQuestion, setPlanQuestionRequestId]);
 
+	const setRootUserInputRequest = useCallback((threadId: string, request: AgentUserInputRequest | null) => {
+		if (!threadId) {
+			return;
+		}
+		setRootUserInputRequestsByThread((prev) => {
+			if (!request) {
+				if (!prev[threadId]) {
+					return prev;
+				}
+				const next = { ...prev };
+				delete next[threadId];
+				return next;
+			}
+			return {
+				...prev,
+				[threadId]: request,
+			};
+		});
+	}, []);
+
+	const clearRootUserInputRequest = useCallback((threadId?: string | null) => {
+		if (!threadId) {
+			setRootUserInputRequestsByThread({});
+			return;
+		}
+		setRootUserInputRequest(threadId, null);
+	}, [setRootUserInputRequest]);
+
 	const { sendMessage, abortActiveStream } = useStreamingChatControls({
 		shell,
 		currentId,
@@ -862,6 +895,7 @@ function AppMainWorkspaceInner() {
 		flashComposerAttachErr,
 		t,
 		clearAgentReviewForThread,
+		clearRootUserInputRequest,
 		startTeamSession,
 		clearPlanQuestion,
 		clearMistakeLimitRequest: () => setMistakeLimitRequest(null),
@@ -884,6 +918,7 @@ function AppMainWorkspaceInner() {
 		setStreaming,
 		setStreamingThinking,
 		setToolApprovalRequest,
+		setRootUserInputRequest,
 		setPlanQuestion,
 		setPlanQuestionRequestId,
 		setMistakeLimitRequest,
@@ -901,6 +936,7 @@ function AppMainWorkspaceInner() {
 		setExecutedPlanKeys,
 		setAgentReviewPendingByThread,
 		setMessages,
+		clearRootUserInputRequest,
 		setParsedPlan,
 		setPlanFilePath,
 		setPlanFileRelPath,
@@ -2734,6 +2770,50 @@ function AppMainWorkspaceInner() {
 		recordPlanQuestionDismissed,
 	]);
 
+	const getCurrentUserInputRequest = useCallback(() => {
+		const threadId = currentIdRef.current;
+		if (!threadId) {
+			return null;
+		}
+		if (composerMode === 'team') {
+			return getTeamSession(threadId)?.pendingUserInput ?? null;
+		}
+		return rootUserInputRequestsByThread[threadId] ?? null;
+	}, [composerMode, currentIdRef, getTeamSession, rootUserInputRequestsByThread]);
+
+	const onUserInputSubmit = useCallback(
+		async (answers: Record<string, string>) => {
+			const threadId = currentIdRef.current;
+			const request = getCurrentUserInputRequest();
+			if (!threadId || !request?.requestId || !shell) {
+				return;
+			}
+			const result = (await shell.invoke('agent:userInputRespond', {
+				requestId: request.requestId,
+				answers,
+			})) as { ok?: boolean; error?: string };
+			if (!result?.ok) {
+				showTransientToast(false, result?.error || t('app.chatSendFailed'));
+				return;
+			}
+			if (composerMode === 'team') {
+				clearTeamPendingUserInput(threadId);
+			}
+			clearRootUserInputRequest(threadId);
+			showTransientToast(true, t('agent.userInput.submittedToast'));
+		},
+		[
+			clearRootUserInputRequest,
+			clearTeamPendingUserInput,
+			composerMode,
+			currentIdRef,
+			getCurrentUserInputRequest,
+			shell,
+			showTransientToast,
+			t,
+		]
+	);
+
 
 	const onPlanBuild = useCallback(
 		(modelId: string) => {
@@ -3766,6 +3846,17 @@ function AppMainWorkspaceInner() {
 					? teamSession?.pendingQuestion ?? planQuestion
 					: planQuestion,
 		[composerMode, teamSession, planQuestion, resendFromUserIndex]
+	);
+	const activeUserInputRequest = useMemo(
+		() =>
+			resendFromUserIndex !== null
+				? null
+				: composerMode === 'team'
+					? teamSession?.pendingUserInput ?? null
+					: currentId
+						? rootUserInputRequestsByThread[currentId] ?? null
+						: null,
+		[composerMode, currentId, resendFromUserIndex, rootUserInputRequestsByThread, teamSession]
 	);
 	const hasActiveTeamSidebarContent = useMemo(
 		() => composerMode === 'team' && buildTeamWorkflowItems(teamSession).length > 0,
@@ -5032,6 +5123,24 @@ function AppMainWorkspaceInner() {
 		[currentId, shell, showTransientToast, t, setSelectedAgent]
 	);
 
+	const onSubmitAgentUserInput = useCallback(
+		async (requestId: string, answers: Record<string, string>) => {
+			if (!currentId || !shell) {
+				return;
+			}
+			const result = (await shell.invoke('agent:userInputRespond', {
+				requestId,
+				answers,
+			})) as { ok?: boolean; error?: string };
+			if (!result?.ok) {
+				showTransientToast(false, result?.error || t('app.chatSendFailed'));
+				return;
+			}
+			showTransientToast(true, t('agent.userInput.submittedToast'));
+		},
+		[currentId, shell, showTransientToast, t]
+	);
+
 	const onWaitAgent = useCallback(
 		async (agentId: string) => {
 			if (!currentId || !shell) {
@@ -5687,6 +5796,8 @@ function AppMainWorkspaceInner() {
 		planQuestion: activePlanQuestion,
 		onPlanQuestionSubmit,
 		onPlanQuestionSkip,
+		userInputRequest: activeUserInputRequest,
+		onUserInputSubmit,
 		wizardPending,
 		setWizardPending,
 		executeSkillCreatorSend,
@@ -5770,6 +5881,7 @@ function AppMainWorkspaceInner() {
 		currentThreadId: currentId,
 		onSelectAgentSession,
 		onSendAgentInput,
+		onSubmitAgentUserInput,
 		onWaitAgent,
 		onResumeAgent,
 		onCloseAgent,

@@ -22,6 +22,7 @@ const TOOL_ICONS: Record<string, string> = {
 	Agent: '🤖',
 	delegate_task: '🤖',
 	Task: '🤖',
+	request_user_input: '💬',
 	TodoWrite: '📋',
 };
 
@@ -61,6 +62,13 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
 		case 'delegate_task':
 		case 'Task':
 			return String(args.prompt ?? args.task ?? '').slice(0, 100);
+		case 'request_user_input': {
+			const questions = args.questions;
+			if (Array.isArray(questions)) {
+				return `${questions.length} question${questions.length === 1 ? '' : 's'}`;
+			}
+			return '';
+		}
 		case 'TodoWrite': {
 			const todos = args.todos;
 			if (Array.isArray(todos)) {
