@@ -445,6 +445,162 @@ async function executeBrowserTool(call: ToolCall, execCtx: ToolExecutionContext)
 				isError: false,
 			};
 		}
+		case 'click_element': {
+			const selector =
+				typeof firstBrowserArg(call.arguments, 'selector') === 'string'
+					? String(firstBrowserArg(call.arguments, 'selector'))
+					: '';
+			if (!selector.trim()) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: 'Error: selector is required for click_element',
+					isError: true,
+				};
+			}
+			const timeoutMsRaw = Number(firstBrowserArg(call.arguments, 'timeout_ms', 'timeoutMs'));
+			const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 20_000;
+			const result = await awaitBrowserCommandResult(
+				hostId,
+				{
+					commandId: makeBrowserCommandId(),
+					type: 'clickElement',
+					tabId:
+						typeof firstBrowserArg(call.arguments, 'tab_id', 'tabId') === 'string'
+							? String(firstBrowserArg(call.arguments, 'tab_id', 'tabId'))
+							: undefined,
+					selector: selector.trim(),
+					waitForLoad:
+						firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === undefined
+							? true
+							: firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === true ||
+								firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === 'true',
+				},
+				timeoutMs
+			);
+			if (!result.ok) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: `Browser click_element failed: ${result.error}`,
+					isError: true,
+				};
+			}
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: JSON.stringify(result.result, null, 2),
+				isError: false,
+			};
+		}
+		case 'input_text': {
+			const selector =
+				typeof firstBrowserArg(call.arguments, 'selector') === 'string'
+					? String(firstBrowserArg(call.arguments, 'selector'))
+					: '';
+			if (!selector.trim()) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: 'Error: selector is required for input_text',
+					isError: true,
+				};
+			}
+			const text =
+				typeof firstBrowserArg(call.arguments, 'text', 'value') === 'string'
+					? String(firstBrowserArg(call.arguments, 'text', 'value'))
+					: '';
+			const timeoutMsRaw = Number(firstBrowserArg(call.arguments, 'timeout_ms', 'timeoutMs'));
+			const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 20_000;
+			const result = await awaitBrowserCommandResult(
+				hostId,
+				{
+					commandId: makeBrowserCommandId(),
+					type: 'inputText',
+					tabId:
+						typeof firstBrowserArg(call.arguments, 'tab_id', 'tabId') === 'string'
+							? String(firstBrowserArg(call.arguments, 'tab_id', 'tabId'))
+							: undefined,
+					selector: selector.trim(),
+					text,
+					pressEnter:
+						firstBrowserArg(call.arguments, 'press_enter', 'pressEnter') === true ||
+						firstBrowserArg(call.arguments, 'press_enter', 'pressEnter') === 'true',
+					waitForLoad:
+						firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === undefined
+							? true
+							: firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === true ||
+								firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === 'true',
+				},
+				timeoutMs
+			);
+			if (!result.ok) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: `Browser input_text failed: ${result.error}`,
+					isError: true,
+				};
+			}
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: JSON.stringify(result.result, null, 2),
+				isError: false,
+			};
+		}
+		case 'wait_for_selector': {
+			const selector =
+				typeof firstBrowserArg(call.arguments, 'selector') === 'string'
+					? String(firstBrowserArg(call.arguments, 'selector'))
+					: '';
+			if (!selector.trim()) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: 'Error: selector is required for wait_for_selector',
+					isError: true,
+				};
+			}
+			const timeoutMsRaw = Number(firstBrowserArg(call.arguments, 'timeout_ms', 'timeoutMs'));
+			const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 20_000;
+			const result = await awaitBrowserCommandResult(
+				hostId,
+				{
+					commandId: makeBrowserCommandId(),
+					type: 'waitForSelector',
+					tabId:
+						typeof firstBrowserArg(call.arguments, 'tab_id', 'tabId') === 'string'
+							? String(firstBrowserArg(call.arguments, 'tab_id', 'tabId'))
+							: undefined,
+					selector: selector.trim(),
+					visible:
+						firstBrowserArg(call.arguments, 'visible') === true ||
+						firstBrowserArg(call.arguments, 'visible') === 'true',
+					waitForLoad:
+						firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === undefined
+							? true
+							: firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === true ||
+								firstBrowserArg(call.arguments, 'wait_for_load', 'waitForLoad') === 'true',
+					timeoutMs,
+				},
+				timeoutMs + 2_000
+			);
+			if (!result.ok) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: `Browser wait_for_selector failed: ${result.error}`,
+					isError: true,
+				};
+			}
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: JSON.stringify(result.result, null, 2),
+				isError: false,
+			};
+		}
 		case 'close_sidebar': {
 			const sent = await dispatch({
 				commandId: makeBrowserCommandId(),
@@ -572,7 +728,7 @@ async function executeBrowserTool(call: ToolCall, execCtx: ToolExecutionContext)
 				toolCallId: call.id,
 				name: call.name,
 				content:
-					'Unknown Browser action. Supported actions: get_config, get_state, navigate, read_page, screenshot_page, close_sidebar, reload, stop, go_back, go_forward, close_tab, set_config, reset_config.',
+					'Unknown Browser action. Supported actions: get_config, get_state, navigate, read_page, screenshot_page, click_element, input_text, wait_for_selector, close_sidebar, reload, stop, go_back, go_forward, close_tab, set_config, reset_config.',
 				isError: true,
 			};
 	}
