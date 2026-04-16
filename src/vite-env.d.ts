@@ -18,6 +18,8 @@ export interface AsyncShellAPI {
 	subscribeBrowserNewWindow?(callback: (payload: { url: string; disposition?: string }) => void): () => void;
 	/** 主进程转发给内置浏览器面板的控制命令 */
 	subscribeBrowserControl?(callback: (payload: unknown) => void): () => void;
+	/** 主进程请求主窗口打开设置并切换到指定侧栏项（如从独立浏览器窗口唤起） */
+	subscribeOpenSettingsNav?(callback: (nav: string) => void): () => void;
 }
 declare global {
 interface AsyncShellWebviewElement extends HTMLElement {

@@ -31,7 +31,7 @@ import {
 } from './agentFileChangesPersist';
 import { normalizeWorkspaceRelPath, workspaceRelPathsEqual } from './agentFileChangesFromGit';
 import { computeMergedAgentFileChanges } from './agentFileChangesCompute';
-import type { SettingsNavId, SettingsPageProps } from './SettingsPage';
+import { ALL_SETTINGS_NAV_IDS, type SettingsNavId, type SettingsPageProps } from './SettingsPage';
 import {
 	applyThemePresetToAppearance,
 	applyAppearanceSettingsToDom,
@@ -1183,6 +1183,23 @@ function AppMainWorkspaceInner() {
 		setPlusMenuOpen(false);
 		openSettingsPageBase(nav);
 	}, [openSettingsPageBase]);
+
+	const settingsNavIdSet = useMemo(() => new Set<string>(ALL_SETTINGS_NAV_IDS), []);
+
+	useEffect(() => {
+		const unsub = window.asyncShell?.subscribeOpenSettingsNav?.((nav) => {
+			if (typeof nav === 'string' && settingsNavIdSet.has(nav)) {
+				openSettingsPage(nav as SettingsNavId);
+			}
+		});
+		return () => {
+			unsub?.();
+		};
+	}, [openSettingsPage, settingsNavIdSet]);
+
+	const openBrowserSettingsPage = useCallback(() => {
+		openSettingsPage('browser');
+	}, [openSettingsPage]);
 
 	const workspaceBasename = useMemo(() => {
 		if (!workspace) {
@@ -5879,6 +5896,7 @@ function AppMainWorkspaceInner() {
 		hasAgentPlanSidebarContent,
 		setAgentRightSidebarOpen,
 		openAgentRightSidebarView,
+		onOpenBrowserSettings: openBrowserSettingsPage,
 		onExplorerOpenFile,
 		planPreviewTitle: agentPlanPreviewTitle ?? '',
 		planPreviewMarkdown: agentPlanPreviewMarkdown,

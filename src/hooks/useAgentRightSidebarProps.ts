@@ -43,6 +43,7 @@ export function useAgentRightSidebarProps(p: UseAgentRightSidebarPropsParams): A
 			rest.open,
 			rest.view,
 			rest.hasAgentPlanSidebarContent,
+			rest.onOpenBrowserSettings,
 			rest.planPreviewTitle,
 			rest.planPreviewMarkdown,
 			rest.planDocumentMarkdown,

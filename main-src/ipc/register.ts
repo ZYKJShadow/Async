@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, type WebContents } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, webContents, type WebContents } from 'electron';
 import { createAppWindow } from '../appWindow.js';
 import { applyThemeChromeToWindow, type NativeChromeOverride, type ThemeChromeScheme } from '../themeChrome.js';
 import { applyPatch, formatPatch, parsePatch, reversePatch } from 'diff';
@@ -179,6 +179,7 @@ import {
 	browserPartitionForHostId,
 	getBrowserSidebarConfigPayloadForHostId,
 	setBrowserSidebarConfigForHostId,
+	sendApplyConfigToDetachedBrowserWindowIfOpen,
 	updateBrowserRuntimeStateForHostId,
 	getBrowserRuntimeStateForHostId,
 	resolveBrowserCommandResultForHostId,
@@ -1425,7 +1426,61 @@ export function registerIpc(): void {
 	});
 
 	ipcMain.handle('browser:setConfig', async (event, rawConfig: unknown) => {
-		return await setBrowserSidebarConfigForHostId(resolveBrowserHostIdForSenderId(event.sender.id), rawConfig);
+		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
+		const result = await setBrowserSidebarConfigForHostId(hostId, rawConfig);
+		if (result.ok) {
+			sendApplyConfigToDetachedBrowserWindowIfOpen(hostId, result.config, result.defaultUserAgent);
+		}
+		return result;
+	});
+
+	const SETTINGS_OPEN_NAV_IDS = new Set([
+		'general',
+		'appearance',
+		'editor',
+		'plan',
+		'team',
+		'bots',
+		'agents',
+		'tab',
+		'models',
+		'cloud',
+		'plugins',
+		'rules',
+		'tools',
+		'hooks',
+		'indexing',
+		'autoUpdate',
+		'browser',
+		'network',
+		'beta',
+		'dev',
+	]);
+
+	ipcMain.handle('app:requestOpenSettings', async (event, payload: unknown) => {
+		const navRaw =
+			payload && typeof payload === 'object' && typeof (payload as { nav?: unknown }).nav === 'string'
+				? String((payload as { nav: string }).nav).trim()
+				: '';
+		const nav = navRaw || 'general';
+		if (!SETTINGS_OPEN_NAV_IDS.has(nav)) {
+			return { ok: false as const, error: 'invalid-nav' as const };
+		}
+		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
+		const mainContents = webContents.fromId(hostId);
+		if (!mainContents || mainContents.isDestroyed()) {
+			return { ok: false as const, error: 'no-host' as const };
+		}
+		mainContents.send('async-shell:openSettingsNav', nav);
+		const win = BrowserWindow.fromWebContents(mainContents);
+		if (win && !win.isDestroyed()) {
+			if (win.isMinimized()) {
+				win.restore();
+			}
+			win.show();
+			win.focus();
+		}
+		return { ok: true as const };
 	});
 
 	ipcMain.handle('browser:syncState', async (event, rawState: unknown) => {

@@ -11941,6 +11941,26 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	max-width: 720px;
 }
 
+/* 内置浏览器设置：各区块纵向留白（沿用 ref-browser-* 控件，仅补外层节奏） */
+.ref-settings-panel--browser {
+	display: flex;
+	flex-direction: column;
+	gap: 22px;
+}
+
+.ref-settings-panel--browser > .ref-settings-lead {
+	margin-bottom: 0;
+}
+
+.ref-settings-panel--browser .ref-browser-settings-field {
+	gap: 10px;
+}
+
+.ref-settings-panel--browser .ref-settings-browser-autosave-status {
+	margin-top: 4px;
+	margin-bottom: 0;
+}
+
 .ref-appearance-lead {
 	margin: 0 0 20px;
 	font-size: 13px;

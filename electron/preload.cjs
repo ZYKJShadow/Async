@@ -106,6 +106,7 @@ const INVOKE_CHANNELS = new Set([
 	'app:windowMinimize',
 	'app:windowToggleMaximize',
 	'app:windowClose',
+	'app:requestOpenSettings',
 	'app:quit',
 	'fs:pickOpenFile',
 	'fs:pickSaveFile',
@@ -219,6 +220,19 @@ ipcRenderer.on('async-shell:browserControl', (_event, payload) => {
 	}
 });
 
+const openSettingsNavHandlers = new Map();
+let openSettingsNavSeq = 0;
+
+ipcRenderer.on('async-shell:openSettingsNav', (_event, nav) => {
+	for (const fn of openSettingsNavHandlers.values()) {
+		try {
+			fn(nav);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
 contextBridge.exposeInMainWorld('asyncShell', {
 	invoke(channel, ...args) {
 		if (!INVOKE_CHANNELS.has(channel)) {
@@ -279,5 +293,10 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++browserControlSeq;
 		browserControlHandlers.set(id, callback);
 		return () => browserControlHandlers.delete(id);
+	},
+	subscribeOpenSettingsNav(callback) {
+		const id = ++openSettingsNavSeq;
+		openSettingsNavHandlers.set(id, callback);
+		return () => openSettingsNavHandlers.delete(id);
 	},
 });

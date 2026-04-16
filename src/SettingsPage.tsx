@@ -28,6 +28,7 @@ const SettingsUsageStatsPanel = lazy(() => import('./SettingsUsageStatsPanel').t
 const SettingsAutoUpdatePanel = lazy(() => import('./SettingsAutoUpdatePanel').then((m) => ({ default: m.SettingsAutoUpdatePanel })));
 const SettingsTeamPanel = lazy(() => import('./SettingsTeamPanel').then((m) => ({ default: m.SettingsTeamPanel })));
 const SettingsBotsPanel = lazy(() => import('./SettingsBotsPanel').then((m) => ({ default: m.SettingsBotsPanel })));
+const SettingsBrowserPanel = lazy(() => import('./SettingsBrowserPanel').then((m) => ({ default: m.SettingsBrowserPanel })));
 
 export type SettingsNavId =
 	| 'general'
@@ -46,9 +47,34 @@ export type SettingsNavId =
 	| 'hooks'
 	| 'indexing'
 	| 'autoUpdate'
+	| 'browser'
 	| 'network'
 	| 'beta'
 	| 'dev';
+
+/** 与 `app:requestOpenSettings` 白名单及侧栏顺序对齐，供运行时校验导航 id */
+export const ALL_SETTINGS_NAV_IDS: SettingsNavId[] = [
+	'general',
+	'appearance',
+	'editor',
+	'models',
+	'agents',
+	'bots',
+	'rules',
+	'indexing',
+	'autoUpdate',
+	'browser',
+	'tools',
+	'plan',
+	'team',
+	'tab',
+	'cloud',
+	'plugins',
+	'hooks',
+	'network',
+	'beta',
+	'dev',
+];
 
 
 
@@ -65,6 +91,7 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'rules', label: t('settings.nav.rules') },
 		{ id: 'indexing', label: t('settings.nav.indexing') },
 		{ id: 'autoUpdate', label: t('settings.nav.autoUpdate') },
+		{ id: 'browser', label: t('settings.nav.browser') },
 		{ id: 'tools', label: t('settings.nav.tools') },
 		{ id: 'plan', label: t('settings.nav.plan') },
 		{ id: 'team', label: t('settings.nav.team') },
@@ -242,6 +269,18 @@ function IconGlobe({ className }: { className?: string }) {
 	);
 }
 
+/** 内置浏览器：窗口框 + 简化的「地球」经纬线，与纯地球图标区分 */
+function IconBrowserNav({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<rect x="3" y="4" width="18" height="16" rx="2" />
+			<path d="M3 8h18" strokeLinecap="round" />
+			<circle cx="12" cy="14" r="3.25" />
+			<path d="M8.75 14h6.5M12 10.75v6.5" strokeLinecap="round" />
+		</svg>
+	);
+}
+
 function IconFlask({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -311,6 +350,8 @@ function navIcon(id: SettingsNavId) {
 					<path d="M21 12a9 9 0 1 1-6.2-8.6M21 3v5h-5" strokeLinecap="round" strokeLinejoin="round" />
 				</svg>
 			);
+		case 'browser':
+			return <IconBrowserNav />;
 		case 'cloud':
 			return <IconCloudNav />;
 		case 'plugins':
@@ -662,6 +703,7 @@ export function SettingsPage({
 								{nav === 'tools' ? t('settings.title.tools') : null}
 								{nav === 'indexing' ? t('settings.title.indexing') : null}
 								{nav === 'autoUpdate' ? t('settings.title.autoUpdate') : null}
+								{nav === 'browser' ? t('settings.title.browser') : null}
 								{nav === 'plan' ? t('settings.title.usage') : null}
 								{nav === 'team' ? t('settings.title.team') : null}
 								{nav === 'bots' ? t('settings.title.bots') : null}
@@ -675,6 +717,7 @@ export function SettingsPage({
 								nav !== 'tools' &&
 								nav !== 'indexing' &&
 								nav !== 'autoUpdate' &&
+								nav !== 'browser' &&
 								nav !== 'plan' &&
 								nav !== 'team'
 									? t('settings.title.comingSoon')
@@ -998,6 +1041,12 @@ export function SettingsPage({
 							</Suspense>
 						) : null}
 
+						{nav === 'browser' ? (
+							<Suspense fallback={<SettingsPanelSkeleton />}>
+								<SettingsBrowserPanel shell={shell} />
+							</Suspense>
+						) : null}
+
 						{nav === 'plan' ? (
 							<Suspense fallback={<SettingsPanelSkeleton />}>
 								<SettingsUsageStatsPanel shell={shell} modelEntries={modelEntries} modelProviders={modelProviders} />
@@ -1038,6 +1087,7 @@ export function SettingsPage({
 						nav !== 'tools' &&
 						nav !== 'indexing' &&
 						nav !== 'autoUpdate' &&
+						nav !== 'browser' &&
 						nav !== 'plan' &&
 						nav !== 'team' ? (
 							<div className="ref-settings-panel">

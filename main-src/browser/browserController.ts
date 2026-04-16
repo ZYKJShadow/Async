@@ -671,6 +671,35 @@ export async function dispatchBrowserControlToHostId(hostId: number, command: Br
 	}
 }
 
+/** 若已存在独立浏览器窗口，则向其推送 `applyConfig`（不会新建窗口）。 */
+export function sendApplyConfigToDetachedBrowserWindowIfOpen(
+	hostId: number,
+	config: BrowserSidebarConfigPayload,
+	defaultUserAgent: string
+): boolean {
+	const mappedRendererId = browserWindowRendererByHost.get(hostId);
+	if (mappedRendererId == null) {
+		return false;
+	}
+	try {
+		const contents = webContents.fromId(mappedRendererId);
+		if (!contents || contents.isDestroyed()) {
+			return false;
+		}
+		const commandId = `cfg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+		const command: BrowserControlCommand = {
+			commandId,
+			type: 'applyConfig',
+			config,
+			defaultUserAgent,
+		};
+		contents.send('async-shell:browserControl', command);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function awaitBrowserCommandResult(
 	hostId: number,
 	command: BrowserControlCommand,

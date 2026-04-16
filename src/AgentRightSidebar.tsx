@@ -46,6 +46,13 @@ import { buildTeamWorkflowItems } from './teamWorkflowItems';
 import { AgentSessionPanel } from './AgentSessionPanel';
 import type { AgentSessionState } from './hooks/useAgentSession';
 import { hideBootSplash } from './bootSplash';
+import {
+	BROWSER_SIDEBAR_CONFIG_SYNC_EVENT,
+	browserSidebarConfigSyncDetail,
+	DEFAULT_BROWSER_SIDEBAR_CONFIG,
+	normalizeBrowserSidebarConfig,
+	type BrowserSidebarSettingsConfig,
+} from './browserSidebarConfig';
 
 type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team' | 'browser' | 'agents';
 
@@ -59,16 +66,6 @@ type BrowserFailEvent = Event & {
 	validatedURL?: string;
 	isMainFrame?: boolean;
 };
-type BrowserSidebarConfig = {
-	userAgent: string;
-	acceptLanguage: string;
-	extraHeadersText: string;
-	blockTrackers: boolean;
-	proxyMode: 'system' | 'direct' | 'custom';
-	proxyRules: string;
-	proxyBypassRules: string;
-};
-
 type BrowserControlPayload =
 	| {
 			commandId: string;
@@ -103,7 +100,7 @@ type BrowserControlPayload =
 	| {
 			commandId: string;
 			type: 'applyConfig';
-			config: Partial<BrowserSidebarConfig>;
+			config: Partial<BrowserSidebarSettingsConfig>;
 			defaultUserAgent?: string;
 	  };
 
@@ -118,31 +115,6 @@ type BrowserCommandResultPayload =
 			ok: false;
 			error: string;
 	  };
-
-const DEFAULT_BROWSER_SIDEBAR_CONFIG: BrowserSidebarConfig = {
-	userAgent: '',
-	acceptLanguage: '',
-	extraHeadersText: '',
-	blockTrackers: true,
-	proxyMode: 'system',
-	proxyRules: '',
-	proxyBypassRules: '',
-};
-
-function normalizeBrowserSidebarConfig(raw?: Partial<BrowserSidebarConfig> | null): BrowserSidebarConfig {
-	return {
-		userAgent: String(raw?.userAgent ?? '').trim(),
-		acceptLanguage: String(raw?.acceptLanguage ?? '').trim(),
-		extraHeadersText: String(raw?.extraHeadersText ?? '').replace(/\r/g, ''),
-		blockTrackers: raw?.blockTrackers !== false,
-		proxyMode:
-			raw?.proxyMode === 'direct' || raw?.proxyMode === 'custom' || raw?.proxyMode === 'system'
-				? raw.proxyMode
-				: 'system',
-		proxyRules: String(raw?.proxyRules ?? '').trim(),
-		proxyBypassRules: String(raw?.proxyBypassRules ?? '').trim(),
-	};
-}
 
 function isBrowserControlPayload(raw: unknown): raw is BrowserControlPayload {
 	if (!raw || typeof raw !== 'object') {
@@ -181,29 +153,6 @@ function isBrowserControlPayload(raw: unknown): raw is BrowserControlPayload {
 		default:
 			return false;
 	}
-}
-
-function parseBrowserExtraHeadersText(raw: string): { ok: true; headers: Array<[string, string]> } | { ok: false; line: number } {
-	const text = String(raw ?? '').replace(/\r/g, '');
-	const lines = text.split('\n');
-	const headers: Array<[string, string]> = [];
-	for (let i = 0; i < lines.length; i += 1) {
-		const line = lines[i].trim();
-		if (!line) {
-			continue;
-		}
-		const sep = line.indexOf(':');
-		if (sep <= 0) {
-			return { ok: false, line: i + 1 };
-		}
-		const name = line.slice(0, sep).trim();
-		const value = line.slice(sep + 1).trim();
-		if (!name) {
-			return { ok: false, line: i + 1 };
-		}
-		headers.push([name, value]);
-	}
-	return { ok: true, headers };
 }
 
 function safeGetWebviewUrl(node: AsyncShellWebviewElement | null): string {
@@ -260,259 +209,14 @@ async function notifyBrowserCommandResult(
 	}
 }
 
-function BrowserSettingsModal({
-	open,
-	t,
-	draft,
-	setDraft,
-	error,
-	saving,
-	onClose,
-	onReset,
-	onSave,
-}: {
-	open: boolean;
-	t: TFunction;
-	draft: BrowserSidebarConfig;
-	setDraft: Dispatch<SetStateAction<BrowserSidebarConfig>>;
-	error: string | null;
-	saving: boolean;
-	onClose: () => void;
-	onReset: () => void;
-	onSave: () => void | Promise<void>;
-}) {
-	const firstInputRef = useRef<HTMLInputElement | null>(null);
-
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const timer = window.setTimeout(() => firstInputRef.current?.focus(), 40);
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				onClose();
-			}
-		};
-		window.addEventListener('keydown', onKey);
-		return () => {
-			window.clearTimeout(timer);
-			window.removeEventListener('keydown', onKey);
-		};
-	}, [open, onClose]);
-
-	if (!open) {
-		return null;
-	}
-
-	return (
-		<div className="ref-browser-settings-backdrop" role="presentation" onClick={onClose}>
-			<form
-				className="ref-browser-settings-modal"
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="browser-settings-title"
-				onClick={(event) => event.stopPropagation()}
-				onSubmit={(event) => {
-					event.preventDefault();
-					void onSave();
-				}}
-			>
-				<div className="ref-browser-settings-head">
-					<div className="ref-browser-settings-title-stack">
-						<span className="ref-browser-settings-kicker">{t('app.tabBrowser')}</span>
-						<h2 id="browser-settings-title" className="ref-browser-settings-title">
-							{t('app.browserSettings')}
-						</h2>
-					</div>
-					<button
-						type="button"
-						className="ref-browser-settings-close"
-						aria-label={t('common.close')}
-						title={t('common.close')}
-						onClick={onClose}
-					>
-						<IconCloseSmall />
-					</button>
-				</div>
-
-				<div className="ref-browser-settings-body">
-					<p className="ref-browser-settings-note">{t('app.browserSettingsDescription')}</p>
-
-					<label className="ref-browser-settings-toggle" aria-label={t('app.browserBlockTrackers')}>
-						<input
-							type="checkbox"
-							checked={draft.blockTrackers}
-							onChange={(event) =>
-								setDraft((prev) => ({
-									...prev,
-									blockTrackers: event.target.checked,
-								}))
-							}
-						/>
-						<span className="ref-browser-settings-toggle-slider" aria-hidden="true" />
-						<span className="ref-browser-settings-toggle-copy">
-							<strong>{t('app.browserBlockTrackers')}</strong>
-							<small>{t('app.browserBlockTrackersHint')}</small>
-						</span>
-					</label>
-
-					<label className="ref-browser-settings-field">
-						<span className="ref-browser-settings-label">{t('app.browserUserAgent')}</span>
-						<input
-							ref={firstInputRef}
-							type="text"
-							className="ref-browser-settings-input"
-							value={draft.userAgent}
-							placeholder={t('app.browserUserAgentPlaceholder')}
-							spellCheck={false}
-							onChange={(event) =>
-								setDraft((prev) => ({
-									...prev,
-									userAgent: event.target.value,
-								}))
-							}
-						/>
-					</label>
-
-					<label className="ref-browser-settings-field">
-						<span className="ref-browser-settings-label">{t('app.browserAcceptLanguage')}</span>
-						<input
-							type="text"
-							className="ref-browser-settings-input"
-							value={draft.acceptLanguage}
-							placeholder={t('app.browserAcceptLanguagePlaceholder')}
-							spellCheck={false}
-							onChange={(event) =>
-								setDraft((prev) => ({
-									...prev,
-									acceptLanguage: event.target.value,
-								}))
-							}
-						/>
-					</label>
-
-					<div className="ref-browser-settings-field">
-						<span className="ref-browser-settings-label">{t('app.browserProxyMode')}</span>
-						<div className="ref-browser-settings-segmented" role="radiogroup" aria-label={t('app.browserProxyMode')}>
-							{(
-								[
-									['system', 'app.browserProxyModeSystem', 'app.browserProxyModeSystemDesc'],
-									['direct', 'app.browserProxyModeDirect', 'app.browserProxyModeDirectDesc'],
-									['custom', 'app.browserProxyModeCustom', 'app.browserProxyModeCustomDesc'],
-								] as const
-							).map(([mode, titleKey, descKey]) => {
-								const active = draft.proxyMode === mode;
-								return (
-									<button
-										key={mode}
-										type="button"
-										role="radio"
-										aria-checked={active}
-										className={`ref-browser-settings-segment ${active ? 'is-selected' : ''}`}
-										onClick={() =>
-											setDraft((prev) => ({
-												...prev,
-												proxyMode: mode,
-											}))
-										}
-									>
-										<span className="ref-browser-settings-segment-title">{t(titleKey)}</span>
-										<span className="ref-browser-settings-segment-desc">{t(descKey)}</span>
-									</button>
-								);
-							})}
-						</div>
-					</div>
-
-					{draft.proxyMode === 'custom' ? (
-						<>
-							<label className="ref-browser-settings-field">
-								<span className="ref-browser-settings-label">{t('app.browserProxyRules')}</span>
-								<input
-									type="text"
-									className="ref-browser-settings-input"
-									value={draft.proxyRules}
-									placeholder={t('app.browserProxyRulesPlaceholder')}
-									spellCheck={false}
-									onChange={(event) =>
-										setDraft((prev) => ({
-											...prev,
-											proxyRules: event.target.value,
-										}))
-									}
-								/>
-								<span className="ref-browser-settings-help">{t('app.browserProxyRulesHint')}</span>
-							</label>
-
-							<label className="ref-browser-settings-field">
-								<span className="ref-browser-settings-label">{t('app.browserProxyBypassRules')}</span>
-								<input
-									type="text"
-									className="ref-browser-settings-input"
-									value={draft.proxyBypassRules}
-									placeholder={t('app.browserProxyBypassRulesPlaceholder')}
-									spellCheck={false}
-									onChange={(event) =>
-										setDraft((prev) => ({
-											...prev,
-											proxyBypassRules: event.target.value,
-										}))
-									}
-								/>
-								<span className="ref-browser-settings-help">{t('app.browserProxyBypassRulesHint')}</span>
-							</label>
-						</>
-					) : null}
-
-					<label className="ref-browser-settings-field">
-						<span className="ref-browser-settings-label">{t('app.browserExtraHeaders')}</span>
-						<textarea
-							className="ref-browser-settings-textarea"
-							value={draft.extraHeadersText}
-							placeholder={t('app.browserExtraHeadersPlaceholder')}
-							spellCheck={false}
-							onChange={(event) =>
-								setDraft((prev) => ({
-									...prev,
-									extraHeadersText: event.target.value,
-								}))
-							}
-						/>
-						<span className="ref-browser-settings-help">{t('app.browserExtraHeadersHint')}</span>
-					</label>
-
-					{error ? <div className="ref-browser-settings-error">{error}</div> : null}
-				</div>
-
-				<div className="ref-browser-settings-actions">
-					<button type="button" className="ref-browser-settings-btn ref-browser-settings-btn--ghost" onClick={onReset}>
-						{t('app.browserResetDefaults')}
-					</button>
-					<div className="ref-browser-settings-actions-right">
-						<button
-							type="button"
-							className="ref-browser-settings-btn ref-browser-settings-btn--secondary"
-							onClick={onClose}
-						>
-							{t('common.cancel')}
-						</button>
-						<button type="submit" className="ref-browser-settings-btn" disabled={saving}>
-							{t('app.browserSaveAndReload')}
-						</button>
-					</div>
-				</div>
-			</form>
-		</div>
-	);
-}
-
 export type AgentRightSidebarProps = {
 	open: boolean;
 	view: AgentRightSidebarView;
 	hasAgentPlanSidebarContent: boolean;
 	closeSidebar: () => void;
 	openView: (view: AgentRightSidebarView) => void;
+	/** 打开设置页中的「内置浏览器」配置（侧栏为设置导航；独立窗口由 IPC 唤起主窗口） */
+	onOpenBrowserSettings: () => void;
 	planPreviewTitle: string;
 	planPreviewMarkdown: string;
 	planDocumentMarkdown: string;
@@ -1319,6 +1023,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	hasAgentPlanSidebarContent,
 	closeSidebar,
 	openView,
+	onOpenBrowserSettings,
 	pendingCommand,
 	onCommandHandled,
 	variant = 'sidebar',
@@ -1326,6 +1031,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	hasAgentPlanSidebarContent: boolean;
 	closeSidebar: () => void;
 	openView: (view: AgentRightSidebarView) => void;
+	onOpenBrowserSettings: () => void;
 	pendingCommand: BrowserControlPayload | null;
 	onCommandHandled: (commandId: string) => void;
 	variant?: 'sidebar' | 'window';
@@ -1345,16 +1051,11 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 
 	const [browserPartition, setBrowserPartition] = useState('');
 	const [browserConfigReady, setBrowserConfigReady] = useState(false);
-	const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
-	const [browserSettingsSaving, setBrowserSettingsSaving] = useState(false);
-	const [browserSettingsError, setBrowserSettingsError] = useState<string | null>(null);
-	const [browserConfig, setBrowserConfig] = useState<BrowserSidebarConfig>(DEFAULT_BROWSER_SIDEBAR_CONFIG);
-	const [browserDraft, setBrowserDraft] = useState<BrowserSidebarConfig>(DEFAULT_BROWSER_SIDEBAR_CONFIG);
+	const [browserConfig, setBrowserConfig] = useState<BrowserSidebarSettingsConfig>(DEFAULT_BROWSER_SIDEBAR_CONFIG);
 
-	const applyBrowserConfigLocally = useCallback((rawConfig: Partial<BrowserSidebarConfig>, defaultUserAgent?: string) => {
+	const applyBrowserConfigLocally = useCallback((rawConfig: Partial<BrowserSidebarSettingsConfig>, defaultUserAgent?: string) => {
 		const nextConfig = normalizeBrowserSidebarConfig(rawConfig);
 		setBrowserConfig(nextConfig);
-		setBrowserDraft(nextConfig);
 		if (typeof defaultUserAgent === 'string') {
 			defaultUserAgentRef.current = defaultUserAgent.trim();
 		}
@@ -1532,14 +1233,13 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 				const response = payload as {
 					ok?: boolean;
 					partition?: string;
-					config?: Partial<BrowserSidebarConfig>;
+					config?: Partial<BrowserSidebarSettingsConfig>;
 					defaultUserAgent?: string;
 				};
 				if (response.ok && response.partition) {
 					const nextConfig = normalizeBrowserSidebarConfig(response.config);
 					setBrowserPartition(response.partition);
 					setBrowserConfig(nextConfig);
-					setBrowserDraft(nextConfig);
 					defaultUserAgentRef.current = String(response.defaultUserAgent ?? '').trim();
 				} else {
 					setBrowserPartition('async-agent-browser-fallback');
@@ -1771,62 +1471,19 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 		[activeTab, activeTabId]
 	);
 
-	const openBrowserSettings = useCallback(() => {
-		setBrowserDraft(browserConfig);
-		setBrowserSettingsError(null);
-		setBrowserSettingsOpen(true);
-	}, [browserConfig]);
-
-	const closeBrowserSettings = useCallback(() => {
-		setBrowserDraft(browserConfig);
-		setBrowserSettingsError(null);
-		setBrowserSettingsOpen(false);
-	}, [browserConfig]);
-
-	const saveBrowserSettings = useCallback(async () => {
-		const parsedHeaders = parseBrowserExtraHeadersText(browserDraft.extraHeadersText);
-		if (!parsedHeaders.ok) {
-			setBrowserSettingsError(t('app.browserHeaderFormatError', { line: String(parsedHeaders.line) }));
-			return;
-		}
-		if (browserDraft.proxyMode === 'custom' && !browserDraft.proxyRules.trim()) {
-			setBrowserSettingsError(t('app.browserProxyRulesRequired'));
-			return;
-		}
-		setBrowserSettingsSaving(true);
-		setBrowserSettingsError(null);
-		try {
-			const nextConfig = normalizeBrowserSidebarConfig(browserDraft);
-			if (shell) {
-				const payload = (await shell.invoke('browser:setConfig', nextConfig)) as {
-					ok?: boolean;
-					error?: string;
-					line?: number;
-					config?: Partial<BrowserSidebarConfig>;
-					defaultUserAgent?: string;
-				};
-				if (!payload?.ok) {
-					if (payload?.error === 'invalid-header-line' && payload.line) {
-						setBrowserSettingsError(t('app.browserHeaderFormatError', { line: String(payload.line) }));
-					} else if (payload?.error === 'proxy-rules-required') {
-						setBrowserSettingsError(t('app.browserProxyRulesRequired'));
-					} else {
-						setBrowserSettingsError(t('app.browserLoadFailed'));
-					}
-					return;
-				}
-				applyBrowserConfigLocally(
-					payload.config ?? nextConfig,
-					String(payload.defaultUserAgent ?? defaultUserAgentRef.current ?? '')
-				);
-			} else {
-				applyBrowserConfigLocally(nextConfig);
+	useEffect(() => {
+		const onSync = (event: Event) => {
+			const detail = browserSidebarConfigSyncDetail(event);
+			if (!detail) {
+				return;
 			}
-			setBrowserSettingsOpen(false);
-		} finally {
-			setBrowserSettingsSaving(false);
-		}
-	}, [applyBrowserConfigLocally, browserDraft, shell, t]);
+			applyBrowserConfigLocally(detail.config, detail.defaultUserAgent);
+		};
+		window.addEventListener(BROWSER_SIDEBAR_CONFIG_SYNC_EVENT, onSync);
+		return () => {
+			window.removeEventListener(BROWSER_SIDEBAR_CONFIG_SYNC_EVENT, onSync);
+		};
+	}, [applyBrowserConfigLocally]);
 
 	useEffect(() => {
 		if (!shell) {
@@ -1990,10 +1647,10 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 					<div className="ref-agent-review-actions">
 						<button
 							type="button"
-							aria-label={t('app.browserSettings')}
-							title={t('app.browserSettings')}
+							aria-label={t('app.browserOpenSettingsInMain')}
+							title={t('app.browserOpenSettingsInMain')}
 							className="ref-right-icon-tab"
-							onClick={openBrowserSettings}
+							onClick={onOpenBrowserSettings}
 						>
 							<IconSettings />
 						</button>
@@ -2010,7 +1667,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 								aria-label={t('app.browserSettings')}
 								title={t('app.browserSettings')}
 								className="ref-right-icon-tab"
-								onClick={openBrowserSettings}
+								onClick={onOpenBrowserSettings}
 							>
 								<IconSettings />
 							</button>
@@ -2209,20 +1866,6 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 					</div>
 				</div>
 			</div>
-			<BrowserSettingsModal
-				open={browserSettingsOpen}
-				t={t}
-				draft={browserDraft}
-				setDraft={setBrowserDraft}
-				error={browserSettingsError}
-				saving={browserSettingsSaving}
-				onClose={closeBrowserSettings}
-				onReset={() => {
-					setBrowserDraft(DEFAULT_BROWSER_SIDEBAR_CONFIG);
-					setBrowserSettingsError(null);
-				}}
-				onSave={saveBrowserSettings}
-			/>
 		</div>
 	);
 });
@@ -2230,6 +1873,12 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 export const AgentBrowserWindowSurface = memo(function AgentBrowserWindowSurface() {
 	const { shell } = useAppShellChrome();
 	const [pendingBrowserCommands, setPendingBrowserCommands] = useState<BrowserControlPayload[]>([]);
+
+	const openBrowserSettingsInHost = useCallback(() => {
+		void shell?.invoke('app:requestOpenSettings', { nav: 'browser' }).catch(() => {
+			/* ignore */
+		});
+	}, [shell]);
 
 	useEffect(() => {
 		hideBootSplash();
@@ -2280,6 +1929,7 @@ export const AgentBrowserWindowSurface = memo(function AgentBrowserWindowSurface
 				hasAgentPlanSidebarContent={false}
 				closeSidebar={closeWindow}
 				openView={() => {}}
+				onOpenBrowserSettings={openBrowserSettingsInHost}
 				pendingCommand={pendingBrowserCommands[0] ?? null}
 				onCommandHandled={handleBrowserCommandHandled}
 				variant="window"
@@ -2457,6 +2107,7 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 	hasAgentPlanSidebarContent,
 	closeSidebar,
 	openView,
+	onOpenBrowserSettings,
 	planPreviewTitle,
 	planPreviewMarkdown,
 	planDocumentMarkdown,
@@ -2578,6 +2229,7 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 				hasAgentPlanSidebarContent={hasAgentPlanSidebarContent}
 				closeSidebar={closeSidebar}
 				openView={openView}
+				onOpenBrowserSettings={onOpenBrowserSettings}
 				pendingCommand={pendingBrowserCommands[0] ?? null}
 				onCommandHandled={handleBrowserCommandHandled}
 			/>
