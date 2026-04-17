@@ -325,9 +325,12 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 	runtime.lastError = null;
 	const matchedSubagent = findConfiguredSubagent(runtime.settings, runtime.subagentType);
 	const subAppend = buildSubagentSystemAppend(runtime.settings, runtime.subagentType);
-	const baseToolDefs = assembleAgentToolPool(runtime.runProfile === 'explore' ? 'plan' : runtime.options.composerMode, {
-		mcpToolDenyPrefixes: runtime.settings.mcpToolDenyPrefixes,
-	}).filter((tool) => tool.name !== 'Agent' && tool.name !== 'Task');
+	const inheritedExploreToolDefs =
+		runtime.runProfile === 'explore'
+			? assembleAgentToolPool('plan', {
+					mcpToolDenyPrefixes: runtime.settings.mcpToolDenyPrefixes,
+				})
+			: undefined;
 
 	const runPromise = (async () => {
 		let output = '';
@@ -481,7 +484,7 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 					...runtime.options,
 					signal: abortController.signal,
 					composerMode: runtime.runProfile === 'explore' ? 'plan' : runtime.options.composerMode,
-					toolPoolOverride: baseToolDefs,
+					...(inheritedExploreToolDefs ? { toolPoolOverride: inheritedExploreToolDefs } : {}),
 					customToolHandlers,
 					delegateExecutionDepth: 1,
 					toolHooks:

@@ -3,6 +3,7 @@ import type {
 	AgentAssistantPayload,
 	AgentAssistantToolPart,
 } from '../../src/agentStructuredMessage.js';
+import type { AnthropicToolResultContent } from '../llm/anthropicBeta.js';
 import { stringifyAgentAssistantPayload } from '../../src/agentStructuredMessage.js';
 
 /**
@@ -27,6 +28,7 @@ export class StructuredAssistantBuilder {
 		args: Record<string, unknown>,
 		result: string,
 		success: boolean,
+		resultStructured?: AnthropicToolResultContent,
 		nest?: { subParent?: string; subDepth?: number }
 	): void {
 		const tool: AgentAssistantToolPart = {
@@ -35,6 +37,7 @@ export class StructuredAssistantBuilder {
 			name,
 			args,
 			result,
+			...(resultStructured ? { resultStructured } : {}),
 			success,
 		};
 		if (nest?.subParent != null) {

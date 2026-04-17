@@ -2,6 +2,8 @@
  * Agent 助手消息的结构化持久化格式，磁盘存 JSON；发 API 时再展开为原有 XML 协议。
  */
 
+import type { AnthropicToolResultContent } from '../main-src/llm/anthropicBeta.js';
+
 export type AgentAssistantTextPart = { type: 'text'; text: string };
 
 export type AgentAssistantToolPart = {
@@ -10,6 +12,7 @@ export type AgentAssistantToolPart = {
 	name: string;
 	args: Record<string, unknown>;
 	result: string;
+	resultStructured?: AnthropicToolResultContent;
 	success: boolean;
 	subParent?: string;
 	subDepth?: number;
@@ -25,6 +28,35 @@ export type AgentAssistantPayload = {
 
 function escapeToolResultForMarker(raw: string): string {
 	return raw.split('</tool_result>').join('</tool\u200c_result>');
+}
+
+function isValidStructuredToolResultContent(value: unknown): value is AnthropicToolResultContent {
+	if (typeof value === 'string') {
+		return true;
+	}
+	if (!Array.isArray(value)) {
+		return false;
+	}
+	for (const item of value) {
+		if (!item || typeof item !== 'object' || Array.isArray(item)) {
+			return false;
+		}
+		const block = item as Record<string, unknown>;
+		if (block.type === 'text') {
+			if (typeof block.text !== 'string') return false;
+			continue;
+		}
+		if (block.type === 'tool_reference') {
+			if (typeof block.tool_name !== 'string') return false;
+			continue;
+		}
+		if (block.type === 'image') {
+			if (!block.source || typeof block.source !== 'object') return false;
+			continue;
+		}
+		return false;
+	}
+	return true;
 }
 
 /** 与 agentLoop / App 写入 tool_result 标记时一致 */
@@ -67,6 +99,9 @@ export function parseAgentAssistantPayload(raw: string): AgentAssistantPayload |
 				if (typeof pt.toolUseId !== 'string' || typeof pt.name !== 'string') return null;
 				if (!pt.args || typeof pt.args !== 'object' || Array.isArray(pt.args)) return null;
 				if (typeof pt.result !== 'string' || typeof pt.success !== 'boolean') return null;
+				if (pt.resultStructured !== undefined && !isValidStructuredToolResultContent(pt.resultStructured)) {
+					return null;
+				}
 				if (pt.subParent !== undefined && typeof pt.subParent !== 'string') return null;
 				if (pt.subDepth !== undefined && typeof pt.subDepth !== 'number') return null;
 			} else {

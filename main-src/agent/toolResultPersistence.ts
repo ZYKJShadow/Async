@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { ToolResult } from './agentTools.js';
+import type { AgentToolDef, ToolResult } from './agentTools.js';
 import type { ToolExecutionContext } from './toolExecutor.js';
 
 const PERSIST_PREVIEW_CHARS = 4000;
@@ -13,19 +13,32 @@ function sanitizePathPart(raw: string): string {
 	return raw.replace(/[^a-zA-Z0-9_.-]+/g, '_').slice(0, 80) || 'item';
 }
 
-function persistenceThresholdForTool(name: string): number | null {
-	if (name === 'Read') return null;
-	if (name === 'Bash') return BASH_THRESHOLD_CHARS;
-	if (name === 'Grep') return SEARCH_THRESHOLD_CHARS;
-	if (name === 'Browser' || name === 'BrowserCapture') return BASH_THRESHOLD_CHARS;
-	if (name.startsWith('mcp__')) return DEFAULT_THRESHOLD_CHARS;
-	if (name === 'ReadMcpResourceTool' || name === 'ListMcpResourcesTool' || name === 'LSP') {
+export function maxResultSizeCharsForTool(
+	toolName: string,
+	toolDef?: AgentToolDef | null
+): number | null {
+	if (typeof toolDef?.maxResultSizeChars === 'number') {
+		if (!Number.isFinite(toolDef.maxResultSizeChars)) {
+			return null;
+		}
+		return Math.max(0, Math.floor(toolDef.maxResultSizeChars));
+	}
+	if (toolName === 'Read') return null;
+	if (toolName === 'Bash') return BASH_THRESHOLD_CHARS;
+	if (toolName === 'Grep') return SEARCH_THRESHOLD_CHARS;
+	if (toolName === 'Browser' || toolName === 'BrowserCapture') return BASH_THRESHOLD_CHARS;
+	if (toolName.startsWith('mcp__')) return DEFAULT_THRESHOLD_CHARS;
+	if (toolName === 'ReadMcpResourceTool' || toolName === 'ListMcpResourcesTool' || toolName === 'LSP') {
 		return DEFAULT_THRESHOLD_CHARS;
 	}
 	return null;
 }
 
-function buildPersistenceTarget(execCtx: ToolExecutionContext, toolUseId: string, toolName: string): {
+function buildPersistenceTarget(
+	execCtx: ToolExecutionContext,
+	toolUseId: string,
+	toolName: string
+): {
 	fullPath: string;
 	displayPath: string;
 } {
@@ -38,14 +51,19 @@ function buildPersistenceTarget(execCtx: ToolExecutionContext, toolUseId: string
 			displayPath: relPath,
 		};
 	}
-	const tmpPath = path.join(os.tmpdir(), 'async-tool-results', sanitizePathPart(execCtx.threadId ?? 'thread'), fileName);
+	const tmpPath = path.join(
+		os.tmpdir(),
+		'async-tool-results',
+		sanitizePathPart(execCtx.threadId ?? 'thread'),
+		fileName
+	);
 	return {
 		fullPath: tmpPath,
 		displayPath: tmpPath,
 	};
 }
 
-function buildPersistedPreviewMessage(
+export function buildPersistedPreviewMessage(
 	toolName: string,
 	displayPath: string,
 	originalContent: string
@@ -64,22 +82,38 @@ function buildPersistedPreviewMessage(
 	].join('\n');
 }
 
-export async function persistLargeToolResultIfNeeded(
+export async function persistToolResultToDisk(
 	result: ToolResult,
 	execCtx: ToolExecutionContext
+): Promise<{
+	content: string;
+	originalSize: number;
+}> {
+	const target = buildPersistenceTarget(execCtx, result.toolCallId, result.name);
+	await fs.promises.mkdir(path.dirname(target.fullPath), { recursive: true });
+	await fs.promises.writeFile(target.fullPath, result.content, 'utf8');
+	return {
+		content: buildPersistedPreviewMessage(result.name, target.displayPath, result.content),
+		originalSize: result.content.length,
+	};
+}
+
+export async function persistLargeToolResultIfNeeded(
+	result: ToolResult,
+	execCtx: ToolExecutionContext,
+	toolDef?: AgentToolDef | null
 ): Promise<ToolResult> {
-	const threshold = persistenceThresholdForTool(result.name);
+	const threshold = maxResultSizeCharsForTool(result.name, toolDef);
 	if (!Number.isFinite(threshold) || threshold === null || result.content.length <= threshold) {
 		return result;
 	}
 
-	const target = buildPersistenceTarget(execCtx, result.toolCallId, result.name);
 	try {
-		await fs.promises.mkdir(path.dirname(target.fullPath), { recursive: true });
-		await fs.promises.writeFile(target.fullPath, result.content, 'utf8');
+		const persisted = await persistToolResultToDisk(result, execCtx);
 		return {
 			...result,
-			content: buildPersistedPreviewMessage(result.name, target.displayPath, result.content),
+			content: persisted.content,
+			structuredContent: undefined,
 		};
 	} catch {
 		const fallbackPreview =
@@ -89,6 +123,7 @@ export async function persistLargeToolResultIfNeeded(
 		return {
 			...result,
 			content: fallbackPreview,
+			structuredContent: undefined,
 		};
 	}
 }

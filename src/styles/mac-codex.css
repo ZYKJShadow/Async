@@ -813,9 +813,15 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-msg-sticky-user-wrap {
-	background: transparent;
-	box-shadow: none;
-	border-radius: 22px;
+	/*background: linear-gradient(*/
+	/*	180deg,*/
+	/*	color-mix(in srgb, var(--surface-panel-bg-strong) 98%, transparent) 0%,*/
+	/*	color-mix(in srgb, var(--surface-panel-bg) 96%, transparent) 100%*/
+	/*);*/
+	/*backdrop-filter: saturate(180%) blur(14px);*/
+	/*-webkit-backdrop-filter: saturate(180%) blur(14px);*/
+	/*box-shadow: var(--shadow-floating), var(--void-shadow-soft);*/
+	/*border-radius: 22px;*/
 }
 
 :root[data-ui-style='mac-codex'] .ref-msg-user {

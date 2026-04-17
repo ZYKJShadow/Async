@@ -3,11 +3,19 @@
  * 每个工具包含名称、描述和 JSON Schema 参数，供 OpenAI / Anthropic / Gemini 的 tool calling 使用。
  */
 
-import { buildCachedAnthropicTools, buildCachedOpenAITools } from './toolSchemaCache.js';
+import type { AnthropicToolResultContent, AnthropicToolSchema } from '../llm/anthropicBeta.js';
+import { buildAnthropicToolSchemas, buildOpenAIToolSchemas } from './toolSchemaCache.js';
 
 export type AgentToolDef = {
 	name: string;
 	description: string;
+	shouldDefer?: boolean;
+	alwaysLoad?: boolean;
+	maxResultSizeChars?: number;
+	strict?: boolean;
+	eagerInputStreaming?: boolean;
+	isMcp?: boolean;
+	schemaCacheKey?: string;
 	parameters: {
 		type: 'object';
 		properties: Record<string, Record<string, unknown>>;
@@ -25,6 +33,7 @@ export type ToolResult = {
 	toolCallId: string;
 	name: string;
 	content: string;
+	structuredContent?: AnthropicToolResultContent;
 	isError: boolean;
 };
 
@@ -803,9 +812,15 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 ];
 
 export function toOpenAITools(defs: AgentToolDef[]) {
-	return buildCachedOpenAITools(defs);
+	return buildOpenAIToolSchemas(defs);
 }
 
-export function toAnthropicTools(defs: AgentToolDef[]) {
-	return buildCachedAnthropicTools(defs);
+export function toAnthropicTools(
+	defs: AgentToolDef[],
+	options?: {
+		deferToolNames?: Iterable<string>;
+		includeExperimentalBetaFields?: boolean;
+	}
+): AnthropicToolSchema[] {
+	return buildAnthropicToolSchemas(defs, options);
 }

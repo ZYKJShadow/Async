@@ -8,6 +8,16 @@ export function isDeferredAgentToolName(name: string): boolean {
 	return name.startsWith('mcp__');
 }
 
+export function isDeferredAgentTool(tool: AgentToolDef): boolean {
+	if (tool.alwaysLoad === true) {
+		return false;
+	}
+	if (tool.shouldDefer === true) {
+		return true;
+	}
+	return isDeferredAgentToolName(tool.name);
+}
+
 function modeForBaseTools(
 	composerMode: ComposerMode
 ): 'agent' | 'plan' | 'team' {
@@ -53,7 +63,7 @@ export function assembleAgentToolPool(
 }
 
 export function getDeferredAgentToolDefs(fullPool: AgentToolDef[]): AgentToolDef[] {
-	return fullPool.filter((tool) => isDeferredAgentToolName(tool.name));
+	return fullPool.filter((tool) => isDeferredAgentTool(tool));
 }
 
 export function assembleVisibleAgentToolPool(
@@ -62,6 +72,7 @@ export function assembleVisibleAgentToolPool(
 		mcpToolDenyPrefixes?: string[];
 		discoveredDeferredToolNames?: Iterable<string>;
 		override?: AgentToolDef[];
+		nativeDeferEnabled?: boolean;
 	}
 ): AgentToolDef[] {
 	const fullPool =
@@ -76,11 +87,29 @@ export function assembleVisibleAgentToolPool(
 
 	const deferred = getDeferredAgentToolDefs(fullPool);
 	const discovered = new Set(options?.discoveredDeferredToolNames ?? []);
+	if (options?.nativeDeferEnabled) {
+		if (deferred.length === 0) {
+			return fullPool.filter((tool) => tool.name !== TOOL_SEARCH_TOOL_NAME);
+		}
+		const searchTool = toolSearchDef();
+		if (!searchTool || fullPool.some((tool) => tool.name === TOOL_SEARCH_TOOL_NAME)) {
+			return fullPool;
+		}
+		const firstDeferredIndex = fullPool.findIndex((tool) => isDeferredAgentTool(tool));
+		if (firstDeferredIndex === -1) {
+			return [...fullPool, searchTool];
+		}
+		return [
+			...fullPool.slice(0, firstDeferredIndex),
+			searchTool,
+			...fullPool.slice(firstDeferredIndex),
+		];
+	}
 	const visible = fullPool.filter((tool) => {
 		if (tool.name === TOOL_SEARCH_TOOL_NAME) {
 			return false;
 		}
-		return !isDeferredAgentToolName(tool.name) || discovered.has(tool.name);
+		return !isDeferredAgentTool(tool) || discovered.has(tool.name);
 	});
 
 	if (deferred.length === 0) {
@@ -91,7 +120,7 @@ export function assembleVisibleAgentToolPool(
 	if (!searchTool || visible.some((tool) => tool.name === TOOL_SEARCH_TOOL_NAME)) {
 		return visible;
 	}
-	const firstDeferredIndex = visible.findIndex((tool) => isDeferredAgentToolName(tool.name));
+	const firstDeferredIndex = visible.findIndex((tool) => isDeferredAgentTool(tool));
 	if (firstDeferredIndex === -1) {
 		return [...visible, searchTool];
 	}

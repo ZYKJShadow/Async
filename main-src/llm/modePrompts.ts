@@ -1,5 +1,11 @@
 import type { ComposerMode } from './composerMode.js';
 
+export type SystemPromptSections = {
+	staticText: string;
+	dynamicText: string;
+	fullText: string;
+};
+
 function modeBlock(mode: ComposerMode): string {
 	switch (mode) {
 		case 'ask':
@@ -201,6 +207,23 @@ export function composeSystem(baseSystem: string | undefined, mode: ComposerMode
 		core += `\n\n---\n${extra}`;
 	}
 	return core;
+}
+
+export function composeSystemSections(
+	baseSystem: string | undefined,
+	mode: ComposerMode,
+	agentAppend?: string
+): SystemPromptSections {
+	const base = (baseSystem ?? '').trim();
+	const block = modeBlock(mode);
+	const staticText = (!base ? block : `${base}\n\n---\n${block}`).trim();
+	const dynamicText = (agentAppend ?? '').trim();
+	const fullText = dynamicText ? `${staticText}\n\n---\n${dynamicText}` : staticText;
+	return {
+		staticText,
+		dynamicText,
+		fullText,
+	};
 }
 
 export function temperatureForMode(mode: ComposerMode): number {

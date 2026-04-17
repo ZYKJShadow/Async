@@ -3291,6 +3291,12 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	flex-shrink: 0;
 }
 
+.ref-messages-tail-spacer {
+	width: 100%;
+	flex-shrink: 0;
+	pointer-events: none;
+}
+
 /* ??????/????????????????????????? */
 .ref-msg-slot {
 	display: flex;
@@ -3335,7 +3341,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	/* �?.ref-msg-user 同圆角：否则父级方角会在气泡左下/右下露出更深的楔�?*/
 	border-radius: 18px;
 	overflow: hidden;
-	background: var(--void-bg-0);
+	/*background: var(--void-bg-0);*/
 	box-shadow:
 		0 1px 0 rgba(255, 255, 255, 0.04),
 		0 18px 32px -12px rgba(0, 0, 0, 0.65);
@@ -3343,7 +3349,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 /* ?????????????? */
 .ref-center--chat .ref-msg-sticky-user-wrap {
-	background: var(--void-bg-0);
+	/*background: var(--void-bg-0);*/
 }
 
 /* ?? sticky ????????? diff ???? */

@@ -36,6 +36,11 @@ import {
 	segmentAssistantContentUnified,
 } from './agentChatSegments';
 import { computeMergedAgentFileChanges } from './agentFileChangesCompute';
+import {
+	computeLatestTurnFocusSpacerPx,
+	findLatestTurnFocusUserIndex,
+	findStickyUserIndexForViewport,
+} from './agentTurnFocus';
 import { useAppShellGitFiles, useAppShellGitMeta } from './app/appShellContexts';
 import { userMessageToSegments, type ComposerSegment } from './composerSegments';
 import type { WizardPending } from './hooks/useWizardPending';
@@ -336,6 +341,8 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const trackGapPx = isEditorRail ? 20 : 22;
 	const messageRowHeightsRef = useRef<Map<number, number>>(new Map());
 	const [messageStartIndex, setMessageStartIndex] = useState(0);
+	const [latestTurnFocusSpacerPx, setLatestTurnFocusSpacerPx] = useState(0);
+	const [stickyUserIndex, setStickyUserIndex] = useState<number | null>(null);
 	const messagesTopSentinelRef = useRef<HTMLDivElement | null>(null);
 	const pendingPrependScrollRef = useRef<{ prevScrollHeight: number } | null>(null);
 	const prevDisplayMessagesLenRef = useRef(displayMessages.length);
@@ -348,6 +355,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 	const len = displayMessages.length;
 	const allHistoryRendered = messageStartIndex <= 0;
+	const latestTurnFocusUserIndex = useMemo(
+		() => findLatestTurnFocusUserIndex(displayMessages, composerMode),
+		[displayMessages, composerMode]
+	);
 	const lastDisplayedMessage = len > 0 ? displayMessages[len - 1] : undefined;
 	const lastMessageLayoutSig = useMemo(
 		() =>
@@ -499,6 +510,115 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			viewport.scrollTop += delta;
 		}
 	}, [messageStartIndex, displayMessages.length]);
+
+	useLayoutEffect(() => {
+		if (!hasConversation || latestTurnFocusUserIndex == null) {
+			setLatestTurnFocusSpacerPx((prev) => (prev === 0 ? prev : 0));
+			return;
+		}
+		const viewport = messagesViewportRef.current;
+		if (!viewport) {
+			return;
+		}
+		const viewportStyle = window.getComputedStyle(viewport);
+		const topPadding = Number.parseFloat(viewportStyle.paddingTop || '0') || 0;
+		const bottomPadding = Number.parseFloat(viewportStyle.paddingBottom || '0') || 0;
+		const activeRowHeight = Math.max(0, getRowHeightForBudget(latestTurnFocusUserIndex));
+		let belowContentHeight = 0;
+		for (let i = latestTurnFocusUserIndex + 1; i < len; i++) {
+			belowContentHeight += Math.max(0, getRowHeightForBudget(i));
+			belowContentHeight += trackGapPx;
+		}
+		const baseSpacer = computeLatestTurnFocusSpacerPx({
+			viewportHeight: viewport.clientHeight,
+			topPadding,
+			bottomPadding,
+			activeRowHeight,
+			belowContentHeight,
+		});
+		const nextSpacer = baseSpacer > 0 ? Math.max(0, baseSpacer - trackGapPx) : 0;
+		setLatestTurnFocusSpacerPx((prev) => (Math.abs(prev - nextSpacer) <= 1 ? prev : nextSpacer));
+	}, [
+		hasConversation,
+		latestTurnFocusUserIndex,
+		len,
+		lastMessageLayoutSig,
+		conversationRenderKey,
+		getRowHeightForBudget,
+		trackGapPx,
+		messagesViewportRef,
+	]);
+
+	useLayoutEffect(() => {
+		if (!hasConversation || composerMode === 'team') {
+			setStickyUserIndex((prev) => (prev == null ? prev : null));
+			return;
+		}
+		const viewport = messagesViewportRef.current;
+		const track = messagesTrackRef.current;
+		if (!viewport || !track) {
+			return;
+		}
+		const syncStickyUserIndex = () => {
+			const viewportRect = viewport.getBoundingClientRect();
+			const viewportStyle = window.getComputedStyle(viewport);
+			const stickyTopPx = viewportRect.top + (Number.parseFloat(viewportStyle.paddingTop || '0') || 0);
+			const renderedRowTops = Array.from(
+				track.querySelectorAll<HTMLElement>('.ref-msg-row-measure[data-msg-index]')
+			)
+				.map((row) => {
+					const raw = row.dataset.msgIndex;
+					const index = raw ? Number(raw) : Number.NaN;
+					return {
+						index,
+						top: row.getBoundingClientRect().top - stickyTopPx,
+					};
+				})
+				.filter((row) => Number.isFinite(row.index));
+			const nextStickyIndex = findStickyUserIndexForViewport({
+				displayMessages,
+				renderedRowTops,
+				stickyTopPx: 0,
+			});
+			const resolvedStickyIndex =
+				nextStickyIndex === latestTurnFocusUserIndex ? null : nextStickyIndex;
+			setStickyUserIndex((prev) => (prev === resolvedStickyIndex ? prev : resolvedStickyIndex));
+		};
+		let rafId = 0;
+		const scheduleSyncStickyUserIndex = () => {
+			if (rafId !== 0) {
+				return;
+			}
+			rafId = window.requestAnimationFrame(() => {
+				rafId = 0;
+				syncStickyUserIndex();
+			});
+		};
+		scheduleSyncStickyUserIndex();
+		viewport.addEventListener('scroll', scheduleSyncStickyUserIndex, { passive: true });
+		const resizeObserver = new ResizeObserver(() => {
+			scheduleSyncStickyUserIndex();
+		});
+		resizeObserver.observe(track);
+		return () => {
+			viewport.removeEventListener('scroll', scheduleSyncStickyUserIndex);
+			resizeObserver.disconnect();
+			if (rafId !== 0) {
+				window.cancelAnimationFrame(rafId);
+			}
+		};
+	}, [
+		hasConversation,
+		composerMode,
+		conversationRenderKey,
+		lastMessageLayoutSig,
+		latestTurnFocusSpacerPx,
+		latestTurnFocusUserIndex,
+		displayMessages,
+		messageStartIndex,
+		messagesViewportRef,
+		messagesTrackRef,
+	]);
 
 	const messageNodeAtIndex = (i: number): ReactNode => {
 			const m = displayMessages[i];
@@ -725,7 +845,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		const nodes: ReactNode[] = [];
 		const convoKey = conversationRenderKey;
 		for (let i = messageStartIndex; i < displayMessages.length; i++) {
-			const isStickyUserRow = displayMessages[i]?.role === 'user';
+			const isStickyUserRow = i === stickyUserIndex;
 			nodes.push(
 				<div
 					key={`row-${convoKey}-${i}`}
@@ -743,6 +863,16 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 					`[perf] renderChatMessageList: ${elapsed.toFixed(1)}ms, slice=${nodes.length}/${displayMessages.length}, awaiting=${awaitingReply}`
 				);
 			}
+		}
+		if (latestTurnFocusSpacerPx > 0) {
+			nodes.push(
+				<div
+					key={`row-${convoKey}-turn-focus-tail`}
+					className="ref-messages-tail-spacer"
+					style={{ height: `${latestTurnFocusSpacerPx}px` }}
+					aria-hidden
+				/>
+			);
 		}
 		return nodes;
 	};

@@ -1,5 +1,6 @@
 import type { AgentToolDef, ToolCall, ToolResult } from './agentTools.js';
 import { isDeferredAgentToolName } from './agentToolPool.js';
+import type { AnthropicToolResultContent } from '../llm/anthropicBeta.js';
 
 export const TOOL_SEARCH_TOOL_NAME = 'ToolSearch';
 
@@ -9,6 +10,7 @@ const MAX_RESULT_LIMIT = 12;
 export type ToolSearchRuntime = {
 	resolveFullToolPool: () => AgentToolDef[];
 	discoverTools: (names: string[]) => string[];
+	nativeAnthropicToolReference?: boolean;
 };
 
 type SearchableToolSummary = {
@@ -96,6 +98,19 @@ export async function executeToolSearchTool(
 		.slice(0, limit);
 	const matched = ranked.map((item) => item.tool);
 	const newlyLoaded = runtime.discoverTools(matched.map((tool) => tool.name));
+	const structuredContent: AnthropicToolResultContent | undefined =
+		runtime.nativeAnthropicToolReference && matched.length > 0
+			? [
+					{
+						type: 'text',
+						text: `Loaded ${matched.length} deferred tool${matched.length === 1 ? '' : 's'} for the next assistant turn.`,
+					},
+					...matched.map((tool) => ({
+						type: 'tool_reference' as const,
+						tool_name: tool.name,
+					})),
+				]
+			: undefined;
 
 	const content =
 		matched.length === 0
@@ -131,6 +146,7 @@ export async function executeToolSearchTool(
 		toolCallId: call.id,
 		name: call.name,
 		content,
+		...(structuredContent ? { structuredContent } : {}),
 		isError: false,
 	};
 }
