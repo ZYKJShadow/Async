@@ -3,9 +3,18 @@ import FormData from 'form-data';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { BotIntegrationConfig } from '../../botSettingsTypes.js';
-import type { BotInboundAttachment, BotPlatformAdapter, PlatformMessageHandler } from './common.js';
-import { electronProxyRulesFromUrl, requestJson, resolveIntegrationProxyUrl, splitPlainText } from './common.js';
-import { renderForPlatform } from './platformMarkdown.js';
+import type {
+	BotInboundAttachment,
+	BotPlatformAdapter,
+	PlatformMessageHandler,
+	StreamReplyCallbacks,
+} from './common.js';
+import { electronProxyRulesFromUrl, requestJson, resolveIntegrationProxyUrl } from './common.js';
+import {
+	renderTelegramRichText,
+	splitTelegramRichText,
+	type TelegramRichText,
+} from './platformMarkdown.js';
 
 type TelegramUpdate = {
 	update_id: number;
@@ -40,6 +49,8 @@ type TelegramMessage = {
 };
 
 const DEDUP_TTL_MS = 10 * 60 * 1000;
+const TELEGRAM_STREAM_MAX_CHARS = 3500;
+const TELEGRAM_STREAM_EDIT_DEBOUNCE_MS = 900;
 
 export class TelegramBotAdapter implements BotPlatformAdapter {
 	readonly platform = 'telegram' as const;
@@ -205,6 +216,175 @@ export class TelegramBotAdapter implements BotPlatformAdapter {
 		}
 	}
 
+	private async sendTextReply(
+		message: TelegramMessage,
+		content: TelegramRichText,
+		options?: { replyToOriginal?: boolean }
+	): Promise<number> {
+		const payload: Record<string, unknown> = {
+			chat_id: message.chat.id,
+			text: content.text,
+		};
+		if (content.entities.length > 0) {
+			payload.entities = content.entities;
+		}
+		if (message.message_thread_id != null) {
+			payload.message_thread_id = message.message_thread_id;
+		}
+		if (options?.replyToOriginal !== false) {
+			payload.reply_to_message_id = message.message_id;
+		}
+		const result = await this.api<{ message_id?: number }>('sendMessage', payload);
+		return Number(result?.message_id ?? 0) || 0;
+	}
+
+	private async editTextMessage(
+		message: TelegramMessage,
+		targetMessageId: number,
+		content: TelegramRichText
+	): Promise<void> {
+		const payload: Record<string, unknown> = {
+			chat_id: message.chat.id,
+			message_id: targetMessageId,
+			text: content.text,
+		};
+		if (content.entities.length > 0) {
+			payload.entities = content.entities;
+		}
+		await this.api('editMessageText', payload);
+	}
+
+	private createStreamReply(message: TelegramMessage): StreamReplyCallbacks {
+		let streamMessageId: number | null = null;
+		let latestText = '';
+		let pendingText = '';
+		let flushTimer: ReturnType<typeof setTimeout> | null = null;
+		let lastFlushAt = 0;
+		const runningTools = new Map<string, string>();
+
+		const summarizeRunningTools = (): string => {
+			if (runningTools.size === 0) {
+				return '';
+			}
+			const items = Array.from(runningTools.entries())
+				.slice(-3)
+				.map(([name, detail]) => `- ${name}${detail ? `: ${detail}` : ''}`);
+			return ['进行中工具:', ...items].join('\n');
+		};
+
+		const buildStreamText = (fullText?: string): TelegramRichText => {
+			const base = String(fullText ?? latestText).trim();
+			const toolSummary = summarizeRunningTools();
+			const combined = base
+				? toolSummary
+					? `${base}\n\n${toolSummary}`
+					: base
+				: toolSummary || '处理中，请稍候...';
+			const rich = renderTelegramRichText(combined);
+			const chunks = splitTelegramRichText(rich, TELEGRAM_STREAM_MAX_CHARS);
+			if (chunks.length > 0 && chunks[0]) {
+				return chunks[0];
+			}
+			return { text: '处理中，请稍候...', entities: [] };
+		};
+
+		const flush = async (forceText?: string): Promise<void> => {
+			if (!streamMessageId) {
+				return;
+			}
+			const nextRich = buildStreamText(forceText);
+			if (!nextRich.text || nextRich.text === pendingText) {
+				return;
+			}
+			pendingText = nextRich.text;
+			lastFlushAt = Date.now();
+			await this.editTextMessage(message, streamMessageId, nextRich).catch(() => {});
+		};
+
+		const scheduleFlush = (): void => {
+			if (flushTimer) {
+				return;
+			}
+			const delay = Math.max(120, TELEGRAM_STREAM_EDIT_DEBOUNCE_MS - (Date.now() - lastFlushAt));
+			flushTimer = setTimeout(() => {
+				flushTimer = null;
+				void flush();
+			}, delay);
+		};
+
+		const clearFlushTimer = (): void => {
+			if (!flushTimer) {
+				return;
+			}
+			clearTimeout(flushTimer);
+			flushTimer = null;
+		};
+
+		return {
+			onStart: async () => {
+				const initial = renderTelegramRichText('处理中，请稍候...');
+				streamMessageId = await this.sendTextReply(message, initial);
+				pendingText = initial.text;
+				lastFlushAt = Date.now();
+			},
+			onDelta: async (fullText) => {
+				latestText = fullText;
+				if (!streamMessageId) {
+					return;
+				}
+				if (Date.now() - lastFlushAt >= TELEGRAM_STREAM_EDIT_DEBOUNCE_MS) {
+					clearFlushTimer();
+					await flush();
+					return;
+				}
+				scheduleFlush();
+			},
+			onToolStatus: (name, state, detail) => {
+				if (state === 'running') {
+					runningTools.set(name, String(detail ?? '').trim());
+				} else {
+					runningTools.delete(name);
+				}
+				if (streamMessageId) {
+					scheduleFlush();
+				}
+			},
+			onTodoUpdate: () => {
+				/* Telegram streaming keeps things lightweight; no-op for now. */
+			},
+			onDone: async (fullText) => {
+				clearFlushTimer();
+				runningTools.clear();
+				const renderedChunks = splitTelegramRichText(renderTelegramRichText(fullText), TELEGRAM_STREAM_MAX_CHARS);
+				if (!streamMessageId) {
+					for (const chunk of renderedChunks) {
+						await this.sendTextReply(message, chunk);
+					}
+					return;
+				}
+				if (renderedChunks.length === 0) {
+					await this.editTextMessage(message, streamMessageId, renderTelegramRichText('已完成。')).catch(() => {});
+					return;
+				}
+				await this.editTextMessage(message, streamMessageId, renderedChunks[0]!).catch(() => {});
+				for (const chunk of renderedChunks.slice(1)) {
+					await this.sendTextReply(message, chunk, { replyToOriginal: false }).catch(() => {});
+				}
+			},
+			onError: async (error) => {
+				clearFlushTimer();
+				const rendered = renderTelegramRichText(`❌ ${error}`);
+				if (!streamMessageId) {
+					await this.sendTextReply(message, rendered).catch(() => {});
+					return;
+				}
+				await this.editTextMessage(message, streamMessageId, rendered).catch(async () => {
+					await this.sendTextReply(message, rendered).catch(() => {});
+				});
+			},
+		};
+	}
+
 	async start(onMessage: PlatformMessageHandler): Promise<void> {
 		if (!this.token) {
 			return;
@@ -261,6 +441,7 @@ export class TelegramBotAdapter implements BotPlatformAdapter {
 						}
 						const threadReplyParams = message.message_thread_id ? { message_thread_id: message.message_thread_id } : {};
 						const threadKey = message.message_thread_id ? `${chatId}:${message.message_thread_id}` : chatId;
+						const streamReply = this.createStreamReply(message);
 						await onMessage({
 							conversationKey: threadKey,
 							messageId: String(message.message_id),
@@ -276,22 +457,13 @@ export class TelegramBotAdapter implements BotPlatformAdapter {
 								}).catch(() => {});
 							},
 							reply: async (text) => {
-								const rendered = renderForPlatform(text, 'telegram');
-								for (const chunk of splitPlainText(rendered, 3500)) {
-									await this.api('sendMessage', {
-										chat_id: message.chat.id,
-										text: chunk,
-										parse_mode: 'MarkdownV2',
-										reply_to_message_id: message.message_id,
-										...threadReplyParams,
-									}).catch(async () => {
-										await this.api('sendMessage', {
-											chat_id: message.chat.id,
-											text: chunk,
-											reply_to_message_id: message.message_id,
-											...threadReplyParams,
-										});
-									});
+								const rendered = splitTelegramRichText(renderTelegramRichText(text), TELEGRAM_STREAM_MAX_CHARS);
+								for (const [idx, chunk] of rendered.entries()) {
+									await this.sendTextReply(
+										message,
+										chunk,
+										{ replyToOriginal: idx === 0 }
+									);
 								}
 							},
 							replyImage: async (filePath) => {
@@ -300,6 +472,7 @@ export class TelegramBotAdapter implements BotPlatformAdapter {
 							replyFile: async (filePath) => {
 								await this.uploadReply('sendDocument', 'document', message, filePath);
 							},
+							streamReply,
 						});
 					}
 				} catch (error) {

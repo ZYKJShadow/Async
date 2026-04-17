@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, webContents } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AGENT_TOOLS, type AgentToolDef, ToolCall, ToolResult } from '../agent/agentTools.js';
@@ -38,7 +38,10 @@ import { resolveToolPermissionFromRules } from '../agent/toolPermissionModel.js'
 import { isSafeShellCommandForAutoApprove } from '../agent/toolApprovalGate.js';
 import { getShellPermissionMode } from '../../src/shellPermissionMode.js';
 import type { BotTodoListItem } from './platforms/common.js';
-import { closeBrowserWindowForHostId } from '../browser/browserController.js';
+import {
+	awaitBrowserCommandResult,
+	closeBrowserWindowForHostId,
+} from '../browser/browserController.js';
 
 export type BotInboundMessage = {
 	conversationKey: string;
@@ -60,6 +63,17 @@ export type BotSessionState = {
 	leaderSummaryCoversCount?: number;
 	lastUserId?: string;
 	lastUserName?: string;
+	browserHostWebContentsId?: number | null;
+	pendingQrLogin?: BotPendingQrLoginState;
+};
+
+export type BotPendingQrLoginState = {
+	requestedAt: number;
+	hostWebContentsId: number;
+	screenshotPath: string;
+	tabId?: string;
+	pageUrl?: string;
+	replyText: string;
 };
 
 export type BotAvailableModel = {
@@ -192,6 +206,149 @@ function resolveBotHostWebContentsId(): number | null {
 	return headless?.webContents.id ?? null;
 }
 
+function isLiveWebContentsId(id: number | null | undefined): id is number {
+	if (!Number.isInteger(id) || Number(id) <= 0) {
+		return false;
+	}
+	try {
+		const contents = webContents.fromId(Number(id));
+		return Boolean(contents && !contents.isDestroyed());
+	} catch {
+		return false;
+	}
+}
+
+function resolveSessionBotHostWebContentsId(session: BotSessionState): number | null {
+	if (isLiveWebContentsId(session.browserHostWebContentsId)) {
+		return session.browserHostWebContentsId;
+	}
+	if (session.browserHostWebContentsId != null) {
+		session.browserHostWebContentsId = null;
+	}
+	if (isLiveWebContentsId(session.pendingQrLogin?.hostWebContentsId)) {
+		const pendingId = Number(session.pendingQrLogin?.hostWebContentsId);
+		session.browserHostWebContentsId = pendingId;
+		return pendingId;
+	}
+	return resolveBotHostWebContentsId();
+}
+
+function parsePngDataUrl(dataUrl: string): Buffer {
+	const match = /^data:image\/png;base64,(.+)$/i.exec(String(dataUrl ?? '').trim());
+	if (!match?.[1]) {
+		throw new Error('浏览器截图未返回 PNG 数据。');
+	}
+	return Buffer.from(match[1], 'base64');
+}
+
+function buildBotBrowserAttachmentDir(session: BotSessionState): string {
+	if (session.workspaceRoot) {
+		return path.join(session.workspaceRoot, '.async', 'bot-attachments');
+	}
+	return path.join(app.getPath('userData'), 'async', 'bot-attachments');
+}
+
+function buildBotBrowserScreenshotPath(session: BotSessionState, prefix: string): string {
+	const fileName = `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, 'Z')}.png`;
+	return path.join(buildBotBrowserAttachmentDir(session), fileName);
+}
+
+async function captureBrowserScreenshotForBot(params: {
+	hostWebContentsId: number;
+	session: BotSessionState;
+	tabId?: string;
+	timeoutMs?: number;
+}): Promise<{
+	path: string;
+	pageUrl: string;
+	title: string;
+	width: number;
+	height: number;
+}> {
+	const timeoutMs = Math.max(3_000, Math.min(60_000, Math.floor(params.timeoutMs ?? 25_000)));
+	const result = await awaitBrowserCommandResult(
+		params.hostWebContentsId,
+		{
+			commandId: `bot-browser-shot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+			type: 'screenshotPage',
+			tabId: params.tabId,
+			waitForLoad: true,
+		},
+		timeoutMs
+	);
+	if (!result.ok) {
+		throw new Error(result.error || '浏览器截图失败。');
+	}
+	const payload =
+		result.result && typeof result.result === 'object' ? (result.result as Record<string, unknown>) : {};
+	const png = parsePngDataUrl(String(payload.dataUrl ?? ''));
+	const outputPath = buildBotBrowserScreenshotPath(params.session, 'qr-login');
+	fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+	fs.writeFileSync(outputPath, png);
+	return {
+		path: outputPath,
+		pageUrl: String(payload.url ?? ''),
+		title: String(payload.title ?? ''),
+		width: Number(payload.width ?? 0) || 0,
+		height: Number(payload.height ?? 0) || 0,
+	};
+}
+
+const QR_LOGIN_CONFIRM_PATTERNS = [
+	/\b(?:logged\s*in|login\s*(?:done|complete|completed|ok)|qr\s*(?:done|complete|completed))\b/i,
+	/(已登录|登录完成|登录好了|我已登录|已经登录|扫码完成|扫码好了|我已扫码|已经扫码|扫好了|扫完了)/,
+];
+
+const QR_LOGIN_RESEND_PATTERNS = [
+	/\b(?:qr|code|resend|send again|show again)\b/i,
+	/(二维码|再发|重发|重新发|看不到|发一下|再来一张)/,
+];
+
+export function looksLikeQrLoginConfirmation(text: string): boolean {
+	const trimmed = String(text ?? '').trim();
+	if (!trimmed) {
+		return false;
+	}
+	return QR_LOGIN_CONFIRM_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+export function looksLikeQrLoginScreenshotResendRequest(text: string): boolean {
+	const trimmed = String(text ?? '').trim();
+	if (!trimmed) {
+		return false;
+	}
+	return QR_LOGIN_RESEND_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+function defaultQrLoginReplyText(language: ShellSettings['language']): string {
+	return language === 'en'
+		? 'The QR login page has been sent. Please scan it with your phone, then reply "logged in" here and I will continue.'
+		: '二维码登录页面已经发给你了，请用手机扫码登录；完成后在这里回复“已登录”，我会继续执行。';
+}
+
+export function buildQrLoginResumeUserTurn(
+	pending: BotPendingQrLoginState,
+	userText: string,
+	language: ShellSettings['language']
+): string {
+	const followup = String(userText ?? '').trim() || (language === 'en' ? 'logged in' : '已登录');
+	const lines =
+		language === 'en'
+			? [
+					'[System] QR login was previously paused for manual user confirmation.',
+					`Screenshot path: ${pending.screenshotPath}`,
+					pending.pageUrl ? `Last page URL: ${pending.pageUrl}` : '',
+					'The user has now confirmed the QR login step is complete. Continue from the existing browser session instead of reopening the login page.',
+			  ]
+			: [
+					'[系统] 之前已经因为二维码登录而暂停。',
+					`截图路径：${pending.screenshotPath}`,
+					pending.pageUrl ? `上次页面 URL：${pending.pageUrl}` : '',
+					'用户现在已经确认二维码登录完成。请继续使用现有浏览器会话，不要重新打开登录页。',
+			  ];
+	return `${lines.filter(Boolean).join('\n')}\n\n[User follow-up]\n${followup}`;
+}
+
 function trimBotLeaderMessages(messages: ChatMessage[], maxMessages = 24): ChatMessage[] {
 	if (messages.length <= maxMessages) {
 		return messages;
@@ -253,6 +410,10 @@ function describeBotToolActivity(name: string, args: Record<string, unknown>): s
 			const action = String(args.action ?? '').trim();
 			return action ? `浏览器：${action}` : '正在操作内置浏览器';
 		}
+		case 'BrowserCapture': {
+			const action = String(args.action ?? '').trim();
+			return action ? `浏览器抓包：${action}` : '正在抓取浏览器网络请求';
+		}
 		case 'Bash': {
 			const command = String(args.command ?? '').trim();
 			return command ? `执行命令：${command.slice(0, 80)}` : '执行命令';
@@ -267,6 +428,8 @@ function describeBotToolActivity(name: string, args: Record<string, unknown>): s
 		}
 		case 'send_local_attachment':
 			return '发送本地附件给用户';
+		case 'pause_for_qr_login':
+			return '发送二维码登录截图并等待用户扫码';
 		default:
 			return undefined;
 	}
@@ -371,6 +534,7 @@ export function createInitialBotSession(
 		leaderMessages: [],
 		lastUserId: senderId,
 		lastUserName: senderName,
+		browserHostWebContentsId: null,
 	};
 }
 
@@ -476,10 +640,35 @@ const BOT_TOOL_DEFS: AgentToolDef[] = [
 			required: ['file_path'],
 		},
 	},
+	{
+		name: 'pause_for_qr_login',
+		description:
+			'Capture the current built-in browser page, send the screenshot to the external user for QR-code or other manual login steps, and pause the browser session until the user confirms login is complete. After calling this tool, stop and wait for the user to reply.',
+		parameters: {
+			type: 'object',
+			properties: {
+				message: {
+					type: 'string',
+					description:
+						'Optional short user-facing instruction. If omitted, Async sends a default "scan the QR and reply when done" message.',
+				},
+				tab_id: {
+					type: 'string',
+					description: 'Optional browser tab id. Omit to use the active tab.',
+				},
+				timeout_ms: {
+					type: 'number',
+					description: 'Optional timeout for the screenshot capture. Default about 25 seconds.',
+				},
+			},
+			required: [],
+		},
+	},
 ];
 
 const BOT_LEADER_NATIVE_TOOL_NAMES = new Set([
 	'Browser',
+	'BrowserCapture',
 	'TodoWrite',
 	'Read',
 	'Grep',
@@ -506,6 +695,8 @@ function renderSessionSnapshot(
 				modelId: session.modelId,
 				defaultWorkerMode: session.mode,
 				leaderContextTurns: Math.floor((session.leaderMessages?.length ?? 0) / 2),
+				browserHostWebContentsId: session.browserHostWebContentsId ?? null,
+				qrLoginPending: Boolean(session.pendingQrLogin),
 			},
 			availableModels: models,
 			availableWorkspaces: workspaces,
@@ -534,8 +725,8 @@ export function buildBotOrchestratorPrompt(
 			? 'This leader loop is for app-level orchestration. It can directly use app/browser controls plus the custom bot session tools below.'
 			: '这个 Leader 循环用于应用级调度。它可以直接使用应用/浏览器控制工具，以及下面的 bot 会话工具。',
 		language === 'en'
-			? 'Your priority is fast, direct answers. Default to using your own tools (Read, Grep, Glob, Browser, TodoWrite) to answer the user without spawning a worker.'
-			: '你的首要目标是快速、直接地回答用户。默认优先使用自己的工具（Read、Grep、Glob、Browser、TodoWrite）直接回答，不要动不动就派 worker。',
+			? 'Your priority is fast, direct answers. Default to using your own tools (Read, Grep, Glob, Browser, BrowserCapture, TodoWrite) to answer the user without spawning a worker.'
+			: '你的首要目标是快速、直接地回答用户。默认优先使用自己的工具（Read、Grep、Glob、Browser、BrowserCapture、TodoWrite）直接回答，不要动不动就派 worker。',
 		language === 'en'
 			? 'Use run_async_task ONLY when the task requires Writes/Edits, shell commands, builds/tests, multi-file refactors, or long-running workflows. Simple reads, searches, status questions, and lookups must be answered directly by you.'
 			: '只有在任务需要写文件、改文件、执行 shell、跑构建/测试、多文件重构、或长链路流程时，才使用 run_async_task。简单的读文件、搜索、状态问询、查询必须你自己直接答。',
@@ -546,8 +737,11 @@ export function buildBotOrchestratorPrompt(
 			? 'When delegating via run_async_task, choose mode automatically: agent for direct project implementation/debugging, plan for plan-only analysis, team for larger or cross-cutting project work, and ask for lightweight Q&A that still needs a recorded worker conversation.'
 			: '使用 run_async_task 时，自动判断模式：直接项目实现/调试用 agent，只做方案分析用 plan，较大或跨领域工作用 team，需要保留记录的轻量问答可用 ask。',
 		language === 'en'
-			? 'When the user asks to search the web, open a page, read a webpage, take a screenshot, or close the built-in browser, use the Browser tool directly (for example: navigate, read_page, screenshot_page, close_sidebar).'
-			: '当用户要求搜索网页、打开页面、读取网页内容、截屏，或关闭内置浏览器时，直接使用 Browser 工具（例如：navigate、read_page、screenshot_page、close_sidebar）。',
+			? 'When the user asks to search the web, open a page, read a webpage, interact with a login form, take a screenshot, or close the built-in browser, use Browser and BrowserCapture directly (for example: navigate, input_text, click_element, screenshot_page, list_requests, get_request).'
+			: '当用户要求搜索网页、打开页面、与登录表单交互、读取网页内容、截屏或抓取浏览器网络请求时，直接使用 Browser 和 BrowserCapture 工具（例如：navigate、input_text、click_element、screenshot_page、list_requests、get_request）。',
+		language === 'en'
+			? 'If a site switches to QR-code login or another manual mobile confirmation step, do not ask the user for passwords. Use pause_for_qr_login to send the current browser screenshot to the user, keep the browser session open, and wait for the user to confirm login is complete.'
+			: '如果网站切换到二维码登录或其他需要用户手机确认的登录步骤，不要向用户索要密码。请使用 pause_for_qr_login，把当前浏览器截图发给用户，保持浏览器会话不关闭，并等待用户确认登录完成。',
 		language === 'en'
 			? 'If the user wants the screenshot or a local file to appear in the chat, do not stop at saving it locally. Use send_local_attachment to send the produced or located file back to the user.'
 			: '如果用户希望截图或本地文件直接出现在聊天窗口里，不要只停留在本地保存；拿到文件后继续调用 send_local_attachment 发回给用户。',
@@ -601,7 +795,7 @@ function resolveSessionWorkspace(
 	return { ok: true, workspaceRoot: match };
 }
 
-const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'Browser', 'TodoWrite']);
+const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'Browser', 'BrowserCapture', 'TodoWrite', 'pause_for_qr_login']);
 
 function resolveBotPermissionPolicy(integration: BotIntegrationConfig): 'strict' | 'readonly_auto' | 'permissive' {
 	const raw = String(integration.permissionPolicy ?? '').trim().toLowerCase();
@@ -611,9 +805,23 @@ function resolveBotPermissionPolicy(integration: BotIntegrationConfig): 'strict'
 	return 'readonly_auto';
 }
 
-function createHeadlessBeforeExecuteTool(settings: ShellSettings, integration: BotIntegrationConfig) {
+function createHeadlessBeforeExecuteTool(
+	settings: ShellSettings,
+	integration: BotIntegrationConfig,
+	opts?: { hasPendingQrLogin?: () => boolean }
+) {
 	const policy = resolveBotPermissionPolicy(integration);
 	return async (call: ToolCall) => {
+		if (
+			opts?.hasPendingQrLogin?.() &&
+			call.name !== 'pause_for_qr_login' &&
+			call.name !== 'get_async_session'
+		) {
+			return {
+				proceed: false as const,
+				rejectionMessage: '二维码登录等待中，请先等待用户扫码并确认完成。',
+			};
+		}
 		const agent = settings.agent;
 		const permission = resolveToolPermissionFromRules(call, agent, { avoidPermissionPrompts: true });
 		if (permission === 'deny') {
@@ -673,7 +881,7 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 	const { settings, integration, session, task, workspaceLspManager, signal } = args;
 	const mode = args.modeOverride ?? session.mode;
 	const threadId = ensureThreadForSession(session, mode, args.startNewThread === true);
-	const hostWebContentsId = resolveBotHostWebContentsId();
+	const hostWebContentsId = resolveSessionBotHostWebContentsId(session);
 	try {
 		const modelSelection = session.modelId.trim();
 		if (!modelSelection) {
@@ -843,7 +1051,9 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 						signal,
 						composerMode: mode,
 						thinkingLevel,
-						beforeExecuteTool: createHeadlessBeforeExecuteTool(effectiveSettings, integration),
+						beforeExecuteTool: createHeadlessBeforeExecuteTool(effectiveSettings, integration, {
+							hasPendingQrLogin: () => Boolean(session.pendingQrLogin),
+						}),
 						maxConsecutiveMistakes: effectiveSettings.agent?.maxConsecutiveMistakes,
 						mistakeLimitEnabled: effectiveSettings.agent?.mistakeLimitEnabled,
 						workspaceRoot: session.workspaceRoot,
@@ -931,7 +1141,14 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 		});
 	} finally {
 		if (hostWebContentsId != null) {
-			closeBrowserWindowForHostId(hostWebContentsId);
+			if (session.pendingQrLogin?.hostWebContentsId === hostWebContentsId) {
+				session.browserHostWebContentsId = hostWebContentsId;
+			} else {
+				closeBrowserWindowForHostId(hostWebContentsId);
+				if (session.browserHostWebContentsId === hostWebContentsId) {
+					session.browserHostWebContentsId = null;
+				}
+			}
 		}
 	}
 }
@@ -1092,11 +1309,66 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 				};
 			}
 		},
+		pause_for_qr_login: async (call) => {
+			if (!args.onSendAttachment) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: '当前平台不支持发送图片，无法执行二维码登录等待流程。',
+					isError: true,
+				};
+			}
+			const currentHostId = resolveSessionBotHostWebContentsId(session);
+			if (!currentHostId) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: '当前没有可用的浏览器宿主窗口，无法发送二维码截图。',
+					isError: true,
+				};
+			}
+			try {
+				const screenshot = await captureBrowserScreenshotForBot({
+					hostWebContentsId: currentHostId,
+					session,
+					tabId: typeof call.arguments.tab_id === 'string' ? String(call.arguments.tab_id).trim() : undefined,
+					timeoutMs: Number(call.arguments.timeout_ms ?? 25_000),
+				});
+				await args.onSendAttachment(screenshot.path);
+				const replyText =
+					String(call.arguments.message ?? '').trim() || defaultQrLoginReplyText(settings.language);
+				session.browserHostWebContentsId = currentHostId;
+				session.pendingQrLogin = {
+					requestedAt: Date.now(),
+					hostWebContentsId: currentHostId,
+					screenshotPath: screenshot.path,
+					tabId: typeof call.arguments.tab_id === 'string' ? String(call.arguments.tab_id).trim() || undefined : undefined,
+					pageUrl: screenshot.pageUrl || undefined,
+					replyText,
+				};
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content:
+						settings.language === 'en'
+							? `QR login screenshot sent to the user at ${screenshot.path}. Stop now and wait for the user to confirm login is complete.`
+							: `已将二维码登录截图发送给用户：${screenshot.path}。现在请停止后续操作，等待用户确认“已登录”。`,
+					isError: false,
+				};
+			} catch (error) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: error instanceof Error ? error.message : String(error),
+					isError: true,
+				};
+			}
+		},
 	};
 
 	const thinkingLevel = resolveThinkingLevelForSelection(settings, session.modelId.trim());
 	const systemAppend = buildBotOrchestratorPrompt(settings, integration, session, inbound);
-	const hostWebContentsId = resolveBotHostWebContentsId();
+	const hostWebContentsId = resolveSessionBotHostWebContentsId(session);
 	let full = '';
 	let errorMessage = '';
 	let streamFull = '';
@@ -1153,7 +1425,9 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 				toolPoolOverride: leaderToolPool,
 				customToolHandlers: handlers,
 				agentSystemAppend: systemAppend,
-				beforeExecuteTool: createHeadlessBeforeExecuteTool(settings, integration),
+				beforeExecuteTool: createHeadlessBeforeExecuteTool(settings, integration, {
+					hasPendingQrLogin: () => Boolean(session.pendingQrLogin),
+				}),
 				mistakeLimitEnabled: settings.agent?.mistakeLimitEnabled,
 				maxConsecutiveMistakes: settings.agent?.maxConsecutiveMistakes,
 			},
@@ -1187,7 +1461,14 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 		errorMessage = formatLlmSdkError(error);
 	} finally {
 		if (hostWebContentsId != null) {
-			closeBrowserWindowForHostId(hostWebContentsId);
+			if (session.pendingQrLogin?.hostWebContentsId === hostWebContentsId) {
+				session.browserHostWebContentsId = hostWebContentsId;
+			} else {
+				closeBrowserWindowForHostId(hostWebContentsId);
+				if (session.browserHostWebContentsId === hostWebContentsId) {
+					session.browserHostWebContentsId = null;
+				}
+			}
 		}
 	}
 

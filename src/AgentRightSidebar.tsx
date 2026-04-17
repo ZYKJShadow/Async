@@ -99,6 +99,31 @@ type BrowserControlPayload =
 	  }
 	| {
 			commandId: string;
+			type: 'clickElement';
+			tabId?: string;
+			selector: string;
+			waitForLoad?: boolean;
+	  }
+	| {
+			commandId: string;
+			type: 'inputText';
+			tabId?: string;
+			selector: string;
+			text: string;
+			pressEnter?: boolean;
+			waitForLoad?: boolean;
+	  }
+	| {
+			commandId: string;
+			type: 'waitForSelector';
+			tabId?: string;
+			selector: string;
+			visible?: boolean;
+			waitForLoad?: boolean;
+			timeoutMs?: number;
+	  }
+	| {
+			commandId: string;
 			type: 'applyConfig';
 			config: Partial<BrowserSidebarSettingsConfig>;
 			defaultUserAgent?: string;
@@ -147,6 +172,28 @@ function isBrowserControlPayload(raw: unknown): raw is BrowserControlPayload {
 			return (
 				(obj.tabId === undefined || typeof obj.tabId === 'string') &&
 				(obj.waitForLoad === undefined || typeof obj.waitForLoad === 'boolean')
+			);
+		case 'clickElement':
+			return (
+				(obj.tabId === undefined || typeof obj.tabId === 'string') &&
+				typeof obj.selector === 'string' &&
+				(obj.waitForLoad === undefined || typeof obj.waitForLoad === 'boolean')
+			);
+		case 'inputText':
+			return (
+				(obj.tabId === undefined || typeof obj.tabId === 'string') &&
+				typeof obj.selector === 'string' &&
+				typeof obj.text === 'string' &&
+				(obj.pressEnter === undefined || typeof obj.pressEnter === 'boolean') &&
+				(obj.waitForLoad === undefined || typeof obj.waitForLoad === 'boolean')
+			);
+		case 'waitForSelector':
+			return (
+				(obj.tabId === undefined || typeof obj.tabId === 'string') &&
+				typeof obj.selector === 'string' &&
+				(obj.visible === undefined || typeof obj.visible === 'boolean') &&
+				(obj.waitForLoad === undefined || typeof obj.waitForLoad === 'boolean') &&
+				(obj.timeoutMs === undefined || typeof obj.timeoutMs === 'number')
 			);
 		case 'applyConfig':
 			return Boolean(obj.config && typeof obj.config === 'object');
@@ -1203,6 +1250,314 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 		[]
 	);
 
+	const clickElementInWebview = useCallback(
+		async (
+			node: AsyncShellWebviewElement,
+			options: { selector: string }
+		): Promise<Record<string, unknown>> => {
+			const script = `
+				(() => {
+					const args = ${JSON.stringify({ selector: options.selector })};
+					const target = document.querySelector(args.selector);
+					if (!target) {
+						return {
+							ok: false,
+							error: 'Selector did not match any element.',
+						};
+					}
+					if (!(target instanceof HTMLElement)) {
+						return {
+							ok: false,
+							error: 'Matched node is not an HTMLElement.',
+						};
+					}
+					target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+					target.focus?.();
+					const rect = target.getBoundingClientRect();
+					const beforeUrl = location.href;
+					const beforeTitle = document.title || '';
+					if (typeof target.click === 'function') {
+						target.click();
+					} else {
+						target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+					}
+					return {
+						ok: true,
+						selector: args.selector,
+						tagName: target.tagName.toLowerCase(),
+						text: String(target.innerText || target.textContent || '').trim().slice(0, 500),
+						href: target instanceof HTMLAnchorElement ? target.href : '',
+						x: Math.round(rect.left + rect.width / 2),
+						y: Math.round(rect.top + rect.height / 2),
+						urlBefore: beforeUrl,
+						titleBefore: beforeTitle,
+						urlAfter: location.href,
+						titleAfter: document.title || '',
+					};
+				})()
+			`;
+			const result = await node.executeJavaScript<Record<string, unknown>>(script, true);
+			if (result?.ok === false) {
+				throw new Error(String(result.error ?? 'Failed to click element.'));
+			}
+			return {
+				url: String(result?.urlAfter ?? safeGetWebviewUrl(node)),
+				title: String(result?.titleAfter ?? ''),
+				selector: String(result?.selector ?? options.selector),
+				tagName: String(result?.tagName ?? ''),
+				text: String(result?.text ?? ''),
+				href: String(result?.href ?? ''),
+				clickPoint: {
+					x: Number(result?.x ?? 0) || 0,
+					y: Number(result?.y ?? 0) || 0,
+				},
+				urlBefore: String(result?.urlBefore ?? ''),
+				urlAfter: String(result?.urlAfter ?? safeGetWebviewUrl(node)),
+			};
+		},
+		[]
+	);
+
+	const inputTextInWebview = useCallback(
+		async (
+			node: AsyncShellWebviewElement,
+			options: { selector: string; text: string; pressEnter?: boolean }
+		): Promise<Record<string, unknown>> => {
+			const script = `
+				(() => {
+					const args = ${JSON.stringify({
+						selector: options.selector,
+						text: options.text,
+						pressEnter: options.pressEnter === true,
+					})};
+					const target = document.querySelector(args.selector);
+					if (!target) {
+						return {
+							ok: false,
+							error: 'Selector did not match any element.',
+						};
+					}
+					if (!(target instanceof HTMLElement)) {
+						return {
+							ok: false,
+							error: 'Matched node is not an HTMLElement.',
+						};
+					}
+					const dispatchInput = (el) => {
+						el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+						el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+					};
+					const setNativeValue = (el, value) => {
+						const proto =
+							el instanceof HTMLTextAreaElement
+								? HTMLTextAreaElement.prototype
+								: el instanceof HTMLInputElement
+									? HTMLInputElement.prototype
+									: el instanceof HTMLSelectElement
+										? HTMLSelectElement.prototype
+										: null;
+						const descriptor = proto ? Object.getOwnPropertyDescriptor(proto, 'value') : null;
+						if (descriptor?.set) {
+							descriptor.set.call(el, value);
+						} else {
+							el.value = value;
+						}
+					};
+					target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+					target.focus?.();
+					let mode = 'unknown';
+					if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+						setNativeValue(target, args.text);
+						dispatchInput(target);
+						mode = target instanceof HTMLTextAreaElement ? 'textarea' : target instanceof HTMLSelectElement ? 'select' : 'input';
+					} else if (target.isContentEditable) {
+						target.textContent = args.text;
+						dispatchInput(target);
+						mode = 'contenteditable';
+					} else if ('value' in target) {
+						try {
+							target.value = args.text;
+							dispatchInput(target);
+							mode = 'value-property';
+						} catch {
+							target.textContent = args.text;
+							dispatchInput(target);
+							mode = 'textContent';
+						}
+					} else {
+						target.textContent = args.text;
+						dispatchInput(target);
+						mode = 'textContent';
+					}
+					if (args.pressEnter) {
+						const keyboardInit = {
+							key: 'Enter',
+							code: 'Enter',
+							keyCode: 13,
+							which: 13,
+							bubbles: true,
+							cancelable: true,
+						};
+						target.dispatchEvent(new KeyboardEvent('keydown', keyboardInit));
+						target.dispatchEvent(new KeyboardEvent('keypress', keyboardInit));
+						target.dispatchEvent(new KeyboardEvent('keyup', keyboardInit));
+						const form = target.closest('form');
+						if (form instanceof HTMLFormElement) {
+							if (typeof form.requestSubmit === 'function') {
+								form.requestSubmit();
+							} else {
+								form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+							}
+						}
+					}
+					const value =
+						target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement
+							? target.value
+							: target.isContentEditable
+								? String(target.textContent || '')
+								: 'value' in target
+									? String(target.value ?? '')
+									: String(target.textContent || '');
+					return {
+						ok: true,
+						selector: args.selector,
+						mode,
+						tagName: target.tagName.toLowerCase(),
+						value,
+						pressEnter: args.pressEnter,
+						url: location.href,
+						title: document.title || '',
+					};
+				})()
+			`;
+			const result = await node.executeJavaScript<Record<string, unknown>>(script, true);
+			if (result?.ok === false) {
+				throw new Error(String(result.error ?? 'Failed to input text.'));
+			}
+			return {
+				url: String(result?.url ?? safeGetWebviewUrl(node)),
+				title: String(result?.title ?? ''),
+				selector: String(result?.selector ?? options.selector),
+				mode: String(result?.mode ?? ''),
+				tagName: String(result?.tagName ?? ''),
+				value: String(result?.value ?? options.text),
+				pressEnter: result?.pressEnter === true,
+			};
+		},
+		[]
+	);
+
+	const waitForSelectorInWebview = useCallback(
+		async (
+			node: AsyncShellWebviewElement,
+			options: { selector: string; visible?: boolean; timeoutMs?: number }
+		): Promise<Record<string, unknown>> => {
+			const timeoutMs = Math.min(Math.max(500, Math.floor(options.timeoutMs ?? 20_000)), 60_000);
+			const script = `
+				(() => {
+					const args = ${JSON.stringify({
+						selector: options.selector,
+						visible: options.visible === true,
+						timeoutMs,
+					})};
+					const root = document.documentElement || document.body;
+					if (!root) {
+						return Promise.resolve({
+							ok: false,
+							error: 'Document root is unavailable.',
+						});
+					}
+					const isVisible = (el) => {
+						if (!(el instanceof HTMLElement)) {
+							return false;
+						}
+						const style = window.getComputedStyle(el);
+						if (!style || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+							return false;
+						}
+						const rect = el.getBoundingClientRect();
+						return rect.width > 0 && rect.height > 0;
+					};
+					const snapshot = (el) => {
+						const rect = el instanceof HTMLElement ? el.getBoundingClientRect() : { width: 0, height: 0 };
+						return {
+							ok: true,
+							selector: args.selector,
+							tagName: el instanceof Element ? el.tagName.toLowerCase() : '',
+							text: el instanceof Element ? String(el.innerText || el.textContent || '').trim().slice(0, 500) : '',
+							visible: isVisible(el),
+							url: location.href,
+							title: document.title || '',
+							width: Math.round(rect.width || 0),
+							height: Math.round(rect.height || 0),
+						};
+					};
+					const findMatch = () => {
+						const el = document.querySelector(args.selector);
+						if (!el) {
+							return null;
+						}
+						if (args.visible && !isVisible(el)) {
+							return null;
+						}
+						return el;
+					};
+					const immediate = findMatch();
+					if (immediate) {
+						return Promise.resolve(snapshot(immediate));
+					}
+					return new Promise((resolve) => {
+						const observer = new MutationObserver(() => {
+							const match = findMatch();
+							if (!match) {
+								return;
+							}
+							cleanup();
+							resolve(snapshot(match));
+						});
+						const cleanup = () => {
+							window.clearTimeout(timer);
+							observer.disconnect();
+						};
+						const timer = window.setTimeout(() => {
+							cleanup();
+							resolve({
+								ok: false,
+								error: args.visible
+									? 'Timed out waiting for a visible element matching the selector.'
+									: 'Timed out waiting for an element matching the selector.',
+							});
+						}, args.timeoutMs);
+						observer.observe(root, {
+							childList: true,
+							subtree: true,
+							attributes: true,
+							attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
+						});
+					});
+				})()
+			`;
+			const result = await node.executeJavaScript<Record<string, unknown>>(script, true);
+			if (result?.ok === false) {
+				throw new Error(String(result.error ?? 'Failed while waiting for selector.'));
+			}
+			return {
+				url: String(result?.url ?? safeGetWebviewUrl(node)),
+				title: String(result?.title ?? ''),
+				selector: String(result?.selector ?? options.selector),
+				tagName: String(result?.tagName ?? ''),
+				text: String(result?.text ?? ''),
+				visible: result?.visible === true,
+				size: {
+					width: Number(result?.width ?? 0) || 0,
+					height: Number(result?.height ?? 0) || 0,
+				},
+				timeoutMs,
+			};
+		},
+		[]
+	);
+
 	const captureWebviewScreenshot = useCallback(async (node: AsyncShellWebviewElement): Promise<Record<string, unknown>> => {
 		const image = await node.capturePage();
 		const size = image.getSize();
@@ -1565,7 +1920,13 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 					? command.tabId
 					: activeTabIdRef.current;
 			if (!targetTabId) {
-				if (command.type === 'readPage' || command.type === 'screenshotPage') {
+				if (
+					command.type === 'readPage' ||
+					command.type === 'screenshotPage' ||
+					command.type === 'clickElement' ||
+					command.type === 'inputText' ||
+					command.type === 'waitForSelector'
+				) {
 					await notifyBrowserCommandResult(shell, {
 						commandId: command.commandId,
 						ok: false,
@@ -1581,7 +1942,13 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 				return;
 			}
 			setActiveTabId(targetTabId);
-			if (command.type === 'readPage' || command.type === 'screenshotPage') {
+			if (
+				command.type === 'readPage' ||
+				command.type === 'screenshotPage' ||
+				command.type === 'clickElement' ||
+				command.type === 'inputText' ||
+				command.type === 'waitForSelector'
+			) {
 				try {
 					const node = await waitForWebviewNode(targetTabId);
 					if (command.waitForLoad !== false) {
@@ -1592,6 +1959,45 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 							selector: command.selector,
 							includeHtml: command.includeHtml,
 							maxChars: command.maxChars,
+						});
+						await notifyBrowserCommandResult(shell, {
+							commandId: command.commandId,
+							ok: true,
+							result,
+						});
+					} else if (command.type === 'clickElement') {
+						const result = await clickElementInWebview(node, {
+							selector: command.selector,
+						});
+						if (command.waitForLoad !== false) {
+							await new Promise((resolve) => window.setTimeout(resolve, 60));
+							await waitForWebviewSettled(node, targetTabId);
+						}
+						await notifyBrowserCommandResult(shell, {
+							commandId: command.commandId,
+							ok: true,
+							result,
+						});
+					} else if (command.type === 'inputText') {
+						const result = await inputTextInWebview(node, {
+							selector: command.selector,
+							text: command.text,
+							pressEnter: command.pressEnter,
+						});
+						if (command.waitForLoad !== false && command.pressEnter) {
+							await new Promise((resolve) => window.setTimeout(resolve, 60));
+							await waitForWebviewSettled(node, targetTabId);
+						}
+						await notifyBrowserCommandResult(shell, {
+							commandId: command.commandId,
+							ok: true,
+							result,
+						});
+					} else if (command.type === 'waitForSelector') {
+						const result = await waitForSelectorInWebview(node, {
+							selector: command.selector,
+							visible: command.visible,
+							timeoutMs: command.timeoutMs,
 						});
 						await notifyBrowserCommandResult(shell, {
 							commandId: command.commandId,
@@ -1635,13 +2041,16 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	}, [
 		applyBrowserConfigLocally,
 		captureWebviewScreenshot,
+		clickElementInWebview,
 		closeTab,
+		inputTextInWebview,
 		navigateTab,
 		onCommandHandled,
 		openInNewTab,
 		pendingCommand,
 		readPageFromWebview,
 		shell,
+		waitForSelectorInWebview,
 		waitForWebviewNode,
 		waitForWebviewSettled,
 	]);

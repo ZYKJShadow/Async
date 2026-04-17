@@ -236,7 +236,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Browser',
 		description:
-			'Control the app\'s dedicated browser window for the current Async session. Use this to open or steer pages, read visible page content, capture webpage screenshots, and inspect/update browser networking settings such as User-Agent, Accept-Language, extra request headers, and proxy configuration.',
+			'Control the app\'s dedicated browser window for the current Async session. Use this to open or steer pages, read visible page content, capture webpage screenshots, click or fill page elements, wait for selectors to appear, and inspect/update browser networking settings such as User-Agent, Accept-Language, extra request headers, and proxy configuration.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -248,6 +248,9 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 						'navigate',
 						'read_page',
 						'screenshot_page',
+						'click_element',
+						'input_text',
+						'wait_for_selector',
 						'close_sidebar',
 						'reload',
 						'stop',
@@ -271,11 +274,12 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				tab_id: {
 					type: 'string',
 					description:
-						'Optional tab id for reload/stop/go_back/go_forward/close_tab/read_page/screenshot_page. Omit to target the active tab.',
+						'Optional tab id for reload/stop/go_back/go_forward/close_tab/read_page/screenshot_page/click_element/input_text/wait_for_selector. Omit to target the active tab.',
 				},
 				selector: {
 					type: 'string',
-					description: 'For read_page: optional CSS selector to extract from instead of the whole page body.',
+					description:
+						'For read_page: optional CSS selector to extract from instead of the whole page body. For click_element, input_text, and wait_for_selector: required CSS selector to target.',
 				},
 				include_html: {
 					type: 'boolean',
@@ -288,7 +292,22 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				wait_for_load: {
 					type: 'boolean',
 					description:
-						'For read_page and screenshot_page: wait for the current page load to settle before extracting. Default true.',
+						'For read_page, screenshot_page, click_element, input_text, and wait_for_selector: wait for the current page load to settle before operating. Default true.',
+				},
+				text: {
+					type: 'string',
+					description:
+						'For input_text: the text value to place into the matched element. This replaces the current value or text content.',
+				},
+				press_enter: {
+					type: 'boolean',
+					description:
+						'For input_text: after filling the value, dispatch Enter key events and submit the nearest form when possible.',
+				},
+				visible: {
+					type: 'boolean',
+					description:
+						'For wait_for_selector: if true, require the matched element to be visible with non-zero size.',
 				},
 				file_path: {
 					type: 'string',
@@ -297,7 +316,8 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				},
 				timeout_ms: {
 					type: 'number',
-					description: 'For read_page and screenshot_page: optional timeout for the browser-side operation.',
+					description:
+						'For read_page, screenshot_page, wait_for_selector, click_element, and input_text: optional timeout for the browser-side operation.',
 				},
 				userAgent: {
 					type: 'string',

@@ -68,6 +68,7 @@ describe('TelegramBotAdapter', () => {
 	const tempDirs: string[] = [];
 
 	beforeEach(() => {
+		vi.useRealTimers();
 		setProxyMock.mockClear();
 		closeAllConnectionsMock.mockClear();
 		fromPartitionMock.mockClear();
@@ -181,5 +182,81 @@ describe('TelegramBotAdapter', () => {
 		expect(secondSerialized).toContain('name="document"');
 		expect(secondSerialized).toContain('filename="report.txt"');
 		expect(closeAllConnectionsMock).toHaveBeenCalled();
+	});
+
+	it('provides streamReply callbacks that send and edit progress messages', async () => {
+		vi.useFakeTimers();
+		let getUpdatesCalls = 0;
+		fetchMock.mockImplementation(async (url: string, options?: { signal?: AbortSignal; body?: string }) => {
+			if (url.endsWith('/getMe')) {
+				return jsonResponse(telegramOk({ username: 'async_bot' }));
+			}
+			if (url.endsWith('/getUpdates')) {
+				if (getUpdatesCalls === 0) {
+					getUpdatesCalls += 1;
+					return jsonResponse(
+						telegramOk([
+							{
+								update_id: 2,
+								message: {
+									message_id: 555,
+									text: 'stream please',
+									chat: { id: 10001, type: 'private' },
+									from: { id: 8, username: 'bob' },
+								},
+							},
+						])
+					);
+				}
+				return await abortablePending(options?.signal);
+			}
+			if (url.endsWith('/sendMessage')) {
+				return jsonResponse(telegramOk({ message_id: 777 }));
+			}
+			if (url.endsWith('/editMessageText')) {
+				return jsonResponse(telegramOk({ message_id: 777 }));
+			}
+			throw new Error(`Unexpected fetch URL: ${url}`);
+		});
+
+		const integration: BotIntegrationConfig = {
+			id: 'tg-stream',
+			name: 'Telegram',
+			platform: 'telegram',
+			telegram: {
+				botToken: 'secret-token',
+			},
+		};
+
+		const adapter = new TelegramBotAdapter(integration);
+		let resolveEnvelope: ((value: PlatformInboundEnvelope) => void) | null = null;
+		const envelopePromise = new Promise<PlatformInboundEnvelope>((resolve) => {
+			resolveEnvelope = resolve;
+		});
+
+		await adapter.start(async (envelope) => {
+			resolveEnvelope?.(envelope);
+		});
+		const envelope = await envelopePromise;
+		expect(envelope.streamReply).toBeTruthy();
+
+		await envelope.streamReply!.onStart();
+		await envelope.streamReply!.onDelta('正在打开页面');
+		await vi.advanceTimersByTimeAsync(1000);
+		await envelope.streamReply!.onToolStatus('Browser', 'running', '浏览器：navigate');
+		await vi.advanceTimersByTimeAsync(1000);
+		await envelope.streamReply!.onDone('最终完成');
+		await adapter.stop();
+
+		const sendMessageCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/sendMessage'));
+		const editCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/editMessageText'));
+		expect(sendMessageCalls.length).toBeGreaterThanOrEqual(1);
+		expect(editCalls.length).toBeGreaterThanOrEqual(1);
+
+		const firstSendBody = JSON.parse(String(sendMessageCalls[0]?.[1]?.body ?? '{}')) as Record<string, unknown>;
+		expect(String(firstSendBody.text ?? '')).toContain('处理中');
+
+		const lastEditBody = JSON.parse(String(editCalls.at(-1)?.[1]?.body ?? '{}')) as Record<string, unknown>;
+		expect(String(lastEditBody.text ?? '')).toContain('最终完成');
 	});
 });

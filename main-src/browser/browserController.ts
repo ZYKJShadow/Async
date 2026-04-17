@@ -72,6 +72,31 @@ export type BrowserControlCommand =
 	  }
 	| {
 			commandId: string;
+			type: 'clickElement';
+			tabId?: string;
+			selector: string;
+			waitForLoad?: boolean;
+	  }
+	| {
+			commandId: string;
+			type: 'inputText';
+			tabId?: string;
+			selector: string;
+			text: string;
+			pressEnter?: boolean;
+			waitForLoad?: boolean;
+	  }
+	| {
+			commandId: string;
+			type: 'waitForSelector';
+			tabId?: string;
+			selector: string;
+			visible?: boolean;
+			waitForLoad?: boolean;
+			timeoutMs?: number;
+	  }
+	| {
+			commandId: string;
 			type: 'applyConfig';
 			config: BrowserSidebarConfigPayload;
 			defaultUserAgent?: string;

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { BotIntegrationConfig } from '../botSettingsTypes.js';
 import type { ShellSettings } from '../settingsStore.js';
-import { buildBotOrchestratorPrompt, type BotInboundMessage, type BotSessionState } from './botRuntime.js';
+import {
+	buildBotOrchestratorPrompt,
+	looksLikeQrLoginConfirmation,
+	looksLikeQrLoginScreenshotResendRequest,
+	type BotInboundMessage,
+	type BotSessionState,
+} from './botRuntime.js';
 
 describe('buildBotOrchestratorPrompt', () => {
 	it('applies global always rules and auto reply language guidance to bot bridge replies', () => {
@@ -55,6 +61,23 @@ describe('buildBotOrchestratorPrompt', () => {
 		expect(prompt).not.toContain('#### Rule（路径匹配）: TypeScript Only');
 		expect(prompt).toContain('#### Rule: 自动语言：默认使用简体中文回复');
 		expect(prompt).toContain('screenshot_page');
-		expect(prompt).toContain('close_sidebar');
+		expect(prompt).toContain('click_element');
+		expect(prompt).toContain('BrowserCapture');
+		expect(prompt).toContain('pause_for_qr_login');
+	});
+});
+
+describe('QR login helpers', () => {
+	it('recognizes common QR login confirmation phrases', () => {
+		expect(looksLikeQrLoginConfirmation('已登录')).toBe(true);
+		expect(looksLikeQrLoginConfirmation('扫码完成')).toBe(true);
+		expect(looksLikeQrLoginConfirmation('logged in')).toBe(true);
+		expect(looksLikeQrLoginConfirmation('还没扫')).toBe(false);
+	});
+
+	it('detects requests to resend the QR screenshot', () => {
+		expect(looksLikeQrLoginScreenshotResendRequest('请再发一下二维码')).toBe(true);
+		expect(looksLikeQrLoginScreenshotResendRequest('resend the qr')).toBe(true);
+		expect(looksLikeQrLoginScreenshotResendRequest('我已经登录了')).toBe(false);
 	});
 });

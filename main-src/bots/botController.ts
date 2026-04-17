@@ -1,10 +1,17 @@
 import type { BotIntegrationConfig, BotComposerMode } from '../botSettingsTypes.js';
 import type { ShellSettings } from '../settingsStore.js';
-import { extractBotReplyImagePaths, extractBotReplyText } from '../../src/agentStructuredMessage.js';
+import {
+	extractBotReplyImagePaths,
+	extractBotReplyText,
+	isStructuredAssistantMessage,
+} from '../../src/agentStructuredMessage.js';
 import {
 	createBotWorkspaceLspManager,
 	createInitialBotSession,
 	getAvailableBotModels,
+	buildQrLoginResumeUserTurn,
+	looksLikeQrLoginConfirmation,
+	looksLikeQrLoginScreenshotResendRequest,
 	runBotOrchestratorTurn,
 	type BotSessionState,
 } from './botRuntime.js';
@@ -27,6 +34,7 @@ import {
 	writeBotSession,
 } from './botSessionStore.js';
 import * as path from 'node:path';
+import { closeBrowserWindowForHostId } from '../browser/browserController.js';
 
 function looksLikeImagePath(filePath: string): boolean {
 	return /\.(png|jpe?g|webp|gif|bmp|ico|tiff?)$/i.test(path.extname(filePath));
@@ -67,6 +75,21 @@ function createAdapter(integration: BotIntegrationConfig): BotPlatformAdapter | 
 		default:
 			return null;
 	}
+}
+
+function sanitizeStreamingBotReply(fullText: string): string {
+	const raw = String(fullText ?? '');
+	const trimmed = raw.trimStart();
+	if (!trimmed) {
+		return '';
+	}
+	if (isStructuredAssistantMessage(raw)) {
+		return extractBotReplyText(raw).trim() || '正在整理结果...';
+	}
+	if (trimmed.startsWith('{') && trimmed.includes('"_asyncAssistant"')) {
+		return '正在整理结果...';
+	}
+	return raw;
 }
 
 function sessionMapKey(integrationId: string, conversationKey: string): string {
@@ -149,6 +172,7 @@ class BotController {
 			`model: ${session.modelId || '(unset)'}`,
 			`mode: ${session.mode}`,
 			`leader turns cached: ${Math.floor((session.leaderMessages?.length ?? 0) / 2)}`,
+			`qr login pending: ${session.pendingQrLogin ? 'yes' : 'no'}`,
 		].join('\n');
 	}
 
@@ -181,6 +205,11 @@ class BotController {
 				return true;
 			}
 			case 'reset': {
+				if (session.pendingQrLogin?.hostWebContentsId != null) {
+					closeBrowserWindowForHostId(session.pendingQrLogin.hostWebContentsId);
+				}
+				session.pendingQrLogin = undefined;
+				session.browserHostWebContentsId = null;
 				session.leaderMessages = [];
 				session.leaderSummary = undefined;
 				session.leaderSummaryCoversCount = undefined;
@@ -280,6 +309,35 @@ class BotController {
 		}
 
 		const session = this.loadOrCreateSession(integration, settings, message);
+		if (session.pendingQrLogin) {
+			if (looksLikeCancelIntent(message.text)) {
+				closeBrowserWindowForHostId(session.pendingQrLogin.hostWebContentsId);
+				session.pendingQrLogin = undefined;
+				session.browserHostWebContentsId = null;
+				this.persistSession(integration, session);
+				await message.reply('已取消二维码登录等待。').catch(() => {});
+				return;
+			}
+			if (!looksLikeQrLoginConfirmation(message.text)) {
+				if (
+					looksLikeQrLoginScreenshotResendRequest(message.text) &&
+					message.replyImage &&
+					session.pendingQrLogin.screenshotPath
+				) {
+					await message.replyImage(session.pendingQrLogin.screenshotPath).catch(() => {});
+				}
+				await message.reply(session.pendingQrLogin.replyText).catch(() => {});
+				return;
+			}
+			const pending = session.pendingQrLogin;
+			session.pendingQrLogin = undefined;
+			session.browserHostWebContentsId = pending.hostWebContentsId;
+			message = {
+				...message,
+				text: buildQrLoginResumeUserTurn(pending, message.text, settings.language),
+			};
+			this.persistSession(integration, session);
+		}
 
 		const run = async () => {
 			const ac = new AbortController();
@@ -311,7 +369,7 @@ class BotController {
 					onLeaderMessagesPersist: (next) => this.persistSession(integration, next),
 					onStreamDelta: stream
 						? (fullText: string, channel?: BotStreamChannel) => {
-								stream.onDelta(fullText, channel).catch(() => {});
+								stream.onDelta(sanitizeStreamingBotReply(fullText), channel).catch(() => {});
 						  }
 						: undefined,
 					onTodoUpdate: stream
@@ -357,15 +415,16 @@ class BotController {
 						: undefined,
 				});
 				const displayText = extractBotReplyText(text || '');
+				const effectiveDisplayText = displayText || session.pendingQrLogin?.replyText || '';
 				const imagePaths = filterUnsentBotReplyImages(
 					extractBotReplyImagePaths(text || ''),
 					sentAttachmentPaths
 				);
 				if (stream) {
-					await stream!.onDone(displayText || '已完成，但没有返回可展示的文本结果。');
+					await stream!.onDone(effectiveDisplayText || '已完成，但没有返回可展示的文本结果。');
 				} else {
-					if (displayText) {
-						await message.reply(renderForPlatform(displayText, integration.platform));
+					if (effectiveDisplayText) {
+						await message.reply(renderForPlatform(effectiveDisplayText, integration.platform));
 					}
 				}
 				if (message.replyImage && imagePaths.length > 0) {
@@ -375,7 +434,7 @@ class BotController {
 						});
 					}
 				}
-				if (!stream && !displayText && imagePaths.length === 0) {
+				if (!stream && !effectiveDisplayText && imagePaths.length === 0) {
 					await message.reply('已完成，但没有返回可展示的文本结果。');
 				}
 			} catch (error) {

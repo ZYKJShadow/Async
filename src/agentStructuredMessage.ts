@@ -249,6 +249,55 @@ function stripBotTaskResultMetadata(result: string): string {
 	return i > 0 ? lines.slice(i).join('\n') : result;
 }
 
+function summarizeBotToolOnlyReply(parts: AgentAssistantPart[]): string {
+	const toolParts = parts.filter((part): part is AgentAssistantToolPart => part.type === 'tool');
+	if (toolParts.length === 0) {
+		return '';
+	}
+	return toolParts
+		.map((part) => {
+			const ok = part.success === true;
+			switch (part.name) {
+				case 'get_async_session':
+					return ok ? '已读取当前 Async 会话信息。' : '读取当前 Async 会话信息失败。';
+				case 'switch_workspace':
+					return ok ? part.result.trim() || '已切换工作区。' : `切换工作区失败：${part.result.trim()}`;
+				case 'switch_model':
+					return ok ? part.result.trim() || '已切换模型。' : `切换模型失败：${part.result.trim()}`;
+				case 'new_async_thread':
+					return ok ? part.result.trim() || '已创建新的内部线程。' : `创建内部线程失败：${part.result.trim()}`;
+				case 'send_local_attachment':
+					return ok ? part.result.trim() || '已发送附件给用户。' : `发送附件失败：${part.result.trim()}`;
+				case 'pause_for_qr_login':
+					return ok ? '已发送二维码登录截图，正在等待用户扫码。' : `二维码登录等待失败：${part.result.trim()}`;
+				case 'Browser': {
+					const action = String(part.args.action ?? '').trim();
+					return ok
+						? action
+							? `已执行浏览器操作：${action}。`
+							: '已执行浏览器操作。'
+						: action
+							? `浏览器操作失败：${action}。`
+							: '浏览器操作失败。';
+				}
+				case 'BrowserCapture': {
+					const action = String(part.args.action ?? '').trim();
+					return ok
+						? action
+							? `已执行浏览器抓包操作：${action}。`
+							: '已执行浏览器抓包操作。'
+						: action
+							? `浏览器抓包操作失败：${action}。`
+							: '浏览器抓包操作失败。';
+				}
+				default:
+					return ok ? `已执行工具：${part.name}。` : `工具执行失败：${part.name}。`;
+			}
+		})
+		.join('\n')
+		.trim();
+}
+
 /**
  * 从机器人 orchestrator 返回的结构化 JSON 中提取对外展示的纯文本/markdown。
  *
@@ -292,7 +341,12 @@ export function extractBotReplyText(raw: string): string {
 	const outerText = outerTexts.join('').trim();
 	if (outerText) return outerText;
 
-	return raw;
+	const toolOnlySummary = summarizeBotToolOnlyReply(payload.parts);
+	if (toolOnlySummary) {
+		return toolOnlySummary;
+	}
+
+	return '';
 }
 
 function collectBotScreenshotPathsFromPayload(payload: AgentAssistantPayload, out: string[]): void {
