@@ -246,6 +246,67 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 		},
 	},
 	{
+		name: 'Terminal',
+		description:
+			"Interact with the app's shared Universal Terminal sessions. Sessions are persistent pty processes (the user's real shell) that survive even when no terminal window is open. Use this when you need an interactive session, want to drive a long-running or REPL-style command, or need to keep terminal state (cwd, env, background processes) across calls. For one-shot commands, prefer **Bash**.\n\nActions: **open** (spawn a new session, returns id), **write** (send keystrokes/data; include \\r or \\n to submit a line), **read** (return the tail of the output buffer), **list** (enumerate active sessions), **resize** (change cols/rows), **close** (kill session), **run** (one-shot convenience: open → write → wait for exit → kill, returns full output).",
+		parameters: {
+			type: 'object',
+			properties: {
+				action: {
+					type: 'string',
+					enum: ['open', 'write', 'read', 'list', 'resize', 'close', 'run'],
+					description: 'Which terminal operation to perform.',
+				},
+				session_id: {
+					type: 'string',
+					description: 'Session id returned by open/list. Required for write/read/resize/close.',
+				},
+				data: {
+					type: 'string',
+					description:
+						'For write: raw bytes to send to the pty. Include \\r or \\n to submit a command. Control chars like \\x03 (Ctrl-C) are allowed.',
+				},
+				command: {
+					type: 'string',
+					description: 'For run: the command line to execute in a one-shot session.',
+				},
+				cwd: {
+					type: 'string',
+					description:
+						'For open/run: initial working directory. Workspace-relative or absolute inside the workspace. Defaults to the workspace root.',
+				},
+				shell: {
+					type: 'string',
+					description:
+						'For open/run: shell executable path. Defaults to the platform shell (cmd.exe on Windows, $SHELL on Unix).',
+				},
+				title: {
+					type: 'string',
+					description: 'For open: human-readable title shown in the terminal window tab.',
+				},
+				cols: {
+					type: 'number',
+					description: 'For open/resize: column count. Defaults to 120.',
+				},
+				rows: {
+					type: 'number',
+					description: 'For open/resize: row count. Defaults to 30.',
+				},
+				max_bytes: {
+					type: 'number',
+					description:
+						'For read: maximum bytes to return from the tail of the session buffer. Default 16384, max 262144.',
+				},
+				timeout_ms: {
+					type: 'number',
+					description:
+						'For run: max milliseconds to wait for the command to exit before killing it. Default 120000, max 600000.',
+				},
+			},
+			required: ['action'],
+		},
+	},
+	{
 		name: 'Browser',
 		description:
 			'Control the app\'s dedicated browser window for the current Async session. Use this to open or steer pages, read visible page content, capture webpage screenshots, click or fill page elements, wait for selectors to appear, and inspect/update browser networking settings (User-Agent, Accept-Language, extra request headers, proxy) plus optional in-page fingerprint spoofing (navigator/screen/WebGL/Canvas/WebRTC) via `set_config.fingerprint`.',

@@ -1,0 +1,826 @@
+/**
+ * Universal Terminal window — Tabby-inspired chrome, themed with project tokens.
+ * Only loaded when the window mounts `<TerminalWindowSurface />`.
+ */
+
+.ref-uterm-root {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+	width: 100vw;
+	background:
+		radial-gradient(circle at top left, color-mix(in srgb, var(--void-accent-cool) 10%, transparent) 0%, transparent 45%),
+		radial-gradient(circle at bottom right, color-mix(in srgb, var(--void-accent-warm) 6%, transparent) 0%, transparent 55%),
+		var(--color-bg-app, var(--void-bg-0));
+	color: var(--color-text-primary, var(--void-fg-0));
+	font-family: var(--void-ui-font-family, system-ui, sans-serif);
+	overflow: hidden;
+}
+
+.ref-uterm-root--empty {
+	align-items: center;
+	justify-content: center;
+	color: var(--color-text-secondary, var(--void-fg-1));
+	font-size: 13px;
+}
+
+.ref-uterm-titlebar {
+	-webkit-app-region: drag;
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 10px 12px 0 12px;
+	user-select: none;
+}
+
+/* 为系统窗口按钮 / 交通灯留出空间，避免控件与自定义标题叠在一起 */
+:root[data-platform='win32'] .ref-uterm-titlebar {
+	padding-right: max(148px, var(--ref-titlebar-right-safe, 148px));
+}
+:root[data-platform='darwin'] .ref-uterm-titlebar {
+	padding-left: 78px;
+}
+
+.ref-uterm-title {
+	-webkit-app-region: no-drag;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0 10px;
+	color: var(--color-text-secondary, var(--void-fg-1));
+	font-size: 12px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	opacity: 0.85;
+}
+
+.ref-uterm-title-icon {
+	color: var(--void-accent-cool, var(--color-accent));
+}
+
+/* 可拖动空白：此前标签条 flex:1 且 no-drag，导致整行无法拖动窗口 */
+.ref-uterm-drag-spacer {
+	-webkit-app-region: drag;
+	flex: 1 1 auto;
+	min-width: 24px;
+	height: 30px;
+	align-self: flex-end;
+	border-radius: 8px;
+	background: linear-gradient(
+		90deg,
+		color-mix(in srgb, var(--void-accent-cool) 8%, transparent),
+		color-mix(in srgb, var(--void-accent-warm) 5%, transparent)
+	);
+	opacity: 0.35;
+	pointer-events: auto;
+}
+
+.ref-uterm-tabstrip {
+	-webkit-app-region: no-drag;
+	flex: 0 1 auto;
+	display: flex;
+	align-items: flex-end;
+	gap: 6px;
+	min-height: 34px;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+.ref-uterm-titlebar-actions {
+	-webkit-app-region: no-drag;
+	flex: 0 0 auto;
+	display: flex;
+	align-items: flex-end;
+	gap: 4px;
+	align-self: flex-end;
+	padding: 0 0 2px 12px;
+	margin-left: 4px;
+	border-left: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
+}
+
+.ref-uterm-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 30px;
+	border-radius: 10px 10px 0 0;
+	border: 1px solid color-mix(in srgb, var(--void-border) 55%, transparent);
+	background: color-mix(in srgb, var(--void-bg-1) 45%, transparent);
+	color: var(--color-text-secondary, var(--void-fg-1));
+	cursor: pointer;
+	transition:
+		background 140ms ease,
+		color 140ms ease,
+		border-color 140ms ease,
+		box-shadow 180ms ease;
+}
+.ref-uterm-icon-btn:hover {
+	color: var(--void-accent-cool, var(--color-accent));
+	border-color: color-mix(in srgb, var(--void-accent-cool) 40%, var(--void-border));
+	background: color-mix(in srgb, var(--void-accent-cool) 12%, var(--void-bg-2));
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--void-accent-cool) 22%, transparent);
+}
+.ref-uterm-icon-btn-svg {
+	width: 16px;
+	height: 16px;
+}
+
+.ref-uterm-menu-wrap {
+	position: relative;
+}
+
+.ref-uterm-dropdown {
+	position: absolute;
+	top: calc(100% + 6px);
+	right: 0;
+	min-width: 200px;
+	padding: 6px;
+	border-radius: 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 80%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 94%, transparent);
+	box-shadow: var(--void-shadow-card, 0 18px 48px rgba(0, 0, 0, 0.35));
+	backdrop-filter: blur(12px);
+	z-index: 40;
+	animation: ref-uterm-dropdown-in 160ms ease-out;
+}
+@keyframes ref-uterm-dropdown-in {
+	from {
+		opacity: 0;
+		transform: translateY(-6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.ref-uterm-dropdown-item {
+	display: block;
+	width: 100%;
+	text-align: left;
+	padding: 8px 10px;
+	margin: 0;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--color-text-primary, var(--void-fg-0));
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	transition: background 120ms ease;
+}
+.ref-uterm-dropdown-item:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--void-accent-cool) 14%, transparent);
+}
+.ref-uterm-dropdown-item:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+.ref-uterm-dropdown-item--danger:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 22%, transparent);
+	color: var(--void-git-deleted, #ff6f77);
+}
+.ref-uterm-dropdown-sep {
+	height: 1px;
+	margin: 6px 4px;
+	background: color-mix(in srgb, var(--void-border) 70%, transparent);
+}
+
+.ref-uterm-tabstrip::-webkit-scrollbar {
+	height: 4px;
+}
+.ref-uterm-tabstrip::-webkit-scrollbar-thumb {
+	background: var(--void-scrollbar-thumb, rgba(255, 255, 255, 0.12));
+	border-radius: 2px;
+}
+
+.ref-uterm-tab {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	height: 30px;
+	min-width: 132px;
+	max-width: 220px;
+	padding: 0 4px 0 10px;
+	border-radius: 10px 10px 0 0;
+	background: color-mix(in srgb, var(--void-bg-1) 60%, transparent);
+	border: 1px solid color-mix(in srgb, var(--void-border) 80%, transparent);
+	border-bottom: none;
+	color: var(--color-text-secondary, var(--void-fg-1));
+	font-size: 12px;
+	transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.ref-uterm-tab:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 78%, transparent);
+	color: var(--color-text-primary, var(--void-fg-0));
+}
+
+.ref-uterm-tab.is-active {
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--void-accent-cool) 16%, var(--void-bg-2)) 0%,
+		var(--void-bg-2) 100%
+	);
+	color: var(--color-text-primary, var(--void-fg-0));
+	border-color: color-mix(in srgb, var(--void-accent-cool) 45%, var(--void-border));
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-accent-cool) 45%, transparent),
+		0 -2px 14px color-mix(in srgb, var(--void-accent-cool) 16%, transparent);
+}
+
+.ref-uterm-tab.is-exited {
+	opacity: 0.72;
+}
+
+.ref-uterm-tab-select {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	padding: 0;
+	background: transparent;
+	border: none;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	text-align: left;
+}
+
+.ref-uterm-tab-icon {
+	flex: 0 0 auto;
+	color: var(--void-accent-cool, var(--color-accent));
+	opacity: 0.85;
+}
+
+.ref-uterm-tab-label {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-uterm-tab-close {
+	flex: 0 0 auto;
+	width: 20px;
+	height: 20px;
+	border-radius: 6px;
+	background: transparent;
+	border: none;
+	color: inherit;
+	font-size: 15px;
+	line-height: 1;
+	cursor: pointer;
+	opacity: 0.55;
+	transition: background 120ms ease, opacity 120ms ease, color 120ms ease;
+}
+.ref-uterm-tab-close:hover {
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 30%, transparent);
+	color: var(--color-text-primary, var(--void-fg-0));
+	opacity: 1;
+}
+
+.ref-uterm-tab-add {
+	-webkit-app-region: no-drag;
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	border-radius: 10px 10px 0 0;
+	background: transparent;
+	border: 1px dashed color-mix(in srgb, var(--void-border) 70%, transparent);
+	border-bottom: none;
+	color: var(--color-text-secondary, var(--void-fg-1));
+	cursor: pointer;
+	transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.ref-uterm-tab-add:hover {
+	color: var(--void-accent-cool, var(--color-accent));
+	border-color: color-mix(in srgb, var(--void-accent-cool) 55%, transparent);
+	background: color-mix(in srgb, var(--void-accent-cool) 10%, transparent);
+}
+
+.ref-uterm-tab-add-icon {
+	width: 14px;
+	height: 14px;
+}
+
+.ref-uterm-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	margin: 0 10px 10px 10px;
+	border-radius: 14px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 85%, transparent);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--void-accent-cool) 6%, var(--void-bg-0)) 0%,
+			var(--void-bg-0) 45%
+		);
+	box-shadow: var(--void-shadow-card, 0 24px 64px rgba(0, 0, 0, 0.35));
+	position: relative;
+	overflow: hidden;
+}
+
+.ref-uterm-empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: var(--color-text-secondary, var(--void-fg-1));
+	font-size: 13px;
+}
+
+.ref-uterm-pane {
+	position: absolute;
+	inset: 0;
+	visibility: hidden;
+	display: flex;
+	flex-direction: column;
+	padding: 10px 12px 12px 12px;
+}
+.ref-uterm-pane.is-active {
+	visibility: visible;
+}
+
+.ref-uterm-viewport {
+	flex: 1 1 auto;
+	min-height: 0;
+	width: 100%;
+}
+.ref-uterm-viewport.ref-uterm-bell-flash {
+	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--void-accent-warm, #f59e0b) 55%, transparent);
+	transition: box-shadow 80ms ease;
+}
+
+.ref-uterm-viewport .xterm {
+	height: 100%;
+	padding: 0;
+}
+.ref-uterm-viewport .xterm .xterm-viewport {
+	background: transparent !important;
+}
+.ref-uterm-viewport .xterm .xterm-screen {
+	background: transparent !important;
+}
+
+.ref-uterm-pane-exitbadge {
+	position: absolute;
+	right: 16px;
+	bottom: 10px;
+	padding: 3px 10px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 22%, transparent);
+	color: var(--void-git-deleted, #ff6f77);
+	font-size: 11px;
+	letter-spacing: 0.02em;
+	pointer-events: none;
+}
+
+:root[data-color-scheme='light'] .ref-uterm-tab,
+:root[data-color-scheme='light'] .ref-uterm-tab-add {
+	background: color-mix(in srgb, var(--void-bg-0) 92%, transparent);
+	border-color: color-mix(in srgb, var(--void-border) 80%, transparent);
+}
+:root[data-color-scheme='light'] .ref-uterm-tab.is-active {
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--void-accent-cool) 14%, var(--void-bg-0)) 0%,
+		var(--void-bg-0) 100%
+	);
+}
+
+/* —— 设置面板（全能终端） —— */
+.ref-uterm-settings-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 200;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+}
+.ref-uterm-settings-backdrop::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--void-accent-cool) 12%, transparent), transparent 42%),
+		radial-gradient(circle at 88% 88%, color-mix(in srgb, var(--void-accent-warm) 8%, transparent), transparent 50%);
+	pointer-events: none;
+}
+.ref-uterm-settings-scrim {
+	position: absolute;
+	inset: 0;
+	background: color-mix(in srgb, var(--void-bg-0) 55%, transparent);
+	backdrop-filter: blur(6px);
+}
+.ref-uterm-settings-panel {
+	position: relative;
+	z-index: 1;
+	width: min(920px, calc(100vw - 32px));
+	max-height: min(640px, calc(100vh - 48px));
+	display: flex;
+	flex-direction: column;
+	border-radius: 16px;
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 28%, var(--void-border));
+	background: linear-gradient(
+		165deg,
+		color-mix(in srgb, var(--void-bg-2) 96%, var(--void-accent-cool)) 0%,
+		color-mix(in srgb, var(--void-bg-1) 92%, transparent) 48%,
+		var(--void-bg-0) 100%
+	);
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, var(--void-accent-cool) 12%, transparent),
+		0 28px 80px rgba(0, 0, 0, 0.45);
+	animation: ref-uterm-settings-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes ref-uterm-settings-in {
+	from {
+		opacity: 0;
+		transform: translateY(12px) scale(0.98);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+.ref-uterm-settings-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 16px 18px 12px 20px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 75%, transparent);
+}
+.ref-uterm-settings-title {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--color-text-secondary, var(--void-fg-1));
+}
+.ref-uterm-settings-close {
+	width: 36px;
+	height: 36px;
+	border-radius: 10px;
+	border: none;
+	background: transparent;
+	color: var(--color-text-secondary, var(--void-fg-1));
+	font-size: 22px;
+	line-height: 1;
+	cursor: pointer;
+	transition: background 120ms ease, color 120ms ease;
+}
+.ref-uterm-settings-close:hover {
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 18%, transparent);
+	color: var(--void-fg-0);
+}
+.ref-uterm-settings-body {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+}
+.ref-uterm-settings-nav {
+	flex: 0 0 auto;
+	width: 216px;
+	padding: 12px 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	border-right: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 40%, transparent);
+}
+.ref-uterm-settings-navbtn {
+	text-align: left;
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--color-text-secondary, var(--void-fg-1));
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.ref-uterm-settings-navbtn:hover {
+	color: var(--void-fg-0);
+	background: color-mix(in srgb, var(--void-accent-cool) 8%, transparent);
+}
+.ref-uterm-settings-navbtn.is-active {
+	color: var(--void-fg-0);
+	border-color: color-mix(in srgb, var(--void-accent-cool) 45%, var(--void-border));
+	background: linear-gradient(
+		120deg,
+		color-mix(in srgb, var(--void-accent-cool) 16%, var(--void-bg-2)) 0%,
+		color-mix(in srgb, var(--void-bg-2) 88%, transparent) 100%
+	);
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-accent-cool) 35%, transparent);
+}
+.ref-uterm-settings-content {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 16px 18px 20px 18px;
+	overflow: auto;
+}
+.ref-uterm-settings-section {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	max-width: 520px;
+}
+.ref-uterm-settings-profiles.ref-uterm-settings-section {
+	max-width: 720px;
+}
+.ref-uterm-settings-lead {
+	margin: 0 0 4px 0;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--color-text-secondary, var(--void-fg-1));
+}
+.ref-uterm-settings-subhead {
+	margin: 0 0 10px 0;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: color-mix(in srgb, var(--void-accent-cool) 55%, var(--void-fg-1));
+}
+.ref-uterm-settings-subhead--spaced {
+	margin-top: 22px;
+}
+.ref-uterm-settings-display-behavior {
+	max-width: 520px;
+}
+.ref-uterm-settings-profile-meta {
+	display: block;
+	margin-top: 2px;
+	font-size: 10px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--void-fg-2, var(--void-fg-1));
+	opacity: 0.85;
+}
+.ref-uterm-settings-callout {
+	padding: 10px 12px;
+	margin-bottom: 4px;
+	border-radius: 10px;
+	border: 1px solid color-mix(in srgb, var(--void-accent-warm, #f59e0b) 45%, var(--void-border));
+	background: color-mix(in srgb, var(--void-accent-warm, #f59e0b) 10%, var(--void-bg-0));
+	color: var(--void-fg-0);
+	font-size: 12px;
+	line-height: 1.45;
+}
+.ref-uterm-settings-input--narrow {
+	max-width: 120px;
+}
+.ref-uterm-settings-connection-block {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding-bottom: 4px;
+}
+.ref-uterm-settings-field {
+	display: grid;
+	grid-template-columns: 140px 1fr;
+	gap: 12px 16px;
+	align-items: center;
+}
+@media (max-width: 720px) {
+	.ref-uterm-settings-field {
+		grid-template-columns: 1fr;
+	}
+}
+.ref-uterm-settings-label {
+	font-size: 12px;
+	color: var(--color-text-secondary, var(--void-fg-1));
+	letter-spacing: 0.02em;
+}
+.ref-uterm-settings-control {
+	min-width: 0;
+}
+.ref-uterm-settings-select,
+.ref-uterm-settings-input,
+.ref-uterm-settings-textarea,
+.ref-uterm-settings-numberinput {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 8px 10px;
+	border-radius: 10px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 85%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 88%, transparent);
+	color: var(--void-fg-0);
+	font: inherit;
+	font-size: 13px;
+	outline: none;
+	transition: border-color 120ms ease, box-shadow 160ms ease;
+}
+.ref-uterm-settings-select:focus,
+.ref-uterm-settings-input:focus,
+.ref-uterm-settings-textarea:focus,
+.ref-uterm-settings-numberinput:focus {
+	border-color: color-mix(in srgb, var(--void-accent-cool) 55%, var(--void-border));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--void-accent-cool) 18%, transparent);
+}
+.ref-uterm-settings-textarea {
+	resize: vertical;
+	min-height: 88px;
+}
+.ref-uterm-settings-radiorow {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.ref-uterm-settings-radio {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	border-radius: 999px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 75%, transparent);
+	cursor: pointer;
+	font-size: 12px;
+	color: var(--void-fg-1);
+	transition: border-color 120ms ease, background 120ms ease;
+}
+.ref-uterm-settings-radio input {
+	accent-color: var(--void-accent-cool, var(--color-accent));
+}
+.ref-uterm-settings-radio.is-active {
+	border-color: color-mix(in srgb, var(--void-accent-cool) 50%, var(--void-border));
+	background: color-mix(in srgb, var(--void-accent-cool) 12%, transparent);
+	color: var(--void-fg-0);
+}
+.ref-uterm-settings-slider {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+.ref-uterm-settings-slider input[type='range'] {
+	flex: 1 1 auto;
+	accent-color: var(--void-accent-cool, var(--color-accent));
+}
+.ref-uterm-settings-slider-value {
+	font-size: 12px;
+	color: var(--void-fg-1);
+	min-width: 40px;
+	text-align: right;
+}
+.ref-uterm-settings-numberrow {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.ref-uterm-settings-numberrow input[type='range'] {
+	flex: 1 1 auto;
+	accent-color: var(--void-accent-cool, var(--color-accent));
+}
+.ref-uterm-settings-numberinput {
+	max-width: 88px;
+}
+.ref-uterm-settings-toggle {
+	position: relative;
+	width: 44px;
+	height: 24px;
+	border-radius: 999px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 80%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 90%, transparent);
+	cursor: pointer;
+	padding: 0;
+	transition: background 160ms ease, border-color 160ms ease;
+}
+.ref-uterm-settings-toggle.is-on {
+	background: color-mix(in srgb, var(--void-accent-cool) 42%, var(--void-bg-2));
+	border-color: color-mix(in srgb, var(--void-accent-cool) 55%, transparent);
+}
+.ref-uterm-settings-toggle-thumb {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: var(--void-fg-0);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+	transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ref-uterm-settings-toggle.is-on .ref-uterm-settings-toggle-thumb {
+	transform: translateX(20px);
+}
+.ref-uterm-settings-profiles-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 8px;
+}
+.ref-uterm-settings-profiles-hint {
+	font-size: 12px;
+	color: var(--void-fg-1);
+}
+.ref-uterm-settings-btn-ghost {
+	padding: 6px 12px;
+	border-radius: 10px;
+	border: 1px dashed color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: transparent;
+	color: var(--void-accent-cool, var(--color-accent));
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+.ref-uterm-settings-btn-ghost:hover {
+	border-color: color-mix(in srgb, var(--void-accent-cool) 50%, transparent);
+	background: color-mix(in srgb, var(--void-accent-cool) 8%, transparent);
+}
+.ref-uterm-settings-profiles-grid {
+	display: grid;
+	grid-template-columns: minmax(140px, 200px) 1fr;
+	gap: 14px;
+	max-width: 100%;
+}
+@media (max-width: 720px) {
+	.ref-uterm-settings-profiles-grid {
+		grid-template-columns: 1fr;
+	}
+}
+.ref-uterm-settings-profiles-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 280px;
+	overflow: auto;
+}
+.ref-uterm-settings-profile-item {
+	width: 100%;
+	text-align: left;
+	padding: 8px 10px;
+	border-radius: 10px;
+	border: 1px solid transparent;
+	background: color-mix(in srgb, var(--void-bg-0) 70%, transparent);
+	color: inherit;
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	transition: border-color 120ms ease, background 120ms ease;
+}
+.ref-uterm-settings-profile-item:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 80%, transparent);
+}
+.ref-uterm-settings-profile-item.is-active {
+	border-color: color-mix(in srgb, var(--void-accent-cool) 45%, var(--void-border));
+	background: color-mix(in srgb, var(--void-accent-cool) 10%, var(--void-bg-2));
+}
+.ref-uterm-settings-profile-name {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.ref-uterm-settings-profile-default-badge {
+	display: inline-block;
+	margin-top: 4px;
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--void-accent-cool, var(--color-accent));
+}
+.ref-uterm-settings-profile-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 12px;
+	flex-wrap: wrap;
+}
+.ref-uterm-settings-inline-check {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--void-fg-1);
+	cursor: pointer;
+}
+.ref-uterm-settings-btn-danger {
+	padding: 8px 14px;
+	border-radius: 10px;
+	border: 1px solid color-mix(in srgb, var(--void-git-deleted, #ff6f77) 45%, transparent);
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 12%, transparent);
+	color: var(--void-git-deleted, #ff6f77);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+.ref-uterm-settings-btn-danger:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 22%, transparent);
+}
+.ref-uterm-settings-btn-danger:disabled {
+	opacity: 0.4;
+	cursor: default;
+}

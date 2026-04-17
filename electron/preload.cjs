@@ -94,6 +94,17 @@ const INVOKE_CHANNELS = new Set([
 	'terminal:ptyWrite',
 	'terminal:ptyResize',
 	'terminal:ptyKill',
+	'terminalWindow:open',
+	'term:sessionCreate',
+	'term:sessionWrite',
+	'term:sessionResize',
+	'term:sessionKill',
+	'term:sessionRename',
+	'term:sessionList',
+	'term:sessionInfo',
+	'term:sessionBuffer',
+	'term:sessionSubscribe',
+	'term:sessionUnsubscribe',
 	'agent:applyDiffChunk',
 	'agent:applyDiffChunks',
 	'agent:keepLastTurn',
@@ -333,6 +344,27 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++browserControlSeq;
 		browserControlHandlers.set(id, callback);
 		return () => browserControlHandlers.delete(id);
+	},
+	subscribeTerminalSessionData(callback) {
+		const handler = (_e, id, data, seq) => {
+			callback(String(id), String(data), typeof seq === 'number' ? seq : 0);
+		};
+		ipcRenderer.on('term:data', handler);
+		return () => ipcRenderer.removeListener('term:data', handler);
+	},
+	subscribeTerminalSessionExit(callback) {
+		const handler = (_e, id, code) => {
+			callback(String(id), code);
+		};
+		ipcRenderer.on('term:exit', handler);
+		return () => ipcRenderer.removeListener('term:exit', handler);
+	},
+	subscribeTerminalSessionListChanged(callback) {
+		const handler = () => {
+			callback();
+		};
+		ipcRenderer.on('term:listChanged', handler);
+		return () => ipcRenderer.removeListener('term:listChanged', handler);
 	},
 	subscribeOpenSettingsNav(callback) {
 		const id = ++openSettingsNavSeq;

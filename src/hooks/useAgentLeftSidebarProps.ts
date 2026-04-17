@@ -24,6 +24,7 @@ export type UseAgentLeftSidebarPropsParams = {
 	setWorkspacePickerOpen: Dispatch<SetStateAction<boolean>>;
 	openQuickOpen: (seed?: string) => void;
 	openSettingsPage: (nav: SettingsNavId) => void;
+	openUniversalTerminal: () => void;
 };
 
 export function useAgentLeftSidebarProps(p: UseAgentLeftSidebarPropsParams): AgentLeftSidebarProps {
@@ -46,6 +47,10 @@ export function useAgentLeftSidebarProps(p: UseAgentLeftSidebarPropsParams): Age
 	const openGeneralSettings = useCallback(() => {
 		p.openSettingsPage('general');
 	}, [p.openSettingsPage]);
+
+	const openUniversalTerminal = useCallback(() => {
+		p.openUniversalTerminal();
+	}, [p.openUniversalTerminal]);
 
 	const onNewThread = useCallback(() => {
 		void p.onNewThread();
@@ -83,6 +88,7 @@ export function useAgentLeftSidebarProps(p: UseAgentLeftSidebarPropsParams): Age
 			openQuickOpen,
 			openPluginSettings,
 			openGeneralSettings,
+			openUniversalTerminal,
 		}),
 		[
 			p.t,
@@ -104,6 +110,7 @@ export function useAgentLeftSidebarProps(p: UseAgentLeftSidebarPropsParams): Age
 			openQuickOpen,
 			openPluginSettings,
 			openGeneralSettings,
+			openUniversalTerminal,
 		]
 	);
 }

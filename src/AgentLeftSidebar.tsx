@@ -9,6 +9,7 @@ import {
 	IconPlugin,
 	IconSearch,
 	IconSettings,
+	IconTerminal,
 } from './icons';
 
 export type AgentSidebarWorkspace = {
@@ -42,6 +43,7 @@ export type AgentLeftSidebarProps = {
 	openQuickOpen: () => void;
 	openPluginSettings: () => void;
 	openGeneralSettings: () => void;
+	openUniversalTerminal: () => void;
 };
 
 export const AgentLeftSidebar = memo(function AgentLeftSidebar({
@@ -64,6 +66,7 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 	openQuickOpen,
 	openPluginSettings,
 	openGeneralSettings,
+	openUniversalTerminal,
 }: AgentLeftSidebarProps) {
 	return (
 		<div className="ref-left-agent-nest">
@@ -77,6 +80,10 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 						<button type="button" className="ref-agent-nav-item" onClick={openPluginSettings}>
 							<IconPlugin className="ref-agent-nav-item-icon" />
 							<span>{t('settings.nav.plugins')}</span>
+						</button>
+						<button type="button" className="ref-agent-nav-item" onClick={openUniversalTerminal}>
+							<IconTerminal className="ref-agent-nav-item-icon" />
+							<span>{t('app.universalTerminal')}</span>
 						</button>
 					</nav>
 

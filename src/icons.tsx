@@ -237,6 +237,16 @@ export function IconPlugin({ className }: { className?: string }) {
 	);
 }
 
+export function IconTerminal({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<rect x="3" y="4" width="18" height="16" rx="2.5" />
+			<path d="M7 9l3 3-3 3" />
+			<path d="M12 15h5" />
+		</svg>
+	);
+}
+
 export function IconHistory({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

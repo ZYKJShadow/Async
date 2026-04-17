@@ -124,6 +124,7 @@ import type { ComposerAnchorSlot } from './ChatComposer';
 import { AppProvider } from './AppContext';
 import { ComposerActionsProvider } from './ComposerActionsContext';
 import { AgentBrowserWindowSurface } from './AgentRightSidebar';
+import { TerminalWindowSurface } from './TerminalWindowSurface';
 import { runDesktopShellInit } from './app/desktopShellInit';
 import {
 	DEFAULT_SHELL_LAYOUT_MODE_KEY,
@@ -204,9 +205,11 @@ type OnSendOptions = {
 export default function App({
 	appSurface,
 	browserWindow = false,
+	terminalWindow = false,
 }: {
 	appSurface?: LayoutMode;
 	browserWindow?: boolean;
+	terminalWindow?: boolean;
 } = {}) {
 	const shell = useAsyncShell();
 	const layoutPinnedBySurface = appSurface !== undefined;
@@ -511,9 +514,52 @@ export default function App({
 
 	return (
 		<AppShellProviders chrome={chromeSlice} workspace={workspaceSlice} settings={settingsSlice}>
-			{browserWindow ? <AppBrowserWindow /> : <AppMainWorkspace />}
+			{terminalWindow ? <AppTerminalWindow /> : browserWindow ? <AppBrowserWindow /> : <AppMainWorkspace />}
 		</AppShellProviders>
 	);
+}
+
+function AppTerminalWindow() {
+	const { shell, t, setLocale, setColorMode, setAppearanceSettings } = useAppShellChrome();
+
+	useEffect(() => {
+		if (!shell) {
+			return;
+		}
+		let cancelled = false;
+		void (async () => {
+			try {
+				const settings = (await shell.invoke('settings:get')) as {
+					language?: string;
+					ui?: { colorMode?: string } & Record<string, unknown>;
+				};
+				if (cancelled) {
+					return;
+				}
+				setLocale(normalizeLocale(settings.language));
+				const colorMode =
+					settings.ui?.colorMode === 'light' ||
+					settings.ui?.colorMode === 'dark' ||
+					settings.ui?.colorMode === 'system'
+						? settings.ui.colorMode
+						: readStoredColorMode();
+				setColorMode(colorMode);
+				const scheme = resolveEffectiveScheme(colorMode, readPrefersDark());
+				setAppearanceSettings(normalizeAppearanceSettings(settings.ui, scheme));
+			} catch {
+				/* ignore */
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [shell, setAppearanceSettings, setColorMode, setLocale]);
+
+	useEffect(() => {
+		hideBootSplash();
+	}, []);
+
+	return <TerminalWindowSurface t={t} />;
 }
 
 function AppBrowserWindow() {
@@ -4050,6 +4096,15 @@ function AppMainWorkspaceInner() {
 		setQuickOpenOpen(true);
 	}, []);
 
+	const openUniversalTerminal = useCallback(() => {
+		if (!shell) {
+			return;
+		}
+		void shell.invoke('terminalWindow:open').catch(() => {
+			/* ignore */
+		});
+	}, [shell]);
+
 	const focusSearchSidebarFromQuickOpen = useCallback((q: string) => {
 		setSidebarSearchDraft(q);
 		setQuickOpenSeed(`%${q}`);
@@ -5770,6 +5825,7 @@ function AppMainWorkspaceInner() {
 		setWorkspacePickerOpen,
 		openQuickOpen,
 		openSettingsPage,
+		openUniversalTerminal,
 	});
 
 	/** 未打开工作区时：Agent / Editor 均显示同一套欢迎页（打开项目、最近项目等） */

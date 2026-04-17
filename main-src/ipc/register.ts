@@ -169,6 +169,7 @@ import {
 } from '../workspaceAgentStore.js';
 import { summarizeThreadForSidebar, isTimestampToday, pruneSummaryCache } from '../threadListSummary.js';
 import { registerTerminalPtyIpc } from '../terminalPty.js';
+import { registerTerminalSessionIpc } from '../terminalSessionIpc.js';
 
 import {
 	getWorkspaceLspManagerForWebContents,
@@ -1116,6 +1117,7 @@ function appendPlanExecuteToSystem(
 
 export function registerIpc(): void {
 	registerTerminalPtyIpc();
+	registerTerminalSessionIpc();
 
 	setWorkspaceFsTouchNotifier(() => {
 		for (const win of BrowserWindow.getAllWindows()) {
