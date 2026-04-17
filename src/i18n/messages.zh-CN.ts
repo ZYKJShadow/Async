@@ -1252,6 +1252,8 @@ export const messagesZhCN: Record<string, string> = {
 	'agentSettings.cmdDescFieldPh': '简短说明，显示在 / 菜单与命令列表中',
 	'agentSettings.cmdSlashListTitle': '在聊天中可用的命令',
 	'agentSettings.cmdSlashListAria': '内置与自定义斜杠命令列表',
+	'agentSettings.cmdSlashListExpand': '展开其余 {{count}} 条',
+	'agentSettings.cmdSlashListCollapse': '收起列表',
 
 	// errors (known IPC / UI)
 	'errors.modelNotChosen': '未选择模型。请在输入区选择模型，或在设置 → 模型中添加并选择默认模型。',

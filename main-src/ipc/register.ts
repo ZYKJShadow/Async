@@ -1504,19 +1504,13 @@ export function registerIpc(): void {
 		'team',
 		'bots',
 		'agents',
-		'tab',
 		'models',
-		'cloud',
 		'plugins',
 		'rules',
 		'tools',
-		'hooks',
 		'indexing',
 		'autoUpdate',
 		'browser',
-		'network',
-		'beta',
-		'dev',
 	]);
 
 	ipcMain.handle('app:requestOpenSettings', async (event, payload: unknown) => {

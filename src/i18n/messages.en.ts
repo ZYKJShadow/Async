@@ -1257,6 +1257,8 @@ export const messagesEn: Record<string, string> = {
 	'agentSettings.cmdDescFieldPh': 'Short hint shown in / menu and command list',
 	'agentSettings.cmdSlashListTitle': 'Commands available in chat',
 	'agentSettings.cmdSlashListAria': 'Built-in and custom slash command list',
+	'agentSettings.cmdSlashListExpand': 'Show {{count}} more',
+	'agentSettings.cmdSlashListCollapse': 'Collapse list',
 
 	'errors.modelNotChosen': 'No model selected. Pick one from the input bar or add models under Settings → Models.',
 	'errors.modelResolve':

@@ -45,19 +45,13 @@ export type SettingsNavId =
 	| 'team'
 	| 'bots'
 	| 'agents'
-	| 'tab'
 	| 'models'
-	| 'cloud'
 	| 'plugins'
 	| 'rules'
 	| 'tools'
-	| 'hooks'
 	| 'indexing'
 	| 'autoUpdate'
-	| 'browser'
-	| 'network'
-	| 'beta'
-	| 'dev';
+	| 'browser';
 
 /** 与 `app:requestOpenSettings` 白名单及侧栏顺序对齐，供运行时校验导航 id */
 export const ALL_SETTINGS_NAV_IDS: SettingsNavId[] = [
@@ -74,18 +68,12 @@ export const ALL_SETTINGS_NAV_IDS: SettingsNavId[] = [
 	'tools',
 	'plan',
 	'team',
-	'tab',
-	'cloud',
 	'plugins',
-	'hooks',
-	'network',
-	'beta',
-	'dev',
 ];
 
 
 
-type NavItem = { id: SettingsNavId; label: string; badge?: number; soon?: boolean };
+type NavItem = { id: SettingsNavId; label: string; badge?: number };
 
 function navItemsForT(t: (key: string) => string): NavItem[] {
 	return [
@@ -102,13 +90,7 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'tools', label: t('settings.nav.tools') },
 		{ id: 'plan', label: t('settings.nav.plan') },
 		{ id: 'team', label: t('settings.nav.team') },
-		{ id: 'tab', label: t('settings.nav.tab'), soon: true },
-		{ id: 'cloud', label: t('settings.nav.cloud'), soon: true },
 		{ id: 'plugins', label: t('settings.nav.plugins') },
-		{ id: 'hooks', label: t('settings.nav.hooks'), soon: true },
-		{ id: 'network', label: t('settings.nav.network'), soon: true },
-		{ id: 'beta', label: t('settings.nav.beta'), soon: true },
-		{ id: 'dev', label: t('settings.nav.dev'), soon: true },
 	];
 }
 
@@ -242,36 +224,10 @@ function IconDatabase({ className }: { className?: string }) {
 	);
 }
 
-function IconCloudNav({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M7 18a4 4 0 1 1 .9-7.9A5 5 0 0 1 20 12a3 3 0 0 1-1 5.8H7Z" strokeLinecap="round" strokeLinejoin="round" />
-		</svg>
-	);
-}
-
 function IconPuzzle({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
 			<path d="M10 5a2 2 0 1 1 4 0v1h3a1 1 0 0 1 1 1v3h-1a2 2 0 1 0 0 4h1v3a1 1 0 0 1-1 1h-3v-1a2 2 0 1 0-4 0v1H7a1 1 0 0 1-1-1v-3h1a2 2 0 1 0 0-4H6V7a1 1 0 0 1 1-1h3V5Z" strokeLinecap="round" strokeLinejoin="round" />
-		</svg>
-	);
-}
-
-function IconHook({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M10 12a4 4 0 1 1 8 0v1a6 6 0 1 1-12 0V7" strokeLinecap="round" strokeLinejoin="round" />
-			<path d="M10 7h4" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconGlobe({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<circle cx="12" cy="12" r="9" />
-			<path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
 		</svg>
 	);
 }
@@ -284,32 +240,6 @@ function IconBrowserNav({ className }: { className?: string }) {
 			<path d="M3 8h18" strokeLinecap="round" />
 			<circle cx="12" cy="14" r="3.25" />
 			<path d="M8.75 14h6.5M12 10.75v6.5" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconFlask({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M10 2v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-3.5L14 8V2" strokeLinecap="round" strokeLinejoin="round" />
-			<path d="M8.5 14h7" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-function IconTerminalNav({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="m4 17 6-5-6-5M12 19h8" strokeLinecap="round" strokeLinejoin="round" />
-		</svg>
-	);
-}
-
-function IconTabs({ className }: { className?: string }) {
-	return (
-		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-			<path d="M4 7h8l2 3h6v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" strokeLinecap="round" strokeLinejoin="round" />
-			<path d="M4 7V5a2 2 0 0 1 2-2h5l2 3" strokeLinecap="round" strokeLinejoin="round" />
 		</svg>
 	);
 }
@@ -359,20 +289,8 @@ function navIcon(id: SettingsNavId) {
 			);
 		case 'browser':
 			return <IconBrowserNav />;
-		case 'cloud':
-			return <IconCloudNav />;
 		case 'plugins':
 			return <IconPuzzle />;
-		case 'hooks':
-			return <IconHook />;
-		case 'network':
-			return <IconGlobe />;
-		case 'beta':
-			return <IconFlask />;
-		case 'dev':
-			return <IconTerminalNav />;
-		case 'tab':
-			return <IconTabs />;
 		case 'plan':
 			return <IconBarChart />;
 		case 'team':
@@ -690,19 +608,14 @@ export function SettingsPage({
 								type="button"
 								className={`ref-settings-nav-row ${nav === item.id ? 'is-active' : ''}`}
 								onClick={() => {
-									if (item.soon) {
-										return;
-									}
 									startNavTransition(() => {
 										setNav(item.id);
 									});
 								}}
-								disabled={!!item.soon}
 							>
 								<span className="ref-settings-nav-ico">{navIcon(item.id)}</span>
 								<span className="ref-settings-nav-label">{item.label}</span>
 								{item.badge != null ? <span className="ref-settings-nav-badge">{item.badge}</span> : null}
-								{item.soon ? <span className="ref-settings-nav-soon">{t('common.soon')}</span> : null}
 							</button>
 						))}
 					</nav>
@@ -737,22 +650,6 @@ export function SettingsPage({
 								{nav === 'team' ? t('settings.title.team') : null}
 								{nav === 'bots' ? t('settings.title.bots') : null}
 								{nav === 'plugins' ? t('settings.title.plugins') : null}
-								{nav !== 'general' &&
-								nav !== 'appearance' &&
-								nav !== 'agents' &&
-								nav !== 'bots' &&
-								nav !== 'models' &&
-								nav !== 'rules' &&
-								nav !== 'editor' &&
-								nav !== 'tools' &&
-								nav !== 'indexing' &&
-								nav !== 'autoUpdate' &&
-								nav !== 'browser' &&
-								nav !== 'plan' &&
-								nav !== 'team' &&
-								nav !== 'plugins'
-									? t('settings.title.comingSoon')
-									: null}
 							</h1>
 							{navPending ? (
 								<div className="ref-settings-nav-loading" role="status" aria-live="polite">

@@ -1,4 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { PluginInstallScope, PluginPanelState } from './pluginMarketplaceTypes';
 import type { PluginRuntimeState } from './pluginRuntimeTypes';
 import { useI18n } from './i18n';
@@ -812,16 +813,19 @@ export function SettingsPluginsPanel({ shell, workspaceOpen }: Props) {
 				</div>
 			</section>
 
-			{toast ? (
-				<div
-					key={toast.key}
-					className={`ref-settings-plugins-toast ref-settings-plugins-toast--${toast.kind}`}
-					role={toast.kind === 'error' ? 'alert' : 'status'}
-					aria-live="polite"
-				>
-					{toast.text}
-				</div>
-			) : null}
+			{toast && typeof document !== 'undefined'
+				? createPortal(
+					<div
+						key={toast.key}
+						className={`ref-settings-plugins-toast ref-settings-plugins-toast--${toast.kind}`}
+						role={toast.kind === 'error' ? 'alert' : 'status'}
+						aria-live="polite"
+					>
+						{toast.text}
+					</div>,
+					document.body
+				)
+				: null}
 		</div>
 	);
 }

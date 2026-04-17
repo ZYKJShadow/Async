@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from './i18n';
 import type { AppLocale } from './i18n';
 import type {
@@ -67,6 +67,8 @@ function IconTrash({ className }: { className?: string }) {
 function BadgeLike({ text }: { text: string }) {
 	return <span className="ref-settings-plugins-badge">{text}</span>;
 }
+
+const SLASH_HELP_COLLAPSED_ITEMS = 8;
 
 /** Generic drag-to-reorder for a list of {id} items */
 function useDragReorder<T extends { id: string }>(items: T[], onReorder: (next: T[]) => void) {
@@ -292,6 +294,64 @@ export function SettingsAgentPanel({
 	};
 	const cmdsDrag = useDragReorder(editableCommands, (next) => patch({ commands: [...next, ...pluginCommands] }));
 	const slashCmdHelpRows = useMemo(() => buildSlashCommandListRows(commands, t), [commands, t]);
+	const [slashHelpExpanded, setSlashHelpExpanded] = useState(false);
+	const slashHelpListRef = useRef<HTMLUListElement | null>(null);
+	const [slashHelpHeights, setSlashHelpHeights] = useState({ collapsed: 0, expanded: 0 });
+	const shouldCollapseSlashHelp = slashCmdHelpRows.length > SLASH_HELP_COLLAPSED_ITEMS;
+
+	useLayoutEffect(() => {
+		if (!shouldCollapseSlashHelp && slashHelpExpanded) {
+			setSlashHelpExpanded(false);
+		}
+	}, [shouldCollapseSlashHelp, slashHelpExpanded]);
+
+	useLayoutEffect(() => {
+		const listEl = slashHelpListRef.current;
+		if (!listEl) {
+			return;
+		}
+
+		let frame = 0;
+		const measure = () => {
+			const items = Array.from(listEl.children) as HTMLElement[];
+			const expanded = Math.ceil(listEl.scrollHeight);
+			let collapsed = expanded;
+			if (shouldCollapseSlashHelp && items.length > 0) {
+				const lastVisibleIndex = Math.min(SLASH_HELP_COLLAPSED_ITEMS, items.length) - 1;
+				const lastVisibleItem = items[lastVisibleIndex];
+				if (lastVisibleItem) {
+					collapsed = Math.ceil(lastVisibleItem.offsetTop + lastVisibleItem.offsetHeight);
+				}
+			}
+			setSlashHelpHeights((prev) =>
+				prev.collapsed === collapsed && prev.expanded === expanded ? prev : { collapsed, expanded }
+			);
+		};
+		const scheduleMeasure = () => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(measure);
+		};
+
+		scheduleMeasure();
+
+		const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(scheduleMeasure) : null;
+		resizeObserver?.observe(listEl);
+		window.addEventListener('resize', scheduleMeasure);
+
+		return () => {
+			cancelAnimationFrame(frame);
+			resizeObserver?.disconnect();
+			window.removeEventListener('resize', scheduleMeasure);
+		};
+	}, [shouldCollapseSlashHelp, slashCmdHelpRows]);
+
+	const slashHelpVisibleHeight =
+		shouldCollapseSlashHelp && slashHelpHeights.expanded > 0
+			? slashHelpExpanded
+				? slashHelpHeights.expanded
+				: slashHelpHeights.collapsed
+			: null;
+	const hiddenSlashCount = Math.max(0, slashCmdHelpRows.length - SLASH_HELP_COLLAPSED_ITEMS);
 
 	const renderOriginBadge = (origin?: AgentItemOrigin) => {
 		const o = origin ?? 'user';
@@ -862,27 +922,50 @@ export function SettingsAgentPanel({
 				<p className="ref-settings-agent-section-desc">{t('agentSettings.cmdDesc')}</p>
 				<div className="ref-settings-agent-slash-help" aria-label={t('agentSettings.cmdSlashListAria')}>
 					<h3 className="ref-settings-agent-subheading">{t('agentSettings.cmdSlashListTitle')}</h3>
-					<ul className="ref-settings-agent-slash-help-list">
-						{slashCmdHelpRows.map((row, i) => (
-							<li key={`${row.label}-${i}`} className="ref-settings-agent-slash-help-item">
-								<div className="ref-settings-agent-slash-help-row">
-									<code className="ref-settings-agent-slash-help-code">{row.label}</code>
-									<span
-										className={`ref-settings-agent-slash-help-badge ${row.source !== 'builtin' ? 'ref-settings-agent-slash-help-badge--user' : ''}`}
-									>
-										{row.source === 'builtin'
-											? t('slashCmd.helpBuiltin')
-											: row.source === 'plugin'
-												? t('slashCmd.helpPlugin')
-												: t('slashCmd.helpUser')}
-									</span>
-								</div>
-								{row.description ? (
-									<p className="ref-settings-agent-slash-help-desc">{row.description}</p>
-								) : null}
-							</li>
-						))}
-					</ul>
+					<div
+						className={`ref-settings-agent-slash-help-list-shell ${shouldCollapseSlashHelp ? (slashHelpExpanded ? 'is-expanded' : 'is-collapsed') : 'is-static'}`}
+						style={slashHelpVisibleHeight ? { maxHeight: `${slashHelpVisibleHeight}px` } : undefined}
+					>
+						<ul id="ref-settings-agent-slash-help-list" ref={slashHelpListRef} className="ref-settings-agent-slash-help-list">
+							{slashCmdHelpRows.map((row, i) => (
+								<li key={`${row.label}-${i}`} className="ref-settings-agent-slash-help-item">
+									<div className="ref-settings-agent-slash-help-row">
+										<code className="ref-settings-agent-slash-help-code">{row.label}</code>
+										<span
+											className={`ref-settings-agent-slash-help-badge ${row.source !== 'builtin' ? 'ref-settings-agent-slash-help-badge--user' : ''}`}
+										>
+											{row.source === 'builtin'
+												? t('slashCmd.helpBuiltin')
+												: row.source === 'plugin'
+													? t('slashCmd.helpPlugin')
+													: t('slashCmd.helpUser')}
+										</span>
+									</div>
+									{row.description ? (
+										<p className="ref-settings-agent-slash-help-desc">{row.description}</p>
+									) : null}
+								</li>
+							))}
+						</ul>
+					</div>
+					{shouldCollapseSlashHelp ? (
+						<div className="ref-settings-agent-slash-help-actions">
+							<button
+								type="button"
+								className={`ref-settings-agent-slash-help-toggle ${slashHelpExpanded ? 'is-expanded' : ''}`}
+								onClick={() => setSlashHelpExpanded((prev) => !prev)}
+								aria-expanded={slashHelpExpanded}
+								aria-controls="ref-settings-agent-slash-help-list"
+							>
+								<span>
+									{slashHelpExpanded
+										? t('agentSettings.cmdSlashListCollapse')
+										: t('agentSettings.cmdSlashListExpand', { count: String(hiddenSlashCount) })}
+								</span>
+								<IconChevDown className="ref-settings-agent-slash-help-toggle-ico" />
+							</button>
+						</div>
+					) : null}
 				</div>
 				{pluginCommands.length > 0 ? (
 					<details className="ref-settings-provider-details" style={{ marginBottom: 14 }}>
