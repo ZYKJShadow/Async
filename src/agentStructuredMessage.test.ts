@@ -322,19 +322,36 @@ describe('extractBotReplyText', () => {
 		expect(extractBotReplyText(outerRaw)).toBe('Main text.');
 	});
 
+	it('returns a short summary instead of raw JSON for tool-only bot replies', () => {
+		const outerRaw = stringifyAgentAssistantPayload({
+			_asyncAssistant: 1,
+			v: 1,
+			parts: [
+				{
+					type: 'tool',
+					toolUseId: 'call_session',
+					name: 'get_async_session',
+					args: {},
+					result: '{"workspace":"demo"}',
+					success: true,
+				},
+			],
+		});
+		expect(extractBotReplyText(outerRaw)).toBe('已读取当前 Async 会话信息。');
+	});
+
 	it('returns raw input for invalid structured message', () => {
 		const malformed = '{"_asyncAssistant":1,"v":1,"parts":"not-an-array"}';
 		expect(extractBotReplyText(malformed)).toBe(malformed);
 	});
 
-	it('returns raw input when structured message has empty parts', () => {
+	it('returns empty string when structured message has empty parts', () => {
 		const raw = stringifyAgentAssistantPayload({
 			_asyncAssistant: 1,
 			v: 1,
 			parts: [],
 		});
-		// No text, no tool results → falls through to return raw
-		expect(extractBotReplyText(raw)).toBe(raw);
+		expect(extractBotReplyText(raw)).toBe('');
 	});
 });
 

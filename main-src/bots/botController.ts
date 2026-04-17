@@ -1,6 +1,10 @@
 import type { BotIntegrationConfig, BotComposerMode } from '../botSettingsTypes.js';
 import type { ShellSettings } from '../settingsStore.js';
-import { extractBotReplyImagePaths, extractBotReplyText } from '../../src/agentStructuredMessage.js';
+import {
+	extractBotReplyImagePaths,
+	extractBotReplyText,
+	isStructuredAssistantMessage,
+} from '../../src/agentStructuredMessage.js';
 import {
 	createBotWorkspaceLspManager,
 	createInitialBotSession,
@@ -71,6 +75,21 @@ function createAdapter(integration: BotIntegrationConfig): BotPlatformAdapter | 
 		default:
 			return null;
 	}
+}
+
+function sanitizeStreamingBotReply(fullText: string): string {
+	const raw = String(fullText ?? '');
+	const trimmed = raw.trimStart();
+	if (!trimmed) {
+		return '';
+	}
+	if (isStructuredAssistantMessage(raw)) {
+		return extractBotReplyText(raw).trim() || '正在整理结果...';
+	}
+	if (trimmed.startsWith('{') && trimmed.includes('"_asyncAssistant"')) {
+		return '正在整理结果...';
+	}
+	return raw;
 }
 
 function sessionMapKey(integrationId: string, conversationKey: string): string {
@@ -350,7 +369,7 @@ class BotController {
 					onLeaderMessagesPersist: (next) => this.persistSession(integration, next),
 					onStreamDelta: stream
 						? (fullText: string, channel?: BotStreamChannel) => {
-								stream.onDelta(fullText, channel).catch(() => {});
+								stream.onDelta(sanitizeStreamingBotReply(fullText), channel).catch(() => {});
 						  }
 						: undefined,
 					onTodoUpdate: stream
