@@ -4,6 +4,10 @@ import { randomUUID } from 'node:crypto';
 import type { AgentCustomization } from './agentSettingsTypes.js';
 import type { BotIntegrationConfig } from './botSettingsTypes.js';
 import type { McpServerConfig } from './mcp/mcpTypes.js';
+import {
+	defaultProviderIdentitySettings,
+	type ProviderIdentitySettings,
+} from '../src/providerIdentitySettings.js';
 import { resolveAsyncDataDir } from './dataDir.js';
 import { normalizeThinkingLevel, type ThinkingLevel } from './llm/thinkingLevel.js';
 export type { ThinkingLevel } from './llm/thinkingLevel.js';
@@ -156,6 +160,8 @@ export type ShellSettings = {
 	gemini?: {
 		apiKey?: string;
 	};
+	/** 类似 Claude Code 的 provider / model 身份信号（UA、headers、system prefix、Anthropic metadata） */
+	providerIdentity?: ProviderIdentitySettings;
 	/** 当前选择的用户模型 id；未选择时为空或省略 */
 	defaultModel?: string;
 	/**
@@ -217,6 +223,7 @@ const defaultSettings: ShellSettings = {
 	thinkingLevel: 'medium',
 	recentWorkspaces: [],
 	lastOpenedWorkspace: null,
+	providerIdentity: defaultProviderIdentitySettings(),
 	team: {
 		useDefaults: true,
 		presetId: 'engineering',
@@ -528,7 +535,13 @@ export function resolveUsageStatsDataDir(settings: ShellSettings): string | null
 }
 
 export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
-	const { ui: partialUi, usageStats: partialUsageStats, autoUpdate: partialAutoUpdate, ...partialRest } = partial;
+	const {
+		ui: partialUi,
+		usageStats: partialUsageStats,
+		autoUpdate: partialAutoUpdate,
+		providerIdentity: partialProviderIdentity,
+		...partialRest
+	} = partial;
 
 	const nextModels =
 		partial.models !== undefined
@@ -610,6 +623,11 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 			? { ...(cached.autoUpdate ?? {}), ...partialAutoUpdate }
 			: cached.autoUpdate;
 
+	const mergedProviderIdentity =
+		partialProviderIdentity !== undefined
+			? { ...(cached.providerIdentity ?? defaultProviderIdentitySettings()), ...partialProviderIdentity }
+			: (cached.providerIdentity ?? defaultProviderIdentitySettings());
+
 	const partialBotsRaw = (partial as Partial<ShellSettings> & { bots?: { integrations?: BotIntegrationConfig[] } }).bots;
 	const mergedBots =
 		partialBotsRaw !== undefined
@@ -636,6 +654,7 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 		mcpServers: mergedMcp,
 		usageStats: mergedUsageStats,
 		autoUpdate: mergedAutoUpdate,
+		providerIdentity: mergedProviderIdentity,
 		bots: mergedBots,
 	};
 	cached = migrateDefaultModelRemoveAuto(cached).next;

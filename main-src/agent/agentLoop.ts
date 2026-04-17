@@ -51,6 +51,12 @@ import { executeTool, type ToolExecutionContext, type ToolExecutionHooks } from 
 import type { WorkspaceLspManager } from '../lsp/workspaceLspManager.js';
 import { getMcpManager } from '../mcp/index.js';
 import { getMcpServerConfigs } from '../settingsStore.js';
+import {
+	applyAnthropicProviderIdentity,
+	applyOpenAIProviderIdentity,
+	buildAnthropicProviderIdentityMetadata,
+	prependProviderIdentitySystemPrompt,
+} from '../llm/providerIdentity.js';
 import { repairAgentThreadMessagesForApi } from './agentToolProtocolRepair.js';
 import { StructuredAssistantBuilder } from './structuredAssistantBuilder.js';
 import { parseAgentAssistantPayload } from '../../src/agentStructuredMessage.js';
@@ -537,17 +543,22 @@ async function runOpenAILoop(
 		}
 	}
 
-	const client = new OpenAI({
-		apiKey: key,
-		baseURL,
-		httpAgent,
-		dangerouslyAllowBrowser: false,
-		timeout: llmSdkResponseHeadTimeoutMs(),
-		maxRetries: 0,
-	});
+	const client = new OpenAI(
+		applyOpenAIProviderIdentity(settings, {
+			apiKey: key,
+			baseURL,
+			httpAgent,
+			dangerouslyAllowBrowser: false,
+			timeout: llmSdkResponseHeadTimeoutMs(),
+			maxRetries: 0,
+		})
+	);
 	const storedSystem = threadMessages.find((m) => m.role === 'system');
 	const systemContent = appendMcpToolsSystemHint(
-		composeSystem(storedSystem?.content, options.composerMode, options.agentSystemAppend),
+		prependProviderIdentitySystemPrompt(
+			settings,
+			composeSystem(storedSystem?.content, options.composerMode, options.agentSystemAppend)
+		),
 		options.composerMode,
 		settings
 	);
@@ -963,15 +974,20 @@ async function runAnthropicLoop(
 	if (!key) { handlers.onError('未配置 Anthropic API Key。请在设置 → 模型中填写。'); return; }
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
-	const client = new Anthropic({
-		apiKey: key,
-		baseURL: baseURL || undefined,
-		timeout: llmSdkResponseHeadTimeoutMs(),
-		maxRetries: 0,
-	});
+	const client = new Anthropic(
+		applyAnthropicProviderIdentity(settings, {
+			apiKey: key,
+			baseURL: baseURL || undefined,
+			timeout: llmSdkResponseHeadTimeoutMs(),
+			maxRetries: 0,
+		})
+	);
 	const storedSystem = threadMessages.find((m) => m.role === 'system');
 	const systemText = appendMcpToolsSystemHint(
-		composeSystem(storedSystem?.content, options.composerMode, options.agentSystemAppend),
+		prependProviderIdentitySystemPrompt(
+			settings,
+			composeSystem(storedSystem?.content, options.composerMode, options.agentSystemAppend)
+		),
 		options.composerMode,
 		settings
 	);
@@ -988,6 +1004,7 @@ async function runAnthropicLoop(
 		agentToolDefsForLoop(options.composerMode, settings, options.toolPoolOverride)
 	);
 	const structured = new StructuredAssistantBuilder();
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
 	const temperature = anthropicEffectiveTemperature(temperatureForMode(options.composerMode), thinkBudget);
 	let accUsage: TurnTokenUsage | undefined;
@@ -1193,14 +1210,15 @@ async function runAnthropicLoop(
 				async () => {
 					const s = client.messages.stream(
 						{
-							model,
-							max_tokens: maxTokens,
-							system,
-							messages: messagesForApi,
-							tools: tools as Anthropic.Messages.Tool[],
-							temperature,
-							...(thinkingParam ? { thinking: thinkingParam } : {}),
-						},
+						model,
+						max_tokens: maxTokens,
+						system,
+						messages: messagesForApi,
+						tools: tools as Anthropic.Messages.Tool[],
+						temperature,
+						...(anthropicMetadata ? { metadata: anthropicMetadata } : {}),
+						...(thinkingParam ? { thinking: thinkingParam } : {}),
+					},
 						{ signal: roundSignalA }
 					);
 					await s.withResponse();

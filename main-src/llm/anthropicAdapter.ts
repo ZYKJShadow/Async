@@ -18,6 +18,11 @@ import {
 import { llmSdkResponseHeadTimeoutMs } from './sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from './llmTransportRetry.js';
 import { formatLlmSdkError } from './formatLlmSdkError.js';
+import {
+	applyAnthropicProviderIdentity,
+	buildAnthropicProviderIdentityMetadata,
+	prependProviderIdentitySystemPrompt,
+} from './providerIdentity.js';
 
 function toAnthropicMessages(messages: ChatMessage[]): MessageParam[] {
 	const nonSystem = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
@@ -56,15 +61,20 @@ export async function streamAnthropic(
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
 // maxRetries: 0，避免流式请求自动重试拉长等待
-	const client = new Anthropic({
-		apiKey: key,
-		baseURL: baseURL || undefined,
-		timeout: llmSdkResponseHeadTimeoutMs(),
-		maxRetries: 0,
-	});
+	const client = new Anthropic(
+		applyAnthropicProviderIdentity(settings, {
+			apiKey: key,
+			baseURL: baseURL || undefined,
+			timeout: llmSdkResponseHeadTimeoutMs(),
+			maxRetries: 0,
+		})
+	);
 
 	const storedSystem = messages.find((m) => m.role === 'system');
-	const systemText = composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend);
+	const systemText = prependProviderIdentitySystemPrompt(
+		settings,
+		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend)
+	);
 	const model = options.requestModelId.trim();
 	if (!model) {
 		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
@@ -77,6 +87,7 @@ export async function streamAnthropic(
 		promptCaching,
 		false
 	);
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
 	const temperature = anthropicEffectiveTemperature(temperatureForMode(options.mode), thinkBudget);
 	const maxTokens = anthropicEffectiveMaxTokens(thinkBudget, options.maxOutputTokens);
@@ -123,6 +134,7 @@ export async function streamAnthropic(
 						system,
 						messages: anthropicMessages,
 						temperature,
+						...(anthropicMetadata ? { metadata: anthropicMetadata } : {}),
 						...(thinkingParam ? { thinking: thinkingParam } : {}),
 					},
 					{ signal: timeoutAc.signal }

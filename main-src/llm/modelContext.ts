@@ -16,7 +16,8 @@ import { dirname, join } from 'node:path';
 import { app } from 'electron';
 import OpenAI from 'openai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import type { ModelRequestParadigm } from '../settingsStore.js';
+import { getSettings, type ModelRequestParadigm } from '../settingsStore.js';
+import { applyOpenAIProviderIdentity } from './providerIdentity.js';
 
 // ─── context.ts 对齐常量 ───────────────────────────────────────────────────
 
@@ -159,13 +160,15 @@ export async function refreshOpenAiCompatibleModelCapabilitiesCache(params: {
 				return;
 			}
 		}
-		const client = new OpenAI({
-			apiKey: params.apiKey,
-			baseURL: params.baseURL?.trim() || undefined,
-			httpAgent,
-			maxRetries: 0,
-			timeout: 45_000,
-		});
+		const client = new OpenAI(
+			applyOpenAIProviderIdentity(getSettings(), {
+				apiKey: params.apiKey,
+				baseURL: params.baseURL?.trim() || undefined,
+				httpAgent,
+				maxRetries: 0,
+				timeout: 45_000,
+			})
+		);
 		const page = await client.models.list();
 		const models: ModelCapabilityRecord[] = [];
 		for (const row of page.data) {

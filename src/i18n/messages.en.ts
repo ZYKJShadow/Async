@@ -544,6 +544,50 @@ export const messagesEn: Record<string, string> = {
 	'settings.general.lead2': ', open ',
 	'settings.general.leadBold2': 'Models',
 	'settings.general.lead3': ' in the sidebar.',
+	'settings.general.identityTitle': 'Provider Identity',
+	'settings.general.identityLead':
+		'Choose an identity preset for requests. You can use the Async default profile, switch to a Claude Code source-faithful profile, or pick Custom when you want to edit the exact values yourself.',
+	'settings.general.identityPreset': 'Identity preset',
+	'settings.general.identityPresetHint':
+		'The preset controls how User-Agent, request headers, Anthropic metadata, and the system prompt prefix are generated together.',
+	'settings.general.identityPreset.async': 'Async default',
+	'settings.general.identityPreset.claudeCode': 'Claude Code',
+	'settings.general.identityPreset.custom': 'Custom',
+	'settings.general.identityPresetAsyncHint':
+		'Uses Async defaults: the Async-style User-Agent, X-Async-Session-Id, Async metadata, and the Async system prompt prefix.',
+	'settings.general.identityPresetClaudeCodeHint':
+		'Switches to Claude Code style end-to-end: User-Agent claude-code/<version> (same pattern as upstream getClaudeCodeUserAgent, version constant synced to that release), x-app=cli, X-Claude-Code-Session-Id, the Claude Code system prompt prefix, and Claude Code-shaped Anthropic metadata.',
+	'settings.general.identityEnabled': 'Enable provider identity signals',
+	'settings.general.identityEnabledDesc':
+		'Controls User-Agent, extra request headers, Anthropic metadata, and the system prompt prefix together. If a strict gateway rejects custom headers, disable this first and re-enable parts gradually.',
+	'settings.general.identityHttpHeaders': 'Attach HTTP headers',
+	'settings.general.identityHttpHeadersDesc':
+		'Adds User-Agent, x-app, x-client-app, and related headers to OpenAI-compatible and Anthropic requests. The Gemini SDK currently does not expose these custom headers.',
+	'settings.general.identitySessionHeader': 'Attach session header',
+	'settings.general.identitySessionHeaderDesc':
+		'Adds a stable runtime session id header so providers can distinguish this desktop session from others.',
+	'settings.general.identityAnthropicMetadata': 'Attach Anthropic metadata',
+	'settings.general.identityAnthropicMetadataDesc':
+		'Adds a JSON user_id payload to Anthropic Messages requests with client_app, entrypoint, version, and session_id.',
+	'settings.general.identitySystemPrompt': 'Attach system prompt prefix',
+	'settings.general.identitySystemPromptDesc':
+		'Lets the model know it is running inside Async. This usually still works even when providers strip custom HTTP headers.',
+	'settings.general.identityUserAgentProduct': 'User-Agent product token',
+	'settings.general.identityUserAgentProductHint':
+		'Rendered as `product/version (entrypoint, client-app/...)`; the default follows the same naming pattern Claude Code uses, adapted for Async.',
+	'settings.general.identityEntrypoint': 'Entrypoint token',
+	'settings.general.identityEntrypointHint':
+		'Used in User-Agent and Anthropic metadata. Defaults to `desktop`.',
+	'settings.general.identityAppHeader': 'x-app value',
+	'settings.general.identityClientApp': 'x-client-app value',
+	'settings.general.identityClientAppHint':
+		'If a gateway rejects unknown headers, turn off "Attach HTTP headers" or replace these values with ones your gateway expects.',
+	'settings.general.identitySystemPromptText': 'System prompt prefix',
+	'settings.general.identitySystemPromptTextHint':
+		'The default tells the model it is running inside Async IDE. You can rewrite it to match your own product positioning.',
+	'settings.general.identityPreview': 'Preview',
+	'settings.general.identityPreviewHint':
+		'These are the derived signal formats for the current config. `<version>` and `<runtime-session-id>` are replaced with real runtime values on actual requests.',
 	'settings.language': 'Display language',
 	'settings.languageHint': 'Applies immediately; saved to local settings.',
 	'settings.languageZh': '简体中文',

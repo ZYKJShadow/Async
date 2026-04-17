@@ -7,6 +7,12 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { ModelRequestParadigm, ShellSettings } from '../../settingsStore.js';
 import { resolveModelRequest } from '../../llm/modelResolve.js';
 import {
+	applyAnthropicProviderIdentity,
+	applyOpenAIProviderIdentity,
+	buildAnthropicProviderIdentityMetadata,
+	prependProviderIdentitySystemPrompt,
+} from '../../llm/providerIdentity.js';
+import {
 	getAgentToolCallsSinceMemoryBaseline,
 	getMemoryExtractedMessageCount,
 	getThread,
@@ -257,30 +263,47 @@ async function extractWithRuntimeModel(
 		if (runtime.paradigm === 'openai-compatible') {
 			const proxyRaw = runtime.requestProxyUrl?.trim() ?? '';
 			const httpAgent = proxyRaw ? new HttpsProxyAgent(proxyRaw) : undefined;
-			const client = new OpenAI({
-				apiKey: runtime.requestApiKey,
-				baseURL: runtime.requestBaseURL,
-				httpAgent,
-				dangerouslyAllowBrowser: false,
-			});
+			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };
+			const client = new OpenAI(
+				applyOpenAIProviderIdentity(identitySettings, {
+					apiKey: runtime.requestApiKey,
+					baseURL: runtime.requestBaseURL,
+					httpAgent,
+					dangerouslyAllowBrowser: false,
+				})
+			);
 			const resp = await client.chat.completions.create({
 				model: runtime.requestModelId,
 				temperature: 0,
 				max_tokens: 700,
 				messages: [
-					{ role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+					{
+						role: 'system',
+						content: prependProviderIdentitySystemPrompt(
+							identitySettings,
+							EXTRACTION_SYSTEM_PROMPT
+						),
+					},
 					{ role: 'user', content: userPrompt },
 				],
 			});
 			return parseJsonResponse(typeof resp.choices[0]?.message?.content === 'string' ? resp.choices[0]!.message!.content! : '');
 		}
 		if (runtime.paradigm === 'anthropic') {
-			const client = new Anthropic({ apiKey: runtime.requestApiKey, baseURL: runtime.requestBaseURL || undefined });
+			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };
+			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
+			const client = new Anthropic(
+				applyAnthropicProviderIdentity(identitySettings, {
+					apiKey: runtime.requestApiKey,
+					baseURL: runtime.requestBaseURL || undefined,
+				})
+			);
 			const resp = await client.messages.create({
 				model: runtime.requestModelId,
-				system: EXTRACTION_SYSTEM_PROMPT,
+				system: prependProviderIdentitySystemPrompt(identitySettings, EXTRACTION_SYSTEM_PROMPT),
 				max_tokens: 700,
 				temperature: 0,
+				...(anthropicMetadata ? { metadata: anthropicMetadata } : {}),
 				messages: [{ role: 'user', content: userPrompt }],
 			});
 			const text = resp.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
@@ -289,7 +312,10 @@ async function extractWithRuntimeModel(
 		const genAI = new GoogleGenerativeAI(runtime.requestApiKey);
 		const model = genAI.getGenerativeModel({
 			model: runtime.requestModelId,
-			systemInstruction: EXTRACTION_SYSTEM_PROMPT,
+			systemInstruction: prependProviderIdentitySystemPrompt(
+				{ providerIdentity: runtime.providerIdentity },
+				EXTRACTION_SYSTEM_PROMPT
+			),
 			generationConfig: { temperature: 0, maxOutputTokens: 700 },
 		});
 		const resp = await model.generateContent(userPrompt);
@@ -315,6 +341,7 @@ async function extractWithModel(
 			requestApiKey: resolved.apiKey,
 			requestBaseURL: resolved.baseURL,
 			requestProxyUrl: resolved.proxyUrl,
+			providerIdentity: settings.providerIdentity,
 		},
 		userPrompt
 	);

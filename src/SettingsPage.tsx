@@ -7,6 +7,12 @@ import {
 	type UserModelEntry,
 } from './modelCatalog';
 import { LLM_PROVIDER_OPTIONS, type ModelRequestParadigm } from './llmProvider';
+import {
+	buildProviderIdentityPreview,
+	resolveProviderIdentitySettings,
+	type ProviderIdentityPreset,
+	type ProviderIdentitySettings,
+} from './providerIdentitySettings';
 import type { AgentCustomization, TeamSettings } from './agentSettingsTypes';
 import type { BotIntegrationConfig } from './botSettingsTypes';
 import type { AppAppearanceSettings } from './appearanceSettings';
@@ -400,8 +406,10 @@ type Props = {
 	defaultModel: string;
 	modelProviders: UserLlmProvider[];
 	modelEntries: UserModelEntry[];
+	providerIdentity: ProviderIdentitySettings;
 	onChangeModelProviders: (providers: UserLlmProvider[]) => void;
 	onChangeModelEntries: (entries: UserModelEntry[]) => void;
+	onChangeProviderIdentity: (next: ProviderIdentitySettings) => void;
 	onPickDefaultModel: (id: string) => void;
 	agentCustomization: AgentCustomization;
 	onChangeAgentCustomization: (v: AgentCustomization) => void;
@@ -445,8 +453,10 @@ export function SettingsPage({
 	defaultModel,
 	modelProviders,
 	modelEntries,
+	providerIdentity,
 	onChangeModelProviders,
 	onChangeModelEntries,
+	onChangeProviderIdentity,
 	onPickDefaultModel,
 	agentCustomization,
 	onChangeAgentCustomization,
@@ -482,6 +492,14 @@ export function SettingsPage({
 	const deferredSearch = useDeferredValue(search);
 	const [sidebarWidth, setSidebarWidth] = useState(() => readSettingsSidebarWidth());
 	const [navPending, startNavTransition] = useTransition();
+	const resolvedProviderIdentity = useMemo(
+		() => resolveProviderIdentitySettings(providerIdentity),
+		[providerIdentity]
+	);
+	const providerIdentityPreview = useMemo(
+		() => buildProviderIdentityPreview(providerIdentity),
+		[providerIdentity]
+	);
 
 	const beginResizeSidebar = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
@@ -632,6 +650,16 @@ export function SettingsPage({
 		[modelEntries, onChangeModelEntries]
 	);
 
+	const patchProviderIdentity = useCallback(
+		(patch: Partial<ProviderIdentitySettings>) => {
+			onChangeProviderIdentity({
+				...providerIdentity,
+				...patch,
+			});
+		},
+		[providerIdentity, onChangeProviderIdentity]
+	);
+
 	const removeEntry = useCallback(
 		(id: string) => {
 			onChangeModelEntries(modelEntries.filter((e) => e.id !== id));
@@ -757,6 +785,150 @@ export function SettingsPage({
 										]}
 									/>
 								</div>
+
+								<section className="ref-settings-section">
+									<h2 className="ref-settings-subhead">{t('settings.general.identityTitle')}</h2>
+									<div className="ref-settings-agent-card">
+										<div className="ref-settings-agent-card-title">{t('settings.general.identityTitle')}</div>
+										<p className="ref-settings-agent-card-desc" style={{ marginTop: 8 }}>
+											{t('settings.general.identityLead')}
+										</p>
+
+										<div className="ref-settings-field" style={{ marginTop: 18 }}>
+											<span>{t('settings.general.identityPreset')}</span>
+											<VoidSelect
+												ariaLabel={t('settings.general.identityPreset')}
+												value={resolvedProviderIdentity.preset}
+												onChange={(next) =>
+													patchProviderIdentity({ preset: next as ProviderIdentityPreset })
+												}
+												options={[
+													{
+														value: 'async-default',
+														label: t('settings.general.identityPreset.async'),
+													},
+													{
+														value: 'claude-code',
+														label: t('settings.general.identityPreset.claudeCode'),
+													},
+													{
+														value: 'custom',
+														label: t('settings.general.identityPreset.custom'),
+													},
+												]}
+											/>
+											<p className="ref-settings-field-hint">
+												{t('settings.general.identityPresetHint')}
+											</p>
+										</div>
+
+										{resolvedProviderIdentity.preset === 'custom' ? (
+											<>
+												<div className="ref-settings-field">
+													<span>{t('settings.general.identityUserAgentProduct')}</span>
+													<input
+														type="text"
+														value={resolvedProviderIdentity.userAgentProduct}
+														spellCheck={false}
+														onChange={(event) =>
+															patchProviderIdentity({ userAgentProduct: event.target.value })
+														}
+													/>
+													<p className="ref-settings-field-hint">
+														{t('settings.general.identityUserAgentProductHint')}
+													</p>
+												</div>
+
+												<div className="ref-settings-field">
+													<span>{t('settings.general.identityEntrypoint')}</span>
+													<input
+														type="text"
+														value={resolvedProviderIdentity.entrypoint}
+														spellCheck={false}
+														onChange={(event) =>
+															patchProviderIdentity({ entrypoint: event.target.value })
+														}
+													/>
+													<p className="ref-settings-field-hint">
+														{t('settings.general.identityEntrypointHint')}
+													</p>
+												</div>
+
+												<div className="ref-settings-field">
+													<span>{t('settings.general.identityAppHeader')}</span>
+													<input
+														type="text"
+														value={resolvedProviderIdentity.appHeaderValue}
+														spellCheck={false}
+														onChange={(event) =>
+															patchProviderIdentity({ appHeaderValue: event.target.value })
+														}
+													/>
+												</div>
+
+												<div className="ref-settings-field">
+													<span>{t('settings.general.identityClientApp')}</span>
+													<input
+														type="text"
+														value={resolvedProviderIdentity.clientAppValue}
+														spellCheck={false}
+														onChange={(event) =>
+															patchProviderIdentity({ clientAppValue: event.target.value })
+														}
+													/>
+													<p className="ref-settings-field-hint">
+														{t('settings.general.identityClientAppHint')}
+													</p>
+												</div>
+
+												<div className="ref-settings-field">
+													<span>{t('settings.general.identitySystemPromptText')}</span>
+													<textarea
+														value={resolvedProviderIdentity.systemPromptPrefix}
+														spellCheck={false}
+														onChange={(event) =>
+															patchProviderIdentity({ systemPromptPrefix: event.target.value })
+														}
+													/>
+													<p className="ref-settings-field-hint">
+														{t('settings.general.identitySystemPromptTextHint')}
+													</p>
+												</div>
+											</>
+										) : (
+											<p className="ref-settings-field-hint" style={{ marginTop: 4 }}>
+												{resolvedProviderIdentity.preset === 'claude-code'
+													? t('settings.general.identityPresetClaudeCodeHint')
+													: t('settings.general.identityPresetAsyncHint')}
+											</p>
+										)}
+									</div>
+
+									<div className="ref-settings-agent-card" style={{ marginTop: -8 }}>
+										<div className="ref-settings-agent-card-title">{t('settings.general.identityPreview')}</div>
+										<p className="ref-settings-agent-card-desc" style={{ marginTop: 8 }}>
+											{t('settings.general.identityPreviewHint')}
+										</p>
+										<div className="ref-settings-field-hint" style={{ marginTop: 14 }}>
+											<div>
+												<strong>User-Agent:</strong>{' '}
+												<code className="ref-settings-code">{providerIdentityPreview.userAgent}</code>
+											</div>
+											{providerIdentityPreview.headers
+												.filter(([name]) => name !== 'User-Agent')
+												.map(([name, value]) => (
+													<div key={name}>
+														<strong>{name}:</strong>{' '}
+														<code className="ref-settings-code">{value}</code>
+													</div>
+												))}
+											<div>
+												<strong>Anthropic metadata.user_id:</strong>{' '}
+												<code className="ref-settings-code">{providerIdentityPreview.anthropicUserId}</code>
+											</div>
+										</div>
+									</div>
+								</section>
 							</div>
 						) : null}
 

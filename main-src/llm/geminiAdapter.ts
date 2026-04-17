@@ -7,6 +7,7 @@ import type { StreamHandlers, TurnTokenUsage, UnifiedChatOptions } from './types
 import { llmSdkResponseHeadTimeoutMs } from './sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from './llmTransportRetry.js';
 import { formatLlmSdkError } from './formatLlmSdkError.js';
+import { prependProviderIdentitySystemPrompt } from './providerIdentity.js';
 
 function toGeminiContents(messages: ChatMessage[]): Content[] {
 	const nonSystem = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
@@ -39,7 +40,10 @@ export async function streamGemini(
 	}
 
 	const storedSystem = messages.find((m) => m.role === 'system');
-	const systemInstruction = composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend);
+	const systemInstruction = prependProviderIdentitySystemPrompt(
+		settings,
+		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend)
+	);
 	const modelId = options.requestModelId.trim();
 	if (!modelId) {
 		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');

@@ -75,6 +75,8 @@ export type AppShellSettingsValue = Pick<
 	| 'enabledModelIds'
 	| 'thinkingByModelId'
 	| 'setThinkingByModelId'
+	| 'providerIdentity'
+	| 'setProviderIdentity'
 	| 'hasSelectedModel'
 	| 'modelPickerItems'
 	| 'modelPillLabel'

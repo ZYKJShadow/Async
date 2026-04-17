@@ -6,9 +6,16 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { ShellSettings } from '../settingsStore.js';
 import { resolveModelRequest } from '../llm/modelResolve.js';
+import {
+	applyAnthropicProviderIdentity,
+	applyOpenAIProviderIdentity,
+	buildAnthropicProviderIdentityMetadata,
+	prependProviderIdentitySystemPrompt,
+} from '../llm/providerIdentity.js';
 import { formatMemoryManifest, scanMemoryFiles, type MemoryHeader } from './memoryScan.js';
 import { getAutoMemPath } from './paths.js';
 import type { ModelRequestParadigm, ThinkingLevel } from '../settingsStore.js';
+import type { ProviderIdentitySettings } from '../../src/providerIdentitySettings.js';
 
 export type RelevantMemory = {
 	path: string;
@@ -22,6 +29,7 @@ export type RuntimeMemoryModel = {
 	requestBaseURL?: string;
 	requestProxyUrl?: string;
 	thinkingLevel?: ThinkingLevel;
+	providerIdentity?: ProviderIdentitySettings;
 };
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -145,18 +153,27 @@ async function selectRelevantMemoriesWithRuntimeModel(
 		if (runtime.paradigm === 'openai-compatible') {
 			const proxyRaw = runtime.requestProxyUrl?.trim() ?? '';
 			const httpAgent = proxyRaw ? new HttpsProxyAgent(proxyRaw) : undefined;
-			const client = new OpenAI({
-				apiKey: runtime.requestApiKey,
-				baseURL: runtime.requestBaseURL,
-				httpAgent,
-				dangerouslyAllowBrowser: false,
-			});
+			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };
+			const client = new OpenAI(
+				applyOpenAIProviderIdentity(identitySettings, {
+					apiKey: runtime.requestApiKey,
+					baseURL: runtime.requestBaseURL,
+					httpAgent,
+					dangerouslyAllowBrowser: false,
+				})
+			);
 			const resp = await client.chat.completions.create({
 				model: runtime.requestModelId,
 				temperature: 0,
 				max_tokens: 256,
 				messages: [
-					{ role: 'system', content: SELECT_MEMORIES_SYSTEM_PROMPT },
+					{
+						role: 'system',
+						content: prependProviderIdentitySystemPrompt(
+							identitySettings,
+							SELECT_MEMORIES_SYSTEM_PROMPT
+						),
+					},
 					{ role: 'user', content: userPrompt },
 				],
 			}, { signal });
@@ -164,15 +181,20 @@ async function selectRelevantMemoriesWithRuntimeModel(
 		}
 
 		if (runtime.paradigm === 'anthropic') {
-			const client = new Anthropic({
-				apiKey: runtime.requestApiKey,
-				baseURL: runtime.requestBaseURL || undefined,
-			});
+			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };
+			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
+			const client = new Anthropic(
+				applyAnthropicProviderIdentity(identitySettings, {
+					apiKey: runtime.requestApiKey,
+					baseURL: runtime.requestBaseURL || undefined,
+				})
+			);
 			const resp = await client.messages.create({
 				model: runtime.requestModelId,
-				system: SELECT_MEMORIES_SYSTEM_PROMPT,
+				system: prependProviderIdentitySystemPrompt(identitySettings, SELECT_MEMORIES_SYSTEM_PROMPT),
 				max_tokens: 256,
 				temperature: 0,
+				...(anthropicMetadata ? { metadata: anthropicMetadata } : {}),
 				messages: [{ role: 'user', content: userPrompt }],
 			}, { signal });
 			const text = resp.content
@@ -184,7 +206,10 @@ async function selectRelevantMemoriesWithRuntimeModel(
 		const genAI = new GoogleGenerativeAI(runtime.requestApiKey);
 		const model = genAI.getGenerativeModel({
 			model: runtime.requestModelId,
-			systemInstruction: SELECT_MEMORIES_SYSTEM_PROMPT,
+			systemInstruction: prependProviderIdentitySystemPrompt(
+				{ providerIdentity: runtime.providerIdentity },
+				SELECT_MEMORIES_SYSTEM_PROMPT
+			),
 			generationConfig: { temperature: 0, maxOutputTokens: 256 },
 		});
 		const resp = await model.generateContent(userPrompt, { signal });
@@ -260,6 +285,7 @@ export async function findRelevantMemories(
 				requestApiKey: resolved.apiKey,
 				requestBaseURL: resolved.baseURL,
 				requestProxyUrl: resolved.proxyUrl,
+				providerIdentity: settings.providerIdentity,
 			}
 		: null;
 	return findRelevantMemoriesInDir(query, memoryDir, runtime, alreadySurfaced);
@@ -312,6 +338,7 @@ export async function buildRelevantMemoryContextBlock(params: {
 				requestApiKey: resolved.apiKey,
 				requestBaseURL: resolved.baseURL,
 				requestProxyUrl: resolved.proxyUrl,
+				providerIdentity: params.settings.providerIdentity,
 			}
 		: null;
 	const memoryDir = params.memoryDirOverride ?? getAutoMemPath(params.workspaceRoot);

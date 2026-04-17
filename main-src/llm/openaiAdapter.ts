@@ -9,6 +9,10 @@ import { resolveStreamTimeouts, createStreamTimeoutManager } from './streamTimeo
 import { llmSdkResponseHeadTimeoutMs } from './sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from './llmTransportRetry.js';
 import { formatLlmSdkError } from './formatLlmSdkError.js';
+import {
+	applyOpenAIProviderIdentity,
+	prependProviderIdentitySystemPrompt,
+} from './providerIdentity.js';
 
 export async function streamOpenAICompatible(
 	settings: ShellSettings,
@@ -41,21 +45,26 @@ export async function streamOpenAICompatible(
 	}
 
 // maxRetries: 0，避免 SDK 对超时类失败自动重试拉长等待
-	const client = new OpenAI({
-		apiKey: key,
-		baseURL,
-		httpAgent,
-		dangerouslyAllowBrowser: false,
-		timeout: llmSdkResponseHeadTimeoutMs(),
-		maxRetries: 0,
-	});
+	const client = new OpenAI(
+		applyOpenAIProviderIdentity(settings, {
+			apiKey: key,
+			baseURL,
+			httpAgent,
+			dangerouslyAllowBrowser: false,
+			timeout: llmSdkResponseHeadTimeoutMs(),
+			maxRetries: 0,
+		})
+	);
 
 	const apiMessages = messages
 		.filter((m) => m.role !== 'system')
 		.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
 	const storedSystem = messages.find((m) => m.role === 'system');
-	const systemContent = composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend);
+	const systemContent = prependProviderIdentitySystemPrompt(
+		settings,
+		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend)
+	);
 	const temperature = temperatureForMode(options.mode);
 	const effort = openAIReasoningEffort(options.thinkingLevel ?? 'off');
 

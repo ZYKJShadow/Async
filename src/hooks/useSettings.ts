@@ -11,6 +11,11 @@ import {
 	type UserModelEntry,
 } from '../modelCatalog';
 import {
+	defaultProviderIdentitySettings,
+	resolveProviderIdentitySettings,
+	type ProviderIdentitySettings,
+} from '../providerIdentitySettings';
+import {
 	defaultAgentCustomization,
 	isWorkspaceDiskImportedSkill,
 	mergeSkillsBySlug,
@@ -37,6 +42,7 @@ export type ProjectAgentSliceState = {
 export const EMPTY_PROJECT_AGENT: ProjectAgentSliceState = { rules: [], skills: [], subagents: [] };
 
 export type LoadedSettingsSnapshot = {
+	providerIdentity?: ProviderIdentitySettings;
 	defaultModel?: string;
 	models?: {
 		providers?: UserLlmProvider[];
@@ -69,6 +75,7 @@ export function useSettings(
 	const [modelEntries, setModelEntries] = useState<UserModelEntry[]>([]);
 	const [enabledModelIds, setEnabledModelIds] = useState<string[]>([]);
 	const [thinkingByModelId, setThinkingByModelId] = useState<Record<string, ThinkingLevel>>({});
+	const [providerIdentity, setProviderIdentity] = useState<ProviderIdentitySettings>(() => defaultProviderIdentitySettings());
 
 	// ── Agent customization ──
 	const [agentCustomization, setAgentCustomization] = useState<AgentCustomization>(() => defaultAgentCustomization());
@@ -224,6 +231,15 @@ export function useSettings(
 		setEnabledModelIds(saneEnabled);
 		setDefaultModel(coerceDefaultModel(st?.defaultModel, rawEntries, saneEnabled));
 		setThinkingByModelId(coerceThinkingByModelId(st?.models?.thinkingByModelId));
+		const rawProviderIdentity = st?.providerIdentity;
+		if (rawProviderIdentity == null) {
+			setProviderIdentity(defaultProviderIdentitySettings());
+		} else {
+			setProviderIdentity({
+				...rawProviderIdentity,
+				preset: resolveProviderIdentitySettings(rawProviderIdentity).preset,
+			});
+		}
 
 		const defs = defaultAgentCustomization();
 		const ag = st?.agent;
@@ -333,6 +349,7 @@ export function useSettings(
 		modelEntries, setModelEntries,
 		enabledModelIds, setEnabledModelIds,
 		thinkingByModelId, setThinkingByModelId,
+		providerIdentity, setProviderIdentity,
 		hasSelectedModel,
 		modelPickerItems,
 		modelPillLabel,

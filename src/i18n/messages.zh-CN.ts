@@ -545,6 +545,49 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.general.lead2': ' 请在左侧选择 ',
 	'settings.general.leadBold2': '模型',
 	'settings.general.lead3': ' 配置。',
+	'settings.general.identityTitle': '模型提供商标识',
+	'settings.general.identityLead':
+		'为请求选择一套身份信号预设。你可以直接使用 Async 默认方案，也可以切换到 Claude Code 源码同款方案；只有在选择“自定义”时才需要手动填写具体值。',
+	'settings.general.identityPreset': '标识预设',
+	'settings.general.identityPresetHint': '预设会同时决定 User-Agent、请求头、Anthropic metadata 与系统提示前缀的生成方式。',
+	'settings.general.identityPreset.async': 'Async 默认',
+	'settings.general.identityPreset.claudeCode': 'Claude Code',
+	'settings.general.identityPreset.custom': '自定义',
+	'settings.general.identityPresetAsyncHint':
+		'使用 Async 的默认标识格式：Async 风格的 User-Agent、X-Async-Session-Id、Async metadata 和 Async 系统提示前缀。',
+	'settings.general.identityPresetClaudeCodeHint':
+		'严格切到 Claude Code 风格：User-Agent 为 claude-code/<version>（与上游 getClaudeCodeUserAgent 同形，版本号与同目录发行版 MACRO.VERSION 对齐）、x-app=cli、X-Claude-Code-Session-Id、Claude Code 系统提示前缀，以及 Claude Code 结构的 Anthropic metadata。',
+	'settings.general.identityEnabled': '启用提供商身份信号',
+	'settings.general.identityEnabledDesc':
+		'统一控制 User-Agent、额外请求头、Anthropic metadata 和系统提示前缀。某些严格网关不接受自定义头时，可以先关闭后再逐项启用。',
+	'settings.general.identityHttpHeaders': '附加 HTTP 头',
+	'settings.general.identityHttpHeadersDesc':
+		'向 OpenAI 兼容与 Anthropic 请求附加 User-Agent、x-app、x-client-app 等标识。Gemini SDK 当前不会带这些自定义头。',
+	'settings.general.identitySessionHeader': '附加会话头',
+	'settings.general.identitySessionHeaderDesc':
+		'在 HTTP 头里加上稳定的运行时会话 id，便于服务端区分当前这次桌面会话。',
+	'settings.general.identityAnthropicMetadata': '附加 Anthropic metadata',
+	'settings.general.identityAnthropicMetadataDesc':
+		'在 Anthropic Messages 请求体里附带 user_id JSON，包含 client_app、entrypoint、version 与 session_id。',
+	'settings.general.identitySystemPrompt': '附加系统提示前缀',
+	'settings.general.identitySystemPromptDesc':
+		'让模型本身知道它正运行在 Async 里。即使某些 provider 会过滤自定义头，这一层通常仍然有效。',
+	'settings.general.identityUserAgentProduct': 'User-Agent 产品标识',
+	'settings.general.identityUserAgentProductHint':
+		'最终会拼成 `product/version (entrypoint, client-app/...)` 这种形式；默认按 Claude Code 的命名模式映射到 Async。',
+	'settings.general.identityEntrypoint': '入口标识',
+	'settings.general.identityEntrypointHint':
+		'用于 User-Agent 和 Anthropic metadata，默认 `desktop`。',
+	'settings.general.identityAppHeader': 'x-app 值',
+	'settings.general.identityClientApp': 'x-client-app 值',
+	'settings.general.identityClientAppHint':
+		'如果某些网关会对未知头报错，可以关闭「附加 HTTP 头」或将值改成你自己的网关约定。',
+	'settings.general.identitySystemPromptText': '系统提示前缀',
+	'settings.general.identitySystemPromptTextHint':
+		'默认值会告诉模型“你正在 Async IDE 中运行”；你也可以按自己的产品口径改写。',
+	'settings.general.identityPreview': '预览',
+	'settings.general.identityPreviewHint':
+		'下面展示的是按当前配置推导出的默认信号格式，`<version>` 与 `<runtime-session-id>` 会在实际请求时替换成运行时值。',
 	'settings.language': '界面语言',
 	'settings.languageHint': '切换后立即生效；将保存到本机设置。',
 	'settings.languageZh': '简体中文',
