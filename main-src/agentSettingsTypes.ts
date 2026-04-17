@@ -26,6 +26,9 @@ export type AgentSkill = {
 	origin?: AgentItemOrigin;
 	/** 工作区内 SKILL.md 相对路径（正斜杠）；磁盘扫描时写入 */
 	skillSourceRelPath?: string;
+	pluginSourceName?: string;
+	pluginSourceRelPath?: string;
+	pluginSourceKind?: 'skill' | 'agent';
 };
 
 export type AgentSubagent = {
@@ -36,6 +39,8 @@ export type AgentSubagent = {
 	memoryScope?: AgentMemoryScope;
 	enabled?: boolean;
 	origin?: AgentItemOrigin;
+	pluginSourceName?: string;
+	pluginSourceRelPath?: string;
 };
 
 export type AgentCommand = {
@@ -45,6 +50,9 @@ export type AgentCommand = {
 	description?: string;
 	slash: string;
 	body: string;
+	invocation?: 'template' | 'prompt';
+	pluginSourceName?: string;
+	pluginSourceRelPath?: string;
 };
 
 /** 与当前权限行为枚举一致 */

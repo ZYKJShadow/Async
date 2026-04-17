@@ -34,6 +34,7 @@ import {
 import { ensureWorkspaceFileIndex } from '../workspaceFileIndex.js';
 import { WorkspaceLspManager } from '../lsp/workspaceLspManager.js';
 import { mergeAgentWithProjectSlice, readWorkspaceAgentProjectSlice } from '../workspaceAgentStore.js';
+import { mergeAgentWithPluginRuntime } from '../plugins/pluginRuntimeService.js';
 import { resolveToolPermissionFromRules } from '../agent/toolPermissionModel.js';
 import { isSafeShellCommandForAutoApprove } from '../agent/toolApprovalGate.js';
 import { getShellPermissionMode } from '../../src/shellPermissionMode.js';
@@ -910,7 +911,10 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 		}
 
 		const projectAgent = readWorkspaceAgentProjectSlice(session.workspaceRoot);
-		const agentForTurn = mergeAgentWithProjectSlice(effectiveSettings.agent, projectAgent);
+		const agentForTurn = mergeAgentWithPluginRuntime(
+			mergeAgentWithProjectSlice(effectiveSettings.agent, projectAgent),
+			session.workspaceRoot
+		);
 		const uiLanguage = effectiveSettings.language === 'en' ? 'en' : 'zh-CN';
 		const prepared = prepareUserTurnForChat(task, agentForTurn, session.workspaceRoot, workspaceFiles, uiLanguage);
 		let finalSystemAppend = prepared.agentSystemAppend;

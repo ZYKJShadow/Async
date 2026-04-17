@@ -1,5 +1,5 @@
 import type { ComposerSegment } from './composerSegments';
-import { SLASH_COMMAND_WIRE } from './composerSegments';
+import { slashCommandWire } from './composerSegments';
 
 /** 与主进程 `modelContext.ts` 中 `MODEL_CONTEXT_WINDOW_DEFAULT` 一致，用于 UI 未填写时的展示上限 */
 export const DEFAULT_CONTEXT_WINDOW_TOKENS_UI = 200_000;
@@ -43,7 +43,7 @@ export function estimateComposerSegmentsCharLength(segments: ReadonlyArray<Compo
 		} else if (s.kind === 'file') {
 			n += s.path.length;
 		} else {
-			n += SLASH_COMMAND_WIRE[s.command].length;
+			n += slashCommandWire(s.command).length;
 		}
 	}
 	return n;

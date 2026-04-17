@@ -8,6 +8,7 @@ import { useI18n } from './i18n';
 import { VoidSelect } from './VoidSelect';
 import type { McpServerConfig, McpServerStatus, McpServerTemplate } from './mcpTypes';
 import { MCP_SERVER_TEMPLATES } from './mcpTypes';
+import type { PluginRuntimeState } from './pluginRuntimeTypes';
 
 function newId(): string {
 	return globalThis.crypto?.randomUUID?.() ?? `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -386,14 +387,15 @@ function McpServerEditForm({ config, onChange, onSave, onCancel, onDelete, isNew
 type McpServerRowProps = {
 	config: McpServerConfig;
 	status: McpServerStatus | null;
-	onEdit: () => void;
 	onStart: () => void;
 	onStop: () => void;
 	onRestart: () => void;
-	onDelete: () => void;
+	onEdit?: () => void;
+	onDelete?: () => void;
+	readOnly?: boolean;
 };
 
-function McpServerRow({ config, status, onEdit, onStart, onStop, onRestart, onDelete }: McpServerRowProps) {
+function McpServerRow({ config, status, onEdit, onStart, onStop, onRestart, onDelete, readOnly = false }: McpServerRowProps) {
 	const { t } = useI18n();
 	const [expanded, setExpanded] = useState(false);
 	
@@ -405,6 +407,9 @@ function McpServerRow({ config, status, onEdit, onStart, onStop, onRestart, onDe
 			<div className="ref-mcp-server-head">
 				<div className="ref-mcp-server-info">
 					<span className="ref-mcp-server-name">{config.name}</span>
+					{config.pluginSourceName ? (
+						<span className="ref-settings-plugins-badge">{config.pluginSourceName}</span>
+					) : null}
 					<span className="ref-mcp-server-transport">
 						<IconPlug />
 						<span>{config.transport}</span>
@@ -430,12 +435,21 @@ function McpServerRow({ config, status, onEdit, onStart, onStop, onRestart, onDe
 							<IconPlay />
 						</button>
 					)}
-					<button type="button" className="ref-mcp-server-action" onClick={onEdit} title={t('mcp.action.edit')}>
-						<IconGear />
-					</button>
-					<button type="button" className="ref-mcp-server-action ref-mcp-server-action--delete" onClick={onDelete} title={t('common.delete')}>
-						<IconTrash />
-					</button>
+					{!readOnly && onEdit ? (
+						<button type="button" className="ref-mcp-server-action" onClick={onEdit} title={t('mcp.action.edit')}>
+							<IconGear />
+						</button>
+					) : null}
+					{!readOnly && onDelete ? (
+						<button
+							type="button"
+							className="ref-mcp-server-action ref-mcp-server-action--delete"
+							onClick={onDelete}
+							title={t('common.delete')}
+						>
+							<IconTrash />
+						</button>
+					) : null}
 				</div>
 			</div>
 			
@@ -493,6 +507,7 @@ export type SettingsMcpPanelProps = {
 	onStartServer: (id: string) => void;
 	onStopServer: (id: string) => void;
 	onRestartServer: (id: string) => void;
+	shell: NonNullable<Window['asyncShell']> | null;
 };
 
 export function SettingsMcpPanel({
@@ -503,12 +518,14 @@ export function SettingsMcpPanel({
 	onStartServer,
 	onStopServer,
 	onRestartServer,
+	shell,
 }: SettingsMcpPanelProps) {
 	const { t } = useI18n();
 	
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editingConfig, setEditingConfig] = useState<McpServerConfig | null>(null);
 	const [showTemplates, setShowTemplates] = useState(false);
+	const [pluginServers, setPluginServers] = useState<McpServerConfig[]>([]);
 	
 	const statusMap = useMemo(() => {
 		const map = new Map<string, McpServerStatus>();
@@ -582,6 +599,35 @@ export function SettingsMcpPanel({
 	useEffect(() => {
 		onRefreshStatuses();
 	}, []);
+
+	useEffect(() => {
+		if (!shell) {
+			setPluginServers([]);
+			return;
+		}
+		let cancelled = false;
+		const loadPluginServers = async () => {
+			try {
+				const runtime = (await shell.invoke('plugins:getRuntimeState')) as PluginRuntimeState;
+				if (cancelled) {
+					return;
+				}
+				setPluginServers(Array.isArray(runtime?.mcpServers) ? runtime.mcpServers : []);
+			} catch {
+				if (!cancelled) {
+					setPluginServers([]);
+				}
+			}
+		};
+		void loadPluginServers();
+		const unsubscribe = shell.subscribePluginsChanged?.(() => {
+			void loadPluginServers();
+		});
+		return () => {
+			cancelled = true;
+			unsubscribe?.();
+		};
+	}, [shell]);
 	
 	return (
 		<div className="ref-settings-panel ref-settings-panel--mcp">
@@ -663,6 +709,27 @@ export function SettingsMcpPanel({
 					</ul>
 				)}
 			</section>
+
+			{pluginServers.length > 0 ? (
+				<section className="ref-settings-mcp-servers">
+					<h2 className="ref-settings-mcp-servers-title">{t('mcp.pluginServersTitle')}</h2>
+					<p className="ref-settings-agent-section-desc">{t('mcp.pluginServersDesc')}</p>
+					<ul className="ref-settings-mcp-servers-list">
+						{pluginServers.map((config) => (
+							<li key={config.id}>
+								<McpServerRow
+									config={config}
+									status={statusMap.get(config.id) ?? null}
+									onStart={() => onStartServer(config.id)}
+									onStop={() => onStopServer(config.id)}
+									onRestart={() => onRestartServer(config.id)}
+									readOnly
+								/>
+							</li>
+						))}
+					</ul>
+				</section>
+			) : null}
 			
 			<div className="ref-settings-mcp-doc">
 				<p>{t('mcp.docHint')}</p>

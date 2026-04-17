@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { getCachedAsyncDataDir } from '../dataDir.js';
-import type { ShellSettings } from '../settingsStore.js';
+import { resolveUserPluginsRoot, type ShellSettings } from '../settingsStore.js';
 import { getBuiltinTypescriptScopedServers } from './bundledTypescriptLsp.js';
 import type { ScopedLspServerConfig } from './pluginLspTypes.js';
 import { discoverPluginSubdirs, loadScopedServersForPluginDir, scopedServersFromSettingsLsp } from './loadPluginLspConfig.js';
@@ -20,7 +20,7 @@ export async function getAllLspServers(opts: GetAllLspServersOptions): Promise<R
 
 	Object.assign(merged, getBuiltinTypescriptScopedServers(opts.appPath));
 
-	const asyncDataPlugins = path.join(getCachedAsyncDataDir(), 'plugins');
+	const asyncDataPlugins = resolveUserPluginsRoot(opts.settings) || path.join(getCachedAsyncDataDir(), 'plugins');
 	for (const dir of await discoverPluginSubdirs(asyncDataPlugins)) {
 		Object.assign(merged, await loadScopedServersForPluginDir(dir));
 	}

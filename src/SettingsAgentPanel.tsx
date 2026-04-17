@@ -12,7 +12,12 @@ import type {
 	AgentSubagent,
 } from './agentSettingsTypes';
 import { createAutoReplyLanguageRule } from './autoReplyLanguageRule';
-import { defaultAgentCustomization, isWorkspaceDiskImportedSkill } from './agentSettingsTypes';
+import {
+	defaultAgentCustomization,
+	isPluginImportedCommand,
+	isPluginImportedSkill,
+	isWorkspaceDiskImportedSkill,
+} from './agentSettingsTypes';
 import { VoidSelect } from './VoidSelect';
 import { buildSlashCommandListRows } from './composerSlashCommands';
 
@@ -57,6 +62,10 @@ function IconTrash({ className }: { className?: string }) {
 			<path d="M10 11v6M14 11v6" strokeLinecap="round" />
 		</svg>
 	);
+}
+
+function BadgeLike({ text }: { text: string }) {
+	return <span className="ref-settings-plugins-badge">{text}</span>;
 }
 
 /** Generic drag-to-reorder for a list of {id} items */
@@ -195,18 +204,22 @@ export function SettingsAgentPanel({
 	// ─── Skills ───────────────────────────────────────────
 	const updateSkill = (id: string, p: Partial<AgentSkill>) => {
 		const cur = skills.find((x) => x.id === id);
-		if (cur && isWorkspaceDiskImportedSkill(cur)) return;
-		patch({ skills: skills.map((x) => (x.id === id ? { ...x, ...p } : x)) });
+		if (cur && (isWorkspaceDiskImportedSkill(cur) || isPluginImportedSkill(cur))) return;
+		const nextEditable = editableSkills.map((x) => (x.id === id ? { ...x, ...p } : x));
+		patch({ skills: [...pluginSkills, ...diskSkillsInWorkspace, ...nextEditable] });
 	};
 	const removeSkill = (id: string) => {
 		const cur = skills.find((x) => x.id === id);
-		if (cur && isWorkspaceDiskImportedSkill(cur)) return;
-		patch({ skills: skills.filter((x) => x.id !== id) });
+		if (cur && (isWorkspaceDiskImportedSkill(cur) || isPluginImportedSkill(cur))) return;
+		patch({ skills: [...pluginSkills, ...diskSkillsInWorkspace, ...editableSkills.filter((x) => x.id !== id)] });
 	};
 
+	const pluginSkills = skills.filter((s) => isPluginImportedSkill(s));
 	const diskSkillsInWorkspace = skills.filter((s) => isWorkspaceDiskImportedSkill(s) && s.skillSourceRelPath);
-	const editableSkills = skills.filter((s) => !isWorkspaceDiskImportedSkill(s));
-	const skillsDrag = useDragReorder(editableSkills, (nextEditable) => patch({ skills: [...diskSkillsInWorkspace, ...nextEditable] }));
+	const editableSkills = skills.filter((s) => !isWorkspaceDiskImportedSkill(s) && !isPluginImportedSkill(s));
+	const skillsDrag = useDragReorder(editableSkills, (nextEditable) =>
+		patch({ skills: [...pluginSkills, ...diskSkillsInWorkspace, ...nextEditable] })
+	);
 
 	const deleteDiskSkill = async (s: AgentSkill) => {
 		const rel = s.skillSourceRelPath;
@@ -257,6 +270,8 @@ export function SettingsAgentPanel({
 	};
 
 	// ─── Commands ─────────────────────────────────────────
+	const pluginCommands = commands.filter((command) => isPluginImportedCommand(command));
+	const editableCommands = commands.filter((command) => !isPluginImportedCommand(command));
 	const addCmd = () => {
 		const c: AgentCommand = {
 			id: newId(),
@@ -265,15 +280,17 @@ export function SettingsAgentPanel({
 			body: '{{args}}',
 			description: '',
 		};
-		patch({ commands: [...commands, c] });
+		patch({ commands: [...editableCommands, c, ...pluginCommands] });
 	};
 	const updateCmd = (id: string, p: Partial<AgentCommand>) => {
-		patch({ commands: commands.map((x) => (x.id === id ? { ...x, ...p } : x)) });
+		patch({
+			commands: [...editableCommands.map((x) => (x.id === id ? { ...x, ...p } : x)), ...pluginCommands],
+		});
 	};
 	const removeCmd = (id: string) => {
-		patch({ commands: commands.filter((x) => x.id !== id) });
+		patch({ commands: [...editableCommands.filter((x) => x.id !== id), ...pluginCommands] });
 	};
-	const cmdsDrag = useDragReorder(commands, (next) => patch({ commands: next }));
+	const cmdsDrag = useDragReorder(editableCommands, (next) => patch({ commands: [...next, ...pluginCommands] }));
 	const slashCmdHelpRows = useMemo(() => buildSlashCommandListRows(commands, t), [commands, t]);
 
 	const renderOriginBadge = (origin?: AgentItemOrigin) => {
@@ -488,11 +505,40 @@ export function SettingsAgentPanel({
 				</div>
 				<p className="ref-settings-agent-section-desc">{t('agentSettings.skillsDesc')}</p>
 				{(() => {
+					const pluginFiltered = pluginSkills.filter((s) => itemMatchesLibraryFilter(s, libraryFilter));
 					const diskFiltered = diskSkillsInWorkspace.filter((s) => itemMatchesLibraryFilter(s, libraryFilter));
 					const editableFiltered = editableSkills.filter((s) => itemMatchesLibraryFilter(s, libraryFilter));
-					const visibleSkillCount = diskFiltered.length + editableFiltered.length;
+					const visibleSkillCount = pluginFiltered.length + diskFiltered.length + editableFiltered.length;
 					return (
 						<>
+							{pluginFiltered.length > 0 ? (
+								<details className="ref-settings-provider-details" style={{ marginBottom: 14 }}>
+									<summary className="ref-settings-provider-summary">
+										<span className="ref-settings-provider-summary-chev" aria-hidden />
+										<span className="ref-settings-provider-summary-text">{t('agentSettings.pluginSkillsTitle')}</span>
+										<span className="ref-settings-provider-summary-tag">{String(pluginFiltered.length)}</span>
+									</summary>
+									<ul className="ref-settings-agent-skill-disk-list" style={{ marginTop: 14 }}>
+										{pluginFiltered.map((s) => (
+											<li key={s.id} className="ref-settings-agent-skill-disk-card">
+												<div className="ref-settings-agent-skill-disk-main">
+													<div className="ref-settings-plugins-badge-row">
+														<BadgeLike text={s.pluginSourceName ?? t('settings.nav.plugins')} />
+														<BadgeLike text={`./${s.slug}`} />
+													</div>
+													<div className="ref-settings-agent-skill-disk-title">{s.name}</div>
+													<div className="ref-settings-agent-skill-disk-desc">{s.description}</div>
+													{s.pluginSourceRelPath ? (
+														<div className="ref-settings-agent-skill-disk-path" title={s.pluginSourceRelPath}>
+															{s.pluginSourceRelPath}
+														</div>
+													) : null}
+												</div>
+											</li>
+										))}
+									</ul>
+								</details>
+							) : null}
 							{diskFiltered.length > 0 ? (
 								<>
 									<ul className="ref-settings-agent-skill-disk-list">
@@ -822,9 +868,13 @@ export function SettingsAgentPanel({
 								<div className="ref-settings-agent-slash-help-row">
 									<code className="ref-settings-agent-slash-help-code">{row.label}</code>
 									<span
-										className={`ref-settings-agent-slash-help-badge ${row.source === 'user' ? 'ref-settings-agent-slash-help-badge--user' : ''}`}
+										className={`ref-settings-agent-slash-help-badge ${row.source !== 'builtin' ? 'ref-settings-agent-slash-help-badge--user' : ''}`}
 									>
-										{row.source === 'builtin' ? t('slashCmd.helpBuiltin') : t('slashCmd.helpUser')}
+										{row.source === 'builtin'
+											? t('slashCmd.helpBuiltin')
+											: row.source === 'plugin'
+												? t('slashCmd.helpPlugin')
+												: t('slashCmd.helpUser')}
 									</span>
 								</div>
 								{row.description ? (
@@ -834,8 +884,38 @@ export function SettingsAgentPanel({
 						))}
 					</ul>
 				</div>
+				{pluginCommands.length > 0 ? (
+					<details className="ref-settings-provider-details" style={{ marginBottom: 14 }}>
+						<summary className="ref-settings-provider-summary">
+							<span className="ref-settings-provider-summary-chev" aria-hidden />
+							<span className="ref-settings-provider-summary-text">{t('agentSettings.pluginCommandsTitle')}</span>
+							<span className="ref-settings-provider-summary-tag">{String(pluginCommands.length)}</span>
+						</summary>
+						<ul className="ref-settings-agent-skill-disk-list" style={{ marginTop: 14 }}>
+							{pluginCommands.map((c) => (
+								<li key={c.id} className="ref-settings-agent-skill-disk-card">
+									<div className="ref-settings-agent-skill-disk-main">
+										<div className="ref-settings-plugins-badge-row">
+											<BadgeLike text={c.pluginSourceName ?? t('settings.nav.plugins')} />
+											<BadgeLike text={`/${c.slash}`} />
+										</div>
+										<div className="ref-settings-agent-skill-disk-title">{c.name}</div>
+										<div className="ref-settings-agent-skill-disk-desc">
+											{c.description || t('agentSettings.pluginCommandFallbackDesc')}
+										</div>
+										{c.pluginSourceRelPath ? (
+											<div className="ref-settings-agent-skill-disk-path" title={c.pluginSourceRelPath}>
+												{c.pluginSourceRelPath}
+											</div>
+										) : null}
+									</div>
+								</li>
+							))}
+						</ul>
+					</details>
+				) : null}
 				<ul className="ref-settings-agent-list">
-					{commands.map((c) => {
+					{editableCommands.map((c) => {
 						const collapsed = collapsedCmds.has(c.id);
 						return (
 							<li

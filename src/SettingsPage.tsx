@@ -35,6 +35,7 @@ const SettingsAutoUpdatePanel = lazy(() => import('./SettingsAutoUpdatePanel').t
 const SettingsTeamPanel = lazy(() => import('./SettingsTeamPanel').then((m) => ({ default: m.SettingsTeamPanel })));
 const SettingsBotsPanel = lazy(() => import('./SettingsBotsPanel').then((m) => ({ default: m.SettingsBotsPanel })));
 const SettingsBrowserPanel = lazy(() => import('./SettingsBrowserPanel').then((m) => ({ default: m.SettingsBrowserPanel })));
+const SettingsPluginsPanel = lazy(() => import('./SettingsPluginsPanel').then((m) => ({ default: m.SettingsPluginsPanel })));
 
 export type SettingsNavId =
 	| 'general'
@@ -103,7 +104,7 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'team', label: t('settings.nav.team') },
 		{ id: 'tab', label: t('settings.nav.tab'), soon: true },
 		{ id: 'cloud', label: t('settings.nav.cloud'), soon: true },
-		{ id: 'plugins', label: t('settings.nav.plugins'), soon: true },
+		{ id: 'plugins', label: t('settings.nav.plugins') },
 		{ id: 'hooks', label: t('settings.nav.hooks'), soon: true },
 		{ id: 'network', label: t('settings.nav.network'), soon: true },
 		{ id: 'beta', label: t('settings.nav.beta'), soon: true },
@@ -735,6 +736,7 @@ export function SettingsPage({
 								{nav === 'plan' ? t('settings.title.usage') : null}
 								{nav === 'team' ? t('settings.title.team') : null}
 								{nav === 'bots' ? t('settings.title.bots') : null}
+								{nav === 'plugins' ? t('settings.title.plugins') : null}
 								{nav !== 'general' &&
 								nav !== 'appearance' &&
 								nav !== 'agents' &&
@@ -747,7 +749,8 @@ export function SettingsPage({
 								nav !== 'autoUpdate' &&
 								nav !== 'browser' &&
 								nav !== 'plan' &&
-								nav !== 'team'
+								nav !== 'team' &&
+								nav !== 'plugins'
 									? t('settings.title.comingSoon')
 									: null}
 							</h1>
@@ -1245,7 +1248,14 @@ export function SettingsPage({
 									onStartServer={onStartMcpServer}
 									onStopServer={onStopMcpServer}
 									onRestartServer={onRestartMcpServer}
+									shell={shell}
 								/>
+							</Suspense>
+						) : null}
+
+						{nav === 'plugins' ? (
+							<Suspense fallback={<SettingsPanelSkeleton />}>
+								<SettingsPluginsPanel shell={shell} workspaceOpen={workspaceOpen} />
 							</Suspense>
 						) : null}
 
@@ -1261,7 +1271,8 @@ export function SettingsPage({
 						nav !== 'autoUpdate' &&
 						nav !== 'browser' &&
 						nav !== 'plan' &&
-						nav !== 'team' ? (
+						nav !== 'team' &&
+						nav !== 'plugins' ? (
 							<div className="ref-settings-panel">
 								<p className="ref-settings-lead">{t('settings.comingCategory')}</p>
 							</div>

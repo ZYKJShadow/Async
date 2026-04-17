@@ -24,6 +24,10 @@ export type McpServerConfig = {
 	autoStart?: boolean;
 	/** 超时（毫秒，默认 30000） */
 	timeout?: number;
+	/** 插件管理的只读来源；存在时该配置由已安装插件自动提供 */
+	pluginSourceName?: string;
+	pluginSourceRelPath?: string;
+	pluginManaged?: boolean;
 };
 
 /** MCP 工具定义（来自 server） */

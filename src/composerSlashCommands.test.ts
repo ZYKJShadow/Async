@@ -28,10 +28,10 @@ describe('composerSlashCommands — 合并设置与内置（UI：菜单一条龙
 		];
 		const userOnly = agentCommandsToSlashMenuEntries(user);
 		expect(userOnly.map((e) => e.name)).toEqual(['plan']);
-		expect(userOnly[0]!.insert).toEqual({ type: 'text', text: '/plan ' });
+		expect(userOnly[0]!.insert).toEqual({ type: 'chip', chip: 'plan' });
 	});
 
-	it('slashMenuEntryLabel：chip 显示为 /name；用户项保留尾部空格便于继续输入参数', () => {
+	it('slashMenuEntryLabel：chip 统一显示为 /name', () => {
 		const merged = mergeSlashMenuEntries([
 			{ id: 'a', name: 'L', slash: 'lint', body: 'x', description: '' },
 		]);
@@ -39,7 +39,7 @@ describe('composerSlashCommands — 合并设置与内置（UI：菜单一条龙
 		const text = merged.find((e) => e.name === 'lint')!;
 		expect(slashMenuEntryLabel(chip)).toBe('/create-rule');
 		expect(slashMenuEntryLabel(text)).toBe('/lint');
-		expect(text.insert.type === 'text' && text.insert.text.endsWith(' ')).toBe(true);
+		expect(text.insert).toEqual({ type: 'chip', chip: 'lint' });
 	});
 
 	it('filterSlashMenuEntries：按 name 前缀与描述子串过滤（模拟输入框 / 查询）', () => {

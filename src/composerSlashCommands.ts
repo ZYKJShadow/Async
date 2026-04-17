@@ -1,5 +1,5 @@
-import type { AgentCommand } from './agentSettingsTypes';
-import type { SlashCommandId } from './composerSegments';
+import { isPluginImportedCommand, type AgentCommand } from './agentSettingsTypes';
+import type { SlashCommandToken } from './composerSegments';
 import type { TFunction } from './i18n';
 
 export type BuiltinSlashCommand = {
@@ -8,7 +8,7 @@ export type BuiltinSlashCommand = {
 	name: string;
 	descriptionKey: string;
 	/** 选中后插入方式 */
-	insert: { type: 'chip'; chip: SlashCommandId } | { type: 'text'; text: string };
+	insert: { type: 'chip'; chip: SlashCommandToken } | { type: 'text'; text: string };
 };
 
 /** 合并后菜单项（内置 + 用户设置） */
@@ -19,7 +19,7 @@ export type SlashMenuEntry = {
 	descriptionKey?: string;
 	descriptionLiteral?: string;
 	insert: BuiltinSlashCommand['insert'];
-	source: 'builtin' | 'user';
+	source: 'builtin' | 'user' | 'plugin';
 };
 
 /** 菜单行（已解析 description） */
@@ -73,8 +73,8 @@ export function agentCommandsToSlashMenuEntries(commands: AgentCommand[] | undef
 			id: `user-${c.id}`,
 			name: key,
 			descriptionLiteral: lit,
-			insert: { type: 'text', text: `/${raw} ` },
-			source: 'user',
+			insert: { type: 'chip', chip: raw },
+			source: isPluginImportedCommand(c) ? 'plugin' : 'user',
 		});
 	}
 	return out;
@@ -182,7 +182,7 @@ export function isKnownBuiltinSlashToken(token: string): boolean {
 export type SlashCommandListRow = {
 	label: string;
 	description: string;
-	source: 'builtin' | 'user';
+	source: 'builtin' | 'user' | 'plugin';
 };
 
 export function buildSlashCommandListRows(userCommands: AgentCommand[] | undefined, t: TFunction): SlashCommandListRow[] {

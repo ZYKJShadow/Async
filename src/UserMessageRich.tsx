@@ -1,4 +1,4 @@
-import { isSlashCommandId, SLASH_COMMAND_WIRE, type ComposerSegment } from './composerSegments';
+import { slashCommandWire, type ComposerSegment } from './composerSegments';
 import { FileTypeIcon } from './fileTypeIcons';
 
 function fileBasename(path: string): string {
@@ -23,13 +23,13 @@ export function UserMessageRich({ segments, onFileClick }: Props) {
 					<span key={s.id} className="ref-msg-user-rich-text">
 						{s.text}
 					</span>
-				) : s.kind === 'command' && isSlashCommandId(s.command) ? (
+				) : s.kind === 'command' ? (
 					<span
 						key={s.id}
 						className="ref-inline-slash-chip ref-inline-slash-chip--readonly"
 						aria-hidden
 					>
-						<span className="ref-inline-slash-chip-label">{SLASH_COMMAND_WIRE[s.command]}</span>
+						<span className="ref-inline-slash-chip-label">{slashCommandWire(s.command)}</span>
 					</span>
 				) : s.kind === 'file' ? (
 					<span

@@ -2,11 +2,10 @@
 
 import { fileTypeIconHtmlForRelPath } from './fileTypeIcons';
 import {
-	isSlashCommandId,
 	newSegmentId,
-	SLASH_COMMAND_WIRE,
+	slashCommandWire,
 	type ComposerSegment,
-	type SlashCommandId,
+	type SlashCommandToken,
 } from './composerSegments';
 
 const CHIP_CLASS = 'ref-inline-file-chip';
@@ -237,7 +236,7 @@ export function createFileChipElement(relPath: string, segId: string, h: FileChi
 
 export function createSlashCommandChipElement(
 	segId: string,
-	command: SlashCommandId,
+	command: SlashCommandToken,
 	h: FileChipDomHandlers
 ): HTMLElement {
 	const span = document.createElement('span');
@@ -249,7 +248,7 @@ export function createSlashCommandChipElement(
 
 	const label = document.createElement('span');
 	label.className = 'ref-inline-slash-chip-label';
-	label.textContent = SLASH_COMMAND_WIRE[command];
+	label.textContent = slashCommandWire(command);
 
 	const btn = document.createElement('button');
 	btn.type = 'button';
@@ -374,7 +373,7 @@ export function readSegmentsFromRoot(root: HTMLElement): ComposerSegment[] {
 			return;
 		}
 		const e = n as HTMLElement;
-		if (e.classList.contains(SLASH_CMD_CLASS) && e.dataset.voidSlash && isSlashCommandId(e.dataset.voidSlash)) {
+		if (e.classList.contains(SLASH_CMD_CLASS) && e.dataset.voidSlash) {
 			flush();
 			out.push({
 				id: e.dataset.segId || newSegmentId(),
@@ -463,7 +462,7 @@ export function writeSegmentsToRoot(
 				}
 				root.appendChild(document.createTextNode(parts[i]!));
 			}
-		} else if (s.kind === 'command' && isSlashCommandId(s.command)) {
+		} else if (s.kind === 'command') {
 			root.appendChild(createSlashCommandChipElement(s.id, s.command, h));
 		} else if (s.kind === 'file') {
 			root.appendChild(createFileChipElement(s.path, s.id, h));

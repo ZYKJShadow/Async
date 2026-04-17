@@ -17,6 +17,8 @@ import {
 } from '../providerIdentitySettings';
 import {
 	defaultAgentCustomization,
+	isPluginImportedCommand,
+	isPluginImportedSkill,
 	isWorkspaceDiskImportedSkill,
 	mergeSkillsBySlug,
 	type TeamSettings,
@@ -30,6 +32,7 @@ import { coerceThinkingByModelId, type ThinkingLevel } from '../ipcTypes';
 import type { ModelPickerItem } from '../ModelPickerDropdown';
 import type { TFunction } from '../i18n';
 import { getTeamPresetDefaults } from '../teamPresetCatalog';
+import { EMPTY_PLUGIN_RUNTIME_STATE, type PluginRuntimeState } from '../pluginRuntimeTypes';
 
 /* ── Project agent slice ── */
 
@@ -82,6 +85,8 @@ export function useSettings(
 	const [projectAgentSlice, setProjectAgentSlice] = useState<ProjectAgentSliceState>(EMPTY_PROJECT_AGENT);
 	const [workspaceDiskSkills, setWorkspaceDiskSkills] = useState<AgentSkill[]>([]);
 	const [diskSkillsRefreshTicker, setDiskSkillsRefreshTicker] = useState(0);
+	const [pluginRuntimeState, setPluginRuntimeState] = useState<PluginRuntimeState>(EMPTY_PLUGIN_RUNTIME_STATE);
+	const [pluginRuntimeRefreshTicker, setPluginRuntimeRefreshTicker] = useState(0);
 
 	// ── Editor / MCP ──
 	const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => defaultEditorSettings());
@@ -104,32 +109,39 @@ export function useSettings(
 	const hasSelectedModel = useMemo(() => defaultModel.trim().length > 0, [defaultModel]);
 
 	const mergedAgentCustomization = useMemo((): AgentCustomization => {
-		const baseSkills = [...(agentCustomization.skills ?? []), ...projectAgentSlice.skills];
+		const persistedSkills = [...(agentCustomization.skills ?? []), ...projectAgentSlice.skills];
+		const pluginThenPersistedSkills = mergeSkillsBySlug(pluginRuntimeState.skills, persistedSkills);
 		const skills =
-			workspaceDiskSkills.length > 0 ? mergeSkillsBySlug(baseSkills, workspaceDiskSkills) : baseSkills;
+			workspaceDiskSkills.length > 0
+				? mergeSkillsBySlug(pluginThenPersistedSkills, workspaceDiskSkills)
+				: pluginThenPersistedSkills;
 		return {
 			...agentCustomization,
 			rules: [...(agentCustomization.rules ?? []), ...projectAgentSlice.rules],
 			skills,
 			subagents: [...(agentCustomization.subagents ?? []), ...projectAgentSlice.subagents],
+			commands: [...(agentCustomization.commands ?? []), ...pluginRuntimeState.commands],
 		};
-	}, [agentCustomization, projectAgentSlice, workspaceDiskSkills]);
+	}, [agentCustomization, projectAgentSlice, workspaceDiskSkills, pluginRuntimeState]);
 
 	const onChangeMergedAgentCustomization = useCallback(
 		(next: AgentCustomization) => {
 			const ur = next.rules?.filter((r) => (r.origin ?? 'user') !== 'project') ?? [];
 			const pr = next.rules?.filter((r) => r.origin === 'project') ?? [];
-			const skillsPersist = (next.skills ?? []).filter((s) => !isWorkspaceDiskImportedSkill(s));
+			const skillsPersist = (next.skills ?? []).filter(
+				(s) => !isWorkspaceDiskImportedSkill(s) && !isPluginImportedSkill(s)
+			);
 			const us = skillsPersist.filter((s) => (s.origin ?? 'user') !== 'project');
 			const ps = skillsPersist.filter((s) => s.origin === 'project');
 			const ua = next.subagents?.filter((s) => (s.origin ?? 'user') !== 'project') ?? [];
 			const pa = next.subagents?.filter((s) => s.origin === 'project') ?? [];
+			const commandsPersist = (next.commands ?? []).filter((command) => !isPluginImportedCommand(command));
 			setAgentCustomization({
 				...next,
 				rules: ur,
 				skills: us,
 				subagents: ua,
-				commands: next.commands ?? [],
+				commands: commandsPersist,
 			});
 			const proj: ProjectAgentSliceState = { rules: pr, skills: ps, subagents: pa };
 			setProjectAgentSlice(proj);
@@ -218,6 +230,10 @@ export function useSettings(
 
 	const refreshWorkspaceDiskSkills = useCallback(() => {
 		setDiskSkillsRefreshTicker((ticker) => ticker + 1);
+	}, []);
+
+	const refreshPluginRuntime = useCallback(() => {
+		setPluginRuntimeRefreshTicker((ticker) => ticker + 1);
 	}, []);
 
 	const applyLoadedSettings = useCallback((st: LoadedSettingsSnapshot | undefined) => {
@@ -342,6 +358,41 @@ export function useSettings(
 		};
 	}, [shell, workspace, diskSkillsRefreshTicker]);
 
+	useEffect(() => {
+		if (!shell) {
+			setPluginRuntimeState(EMPTY_PLUGIN_RUNTIME_STATE);
+			return;
+		}
+		let cancelled = false;
+		void (async () => {
+			try {
+				const next = (await shell.invoke('plugins:getRuntimeState')) as PluginRuntimeState;
+				if (cancelled) {
+					return;
+				}
+				startTransition(() => {
+					setPluginRuntimeState(next && typeof next === 'object' ? next : EMPTY_PLUGIN_RUNTIME_STATE);
+				});
+			} catch {
+				if (!cancelled) {
+					setPluginRuntimeState(EMPTY_PLUGIN_RUNTIME_STATE);
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [shell, workspace, pluginRuntimeRefreshTicker]);
+
+	useEffect(() => {
+		if (!shell?.subscribePluginsChanged) {
+			return;
+		}
+		return shell.subscribePluginsChanged(() => {
+			refreshPluginRuntime();
+		});
+	}, [shell, refreshPluginRuntime]);
+
 	return {
 		// Model
 		modelProviders, setModelProviders,
@@ -359,6 +410,8 @@ export function useSettings(
 		workspaceDiskSkills, setWorkspaceDiskSkills,
 		diskSkillsRefreshTicker, setDiskSkillsRefreshTicker,
 		refreshWorkspaceDiskSkills,
+		pluginRuntimeState,
+		refreshPluginRuntime,
 		mergedAgentCustomization,
 		onChangeMergedAgentCustomization,
 		// Editor / MCP

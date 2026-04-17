@@ -40,6 +40,12 @@ describe('userMessageToSegments — 向导类 slash wire', () => {
 		expect(segs[0]).toMatchObject({ kind: 'command', command: 'create-rule' });
 		expect(segs[1]).toMatchObject({ kind: 'text', text: '说明' });
 	});
+
+	it('可按已注册命令列表解析插件 slash 为 command chip', () => {
+		const segs = userMessageToSegments('/build-fix src/App.tsx', [], ['build-fix']);
+		expect(segs[0]).toMatchObject({ kind: 'command', command: 'build-fix' });
+		expect(segs[1]).toMatchObject({ kind: 'text', text: 'src/App.tsx' });
+	});
 });
 
 describe('getLeadingWizardCommand — 发送前是否弹出向导', () => {

@@ -206,10 +206,13 @@ function escapeRe(s: string): string {
 }
 
 /** 消息以 `/slash` 开头时展开为命令模板（长 slash 优先） */
-export function applySlashCommands(text: string, commands: AgentCommand[] | undefined): string {
+export function applySlashCommands(
+	text: string,
+	commands: AgentCommand[] | undefined
+): { userText: string; slashSystemBlock: string } {
 	const raw = text.trim();
 	if (!commands?.length) {
-		return raw;
+		return { userText: raw, slashSystemBlock: '' };
 	}
 	const sorted = [...commands].filter((c) => c.slash.trim()).sort((a, b) => b.slash.length - a.slash.length);
 	for (const c of sorted) {
@@ -219,12 +222,24 @@ export function applySlashCommands(text: string, commands: AgentCommand[] | unde
 			continue;
 		}
 		const rest = raw.replace(re, '').trim();
+		if (c.invocation === 'prompt') {
+			const rendered = (c.body ?? '').replace(/\$ARGUMENTS\b/g, rest || '(none)');
+			return {
+				userText: rest || `Execute the /${slash} workflow.`,
+				slashSystemBlock: `#### Slash command: /${slash}\n${
+					c.description ? `${c.description}\n\n` : ''
+				}${rendered.trim()}`,
+			};
+		}
 		let body = (c.body ?? '').trim();
 		body = body.replace(/\{\{\s*args\s*\}\}/gi, rest);
 		body = body.replace(/\{\{\s*input\s*\}\}/gi, rest);
-		return body.length > 0 ? body : rest;
+		return {
+			userText: body.length > 0 ? body : rest,
+			slashSystemBlock: '',
+		};
 	}
-	return raw;
+	return { userText: raw, slashSystemBlock: '' };
 }
 
 const SKILL_LEAD = /^\s*\.\/([\w.-]+)\s*([\s\S]*)$/;
@@ -334,6 +349,7 @@ export function buildAgentSystemAppend(opts: {
 	userText: string;
 	atPaths: string[];
 	skillSystemBlock: string;
+	slashCommandSystemBlock: string;
 	thirdPartyRules: string;
 	uiLanguage: 'zh-CN' | 'en';
 	/** 来自 `@rule:` 的 Manual 规则块（已含标题） */
@@ -364,6 +380,10 @@ export function buildAgentSystemAppend(opts: {
 		if (block.trim()) {
 			parts.push(block.trim());
 		}
+	}
+
+	if (opts.slashCommandSystemBlock.trim()) {
+		parts.push(opts.slashCommandSystemBlock.trim());
 	}
 
 	if (opts.skillSystemBlock.trim()) {
@@ -408,7 +428,7 @@ export function prepareUserTurnForChat(
 	workspaceFiles: string[],
 	uiLanguage: 'zh-CN' | 'en'
 ): PreparedUserTurn {
-	const afterCmd = applySlashCommands(rawText, agent?.commands);
+	const { userText: afterCmd, slashSystemBlock } = applySlashCommands(rawText, agent?.commands);
 	const { userText: afterManual, manualBlocks } = applyManualRuleInvocations(afterCmd, agent?.rules);
 	const wsSkills = workspaceRoot ? loadClaudeWorkspaceSkills(workspaceRoot) : [];
 	const mergedSkills = mergeSkillsBySlug(agent?.skills, wsSkills);
@@ -422,6 +442,7 @@ export function prepareUserTurnForChat(
 		userText,
 		atPaths,
 		skillSystemBlock,
+		slashCommandSystemBlock: slashSystemBlock,
 		thirdPartyRules: thirdPartyMerged,
 		uiLanguage,
 		manualRuleBlocks: manualBlocks,
