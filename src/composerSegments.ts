@@ -102,7 +102,21 @@ export function isSlashCommandDomPendingUpgrade(
 	}
 	const wire = slashCommandWire(p0.command);
 	const tx = d0.text;
-	return tx === wire || tx.startsWith(wire);
+	if (tx === wire || tx.startsWith(wire)) {
+		return true;
+	}
+	// 菜单里通过键盘选中了“非前缀扩展”的命令时，DOM 里仍可能是旧的 `/cr`，
+	// 这时也应该允许把纯文本升级成真正的 slash chip。
+	if (!tx.startsWith('/')) {
+		return false;
+	}
+	const domSlashToken = tx.match(/^\/\S*/)?.[0] ?? '';
+	if (!domSlashToken) {
+		return false;
+	}
+	const domTail = tx.slice(domSlashToken.length).replace(/^\s+/, '');
+	const propTail = segmentsToWireText(norm.slice(1)).replace(/^\s+/, '');
+	return domTail === propTail;
 }
 
 /**

@@ -1,5 +1,9 @@
 import { BrowserWindow, session, webContents, type WebContents } from 'electron';
 import { getWorkspaceRootForWebContents } from '../workspace.js';
+import {
+	normalizeBrowserFingerprintSpoof,
+	type BrowserFingerprintSpoofSettings,
+} from './browserFingerprintNormalize.js';
 
 export type BrowserSidebarConfig = {
 	userAgent: string;
@@ -10,6 +14,7 @@ export type BrowserSidebarConfig = {
 	proxyMode: 'system' | 'direct' | 'custom';
 	proxyRules: string;
 	proxyBypassRules: string;
+	fingerprint: BrowserFingerprintSpoofSettings;
 };
 
 export type BrowserSidebarConfigPayload = {
@@ -20,6 +25,7 @@ export type BrowserSidebarConfigPayload = {
 	proxyMode: 'system' | 'direct' | 'custom';
 	proxyRules: string;
 	proxyBypassRules: string;
+	fingerprint: BrowserFingerprintSpoofSettings;
 };
 
 export type BrowserRuntimeTabState = {
@@ -123,6 +129,7 @@ const DEFAULT_BROWSER_SIDEBAR_CONFIG: BrowserSidebarConfig = {
 	proxyMode: 'system',
 	proxyRules: '',
 	proxyBypassRules: '',
+	fingerprint: {},
 };
 
 const TRACKER_BLOCKED_DOMAIN_SUFFIXES = [
@@ -397,6 +404,7 @@ export function browserSidebarConfigToPayload(config: BrowserSidebarConfig): Bro
 		proxyMode: config.proxyMode,
 		proxyRules: config.proxyRules,
 		proxyBypassRules: config.proxyBypassRules,
+		fingerprint: { ...config.fingerprint },
 	};
 }
 
@@ -416,6 +424,7 @@ export function cloneBrowserSidebarConfig(config?: BrowserSidebarConfig | null):
 				: 'system',
 		proxyRules: String(src.proxyRules ?? '').trim(),
 		proxyBypassRules: String(src.proxyBypassRules ?? '').trim(),
+		fingerprint: normalizeBrowserFingerprintSpoof(src.fingerprint),
 	};
 }
 
@@ -470,6 +479,7 @@ export function normalizeBrowserSidebarConfig(raw: unknown):
 					: 'system',
 			proxyRules: String(obj.proxyRules ?? '').trim(),
 			proxyBypassRules: String(obj.proxyBypassRules ?? '').trim(),
+			fingerprint: normalizeBrowserFingerprintSpoof(obj.fingerprint),
 		},
 	};
 }

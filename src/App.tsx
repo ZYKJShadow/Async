@@ -6092,7 +6092,6 @@ function AppMainWorkspaceInner() {
 					hasConversation={hasConversation}
 					workspace={workspace}
 					workspaceBasename={workspaceBasename}
-					currentThreadTitle={currentThreadTitle}
 					onPlanNewIdea={onPlanNewIdea}
 					hasAgentPlanSidebarContent={hasAgentPlanSidebarContent}
 					agentRightSidebarOpen={agentRightSidebarOpen}
@@ -6131,7 +6130,6 @@ function AppMainWorkspaceInner() {
 		hasConversation,
 		workspace,
 		workspaceBasename,
-		currentThreadTitle,
 		onPlanNewIdea,
 		hasAgentPlanSidebarContent,
 		agentRightSidebarOpen,

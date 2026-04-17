@@ -248,7 +248,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Browser',
 		description:
-			'Control the app\'s dedicated browser window for the current Async session. Use this to open or steer pages, read visible page content, capture webpage screenshots, click or fill page elements, wait for selectors to appear, and inspect/update browser networking settings such as User-Agent, Accept-Language, extra request headers, and proxy configuration.',
+			'Control the app\'s dedicated browser window for the current Async session. Use this to open or steer pages, read visible page content, capture webpage screenshots, click or fill page elements, wait for selectors to appear, and inspect/update browser networking settings (User-Agent, Accept-Language, extra request headers, proxy) plus optional in-page fingerprint spoofing (navigator/screen/WebGL/Canvas/WebRTC) via `set_config.fingerprint`.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -360,6 +360,52 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				proxyBypassRules: {
 					type: 'string',
 					description: 'For set_config: optional Electron proxyBypassRules string.',
+				},
+				fingerprint: {
+					type: 'object',
+					description:
+						'For set_config: optional partial fingerprint overrides injected on each top-level navigation (`dom-ready`). Omit to leave fingerprint unchanged. Pass `{}` to clear all overrides. Unset sub-fields keep their previous values; use empty string on string fields to drop that override.',
+					properties: {
+						platform: { type: 'string', description: 'navigator.platform, e.g. Win32, MacIntel, Linux x86_64' },
+						languages: {
+							type: 'string',
+							description: 'Comma-separated navigator.languages list, e.g. "en-US, en".',
+						},
+						hardwareConcurrency: { type: 'number', description: 'navigator.hardwareConcurrency (integer).' },
+						deviceMemory: { type: 'number', description: 'navigator.deviceMemory in GB (integer).' },
+						screenWidth: { type: 'number', description: 'screen.width / availWidth when height is set.' },
+						screenHeight: { type: 'number', description: 'screen.height; availHeight uses height minus offset.' },
+						availHeightOffset: {
+							type: 'number',
+							description: 'Pixels subtracted from screenHeight for screen.availHeight (taskbar). Default 40 in the injected script.',
+						},
+						devicePixelRatio: { type: 'number', description: 'window.devicePixelRatio (0.5–4).' },
+						colorDepth: { type: 'number', description: 'screen.colorDepth / pixelDepth.' },
+						timezone: { type: 'string', description: 'IANA timezone name for Intl.DateTimeFormat resolvedOptions spoofing.' },
+						timezoneOffsetMinutes: {
+							type: 'number',
+							description: 'Value returned by Date.getTimezoneOffset() (minutes from UTC).',
+						},
+						webglVendor: { type: 'string', description: 'UNMASKED_VENDOR_WEBGL string from WebGL getParameter.' },
+						webglRenderer: { type: 'string', description: 'UNMASKED_RENDERER_WEBGL string from WebGL getParameter.' },
+						canvasNoiseSeed: {
+							type: 'number',
+							description: 'Positive integer seed; enables subtle 2D canvas noise on toDataURL/toBlob for fingerprint diversity.',
+						},
+						audioNoiseSeed: {
+							type: 'number',
+							description: 'Positive integer seed; enables subtle AudioContext oscillator path noise.',
+						},
+						webrtcPolicy: {
+							type: 'string',
+							enum: ['default', 'block'],
+							description: '`block` disables RTCPeerConnection in the page; `default` leaves WebRTC unchanged.',
+						},
+						maskWebdriver: {
+							type: 'boolean',
+							description: 'Force navigator.webdriver to false when true; set false to opt out while keeping other overrides.',
+						},
+					},
 				},
 			},
 			required: ['action'],

@@ -40,6 +40,7 @@ import {
 	type BrowserControlCommand,
 	type BrowserSidebarConfigPayload,
 } from '../browser/browserController.js';
+import { normalizeBrowserFingerprintSpoof } from '../browser/browserFingerprintNormalize.js';
 import {
 	clearBrowserCaptureDataForHostId,
 	getBrowserCaptureRequestForHostId,
@@ -675,6 +676,20 @@ async function executeBrowserTool(call: ToolCall, execCtx: ToolExecutionContext)
 			}
 			if (hasOwnBrowserArg(call.arguments, 'proxyBypassRules') || hasOwnBrowserArg(call.arguments, 'proxy_bypass_rules')) {
 				next.proxyBypassRules = String(firstBrowserArg(call.arguments, 'proxyBypassRules', 'proxy_bypass_rules') ?? '').trim();
+			}
+			if (hasOwnBrowserArg(call.arguments, 'fingerprint')) {
+				const fpArg = call.arguments.fingerprint;
+				if (
+					fpArg === null ||
+					(typeof fpArg === 'object' && !Array.isArray(fpArg) && Object.keys(fpArg as Record<string, unknown>).length === 0)
+				) {
+					next.fingerprint = {};
+				} else if (typeof fpArg === 'object' && !Array.isArray(fpArg)) {
+					next.fingerprint = normalizeBrowserFingerprintSpoof({
+						...current.fingerprint,
+						...(fpArg as Record<string, unknown>),
+					});
+				}
 			}
 			const result = await setBrowserSidebarConfigForHostId(hostId, next);
 			if (!result.ok) {

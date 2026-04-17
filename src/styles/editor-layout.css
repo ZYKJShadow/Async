@@ -219,10 +219,6 @@
 	color: var(--void-fg-1);
 }
 
-:root[data-color-scheme='light'] .ref-center--empty-agent .ref-context-sub--agent {
-	color: var(--void-fg-2);
-}
-
 :root[data-color-scheme='light'] .ref-body.ref-body--editor-home {
 	background:
 		radial-gradient(circle at top, rgba(10, 132, 255, 0.12), transparent 34%),

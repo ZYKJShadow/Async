@@ -1,14 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useI18n } from './i18n';
+import { BrowserFingerprintEditorFields } from './SettingsBrowserFingerprintEditor.js';
 import {
+	applyBrowserFingerprintPatch,
 	BROWSER_SIDEBAR_CONFIG_SYNC_EVENT,
 	DEFAULT_BROWSER_SIDEBAR_CONFIG,
+	normalizeBrowserFingerprintSpoof,
 	normalizeBrowserSidebarConfig,
 	parseBrowserExtraHeadersText,
+	type BrowserFingerprintSpoofSettings,
 	type BrowserSidebarSettingsConfig,
 } from './browserSidebarConfig';
 
 type ShellApi = NonNullable<Window['asyncShell']>;
+
+const FINGERPRINT_MODAL_TRANSITION_MS = 300;
 
 function serializeBrowserConfig(c: BrowserSidebarSettingsConfig): string {
 	return JSON.stringify(normalizeBrowserSidebarConfig(c));
@@ -24,9 +31,79 @@ export function SettingsBrowserPanel({ shell }: Props) {
 	const [loaded, setLoaded] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [fingerprintModalMounted, setFingerprintModalMounted] = useState(false);
+	const [fingerprintModalVisible, setFingerprintModalVisible] = useState(false);
+	const [modalFingerprint, setModalFingerprint] = useState<BrowserFingerprintSpoofSettings>({});
 
 	const draftRef = useRef(draft);
 	draftRef.current = draft;
+
+	const patchModalFingerprint = useCallback(
+		(patch: Partial<Record<keyof BrowserFingerprintSpoofSettings, string | number | boolean | undefined>>) => {
+			setModalFingerprint((cur) => applyBrowserFingerprintPatch(cur, patch));
+		},
+		[]
+	);
+
+	const openFingerprintModal = useCallback(() => {
+		setModalFingerprint(normalizeBrowserFingerprintSpoof(draftRef.current.fingerprint));
+		setFingerprintModalMounted(true);
+		setFingerprintModalVisible(false);
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				setFingerprintModalVisible(true);
+			});
+		});
+	}, []);
+
+	const beginCloseFingerprintModal = useCallback(() => {
+		setFingerprintModalVisible(false);
+		window.setTimeout(() => {
+			setFingerprintModalMounted(false);
+		}, FINGERPRINT_MODAL_TRANSITION_MS);
+	}, []);
+
+	const saveFingerprintModal = useCallback(() => {
+		const next = normalizeBrowserFingerprintSpoof(modalFingerprint);
+		setDraft((prev) => ({ ...prev, fingerprint: next }));
+		beginCloseFingerprintModal();
+	}, [modalFingerprint, beginCloseFingerprintModal]);
+
+	const resetFingerprintModalDefaults = useCallback(() => {
+		setModalFingerprint({});
+	}, []);
+
+	useEffect(() => {
+		if (!fingerprintModalMounted) {
+			return;
+		}
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				beginCloseFingerprintModal();
+			}
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => {
+			window.removeEventListener('keydown', onKeyDown);
+		};
+	}, [fingerprintModalMounted, beginCloseFingerprintModal]);
+
+	useEffect(() => {
+		if (!fingerprintModalMounted) {
+			return;
+		}
+		const prev = document.body.style.overflow;
+		document.body.style.overflow = 'hidden';
+		return () => {
+			document.body.style.overflow = prev;
+		};
+	}, [fingerprintModalMounted]);
+
+	const fingerprintOverrideCount = useMemo(
+		() => Object.keys(normalizeBrowserFingerprintSpoof(draft.fingerprint)).length,
+		[draft.fingerprint]
+	);
 
 	const lastPersistedSerialized = useRef<string>('');
 
@@ -284,6 +361,83 @@ export function SettingsBrowserPanel({ shell }: Props) {
 				/>
 				<span className="ref-browser-settings-help">{t('app.browserExtraHeadersHint')}</span>
 			</label>
+
+			<div className="ref-browser-fp ref-browser-fp--summary" aria-labelledby="ref-browser-fp-inline-title">
+				<div className="ref-browser-fp-summary-row">
+					<div className="ref-browser-fp-summary-main">
+						<div className="ref-browser-fp-title-row">
+							<h3 id="ref-browser-fp-inline-title" className="ref-browser-fp-title">
+								{t('settings.browser.fingerprintCardTitle')}
+							</h3>
+							{fingerprintOverrideCount > 0 ? (
+								<span className="ref-browser-fp-badge" title={t('settings.browser.fingerprintBadgeTitle')}>
+									{t('settings.browser.fingerprintBadge', { count: String(fingerprintOverrideCount) })}
+								</span>
+							) : null}
+						</div>
+						<p className="ref-browser-fp-sub">{t('settings.browser.fingerprintCardSubtitle')}</p>
+					</div>
+					<button type="button" className="ref-browser-fp-edit-btn" onClick={openFingerprintModal}>
+						{t('settings.browser.fingerprintEdit')}
+					</button>
+				</div>
+			</div>
+
+			{fingerprintModalMounted
+				? createPortal(
+						<div
+							className={`ref-browser-fp-modal-root${fingerprintModalVisible ? ' is-visible' : ''}`}
+							role="presentation"
+						>
+							<div
+								className="ref-browser-fp-modal-backdrop"
+								aria-hidden="true"
+								onClick={beginCloseFingerprintModal}
+							/>
+							<div
+								className="ref-browser-fp-modal-dialog"
+								role="dialog"
+								aria-modal="true"
+								aria-labelledby="ref-browser-fp-modal-title"
+								onClick={(event) => event.stopPropagation()}
+							>
+								<div className="ref-browser-fp-modal-header">
+									<h2 id="ref-browser-fp-modal-title" className="ref-browser-fp-modal-title">
+										{t('settings.browser.fingerprintModalTitle')}
+									</h2>
+									<button
+										type="button"
+										className="ref-browser-fp-modal-close"
+										onClick={beginCloseFingerprintModal}
+										aria-label={t('common.close')}
+									>
+										×
+									</button>
+								</div>
+								<div className="ref-browser-fp-modal-scroll">
+									<BrowserFingerprintEditorFields
+										fp={modalFingerprint}
+										onPatch={patchModalFingerprint}
+										t={t}
+									/>
+								</div>
+								<div className="ref-browser-fp-modal-footer">
+									<button
+										type="button"
+										className="ref-browser-settings-btn ref-browser-settings-btn--secondary"
+										onClick={resetFingerprintModalDefaults}
+									>
+										{t('settings.browser.fingerprintModalResetDefault')}
+									</button>
+									<button type="button" className="ref-browser-settings-btn" onClick={saveFingerprintModal}>
+										{t('settings.browser.fingerprintModalSave')}
+									</button>
+								</div>
+							</div>
+						</div>,
+						document.body
+					)
+				: null}
 
 			{error ? <div className="ref-browser-settings-error">{error}</div> : null}
 

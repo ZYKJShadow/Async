@@ -1,3 +1,5 @@
+import { buildBrowserFingerprintStealthScript } from './browserFingerprintStealth.js';
+import { fingerprintSettingsToInjectPatch } from '../main-src/browser/browserFingerprintNormalize.js';
 import {
 	memo,
 	useCallback,
@@ -878,6 +880,7 @@ const BrowserTabView = memo(
 		tab,
 		partition,
 		userAgent,
+		fingerprintScript,
 		active,
 		t,
 		onNavigate,
@@ -889,6 +892,7 @@ const BrowserTabView = memo(
 		tab: BrowserTab;
 		partition: string;
 		userAgent?: string;
+		fingerprintScript: string | null;
 		active: boolean;
 		t: TFunction;
 		onNavigate: (id: string, patch: { currentUrl: string; canGoBack: boolean; canGoForward: boolean }) => void;
@@ -898,6 +902,8 @@ const BrowserTabView = memo(
 		onRegisterWebview: (id: string, node: AsyncShellWebviewElement | null) => void;
 	}) {
 	const webviewRef = useRef<AsyncShellWebviewElement | null>(null);
+	const fingerprintScriptRef = useRef<string | null>(null);
+	fingerprintScriptRef.current = fingerprintScript;
 	const tabIdRef = useRef(tab.id);
 	const [webviewSize, setWebviewSize] = useState<{ width: number; height: number } | null>(null);
 	tabIdRef.current = tab.id;
@@ -972,6 +978,12 @@ const BrowserTabView = memo(
 				canGoBack,
 				canGoForward,
 			});
+			const fpScript = fingerprintScriptRef.current;
+			if (fpScript) {
+				void node.executeJavaScript(fpScript, false).catch(() => {
+					/* ignore */
+				});
+			}
 		};
 		const handleFailLoad = (event: Event) => {
 			const failEvent = event as BrowserFailEvent;
@@ -1057,6 +1069,7 @@ const BrowserTabView = memo(
 		canGoForwardSame: prevProps.tab.canGoForward === nextProps.tab.canGoForward,
 		partitionSame: prevProps.partition === nextProps.partition,
 		userAgentSame: prevProps.userAgent === nextProps.userAgent,
+		fingerprintScriptSame: prevProps.fingerprintScript === nextProps.fingerprintScript,
 		activeSame: prevProps.active === nextProps.active,
 	};
 
@@ -1101,8 +1114,11 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	const [browserConfig, setBrowserConfig] = useState<BrowserSidebarSettingsConfig>(DEFAULT_BROWSER_SIDEBAR_CONFIG);
 
 	const applyBrowserConfigLocally = useCallback((rawConfig: Partial<BrowserSidebarSettingsConfig>, defaultUserAgent?: string) => {
-		const nextConfig = normalizeBrowserSidebarConfig(rawConfig);
-		setBrowserConfig(nextConfig);
+		let nextConfig = DEFAULT_BROWSER_SIDEBAR_CONFIG;
+		setBrowserConfig((prev) => {
+			nextConfig = normalizeBrowserSidebarConfig(rawConfig, prev);
+			return nextConfig;
+		});
 		if (typeof defaultUserAgent === 'string') {
 			defaultUserAgentRef.current = defaultUserAgent.trim();
 		}
@@ -2062,6 +2078,11 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 		: t('app.tabBrowser');
 	const headerUrl = activeTab?.currentUrl ?? '';
 	const userAgentProp = browserConfig.userAgent.trim() || undefined;
+	const fingerprintPayloadKey = useMemo(() => JSON.stringify(browserConfig.fingerprint), [browserConfig.fingerprint]);
+	const fingerprintScript = useMemo(() => {
+		const patch = fingerprintSettingsToInjectPatch(browserConfig.fingerprint);
+		return buildBrowserFingerprintStealthScript(patch);
+	}, [fingerprintPayloadKey]);
 
 	return (
 		<div className="ref-agent-review-shell">
@@ -2253,6 +2274,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 										tab={tab}
 										partition={browserPartition}
 										userAgent={userAgentProp}
+										fingerprintScript={fingerprintScript}
 										active={tab.id === activeTabId}
 										t={t}
 										onNavigate={handleTabNavigate}
