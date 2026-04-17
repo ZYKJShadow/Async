@@ -4,6 +4,7 @@
  */
 
 import * as path from 'node:path';
+import { getPluginDiscoveryVersion } from '../plugins/pluginDiscoveryVersion.js';
 import { getAllLspServers } from '../plugins/getAllLspServers.js';
 import type { ScopedLspServerConfig } from '../plugins/pluginLspTypes.js';
 import type { ShellSettings } from '../settingsStore.js';
@@ -62,10 +63,21 @@ export class WorkspaceLspManager {
 
 	private lspSettingsFingerprint(settings: ShellSettings): string {
 		try {
-			return JSON.stringify(settings.lsp?.servers ?? []);
+			return JSON.stringify({
+				settingsLsp: settings.lsp?.servers ?? [],
+				userPluginsDir: settings.plugins?.userPluginsDir ?? null,
+				pluginDiscoveryVersion: getPluginDiscoveryVersion(),
+			});
 		} catch {
 			return '';
 		}
+	}
+
+	private async disposeGenericSessions(): Promise<void> {
+		for (const g of this.genericById.values()) {
+			await g.dispose().catch(() => {});
+		}
+		this.genericById.clear();
 	}
 
 	private async resolveServers(workspaceRoot: string): Promise<Record<string, ScopedLspServerConfig>> {
@@ -74,6 +86,9 @@ export class WorkspaceLspManager {
 		const lspKey = this.lspSettingsFingerprint(settings);
 		if (this.cache?.root === root && this.cache.lspKey === lspKey) {
 			return this.cache.servers;
+		}
+		if (this.cache && (this.cache.root !== root || this.cache.lspKey !== lspKey)) {
+			await this.disposeGenericSessions();
 		}
 		const servers = await getAllLspServers({
 			workspaceRoot: root,
@@ -109,9 +124,6 @@ export class WorkspaceLspManager {
 
 	async dispose(): Promise<void> {
 		this.cache = null;
-		for (const g of this.genericById.values()) {
-			await g.dispose().catch(() => {});
-		}
-		this.genericById.clear();
+		await this.disposeGenericSessions();
 	}
 }

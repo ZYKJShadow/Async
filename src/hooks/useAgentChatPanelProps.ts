@@ -144,6 +144,7 @@ export function useAgentChatPanelProps({
 		t: rest.t,
 		workspace: rest.workspace,
 		workspaceBasename: rest.workspaceBasename,
+		knownSlashCommands: rest.knownSlashCommands,
 		dismissedFiles: rest.dismissedFiles,
 		revertedFiles: rest.revertedFiles,
 		revertedChangeKeys: rest.revertedChangeKeys,
@@ -155,7 +156,7 @@ export function useAgentChatPanelProps({
 		firstTokenAtRef: rest.firstTokenAtRef,
 		thoughtSecondsByThread: rest.thoughtSecondsByThread,
 	}), [
-		rest.t, rest.workspace, rest.workspaceBasename,
+		rest.t, rest.workspace, rest.workspaceBasename, rest.knownSlashCommands,
 		rest.dismissedFiles,
 		rest.revertedFiles, rest.revertedChangeKeys,
 		rest.messagesViewportRef, rest.messagesTrackRef, rest.onMessagesScroll,

@@ -8,7 +8,7 @@ import {
 	resolveSlashMenuRow,
 	type SlashMenuRowItem,
 } from './composerSlashCommands';
-import { isSlashCommandId, newSegmentId, type ComposerSegment } from './composerSegments';
+import { newSegmentId, type ComposerSegment } from './composerSegments';
 import { snapshotDomRect, type CaretRectSnapshot } from './caretRectSnapshot';
 import { getCaretRectFromRichRoot, readSegmentsFromRoot, textBeforeCaretForAt } from './composerRichDom';
 import type { AtComposerSlot } from './useComposerAtMention';
@@ -186,7 +186,7 @@ export function useComposerSlashCommand(
 			const cmdLen = cmdTok ? cmdTok[0]!.length : 1;
 			const tail = t.slice(cmdLen);
 			const setSeg = getSegmentsSetter(slashSlotRef.current);
-			if (picked.insert.type === 'chip' && isSlashCommandId(picked.insert.chip)) {
+			if (picked.insert.type === 'chip') {
 				setSeg([
 					{ id: newSegmentId(), kind: 'command', command: picked.insert.chip },
 					{ id: newSegmentId(), kind: 'text', text: tail.replace(/^\s+/, '') },

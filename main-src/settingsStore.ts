@@ -8,7 +8,7 @@ import {
 	defaultProviderIdentitySettings,
 	type ProviderIdentitySettings,
 } from '../src/providerIdentitySettings.js';
-import { resolveAsyncDataDir } from './dataDir.js';
+import { getCachedAsyncDataDir, resolveAsyncDataDir } from './dataDir.js';
 import { normalizeThinkingLevel, type ThinkingLevel } from './llm/thinkingLevel.js';
 export type { ThinkingLevel } from './llm/thinkingLevel.js';
 export type {
@@ -215,6 +215,11 @@ export type ShellSettings = {
 	/** 外部机器人接入 */
 	bots?: {
 		integrations?: BotIntegrationConfig[];
+	};
+	/** 插件市场与用户级插件目录 */
+	plugins?: {
+		/** 用户级插件目录；为空时回退到 `<asyncData>/plugins` */
+		userPluginsDir?: string | null;
 	};
 };
 
@@ -517,6 +522,29 @@ export function getSettings(): ShellSettings {
 	return { ...cached };
 }
 
+export function getDefaultUserPluginsRoot(): string {
+	const root = path.join(getCachedAsyncDataDir(), 'plugins');
+	fs.mkdirSync(root, { recursive: true });
+	return root;
+}
+
+export function resolveUserPluginsRoot(settings: ShellSettings = cached): string {
+	const raw = settings.plugins?.userPluginsDir;
+	if (typeof raw === 'string' && raw.trim()) {
+		try {
+			const resolved = path.resolve(raw.trim());
+			if (fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) {
+				return getDefaultUserPluginsRoot();
+			}
+			fs.mkdirSync(resolved, { recursive: true });
+			return resolved;
+		} catch {
+			return getDefaultUserPluginsRoot();
+		}
+	}
+	return getDefaultUserPluginsRoot();
+}
+
 /** 已开启且配置了目录时返回解析后的绝对路径，否则 null（不写统计）。 */
 export function resolveUsageStatsDataDir(settings: ShellSettings): string | null {
 	const u = settings.usageStats;
@@ -540,6 +568,7 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 		usageStats: partialUsageStats,
 		autoUpdate: partialAutoUpdate,
 		providerIdentity: partialProviderIdentity,
+		plugins: partialPlugins,
 		...partialRest
 	} = partial;
 
@@ -628,6 +657,11 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 			? { ...(cached.providerIdentity ?? defaultProviderIdentitySettings()), ...partialProviderIdentity }
 			: (cached.providerIdentity ?? defaultProviderIdentitySettings());
 
+	const mergedPlugins =
+		partialPlugins !== undefined
+			? { ...(cached.plugins ?? {}), ...partialPlugins }
+			: cached.plugins;
+
 	const partialBotsRaw = (partial as Partial<ShellSettings> & { bots?: { integrations?: BotIntegrationConfig[] } }).bots;
 	const mergedBots =
 		partialBotsRaw !== undefined
@@ -656,6 +690,7 @@ export function patchSettings(partial: Partial<ShellSettings>): ShellSettings {
 		autoUpdate: mergedAutoUpdate,
 		providerIdentity: mergedProviderIdentity,
 		bots: mergedBots,
+		plugins: mergedPlugins,
 	};
 	cached = migrateDefaultModelRemoveAuto(cached).next;
 	cached = migrateProviderModelLayout(cached).next;

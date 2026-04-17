@@ -2,6 +2,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import type { LspServerConfig, ScopedLspServerConfig } from './pluginLspTypes.js';
+import {
+	readAsyncPluginInstallMetaSync,
+	resolvePluginLspConfigPathSync,
+	resolvePluginManifestPathSync,
+} from './pluginFs.js';
 
 const GUESS_LANG: Record<string, string> = {
 	'.ts': 'typescript',
@@ -232,20 +237,31 @@ export function addPluginScopeToLspServers(
 export async function loadPluginLspFromDirectory(pluginPath: string, pluginName: string): Promise<Record<string, LspServerConfig>> {
 	const servers: Record<string, LspServerConfig> = {};
 
-	const lspJsonPath = path.join(pluginPath, '.lsp.json');
-	Object.assign(servers, await readLspJsonFile(lspJsonPath, `${pluginName}/.lsp.json`));
+	const lspJsonPath = resolvePluginLspConfigPathSync(pluginPath);
+	if (lspJsonPath) {
+		Object.assign(
+			servers,
+			await readLspJsonFile(lspJsonPath, `${pluginName}/${path.relative(pluginPath, lspJsonPath).replace(/\\/g, '/')}`)
+		);
+	}
 
-	const manifestPath = path.join(pluginPath, 'plugin.json');
+	const manifestPath = resolvePluginManifestPathSync(pluginPath);
 	let manifest: PluginManifest | null = null;
-	try {
-		const mraw = await readFile(manifestPath, 'utf8');
-		const parsed = JSON.parse(mraw) as unknown;
-		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			manifest = parsed as PluginManifest;
-		}
-	} catch (e) {
-		if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') {
-			console.warn(`[lsp-plugin] ${pluginName}/plugin.json: ${e instanceof Error ? e.message : 'read failed'}`);
+	if (manifestPath) {
+		try {
+			const mraw = await readFile(manifestPath, 'utf8');
+			const parsed = JSON.parse(mraw) as unknown;
+			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+				manifest = parsed as PluginManifest;
+			}
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+				console.warn(
+					`[lsp-plugin] ${pluginName}/${path.relative(pluginPath, manifestPath).replace(/\\/g, '/')}: ${
+						e instanceof Error ? e.message : 'read failed'
+					}`
+				);
+			}
 		}
 	}
 
@@ -263,8 +279,8 @@ export async function discoverPluginSubdirs(pluginsRoot: string): Promise<string
 	for (const ent of names) {
 		if (!ent.isDirectory()) continue;
 		const full = path.join(pluginsRoot, ent.name);
-		const hasLsp = fs.existsSync(path.join(full, '.lsp.json'));
-		const hasManifest = fs.existsSync(path.join(full, 'plugin.json'));
+		const hasLsp = Boolean(resolvePluginLspConfigPathSync(full));
+		const hasManifest = Boolean(resolvePluginManifestPathSync(full));
 		if (hasLsp || hasManifest) dirs.push(full);
 	}
 	dirs.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
@@ -274,8 +290,16 @@ export async function discoverPluginSubdirs(pluginsRoot: string): Promise<string
 export async function loadScopedServersForPluginDir(pluginDir: string): Promise<Record<string, ScopedLspServerConfig>> {
 	const folderName = path.basename(pluginDir);
 	let manifestName = folderName;
+	const installMeta = readAsyncPluginInstallMetaSync(pluginDir);
+	if (installMeta?.disabled === true) {
+		return {};
+	}
+	const manifestPath = resolvePluginManifestPathSync(pluginDir);
 	try {
-		const mraw = await readFile(path.join(pluginDir, 'plugin.json'), 'utf8');
+		if (!manifestPath) {
+			throw new Error('manifest not found');
+		}
+		const mraw = await readFile(manifestPath, 'utf8');
 		const parsed = JSON.parse(mraw) as PluginManifest;
 		if (typeof parsed?.name === 'string' && parsed.name.trim()) {
 			manifestName = parsed.name.trim();

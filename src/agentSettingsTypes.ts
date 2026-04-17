@@ -28,6 +28,12 @@ export type AgentSkill = {
 	origin?: AgentItemOrigin;
 	/** 工作区内 SKILL.md 相对路径（正斜杠）；由磁盘扫描填充，用于打开文件与删除目录 */
 	skillSourceRelPath?: string;
+	/** 插件来源展示名称；存在时代表该项由已安装插件只读提供 */
+	pluginSourceName?: string;
+	/** 插件内相对路径（正斜杠） */
+	pluginSourceRelPath?: string;
+	/** 插件贡献类型 */
+	pluginSourceKind?: 'skill' | 'agent';
 };
 
 export type AgentSubagent = {
@@ -38,6 +44,8 @@ export type AgentSubagent = {
 	memoryScope?: AgentMemoryScope;
 	enabled?: boolean;
 	origin?: AgentItemOrigin;
+	pluginSourceName?: string;
+	pluginSourceRelPath?: string;
 };
 
 export type AgentCommand = {
@@ -49,6 +57,10 @@ export type AgentCommand = {
 	slash: string;
 	/** 可用 {{args}} 表示去掉 /slash 后的正文 */
 	body: string;
+	/** `template` = 传统宏展开；`prompt` = 将 body 当作按需注入的命令说明 */
+	invocation?: 'template' | 'prompt';
+	pluginSourceName?: string;
+	pluginSourceRelPath?: string;
 };
 
 /** 与当前权限行为枚举保持一致 */
@@ -159,6 +171,18 @@ export const defaultAgentCustomization = (): AgentCustomization => ({
 /** 主进程从 `.claude` / `.cursor` / `.async` 的 skills 目录扫描出的项，id 形如 `ws-skill-*`；不应写入 settings 或 `.async/agent.json`。 */
 export function isWorkspaceDiskImportedSkill(s: { id: string }): boolean {
 	return s.id.startsWith('ws-skill-');
+}
+
+export function isPluginImportedSkill(s: { id: string } | null | undefined): boolean {
+	return String(s?.id ?? '').startsWith('plugin-skill:');
+}
+
+export function isPluginImportedSubagent(s: { id: string } | null | undefined): boolean {
+	return String(s?.id ?? '').startsWith('plugin-subagent:');
+}
+
+export function isPluginImportedCommand(c: { id: string } | null | undefined): boolean {
+	return String(c?.id ?? '').startsWith('plugin-command:');
 }
 
 /** 与主进程 `agentMessagePrep` 一致：按 slug 合并，后出现的覆盖先前的。 */

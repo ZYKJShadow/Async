@@ -60,7 +60,16 @@ export class McpManager extends EventEmitter<McpManagerEvents> {
 
 	/** 加载配置 */
 	loadConfigs(configs: McpServerConfig[]): void {
+		const nextIds = new Set(configs.map((config) => config.id));
+		for (const [id, client] of this.clients.entries()) {
+			if (nextIds.has(id)) {
+				continue;
+			}
+			client.destroy();
+			this.clients.delete(id);
+		}
 		this.configs = configs;
+		this.updateTools();
 		this.emit('servers_changed');
 	}
 

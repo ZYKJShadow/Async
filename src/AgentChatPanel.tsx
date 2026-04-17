@@ -81,6 +81,7 @@ export type AgentChatPanelProps = {
 	liveAssistantBlocks: LiveAgentBlocksState;
 	workspace: string | null;
 	workspaceBasename: string;
+	knownSlashCommands: string[];
 	revertedFiles: ReadonlySet<string>;
 	revertedChangeKeys: ReadonlySet<string>;
 	resendFromUserIndex: number | null;
@@ -225,6 +226,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	liveAssistantBlocks,
 	workspace,
 	workspaceBasename,
+	knownSlashCommands,
 	revertedFiles,
 	revertedChangeKeys,
 	resendFromUserIndex,
@@ -299,10 +301,11 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const userSegsCacheRef = useRef<Map<string, ComposerSegment[]>>(new Map());
 	const cachedUserMessageToSegments = (content: string): ComposerSegment[] => {
 		const cache = userSegsCacheRef.current;
-		const cached = cache.get(content);
+		const cacheKey = `${knownSlashCommands.join('\u241f')}::${content}`;
+		const cached = cache.get(cacheKey);
 		if (cached) return cached;
-		const result = userMessageToSegments(content);
-		cache.set(content, result);
+		const result = userMessageToSegments(content, undefined, knownSlashCommands);
+		cache.set(cacheKey, result);
 		return result;
 	};
 	const agentFileChanges = useMemo(

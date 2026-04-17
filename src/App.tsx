@@ -5565,9 +5565,15 @@ function AppMainWorkspaceInner() {
 			setPlanQuestion(null);
 			setPlanQuestionRequestId(null);
 			setResendFromUserIndex(userMessageIndex);
-			setInlineResendSegments(userMessageToSegments(content));
+			setInlineResendSegments(
+				userMessageToSegments(
+					content,
+					undefined,
+					(mergedAgentCustomization.commands ?? []).map((command) => command.slash)
+				)
+			);
 		},
-		[setPlanQuestion, setPlanQuestionRequestId]
+		[mergedAgentCustomization.commands, setPlanQuestion, setPlanQuestionRequestId]
 	);
 
 	const plusMenuAnchorRefForDropdown =
@@ -5854,6 +5860,7 @@ function AppMainWorkspaceInner() {
 		liveAssistantBlocks,
 		workspace,
 		workspaceBasename,
+		knownSlashCommands: (mergedAgentCustomization.commands ?? []).map((command) => command.slash),
 		revertedFiles,
 		revertedChangeKeys,
 		resendFromUserIndex,

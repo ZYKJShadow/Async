@@ -3,6 +3,7 @@ import { parseLeadingWorkspaceRefs } from './composerAtMention';
 /** 与 Cursor 类似的斜杠命令 chip；内置向导类命令 */
 export const SLASH_COMMAND_IDS = ['create-skill', 'create-rule', 'create-subagent'] as const;
 export type SlashCommandId = (typeof SLASH_COMMAND_IDS)[number];
+export type SlashCommandToken = SlashCommandId | string;
 
 export const SLASH_COMMAND_WIRE: Record<SlashCommandId, string> = {
 	'create-skill': '/create-skill',
@@ -17,15 +18,35 @@ export function isSlashCommandId(s: string): s is SlashCommandId {
 	return (SLASH_COMMAND_IDS as readonly string[]).includes(s);
 }
 
+export function slashCommandWire(command: SlashCommandToken): string {
+	const normalized = String(command ?? '').trim().replace(/^\//, '');
+	if (!normalized) {
+		return '/';
+	}
+	return isSlashCommandId(normalized) ? SLASH_COMMAND_WIRE[normalized] : `/${normalized}`;
+}
+
 /** 解析用户消息时匹配 `/wire` 前缀（较长者先匹配） */
 const WIRE_PARSE_ORDER: SlashCommandId[] = [...SLASH_COMMAND_IDS].sort(
 	(a, b) => SLASH_COMMAND_WIRE[b].length - SLASH_COMMAND_WIRE[a].length
 );
 
+function buildSlashParseOrder(knownSlashCommands?: readonly string[]): string[] {
+	const set = new Set<string>(WIRE_PARSE_ORDER);
+	for (const raw of knownSlashCommands ?? []) {
+		const normalized = String(raw ?? '').trim().replace(/^\//, '');
+		if (!normalized) {
+			continue;
+		}
+		set.add(normalized);
+	}
+	return [...set].sort((a, b) => slashCommandWire(b).length - slashCommandWire(a).length);
+}
+
 export type ComposerSegment =
 	| { id: string; kind: 'text'; text: string }
 	| { id: string; kind: 'file'; path: string }
-	| { id: string; kind: 'command'; command: SlashCommandId };
+	| { id: string; kind: 'command'; command: SlashCommandToken };
 
 export function newSegmentId(): string {
 	return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -73,13 +94,13 @@ export function isSlashCommandDomPendingUpgrade(
 	const norm = mergeAdjacentText(segments);
 	const p0 = norm[0];
 	const d0 = domSegs[0];
-	if (p0?.kind !== 'command' || !isSlashCommandId(p0.command)) {
+	if (p0?.kind !== 'command') {
 		return false;
 	}
 	if (d0?.kind !== 'text') {
 		return false;
 	}
-	const wire = SLASH_COMMAND_WIRE[p0.command];
+	const wire = slashCommandWire(p0.command);
 	const tx = d0.text;
 	return tx === wire || tx.startsWith(wire);
 }
@@ -178,8 +199,8 @@ export function segmentsToWireText(segments: ComposerSegment[]): string {
 		const s = segments[k]!;
 		if (s.kind === 'text') {
 			out += s.text;
-		} else if (s.kind === 'command' && isSlashCommandId(s.command)) {
-			out += SLASH_COMMAND_WIRE[s.command];
+		} else if (s.kind === 'command') {
+			out += slashCommandWire(s.command);
 			const next = segments[k + 1];
 			if (next?.kind === 'text' && next.text.length > 0 && !/^\s/u.test(next.text)) {
 				out += FILE_REF_GLUE_SPACE;
@@ -198,10 +219,14 @@ export function segmentsToWireText(segments: ComposerSegment[]): string {
 }
 
 /** 将用户消息解析为 segments（兼容旧版「首行全是 @路径」格式） */
-export function userMessageToSegments(content: string, _knownPaths?: readonly string[]): ComposerSegment[] {
+export function userMessageToSegments(
+	content: string,
+	_knownPaths?: readonly string[],
+	knownSlashCommands?: readonly string[]
+): ComposerSegment[] {
 	const trimmedStart = content.replace(/^\uFEFF/, '');
-	for (const cmd of WIRE_PARSE_ORDER) {
-		const wire = SLASH_COMMAND_WIRE[cmd];
+	for (const cmd of buildSlashParseOrder(knownSlashCommands)) {
+		const wire = slashCommandWire(cmd);
 		if (trimmedStart.startsWith(wire)) {
 			let rest = trimmedStart.slice(wire.length);
 			if (rest.startsWith(FILE_REF_GLUE_SPACE)) {

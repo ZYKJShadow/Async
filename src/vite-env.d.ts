@@ -11,6 +11,8 @@ export interface AsyncShellAPI {
 	subscribeWorkspaceFsTouched?(callback: () => void): () => void;
 	/** 工作区文件索引首次全量扫描完成（与当前窗口 root 比对由订阅方完成） */
 	subscribeWorkspaceFileIndexReady?(callback: (workspaceRootNorm: string) => void): () => void;
+	/** 已安装插件变化（安装、卸载、启停、切换插件目录） */
+	subscribePluginsChanged?(callback: () => void): () => void;
 	/** PTY 终端输出（按 session id 区分） */
 	subscribeTerminalPtyData?(callback: (id: string, data: string) => void): () => void;
 	subscribeTerminalPtyExit?(callback: (id: string, code: unknown) => void): () => void;

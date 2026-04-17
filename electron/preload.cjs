@@ -31,6 +31,16 @@ const INVOKE_CHANNELS = new Set([
 	'settings:get',
 	'settings:set',
 	'settings:testBotConnection',
+	'plugins:getState',
+	'plugins:getRuntimeState',
+	'plugins:pickUserDirectory',
+	'plugins:setUserDirectory',
+	'plugins:addMarketplace',
+	'plugins:refreshMarketplace',
+	'plugins:removeMarketplace',
+	'plugins:install',
+	'plugins:uninstall',
+	'plugins:setEnabled',
 	'usageStats:get',
 	'usageStats:pickDirectory',
 	'theme:applyChrome',
@@ -131,6 +141,9 @@ let workspaceFsTouchedSeq = 0;
 const workspaceFileIndexReadyHandlers = new Map();
 let workspaceFileIndexReadySeq = 0;
 
+const pluginsChangedHandlers = new Map();
+let pluginsChangedSeq = 0;
+
 ipcRenderer.on('async-shell:chat', (_event, payload) => {
 	for (const fn of chatHandlers.values()) {
 		try {
@@ -175,6 +188,16 @@ ipcRenderer.on('async-shell:workspaceFileIndexReady', (_event, rootNorm) => {
 	for (const fn of workspaceFileIndexReadyHandlers.values()) {
 		try {
 			fn(String(rootNorm ?? ''));
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:pluginsChanged', () => {
+	for (const fn of pluginsChangedHandlers.values()) {
+		try {
+			fn();
 		} catch (e) {
 			console.error(e);
 		}
@@ -278,6 +301,11 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++workspaceFileIndexReadySeq;
 		workspaceFileIndexReadyHandlers.set(id, callback);
 		return () => workspaceFileIndexReadyHandlers.delete(id);
+	},
+	subscribePluginsChanged(callback) {
+		const id = ++pluginsChangedSeq;
+		pluginsChangedHandlers.set(id, callback);
+		return () => pluginsChangedHandlers.delete(id);
 	},
 	subscribeAutoUpdateStatus(callback) {
 		const id = ++autoUpdateStatusSeq;

@@ -50,7 +50,7 @@ import type { TeamPlanQuestionRoleScope } from './planQuestionTool.js';
 import { executeTool, type ToolExecutionContext, type ToolExecutionHooks } from './toolExecutor.js';
 import type { WorkspaceLspManager } from '../lsp/workspaceLspManager.js';
 import { getMcpManager } from '../mcp/index.js';
-import { getMcpServerConfigs } from '../settingsStore.js';
+import { getEffectiveMcpServerConfigs } from '../plugins/pluginRuntimeService.js';
 import {
 	applyAnthropicProviderIdentity,
 	applyOpenAIProviderIdentity,
@@ -390,13 +390,17 @@ function appendMessagesToAnthropicConversation(conversation: MessageParam[], mes
 /**
  * 为工具会话准备 MCP 连接：Agent 需要动态工具；Plan 仅需连接以便 ListMcpResourcesTool / ReadMcpResourceTool。
  */
-async function prepareMcpConnectionsForSession(composerMode: ComposerMode): Promise<void> {
+async function prepareMcpConnectionsForSession(
+	composerMode: ComposerMode,
+	userMcpServers: ShellSettings['mcpServers'],
+	workspaceRoot: string | null
+): Promise<void> {
 	if (composerMode !== 'agent' && composerMode !== 'plan' && composerMode !== 'team') {
 		return;
 	}
 	const mcpT0 = Date.now();
 	const mgr = getMcpManager();
-	mgr.loadConfigs(getMcpServerConfigs());
+	mgr.loadConfigs(getEffectiveMcpServerConfigs(userMcpServers, workspaceRoot));
 	await mgr.startAll().catch((e) => {
 		console.warn('[AgentLoop] MCP startAll:', e instanceof Error ? e.message : e);
 	});
@@ -419,7 +423,7 @@ export async function runAgentLoop(
 	const repairStart = Date.now();
 	const messagesForApi = repairAgentThreadMessagesForApi(threadMessages);
 	console.log(`[AgentLoop] repairAgentThreadMessagesForApi (${Date.now() - repairStart}ms) thread=${tid}`);
-	await prepareMcpConnectionsForSession(options.composerMode);
+	await prepareMcpConnectionsForSession(options.composerMode, settings.mcpServers, options.workspaceRoot);
 	console.log(
 		`[AgentLoop] after MCP prepare, before ${options.paradigm === 'anthropic' ? 'Anthropic' : 'OpenAI'} loop (${Date.now() - loopT0}ms since runAgentLoop enter) thread=${tid}`
 	);
