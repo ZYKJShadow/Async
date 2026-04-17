@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { ChatMessage } from '../threadStore.js';
 import type { ShellSettings } from '../settingsStore.js';
-import { composeSystem, temperatureForMode } from './modePrompts.js';
+import { composeSystemSections, temperatureForMode } from './modePrompts.js';
 import type { StreamHandlers, TurnTokenUsage, UnifiedChatOptions } from './types.js';
 import {
 	anthropicEffectiveMaxTokens,
@@ -71,17 +71,25 @@ export async function streamAnthropic(
 	);
 
 	const storedSystem = messages.find((m) => m.role === 'system');
-	const systemText = prependProviderIdentitySystemPrompt(
-		settings,
-		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend)
-	);
 	const model = options.requestModelId.trim();
 	if (!model) {
 		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
 		return;
 	}
 	const promptCaching = isAnthropicPromptCachingEnabled(model);
-	const system = buildAnthropicSystemForApi(systemText, promptCaching);
+	const systemSections = composeSystemSections(
+		storedSystem?.content,
+		options.mode,
+		options.agentSystemAppend
+	);
+	const system = buildAnthropicSystemForApi(
+		{
+			...systemSections,
+			staticText: prependProviderIdentitySystemPrompt(settings, systemSections.staticText),
+			fullText: prependProviderIdentitySystemPrompt(settings, systemSections.fullText),
+		},
+		promptCaching
+	);
 	const anthropicMessages = addAnthropicCacheBreakpoints(
 		toAnthropicMessages(messages),
 		promptCaching,

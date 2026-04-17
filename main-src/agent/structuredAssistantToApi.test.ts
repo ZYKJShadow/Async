@@ -53,7 +53,7 @@ describe('structuredAssistantToApi', () => {
 		expect(String((oa[0] as { content?: unknown }).content)).toContain('<tool_call');
 	});
 
-	it('Anthropic: tool-only payload falls back to legacy XML string', () => {
+	it('Anthropic: tool-only payload expands to assistant + user tool_result blocks', () => {
 		const raw = stringifyAgentAssistantPayload({
 			_asyncAssistant: 1,
 			v: 1,
@@ -70,8 +70,9 @@ describe('structuredAssistantToApi', () => {
 		});
 		const p = parseAgentAssistantPayload(raw)!;
 		const am = expandStructuredAssistantPayloadToAnthropic(p);
-		expect(am).toHaveLength(1);
+		expect(am).toHaveLength(2);
 		expect(am[0]!.role).toBe('assistant');
-		expect(typeof (am[0] as { content: unknown }).content).toBe('string');
+		expect(Array.isArray((am[0] as { content: unknown }).content)).toBe(true);
+		expect(am[1]!.role).toBe('user');
 	});
 });

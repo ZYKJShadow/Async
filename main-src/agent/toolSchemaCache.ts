@@ -1,24 +1,22 @@
+import type { AnthropicToolSchema } from '../llm/anthropicBeta.js';
 import type { AgentToolDef } from './agentTools.js';
 
 const MAX_SCHEMA_CACHE_ENTRIES = 64;
 
-type OpenAIToolSchema = {
+export type OpenAIToolSchema = {
 	type: 'function';
 	function: {
 		name: string;
 		description: string;
 		parameters: Record<string, unknown>;
+		strict?: boolean;
 	};
 };
 
-type AnthropicToolSchema = {
-	name: string;
-	description: string;
-	input_schema: Record<string, unknown>;
-};
+type AnthropicToolBaseSchema = Omit<AnthropicToolSchema, 'defer_loading' | 'cache_control'>;
 
 const openAiToolSchemaCache = new Map<string, OpenAIToolSchema[]>();
-const anthropicToolSchemaCache = new Map<string, AnthropicToolSchema[]>();
+const anthropicToolSchemaCache = new Map<string, AnthropicToolBaseSchema[]>();
 
 function cacheSet<T>(cache: Map<string, T>, key: string, value: T): T {
 	if (cache.has(key)) {
@@ -51,57 +49,85 @@ function normalizeUnknown(value: unknown, parentKey = ''): unknown {
 	return Object.fromEntries(entries.map(([key, item]) => [key, normalizeUnknown(item, key)]));
 }
 
-function normalizeAgentToolDef(def: AgentToolDef): AgentToolDef {
+function normalizeAgentToolDef(
+	def: AgentToolDef,
+	provider: 'openai' | 'anthropic'
+): Record<string, unknown> {
 	return {
 		name: def.name,
 		description: def.description,
-		parameters: normalizeUnknown(def.parameters) as AgentToolDef['parameters'],
+		parameters: normalizeUnknown(def.parameters),
+		strict: def.strict === true,
+		eagerInputStreaming: provider === 'anthropic' && def.eagerInputStreaming === true,
+		schemaCacheKey: def.schemaCacheKey?.trim() || null,
 	};
 }
 
-function normalizeToolDefs(defs: AgentToolDef[]): AgentToolDef[] {
-	return defs.map(normalizeAgentToolDef);
+function toolDefsSignature(
+	defs: AgentToolDef[],
+	provider: 'openai' | 'anthropic'
+): string {
+	return JSON.stringify(defs.map((def) => normalizeAgentToolDef(def, provider)));
 }
 
-function toolDefsSignature(defs: AgentToolDef[]): string {
-	return JSON.stringify(normalizeToolDefs(defs));
-}
-
-export function buildCachedOpenAITools(defs: AgentToolDef[]): OpenAIToolSchema[] {
-	const signature = toolDefsSignature(defs);
+function buildOpenAIToolBaseSchemas(defs: AgentToolDef[]): OpenAIToolSchema[] {
+	const signature = toolDefsSignature(defs, 'openai');
 	const cached = openAiToolSchemaCache.get(signature);
 	if (cached) {
 		return cached;
 	}
-	const normalized = normalizeToolDefs(defs);
 	return cacheSet(
 		openAiToolSchemaCache,
 		signature,
-		normalized.map((def) => ({
+		defs.map((def) => ({
 			type: 'function' as const,
 			function: {
 				name: def.name,
 				description: def.description,
-				parameters: def.parameters as Record<string, unknown>,
+				parameters: normalizeUnknown(def.parameters) as Record<string, unknown>,
+				...(def.strict === true ? { strict: true } : {}),
 			},
 		}))
 	);
 }
 
-export function buildCachedAnthropicTools(defs: AgentToolDef[]): AnthropicToolSchema[] {
-	const signature = toolDefsSignature(defs);
+function buildAnthropicToolBaseSchemas(defs: AgentToolDef[]): AnthropicToolBaseSchema[] {
+	const signature = toolDefsSignature(defs, 'anthropic');
 	const cached = anthropicToolSchemaCache.get(signature);
 	if (cached) {
 		return cached;
 	}
-	const normalized = normalizeToolDefs(defs);
 	return cacheSet(
 		anthropicToolSchemaCache,
 		signature,
-		normalized.map((def) => ({
+		defs.map((def) => ({
 			name: def.name,
 			description: def.description,
-			input_schema: def.parameters as Record<string, unknown>,
+			input_schema: normalizeUnknown(def.parameters) as Record<string, unknown>,
+			...(def.strict === true ? { strict: true } : {}),
+			...(def.eagerInputStreaming === true ? { eager_input_streaming: true } : {}),
 		}))
+	);
+}
+
+export function buildOpenAIToolSchemas(defs: AgentToolDef[]): OpenAIToolSchema[] {
+	return buildOpenAIToolBaseSchemas(defs);
+}
+
+export function buildAnthropicToolSchemas(
+	defs: AgentToolDef[],
+	options?: {
+		deferToolNames?: Iterable<string>;
+		includeExperimentalBetaFields?: boolean;
+	}
+): AnthropicToolSchema[] {
+	const base = buildAnthropicToolBaseSchemas(defs);
+	const deferNames = new Set(options?.deferToolNames ?? []);
+	const includeExperimental = options?.includeExperimentalBetaFields !== false;
+	if (!includeExperimental || deferNames.size === 0) {
+		return base;
+	}
+	return base.map((schema) =>
+		deferNames.has(schema.name) ? { ...schema, defer_loading: true } : schema
 	);
 }

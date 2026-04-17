@@ -9,6 +9,7 @@
  */
 
 import type { ContentBlockParam, MessageParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages';
+import type { SystemPromptSections } from './modePrompts.js';
 
 export type AnthropicCacheControl = { type: 'ephemeral' };
 
@@ -38,22 +39,36 @@ export function isAnthropicPromptCachingEnabled(model: string): boolean {
  * 对齐 `buildSystemPromptBlocks`：启用缓存时把 system 设为单块可缓存文本；关闭时保持普通 string 以减小请求体差异。
  */
 export function buildAnthropicSystemForApi(
-	systemText: string,
+	systemInput: string | SystemPromptSections,
 	enableCaching: boolean
 ): string | TextBlockParam[] {
+	const systemSections =
+		typeof systemInput === 'string'
+			? { staticText: systemInput, dynamicText: '', fullText: systemInput }
+			: systemInput;
+	const staticText = systemSections.staticText.trim();
+	const dynamicText = systemSections.dynamicText.trim();
 	if (!enableCaching) {
-		return systemText;
+		return systemSections.fullText;
 	}
-	if (!systemText) {
-		return systemText;
+	if (!staticText && !dynamicText) {
+		return systemSections.fullText;
 	}
-	return [
-		{
+	const blocks: TextBlockParam[] = [];
+	if (staticText) {
+		blocks.push({
 			type: 'text',
-			text: systemText,
+			text: staticText,
 			cache_control: getAnthropicCacheControl(),
-		},
-	];
+		});
+	}
+	if (dynamicText) {
+		blocks.push({
+			type: 'text',
+			text: dynamicText,
+		});
+	}
+	return blocks;
 }
 
 function withCacheOnLastUserContentBlock(blocks: ContentBlockParam[]): ContentBlockParam[] {

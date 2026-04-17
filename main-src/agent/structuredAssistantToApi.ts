@@ -9,12 +9,13 @@
  */
 
 import type OpenAI from 'openai';
-import type { ContentBlockParam, MessageParam, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages';
+import type { ContentBlockParam, MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type {
 	AgentAssistantPart,
 	AgentAssistantPayload,
 	AgentAssistantToolPart,
 } from '../../src/agentStructuredMessage.js';
+import type { AnthropicToolResultBlock } from '../llm/anthropicBeta.js';
 import { structuredToLegacyAgentXml } from '../../src/agentStructuredMessage.js';
 
 export type OAIMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
@@ -85,10 +86,10 @@ function expandAnthropicNativeParts(parts: AgentAssistantPart[]): MessageParam[]
 				blocks.push({ type: 'tool_use', id: t.toolUseId, name: t.name, input: t.args });
 			}
 			out.push({ role: 'assistant', content: blocks });
-			const toolResults: ToolResultBlockParam[] = tools.map((t) => ({
+			const toolResults: AnthropicToolResultBlock[] = tools.map((t) => ({
 				type: 'tool_result',
 				tool_use_id: t.toolUseId,
-				content: t.result,
+				content: t.resultStructured ?? t.result,
 				is_error: !t.success,
 			}));
 			out.push({ role: 'user', content: toolResults });
@@ -101,11 +102,5 @@ function expandAnthropicNativeParts(parts: AgentAssistantPart[]): MessageParam[]
 
 /** 单条结构化助手 → 若干条 Anthropic MessageParam；收尾为 tool_result user 时回退 XML。 */
 export function expandStructuredAssistantPayloadToAnthropic(p: AgentAssistantPayload): MessageParam[] {
-	const native = expandAnthropicNativeParts(p.parts);
-	if (native.length === 0) return [];
-	const last = native[native.length - 1]!;
-	if (last.role === 'user') {
-		return [{ role: 'assistant', content: structuredToLegacyAgentXml(p) }];
-	}
-	return native;
+	return expandAnthropicNativeParts(p.parts);
 }

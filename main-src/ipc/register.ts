@@ -90,8 +90,10 @@ import {
 	getExecutedPlanFileKeys,
 	markPlanFileExecuted,
 	incrementThreadAgentToolCallCount,
-	getDiscoveredDeferredToolNames,
-	saveDiscoveredDeferredToolNames,
+	getDeferredToolState,
+	saveDeferredToolState,
+	getToolResultReplacementState,
+	saveToolResultReplacementState,
 	saveTeamSession,
 	getAgentSession,
 	type ChatMessage,
@@ -382,6 +384,9 @@ function resolveManagedAgentLoopOptions(
 		requestBaseURL: resolved.baseURL,
 		requestProxyUrl: resolved.proxyUrl,
 		maxOutputTokens: resolved.maxOutputTokens,
+		...(resolved.contextWindowTokens != null
+			? { contextWindowTokens: resolved.contextWindowTokens }
+			: {}),
 		composerMode: 'agent',
 		thinkingLevel,
 		workspaceRoot,
@@ -735,9 +740,12 @@ function runChatStream(
 						workspaceRoot,
 						workspaceLspManager,
 						hostWebContentsId: win.webContents.id,
-						discoveredDeferredToolNames: getDiscoveredDeferredToolNames(threadId),
-						onDiscoveredDeferredToolsChange: (names: string[]) =>
-							saveDiscoveredDeferredToolNames(threadId, names),
+						deferredToolState: getDeferredToolState(threadId),
+						onDeferredToolStateChange: (state) =>
+							saveDeferredToolState(threadId, state),
+						toolResultReplacementState: getToolResultReplacementState(threadId),
+						onToolResultReplacementStateChange: (state) =>
+							saveToolResultReplacementState(threadId, state),
 						emit: (evt) => send(evt),
 						onDone: (full, usage, teamSnapshot) => {
 							updateLastAssistant(threadId, full);
@@ -796,7 +804,8 @@ function runChatStream(
 					mistakeLimitWaiters
 				);
 			const ag = getSettings().agent;
-			const discoveredDeferredTools = getDiscoveredDeferredToolNames(threadId);
+			const deferredToolState = getDeferredToolState(threadId);
+			const toolResultReplacementState = getToolResultReplacementState(threadId);
 			const customToolHandlers = {
 					request_user_input: createRequestUserInputToolHandler({
 						threadId,
@@ -814,6 +823,9 @@ function runChatStream(
 					requestBaseURL: resolved.baseURL,
 					requestProxyUrl: resolved.proxyUrl,
 					maxOutputTokens: resolved.maxOutputTokens,
+					...(resolved.contextWindowTokens != null
+						? { contextWindowTokens: resolved.contextWindowTokens }
+						: {}),
 					signal: ac.signal,
 					composerMode: mode,
 					thinkingLevel,
@@ -825,9 +837,12 @@ function runChatStream(
 					workspaceRoot,
 					workspaceLspManager,
 					hostWebContentsId: win.webContents.id,
-					discoveredDeferredToolNames: discoveredDeferredTools,
-					onDiscoveredDeferredToolsChange: (names: string[]) =>
-						saveDiscoveredDeferredToolNames(threadId, names),
+					deferredToolState,
+					onDeferredToolStateChange: (state) =>
+						saveDeferredToolState(threadId, state),
+					toolResultReplacementState,
+					onToolResultReplacementStateChange: (state) =>
+						saveToolResultReplacementState(threadId, state),
 				};
 			try {
 				setDelegateContext(
@@ -884,6 +899,9 @@ function runChatStream(
 						requestBaseURL: resolved.baseURL,
 						requestProxyUrl: resolved.proxyUrl,
 						maxOutputTokens: resolved.maxOutputTokens,
+						...(resolved.contextWindowTokens != null
+							? { contextWindowTokens: resolved.contextWindowTokens }
+							: {}),
 						signal: ac.signal,
 						composerMode: mode,
 						thinkingLevel,
@@ -896,9 +914,12 @@ function runChatStream(
 						workspaceLspManager,
 						threadId,
 						hostWebContentsId: win.webContents.id,
-						discoveredDeferredToolNames: discoveredDeferredTools,
-						onDiscoveredDeferredToolsChange: (names: string[]) =>
-							saveDiscoveredDeferredToolNames(threadId, names),
+						deferredToolState,
+						onDeferredToolStateChange: (state) =>
+							saveDeferredToolState(threadId, state),
+						toolResultReplacementState,
+						onToolResultReplacementStateChange: (state) =>
+							saveToolResultReplacementState(threadId, state),
 						toolHooks: {
 							beforeWrite: ({ path, previousContent }) => {
 								const snapshots = agentRevertSnapshotsByThread.get(threadId);
@@ -2587,6 +2608,11 @@ export function registerIpc(): void {
 		if (!options) {
 			return { ok: false as const, error: 'no-model' };
 		}
+		options.deferredToolState = getDeferredToolState(threadId);
+		options.onDeferredToolStateChange = (state) => saveDeferredToolState(threadId, state);
+		options.toolResultReplacementState = getToolResultReplacementState(threadId);
+		options.onToolResultReplacementStateChange = (state) =>
+			saveToolResultReplacementState(threadId, state);
 		const send = (evt: import('../agent/managedSubagents.js').ManagedAgentUiEvent) =>
 			event.sender.send('async-shell:chat', evt);
 		const result = await sendInputToManagedAgent({
@@ -2636,6 +2662,11 @@ export function registerIpc(): void {
 		if (!options) {
 			return { ok: false as const, error: 'no-model' };
 		}
+		options.deferredToolState = getDeferredToolState(threadId);
+		options.onDeferredToolStateChange = (state) => saveDeferredToolState(threadId, state);
+		options.toolResultReplacementState = getToolResultReplacementState(threadId);
+		options.onToolResultReplacementStateChange = (state) =>
+			saveToolResultReplacementState(threadId, state);
 		const send = (evt: import('../agent/managedSubagents.js').ManagedAgentUiEvent) =>
 			event.sender.send('async-shell:chat', evt);
 		const result = await resumeManagedAgent({

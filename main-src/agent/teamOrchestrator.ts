@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ChatMessage, TeamSessionSnapshot } from '../threadStore.js';
+import type { ChatMessage, DeferredToolState, TeamSessionSnapshot } from '../threadStore.js';
 import type { ShellSettings, TeamRoleType } from '../settingsStore.js';
 import type { WorkspaceLspManager } from '../lsp/workspaceLspManager.js';
 import { runAgentLoop, type AgentLoopHandlers, type AgentLoopOptions } from './agentLoop.js';
@@ -322,8 +322,12 @@ export type TeamOrchestratorInput = {
 	workspaceLspManager?: WorkspaceLspManager | null;
 	hostWebContentsId?: number | null;
 	toolHooks?: ToolExecutionHooks;
-	discoveredDeferredToolNames?: string[];
-	onDiscoveredDeferredToolsChange?: (names: string[]) => void;
+	deferredToolState?: DeferredToolState;
+	onDeferredToolStateChange?: (state: DeferredToolState) => void;
+	toolResultReplacementState?: import('./toolResultBudget.js').ToolResultReplacementState;
+	onToolResultReplacementStateChange?: (
+		state: import('./toolResultBudget.js').ToolResultReplacementState
+	) => void;
 	emit: (evt: TeamEmit) => void;
 	onDone: (fullText: string, usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }, teamSnapshot?: TeamSessionSnapshot) => void;
 	onError: (message: string) => void;
@@ -773,12 +777,19 @@ async function llmPlanTasks(params: {
 	thinkingLevel?: TeamOrchestratorInput['thinkingLevel'];
 	workspaceRoot?: string | null;
 	workspaceLspManager?: WorkspaceLspManager | null;
+	hostWebContentsId?: number | null;
 	toolHooks?: ToolExecutionHooks;
+	deferredToolState?: DeferredToolState;
+	onDeferredToolStateChange?: (state: DeferredToolState) => void;
+	toolResultReplacementState?: import('./toolResultBudget.js').ToolResultReplacementState;
+	onToolResultReplacementStateChange?: (
+		state: import('./toolResultBudget.js').ToolResultReplacementState
+	) => void;
 	emit: (evt: TeamEmit) => void;
 }): Promise<{ tasks: LLMPlannedTask[]; planSummary: string; mode: LeadPlanMode; clarificationAnswers: string[] }> {
 	const {
 		settings, threadId, teamLead, specialists, plannerTools, messages, modelSelection, resolvedModel,
-		signal, thinkingLevel, workspaceRoot, workspaceLspManager, toolHooks, emit,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 	} = params;
 	const hasCjk = messages.some((message) => /[\u3400-\u9fff]/.test(String(message.content ?? '')));
 	const availableRoles = specialists.map((s) => `- ${s.assignmentKey}: ${s.name}`).join('\n');
@@ -838,6 +849,9 @@ async function llmPlanTasks(params: {
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
+		...(resolvedModel.contextWindowTokens != null
+			? { contextWindowTokens: resolvedModel.contextWindowTokens }
+			: {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: plannerTools,
@@ -848,8 +862,10 @@ async function llmPlanTasks(params: {
 		hostWebContentsId: params.hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
-		discoveredDeferredToolNames,
-		onDiscoveredDeferredToolsChange,
+		deferredToolState,
+		onDeferredToolStateChange,
+		toolResultReplacementState,
+		onToolResultReplacementStateChange,
 		teamToolRoleScope: teamLeadScope,
 	};
 
@@ -863,6 +879,7 @@ async function llmPlanTasks(params: {
 			options.requestBaseURL = resolved.baseURL;
 			options.requestProxyUrl = resolved.proxyUrl;
 			options.maxOutputTokens = resolved.maxOutputTokens;
+			options.contextWindowTokens = resolved.contextWindowTokens;
 		}
 	}
 
@@ -1149,14 +1166,21 @@ async function runPreflightReviewerAgent(params: {
 	thinkingLevel?: TeamOrchestratorInput['thinkingLevel'];
 	workspaceRoot?: string | null;
 	workspaceLspManager?: WorkspaceLspManager | null;
+	hostWebContentsId?: number | null;
 	toolHooks?: ToolExecutionHooks;
 	baseTools: AgentToolDef[];
+	deferredToolState?: DeferredToolState;
+	onDeferredToolStateChange?: (state: DeferredToolState) => void;
+	toolResultReplacementState?: import('./toolResultBudget.js').ToolResultReplacementState;
+	onToolResultReplacementStateChange?: (
+		state: import('./toolResultBudget.js').ToolResultReplacementState
+	) => void;
 	emit: (evt: TeamEmit) => void;
 }): Promise<{ verdict: 'ok' | 'needs_clarification'; summary: string }> {
 	const {
 		settings, threadId, reviewer, plannedTasks, userRequest, planSummary, specialists,
 		modelSelection, resolvedModel,
-		signal, thinkingLevel, workspaceRoot, workspaceLspManager, toolHooks, baseTools, emit,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 	} = params;
 
 	const messages: ChatMessage[] = [
@@ -1188,6 +1212,9 @@ async function runPreflightReviewerAgent(params: {
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
+		...(resolvedModel.contextWindowTokens != null
+			? { contextWindowTokens: resolvedModel.contextWindowTokens }
+			: {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: specializedTools,
@@ -1198,8 +1225,10 @@ async function runPreflightReviewerAgent(params: {
 		hostWebContentsId: params.hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
-		discoveredDeferredToolNames,
-		onDiscoveredDeferredToolsChange,
+		deferredToolState,
+		onDeferredToolStateChange,
+		toolResultReplacementState,
+		onToolResultReplacementStateChange,
 		teamToolRoleScope: teamRoleScope,
 	};
 
@@ -1213,6 +1242,7 @@ async function runPreflightReviewerAgent(params: {
 			options.requestBaseURL = resolved.baseURL;
 			options.requestProxyUrl = resolved.proxyUrl;
 			options.maxOutputTokens = resolved.maxOutputTokens;
+			options.contextWindowTokens = resolved.contextWindowTokens;
 		}
 	}
 
@@ -1308,13 +1338,20 @@ async function runReviewerAgent(params: {
 	thinkingLevel?: TeamOrchestratorInput['thinkingLevel'];
 	workspaceRoot?: string | null;
 	workspaceLspManager?: WorkspaceLspManager | null;
+	hostWebContentsId?: number | null;
 	toolHooks?: ToolExecutionHooks;
 	baseTools: AgentToolDef[];
+	deferredToolState?: DeferredToolState;
+	onDeferredToolStateChange?: (state: DeferredToolState) => void;
+	toolResultReplacementState?: import('./toolResultBudget.js').ToolResultReplacementState;
+	onToolResultReplacementStateChange?: (
+		state: import('./toolResultBudget.js').ToolResultReplacementState
+	) => void;
 	emit: (evt: TeamEmit) => void;
 }): Promise<{ verdict: 'approved' | 'revision_needed'; summary: string }> {
 	const {
 		settings, threadId, reviewer, completedTasks, userRequest, planSummary, modelSelection, resolvedModel,
-		signal, thinkingLevel, workspaceRoot, workspaceLspManager, toolHooks, baseTools, emit,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 	} = params;
 
 	const reviewMessages: ChatMessage[] = [
@@ -1342,6 +1379,9 @@ async function runReviewerAgent(params: {
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
+		...(resolvedModel.contextWindowTokens != null
+			? { contextWindowTokens: resolvedModel.contextWindowTokens }
+			: {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: specializedTools,
@@ -1352,8 +1392,10 @@ async function runReviewerAgent(params: {
 		hostWebContentsId: params.hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
-		discoveredDeferredToolNames,
-		onDiscoveredDeferredToolsChange,
+		deferredToolState,
+		onDeferredToolStateChange,
+		toolResultReplacementState,
+		onToolResultReplacementStateChange,
 		teamToolRoleScope: teamRoleScope,
 	};
 
@@ -1367,6 +1409,7 @@ async function runReviewerAgent(params: {
 			options.requestBaseURL = resolved.baseURL;
 			options.requestProxyUrl = resolved.proxyUrl;
 			options.maxOutputTokens = resolved.maxOutputTokens;
+			options.contextWindowTokens = resolved.contextWindowTokens;
 		}
 	}
 
@@ -1474,9 +1517,16 @@ async function runOneSpecialist(params: {
 	thinkingLevel?: TeamOrchestratorInput['thinkingLevel'];
 	workspaceRoot?: string | null;
 	workspaceLspManager?: WorkspaceLspManager | null;
+	hostWebContentsId?: number | null;
 	toolHooks?: ToolExecutionHooks;
 	baseTools: AgentToolDef[];
 	threadId: string;
+	deferredToolState?: DeferredToolState;
+	onDeferredToolStateChange?: (state: DeferredToolState) => void;
+	toolResultReplacementState?: import('./toolResultBudget.js').ToolResultReplacementState;
+	onToolResultReplacementStateChange?: (
+		state: import('./toolResultBudget.js').ToolResultReplacementState
+	) => void;
 	pullPeerMailboxMessages?: () => Promise<ChatMessage[]>;
 	handlePeerRequest?: (request: TeamPeerRequest) => Promise<string>;
 	handlePeerReply?: (reply: TeamPeerReply) => void;
@@ -1485,8 +1535,8 @@ async function runOneSpecialist(params: {
 	const {
 		settings, task, expert, userRequest, planSummary, completedTasksById, allTasks,
 		modelSelection, resolvedModel,
-		signal, thinkingLevel, workspaceRoot, workspaceLspManager, toolHooks, baseTools,
-		threadId, pullPeerMailboxMessages, handlePeerRequest, handlePeerReply, emit,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools,
+		threadId, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, pullPeerMailboxMessages, handlePeerRequest, handlePeerReply, emit,
 	} = params;
 
 	const subMessages: ChatMessage[] = [
@@ -1516,6 +1566,9 @@ async function runOneSpecialist(params: {
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
+		...(resolvedModel.contextWindowTokens != null
+			? { contextWindowTokens: resolvedModel.contextWindowTokens }
+			: {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: specializedToolPool,
@@ -1526,8 +1579,10 @@ async function runOneSpecialist(params: {
 		hostWebContentsId: params.hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
-		discoveredDeferredToolNames,
-		onDiscoveredDeferredToolsChange,
+		deferredToolState,
+		onDeferredToolStateChange,
+		toolResultReplacementState,
+		onToolResultReplacementStateChange,
 		teamToolRoleScope: teamRoleScope,
 		beforeRoundMessages: pullPeerMailboxMessages,
 	};
@@ -1603,6 +1658,7 @@ async function runOneSpecialist(params: {
 				options.requestBaseURL = resolvedOverride.baseURL;
 				options.requestProxyUrl = resolvedOverride.proxyUrl;
 				options.maxOutputTokens = resolvedOverride.maxOutputTokens;
+				options.contextWindowTokens = resolvedOverride.contextWindowTokens;
 			}
 		}
 		setTeamEscalationRuntime(teamRoleScope.teamTaskId, {
@@ -1763,7 +1819,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 	const {
 		settings, threadId, messages, modelSelection, resolvedModel,
 		agentSystemAppend, signal, thinkingLevel, workspaceRoot, workspaceLspManager,
-		toolHooks, discoveredDeferredToolNames, onDiscoveredDeferredToolsChange, emit, onDone, onError,
+		hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit, onDone, onError,
 	} = input;
 
 	try {
@@ -1816,7 +1872,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			try {
 				const planResult = await llmPlanTasks({
 					settings, threadId, teamLead, specialists, plannerTools, messages: planningMessages, modelSelection,
-					resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, toolHooks, emit,
+					resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 				});
 				if (planResult.clarificationAnswers.length > 0) {
 					const propagated = applyTeamClarificationAnswers(
@@ -1905,7 +1961,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 						settings, threadId, reviewer: resolvedExperts.planReviewer, plannedTasks,
 						userRequest: effectiveUserText, planSummary, specialists,
 						modelSelection, resolvedModel, signal, thinkingLevel,
-						workspaceRoot, workspaceLspManager, toolHooks, baseTools: baseTeamTools, emit,
+						workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools: baseTeamTools, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 					});
 					preflightSummary = preflight.summary;
 					preflightVerdict = preflight.verdict;
@@ -2173,9 +2229,13 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 							settings, task, expert, userRequest: effectiveUserText, planSummary, completedTasksById,
 							allTasks: plannedTasks,
 							modelSelection, resolvedModel,
-							signal, thinkingLevel, workspaceRoot, workspaceLspManager, toolHooks,
+							signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
 							baseTools: baseTeamTools,
 							threadId,
+							deferredToolState,
+							onDeferredToolStateChange,
+							toolResultReplacementState,
+							onToolResultReplacementStateChange,
 							pullPeerMailboxMessages: () => pullPeerMailboxMessages(task),
 							handlePeerRequest: (request) => waitForRunningPeerReply(task, request),
 							handlePeerReply: (reply) => {
@@ -2231,7 +2291,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 					try {
 						const revisedPlan = await llmPlanTasks({
 							settings, threadId, teamLead, specialists, plannerTools, messages: planningMessages, modelSelection,
-							resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, toolHooks, emit,
+							resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 						});
 						if (revisedPlan.clarificationAnswers.length > 0) {
 							const propagated = applyTeamClarificationAnswers(
@@ -2348,7 +2408,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			review = await runReviewerAgent({
 				settings, threadId, reviewer: resolvedExperts.deliveryReviewer, completedTasks: completed,
 				userRequest: effectiveUserText, planSummary, modelSelection, resolvedModel, signal, thinkingLevel,
-				workspaceRoot, workspaceLspManager, toolHooks, baseTools: baseTeamTools, emit,
+				workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools: baseTeamTools, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 			});
 		} else {
 			const failed = completed.filter((t) => t.status === 'failed' || t.status === 'revision');

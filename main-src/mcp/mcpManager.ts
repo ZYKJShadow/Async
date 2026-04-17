@@ -30,6 +30,9 @@ function mcpToolToAgentTool(tool: McpToolWithSource): AgentToolDef {
 	return {
 		name: buildMcpToolName(tool.serverId, tool.name),
 		description: tool.description ?? `MCP tool: ${tool.name} (from ${tool.serverName})`,
+		shouldDefer: true,
+		isMcp: true,
+		schemaCacheKey: `${tool.serverId}:${tool.name}`,
 		parameters: {
 			type: 'object',
 			properties: (tool.inputSchema.properties ?? {}) as Record<string, Record<string, unknown>>,

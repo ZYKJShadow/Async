@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { resolveAsyncDataDir } from './dataDir.js';
 import { appendSuffixToStructuredAssistant, isStructuredAssistantMessage } from '../src/agentStructuredMessage.js';
 import type { AgentSessionSnapshot } from '../src/agentSessionTypes.js';
+import type { ToolResultReplacementState } from './agent/toolResultBudget.js';
 
 export type ChatMessage = {
 	role: 'user' | 'assistant' | 'system';
@@ -45,6 +46,14 @@ export type TeamSessionSnapshot = {
 	reviewVerdict: 'approved' | 'revision_needed' | null;
 };
 
+export type DeferredToolState = {
+	discoveredToolNames: string[];
+	providerLoadedToolNames?: {
+		anthropic?: string[];
+		openai?: string[];
+	};
+};
+
 export type ThreadRecord = {
 	id: string;
 	title: string;
@@ -60,8 +69,10 @@ export type ThreadRecord = {
 	agentToolCallsCompleted?: number;
 	/** 上次记忆抽取完成时的 `agentToolCallsCompleted`，用于计算间隔内工具调用数 */
 	memoryExtractionToolBaseline?: number;
-	/** 线程中已通过 ToolSearch 加载过的延迟工具名（当前主要是 MCP 动态工具）。 */
+	/** 线程中已通过 ToolSearch 加载过的延迟工具状态（兼容旧字段懒升级）。 */
+	deferredToolState?: DeferredToolState;
 	discoveredDeferredToolNames?: string[];
+	toolResultReplacementState?: ToolResultReplacementState;
 	plan?: ThreadPlan;
 	executedPlanFileKeys?: string[];
 	teamSession?: TeamSessionSnapshot;
@@ -531,25 +542,131 @@ export function incrementThreadAgentToolCallCount(threadId: string): void {
 	save();
 }
 
-export function getDiscoveredDeferredToolNames(threadId: string): string[] {
-	const thread = getThread(threadId);
-	if (!thread?.discoveredDeferredToolNames) {
-		return [];
-	}
-	return [...new Set(thread.discoveredDeferredToolNames.map((item) => String(item).trim()).filter(Boolean))];
+function normalizeToolNameList(values: Iterable<string>): string[] {
+	return [...new Set(Array.from(values).map((item) => String(item).trim()).filter(Boolean))].sort((a, b) =>
+		a.localeCompare(b)
+	);
 }
 
-export function saveDiscoveredDeferredToolNames(threadId: string, names: string[]): void {
+function normalizeDeferredToolState(
+	state?: DeferredToolState | null,
+	legacyNames?: string[] | null
+): DeferredToolState {
+	const discovered = normalizeToolNameList([
+		...(state?.discoveredToolNames ?? []),
+		...(legacyNames ?? []),
+	]);
+	const providerLoadedToolNames =
+		state?.providerLoadedToolNames
+			? {
+					...(state.providerLoadedToolNames.anthropic?.length
+						? { anthropic: normalizeToolNameList(state.providerLoadedToolNames.anthropic) }
+						: {}),
+					...(state.providerLoadedToolNames.openai?.length
+						? { openai: normalizeToolNameList(state.providerLoadedToolNames.openai) }
+						: {}),
+				}
+			: undefined;
+	return {
+		discoveredToolNames: discovered,
+		...(providerLoadedToolNames && Object.keys(providerLoadedToolNames).length > 0
+			? { providerLoadedToolNames }
+			: {}),
+	};
+}
+
+function upgradeThreadDeferredState(thread: ThreadRecord): DeferredToolState {
+	const normalized = normalizeDeferredToolState(
+		thread.deferredToolState,
+		thread.discoveredDeferredToolNames
+	);
+	thread.deferredToolState = normalized;
+	if (thread.discoveredDeferredToolNames) {
+		delete thread.discoveredDeferredToolNames;
+	}
+	return normalized;
+}
+
+export function getDeferredToolState(threadId: string): DeferredToolState {
+	const thread = getThread(threadId);
+	if (!thread) {
+		return { discoveredToolNames: [] };
+	}
+	return upgradeThreadDeferredState(thread);
+}
+
+export function saveDeferredToolState(threadId: string, state: DeferredToolState): void {
 	const thread = getThread(threadId);
 	if (!thread) {
 		return;
 	}
-	const normalized = [...new Set(names.map((item) => String(item).trim()).filter(Boolean))].sort((a, b) =>
-		a.localeCompare(b)
-	);
-	thread.discoveredDeferredToolNames = normalized;
+	thread.deferredToolState = normalizeDeferredToolState(state);
+	if (thread.discoveredDeferredToolNames) {
+		delete thread.discoveredDeferredToolNames;
+	}
 	thread.updatedAt = Date.now();
 	save();
+}
+
+export function getDiscoveredDeferredToolNames(threadId: string): string[] {
+	return getDeferredToolState(threadId).discoveredToolNames;
+}
+
+export function saveDiscoveredDeferredToolNames(threadId: string, names: string[]): void {
+	const current = getDeferredToolState(threadId);
+	saveDeferredToolState(threadId, {
+		...current,
+		discoveredToolNames: names,
+	});
+}
+
+export function getToolResultReplacementState(threadId: string): ToolResultReplacementState {
+	const thread = getThread(threadId);
+	if (!thread?.toolResultReplacementState) {
+		return { seenToolUseIds: [], replacements: [] };
+	}
+	return {
+		seenToolUseIds: normalizeToolNameList(thread.toolResultReplacementState.seenToolUseIds ?? []),
+		replacements: [...(thread.toolResultReplacementState.replacements ?? [])]
+			.map((record) => ({
+				toolUseId: String(record.toolUseId ?? '').trim(),
+				toolName: String(record.toolName ?? '').trim(),
+				replacement: String(record.replacement ?? ''),
+				originalSize: Math.max(0, Math.floor(Number(record.originalSize ?? 0) || 0)),
+			}))
+			.filter((record) => record.toolUseId.length > 0)
+			.sort((a, b) => a.toolUseId.localeCompare(b.toolUseId)),
+	};
+}
+
+export function saveToolResultReplacementState(
+	threadId: string,
+	state: ToolResultReplacementState
+): void {
+	const thread = getThread(threadId);
+	if (!thread) {
+		return;
+	}
+	thread.toolResultReplacementState = getToolResultReplacementStateFromInput(state);
+	thread.updatedAt = Date.now();
+	save();
+}
+
+function getToolResultReplacementStateFromInput(
+	state: ToolResultReplacementState
+): ToolResultReplacementState {
+	return {
+		seenToolUseIds: normalizeToolNameList(state.seenToolUseIds ?? []),
+		replacements: [...(state.replacements ?? [])]
+			.map((record) => ({
+				toolUseId: String(record.toolUseId ?? '').trim(),
+				toolName: String(record.toolName ?? '').trim(),
+				replacement: String(record.replacement ?? ''),
+				originalSize: Math.max(0, Math.floor(Number(record.originalSize ?? 0) || 0)),
+			}))
+			.filter((record) => record.toolUseId.length > 0)
+			.sort((a, b) => a.toolUseId.localeCompare(b.toolUseId)),
+	};
 }
 
 export function saveMemoryExtractedMessageCount(threadId: string, count: number): void {
