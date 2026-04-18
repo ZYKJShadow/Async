@@ -1,7 +1,21 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import {
+	loadTerminalSettings,
+	subscribeTerminalSettings,
+	type TerminalAppSettings,
+} from './terminalWindow/terminalSettings';
+
+type XTermThemeColors = {
+	background: string;
+	foreground: string;
+	cursor: string;
+	selectionBackground: string;
+	black: string;
+	brightBlack: string;
+};
 
 export type PtyTerminalViewProps = {
 	sessionId: string;
@@ -21,8 +35,26 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 	const fitRef = useRef<FitAddon | null>(null);
 	const activeRef = useRef(active);
 	const onExitRef = useRef(onSessionExit);
+	const settingsRef = useRef<TerminalAppSettings>(loadTerminalSettings());
+	const [settings, setSettings] = useState<TerminalAppSettings>(() => loadTerminalSettings());
+	const [themeColors, setThemeColors] = useState<XTermThemeColors>(() => readPtyThemeColors());
 	activeRef.current = active;
 	onExitRef.current = onSessionExit;
+	settingsRef.current = settings;
+
+	useEffect(() => {
+		return subscribeTerminalSettings(() => {
+			setSettings(loadTerminalSettings());
+		});
+	}, []);
+
+	useEffect(() => {
+		const observer = new MutationObserver(() => {
+			setThemeColors(readPtyThemeColors());
+		});
+		observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-color-scheme'] });
+		return () => observer.disconnect();
+	}, []);
 
 	useEffect(() => {
 		const shell = window.asyncShell;
@@ -30,16 +62,29 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 		if (!shell?.subscribeTerminalPtyData || !el) {
 			return;
 		}
-
+		const current = settingsRef.current;
 		const term = new XTerm({
 			theme: {
-				background: '#0c0c0e',
-				foreground: '#e4e4e7',
-				cursor: '#6366f1',
+				background: themeColors.background,
+				foreground: themeColors.foreground,
+				cursor: themeColors.cursor,
+				cursorAccent: themeColors.background,
+				selectionBackground: themeColors.selectionBackground,
+				black: themeColors.black,
+				brightBlack: themeColors.brightBlack,
 			},
-			fontSize: 12,
-			fontFamily: 'Consolas, "Cascadia Code", "Courier New", monospace',
-			cursorBlink: true,
+			fontSize: current.fontSize,
+			fontFamily: current.fontFamily,
+			fontWeight: current.fontWeight,
+			fontWeightBold: current.fontWeightBold,
+			lineHeight: current.lineHeight,
+			cursorBlink: current.cursorBlink,
+			cursorStyle: current.cursorStyle,
+			scrollback: current.scrollback,
+			minimumContrastRatio: current.minimumContrastRatio,
+			drawBoldTextInBrightColors: current.drawBoldTextInBrightColors,
+			scrollOnUserInput: current.scrollOnInput,
+			wordSeparator: current.wordSeparator,
 		});
 		const fit = new FitAddon();
 		term.loadAddon(fit);
@@ -59,9 +104,55 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 				}
 			}) ?? (() => {});
 
-		const dListener = term.onData((data) => {
+		const onDataDisposer = term.onData((data) => {
 			void shell.invoke('terminal:ptyWrite', sessionId, data);
 		});
+
+		const selectionDisposer = term.onSelectionChange(() => {
+			if (!settingsRef.current.copyOnSelect || !term.hasSelection()) {
+				return;
+			}
+			const selected = term.getSelection();
+			if (selected) {
+				void shell.invoke('clipboard:writeText', selected).catch(() => {
+					/* ignore */
+				});
+			}
+		});
+
+		const bellDisposer = term.onBell(() => {
+			if (settingsRef.current.bell !== 'visual') {
+				return;
+			}
+			el.classList.add('pty-term-root--bell');
+			window.setTimeout(() => el.classList.remove('pty-term-root--bell'), 160);
+		});
+
+		const onContextMenu = (event: MouseEvent) => {
+			const action = settingsRef.current.rightClickAction;
+			if (action === 'off') {
+				return;
+			}
+			event.preventDefault();
+			if (action === 'clipboard' && term.hasSelection()) {
+				const selected = term.getSelection();
+				if (selected) {
+					void shell.invoke('clipboard:writeText', selected).catch(() => {
+						/* ignore */
+					});
+				}
+				return;
+			}
+			void shell.invoke('clipboard:readText').then((raw) => {
+				const text = typeof raw === 'string' ? raw : '';
+				if (text) {
+					term.paste(text);
+				}
+			}).catch(() => {
+				/* ignore */
+			});
+		};
+		el.addEventListener('contextmenu', onContextMenu);
 
 		const ro = new ResizeObserver(() => {
 			if (!activeRef.current) {
@@ -77,14 +168,62 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 
 		return () => {
 			ro.disconnect();
-			dListener.dispose();
+			onDataDisposer.dispose();
+			selectionDisposer.dispose();
+			bellDisposer.dispose();
+			el.removeEventListener('contextmenu', onContextMenu);
 			unsubData();
 			unsubExit();
 			term.dispose();
 			termRef.current = null;
 			fitRef.current = null;
 		};
-	}, [sessionId]);
+	}, [sessionId, themeColors]);
+
+	useEffect(() => {
+		const term = termRef.current;
+		if (!term) {
+			return;
+		}
+		term.options.fontSize = settings.fontSize;
+		term.options.fontFamily = settings.fontFamily;
+		term.options.fontWeight = settings.fontWeight;
+		term.options.fontWeightBold = settings.fontWeightBold;
+		term.options.lineHeight = settings.lineHeight;
+		term.options.cursorBlink = settings.cursorBlink;
+		term.options.cursorStyle = settings.cursorStyle;
+		term.options.scrollback = settings.scrollback;
+		term.options.minimumContrastRatio = settings.minimumContrastRatio;
+		term.options.drawBoldTextInBrightColors = settings.drawBoldTextInBrightColors;
+		term.options.scrollOnUserInput = settings.scrollOnInput;
+		term.options.wordSeparator = settings.wordSeparator;
+		try {
+			term.refresh(0, term.rows - 1);
+		} catch {
+			/* ignore */
+		}
+	}, [settings]);
+
+	useEffect(() => {
+		const term = termRef.current;
+		if (!term) {
+			return;
+		}
+		term.options.theme = {
+			background: themeColors.background,
+			foreground: themeColors.foreground,
+			cursor: themeColors.cursor,
+			cursorAccent: themeColors.background,
+			selectionBackground: themeColors.selectionBackground,
+			black: themeColors.black,
+			brightBlack: themeColors.brightBlack,
+		};
+		try {
+			term.refresh(0, term.rows - 1);
+		} catch {
+			/* ignore */
+		}
+	}, [themeColors]);
 
 	useEffect(() => {
 		if (!active) {
@@ -115,4 +254,37 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 			<div ref={containerRef} className="xterm-viewport" />
 		</div>
 	);
+}
+
+function readCssVar(name: string, fallback: string): string {
+	try {
+		const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+		return value || fallback;
+	} catch {
+		return fallback;
+	}
+}
+
+function readPtyThemeColors(): XTermThemeColors {
+	const background = readCssVar('--void-bg-0', '#11171c');
+	const foreground = readCssVar('--void-fg-0', '#f3f7f8');
+	const cursor = readCssVar('--void-ring', '#37d6d4');
+	return {
+		background,
+		foreground,
+		cursor,
+		selectionBackground: withAlpha(cursor, 0.33),
+		black: background,
+		brightBlack: readCssVar('--void-fg-3', '#657582'),
+	};
+}
+
+function withAlpha(color: string, alpha: number): string {
+	const hex = color.trim();
+	if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+		return `${hex}${Math.round(alpha * 255)
+			.toString(16)
+			.padStart(2, '0')}`;
+	}
+	return `rgba(55, 214, 212, ${alpha})`;
 }

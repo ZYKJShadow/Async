@@ -7,9 +7,11 @@ import '@xterm/xterm/css/xterm.css';
 import { IconDotsHorizontal, IconPlus, IconSettings, IconTerminal } from './icons';
 import { TerminalSettingsPanel } from './terminalWindow/TerminalSettingsPanel';
 import {
+	buildTerminalProfileTarget,
 	buildTermSessionCreatePayload,
 	loadTerminalSettings,
 	saveTerminalSettings,
+	subscribeTerminalSettings,
 	type TerminalAppSettings,
 } from './terminalWindow/terminalSettings';
 
@@ -54,7 +56,6 @@ type XTermThemeColors = {
 	brightBlack: string;
 };
 
-/** 单个 xterm 视图。订阅主进程广播的 `term:data`；首次挂载会回放缓冲区。 */
 function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings }: TabViewProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const termRef = useRef<XTerm | null>(null);
@@ -72,7 +73,7 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 		if (!el || !shell?.subscribeTerminalSessionData) {
 			return;
 		}
-		const s = appSettingsRef.current;
+		const settings = appSettingsRef.current;
 		const term = new XTerm({
 			theme: {
 				background: theme.background,
@@ -83,12 +84,18 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 				black: theme.black,
 				brightBlack: theme.brightBlack,
 			},
-			fontFamily: s.fontFamily,
-			fontSize: s.fontSize,
-			lineHeight: s.lineHeight,
-			cursorBlink: s.cursorBlink,
-			cursorStyle: s.cursorStyle,
-			scrollback: s.scrollback,
+			fontFamily: settings.fontFamily,
+			fontSize: settings.fontSize,
+			fontWeight: settings.fontWeight,
+			fontWeightBold: settings.fontWeightBold,
+			lineHeight: settings.lineHeight,
+			cursorBlink: settings.cursorBlink,
+			cursorStyle: settings.cursorStyle,
+			scrollback: settings.scrollback,
+			minimumContrastRatio: settings.minimumContrastRatio,
+			drawBoldTextInBrightColors: settings.drawBoldTextInBrightColors,
+			scrollOnUserInput: settings.scrollOnInput,
+			wordSeparator: settings.wordSeparator,
 			allowProposedApi: true,
 		});
 		const fit = new FitAddon();
@@ -98,7 +105,7 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 		fitRef.current = fit;
 
 		let cancelled = false;
-		let sendQueued = false;
+		let resizeQueued = false;
 		const subscribeAndReplay = async () => {
 			try {
 				const sub = (await shell.invoke('term:sessionSubscribe', sessionId)) as
@@ -120,7 +127,7 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 		};
 		void subscribeAndReplay();
 
-		const unsubData = shell.subscribeTerminalSessionData?.((id, data, seq) => {
+		const unsubData = shell.subscribeTerminalSessionData((id, data, seq) => {
 			if (id !== sessionId) {
 				return;
 			}
@@ -141,18 +148,17 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 			void shell.invoke('term:sessionWrite', sessionId, data);
 		});
 
-		const onSelectionChange = () => {
+		const selectionDisposer = term.onSelectionChange(() => {
 			if (!appSettingsRef.current.copyOnSelect || !term.hasSelection()) {
 				return;
 			}
-			const txt = term.getSelection();
-			if (txt) {
-				void shell.invoke('clipboard:writeText', txt).catch(() => {
+			const selection = term.getSelection();
+			if (selection) {
+				void shell.invoke('clipboard:writeText', selection).catch(() => {
 					/* ignore */
 				});
 			}
-		};
-		const selDisposer = term.onSelectionChange(onSelectionChange);
+		});
 
 		const bellDisposer = term.onBell(() => {
 			if (appSettingsRef.current.bell !== 'visual') {
@@ -162,33 +168,39 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 			window.setTimeout(() => el.classList.remove('ref-uterm-bell-flash'), 160);
 		});
 
-		const onContextMenu = (ev: MouseEvent) => {
-			if (!appSettingsRef.current.rightClickPaste) {
+		const onContextMenu = (event: MouseEvent) => {
+			const action = appSettingsRef.current.rightClickAction;
+			if (action === 'off') {
 				return;
 			}
-			ev.preventDefault();
-			void shell
-				.invoke('clipboard:readText')
-				.then((raw) => {
-					const text = typeof raw === 'string' ? raw : '';
-					if (text) {
-						term.paste(text);
-					}
-				})
-				.catch(() => {
-					/* ignore */
-				});
+			event.preventDefault();
+			if (action === 'clipboard' && term.hasSelection()) {
+				const selection = term.getSelection();
+				if (selection) {
+					void shell.invoke('clipboard:writeText', selection).catch(() => {
+						/* ignore */
+					});
+				}
+				return;
+			}
+			void shell.invoke('clipboard:readText').then((raw) => {
+				const text = typeof raw === 'string' ? raw : '';
+				if (text) {
+					term.paste(text);
+				}
+			}).catch(() => {
+				/* ignore */
+			});
 		};
 		el.addEventListener('contextmenu', onContextMenu);
 
 		const propagateResize = () => {
-			const f = fitRef.current;
-			if (!f || !activeRef.current || !containerRef.current) {
+			if (!activeRef.current || !fitRef.current || !containerRef.current) {
 				return;
 			}
 			try {
-				f.fit();
-				const dims = f.proposeDimensions();
+				fitRef.current.fit();
+				const dims = fitRef.current.proposeDimensions();
 				if (dims && dims.cols && dims.rows) {
 					void shell.invoke('term:sessionResize', sessionId, dims.cols, dims.rows);
 				}
@@ -196,23 +208,24 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 				/* ignore */
 			}
 		};
-		const ro = new ResizeObserver(() => {
-			if (sendQueued) {
+
+		const observer = new ResizeObserver(() => {
+			if (resizeQueued) {
 				return;
 			}
-			sendQueued = true;
+			resizeQueued = true;
 			requestAnimationFrame(() => {
-				sendQueued = false;
+				resizeQueued = false;
 				propagateResize();
 			});
 		});
-		ro.observe(el);
+		observer.observe(el);
 
 		return () => {
 			cancelled = true;
-			ro.disconnect();
+			observer.disconnect();
 			inputDisposer.dispose();
-			selDisposer.dispose();
+			selectionDisposer.dispose();
 			bellDisposer.dispose();
 			el.removeEventListener('contextmenu', onContextMenu);
 			unsubData?.();
@@ -231,13 +244,18 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 		if (!term) {
 			return;
 		}
-		const s = appSettings;
-		term.options.fontFamily = s.fontFamily;
-		term.options.fontSize = s.fontSize;
-		term.options.lineHeight = s.lineHeight;
-		term.options.cursorBlink = s.cursorBlink;
-		term.options.cursorStyle = s.cursorStyle;
-		term.options.scrollback = s.scrollback;
+		term.options.fontFamily = appSettings.fontFamily;
+		term.options.fontSize = appSettings.fontSize;
+		term.options.fontWeight = appSettings.fontWeight;
+		term.options.fontWeightBold = appSettings.fontWeightBold;
+		term.options.lineHeight = appSettings.lineHeight;
+		term.options.cursorBlink = appSettings.cursorBlink;
+		term.options.cursorStyle = appSettings.cursorStyle;
+		term.options.scrollback = appSettings.scrollback;
+		term.options.minimumContrastRatio = appSettings.minimumContrastRatio;
+		term.options.drawBoldTextInBrightColors = appSettings.drawBoldTextInBrightColors;
+		term.options.scrollOnUserInput = appSettings.scrollOnInput;
+		term.options.wordSeparator = appSettings.wordSeparator;
 		try {
 			term.refresh(0, term.rows - 1);
 		} catch {
@@ -290,14 +308,7 @@ function TerminalTabView({ sessionId, active, shell, onExit, theme, appSettings 
 		return () => cancelAnimationFrame(raf);
 	}, [active, sessionId, shell]);
 
-	return (
-		<div
-			ref={containerRef}
-			className="ref-uterm-viewport"
-			data-active={active ? '1' : '0'}
-			aria-hidden={!active}
-		/>
-	);
+	return <div ref={containerRef} className="ref-uterm-viewport" aria-hidden={!active} />;
 }
 
 const MemoTerminalTabView = memo(TerminalTabView);
@@ -316,7 +327,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 	const [windowMaximized, setWindowMaximized] = useState(false);
 	const creatingRef = useRef(false);
 	const initialListLoadedRef = useRef(false);
-	const createSessionRef = useRef<() => Promise<void>>(async () => {});
+	const createSessionRef = useRef<(profileId?: string) => Promise<void>>(async () => {});
 	const menuWrapRef = useRef<HTMLDivElement>(null);
 
 	const refreshList = useCallback(async () => {
@@ -324,22 +335,22 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 			return;
 		}
 		try {
-			const res = (await shell.invoke('term:sessionList')) as
+			const result = (await shell.invoke('term:sessionList')) as
 				| { ok: true; sessions: SessionInfo[] }
 				| { ok: false };
-			if (!res.ok) {
+			if (!result.ok) {
 				return;
 			}
-			setSessions(res.sessions);
-			setActiveId((cur) => {
-				if (cur && res.sessions.some((s) => s.id === cur)) {
-					return cur;
+			setSessions(result.sessions);
+			setActiveId((current) => {
+				if (current && result.sessions.some((session) => session.id === current)) {
+					return current;
 				}
-				return res.sessions[0]?.id ?? null;
+				return result.sessions[0]?.id ?? null;
 			});
 			const firstCycle = !initialListLoadedRef.current;
 			initialListLoadedRef.current = true;
-			if (firstCycle && res.sessions.length === 0) {
+			if (firstCycle && result.sessions.length === 0) {
 				await createSessionRef.current();
 			}
 		} catch {
@@ -347,27 +358,32 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 		}
 	}, [shell]);
 
-	const createSession = useCallback(async () => {
-		if (!shell || creatingRef.current) {
-			return;
-		}
-		creatingRef.current = true;
-		try {
-			const profile =
-				terminalSettings.profiles.find((p) => p.id === terminalSettings.defaultProfileId) ??
-				terminalSettings.profiles[0];
-			const payload = profile ? buildTermSessionCreatePayload(profile) : {};
-			const res = (await shell.invoke('term:sessionCreate', payload)) as
-				| { ok: true; session: SessionInfo }
-				| { ok: false; error?: string };
-			if (res.ok) {
-				setSessions((prev) => (prev.some((s) => s.id === res.session.id) ? prev : [...prev, res.session]));
-				setActiveId(res.session.id);
+	const createSession = useCallback(
+		async (profileId?: string) => {
+			if (!shell || creatingRef.current) {
+				return;
 			}
-		} finally {
-			creatingRef.current = false;
-		}
-	}, [shell, terminalSettings]);
+			creatingRef.current = true;
+			try {
+				const profile =
+					terminalSettings.profiles.find((item) => item.id === profileId) ??
+					terminalSettings.profiles.find((item) => item.id === terminalSettings.defaultProfileId) ??
+					terminalSettings.profiles[0];
+				const payload = profile ? buildTermSessionCreatePayload(profile) : {};
+				const result = (await shell.invoke('term:sessionCreate', payload)) as
+					| { ok: true; session: SessionInfo }
+					| { ok: false; error?: string };
+				if (result.ok) {
+					setSessions((prev) => (prev.some((session) => session.id === result.session.id) ? prev : [...prev, result.session]));
+					setActiveId(result.session.id);
+					setSettingsOpen(false);
+				}
+			} finally {
+				creatingRef.current = false;
+			}
+		},
+		[shell, terminalSettings]
+	);
 
 	createSessionRef.current = createSession;
 
@@ -388,10 +404,10 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 				return next;
 			});
 			setSessions((prev) => {
-				const next = prev.filter((s) => s.id !== id);
+				const next = prev.filter((session) => session.id !== id);
 				requestAnimationFrame(() => {
-					setActiveId((cur) => (cur === id ? next[0]?.id ?? null : cur));
-					if (next.length === 0) {
+					setActiveId((current) => (current === id ? next[0]?.id ?? null : current));
+					if (next.length === 0 && !settingsOpen) {
 						void shell.invoke('app:windowClose').catch(() => {
 							/* ignore */
 						});
@@ -400,7 +416,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 				return next;
 			});
 		},
-		[shell]
+		[shell, settingsOpen]
 	);
 
 	useEffect(() => {
@@ -408,34 +424,38 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 	}, [refreshList]);
 
 	useEffect(() => {
-		const unsub = shell?.subscribeTerminalSessionListChanged?.(() => {
+		const unsubscribe = shell?.subscribeTerminalSessionListChanged?.(() => {
 			void refreshList();
 		});
-		return () => {
-			unsub?.();
-		};
+		return () => unsubscribe?.();
 	}, [shell, refreshList]);
 
 	useEffect(() => {
-		const obs = new MutationObserver(() => {
+		const observer = new MutationObserver(() => {
 			setThemeColors(readXtermThemeColors());
 		});
-		obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-color-scheme'] });
-		return () => obs.disconnect();
+		observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-color-scheme'] });
+		return () => observer.disconnect();
+	}, []);
+
+	useEffect(() => {
+		return subscribeTerminalSettings(() => {
+			setTerminalSettings(loadTerminalSettings());
+		});
 	}, []);
 
 	useEffect(() => {
 		if (!menuOpen) {
 			return;
 		}
-		const onDoc = (e: MouseEvent) => {
-			if (menuWrapRef.current?.contains(e.target as Node)) {
+		const onDocumentMouseDown = (event: MouseEvent) => {
+			if (menuWrapRef.current?.contains(event.target as Node)) {
 				return;
 			}
 			setMenuOpen(false);
 		};
-		document.addEventListener('mousedown', onDoc);
-		return () => document.removeEventListener('mousedown', onDoc);
+		document.addEventListener('mousedown', onDocumentMouseDown);
+		return () => document.removeEventListener('mousedown', onDocumentMouseDown);
 	}, [menuOpen]);
 
 	useEffect(() => {
@@ -443,13 +463,13 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 			return;
 		}
 		let cancelled = false;
-		void shell.invoke('app:windowGetState').then((r) => {
+		void shell.invoke('app:windowGetState').then((result) => {
 			if (cancelled) {
 				return;
 			}
-			const o = r as { ok?: boolean; maximized?: boolean };
-			if (o?.ok && typeof o.maximized === 'boolean') {
-				setWindowMaximized(o.maximized);
+			const state = result as { ok?: boolean; maximized?: boolean };
+			if (state?.ok && typeof state.maximized === 'boolean') {
+				setWindowMaximized(state.maximized);
 			}
 		});
 		return () => {
@@ -457,35 +477,47 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 		};
 	}, [shell, menuOpen]);
 
-	const handleExit = useCallback((id: string, code: number | null) => {
-		setExitByTab((prev) => (prev[id] === code ? prev : { ...prev, [id]: code }));
-	}, []);
-
 	const persistSettings = useCallback((next: TerminalAppSettings) => {
 		setTerminalSettings(next);
 		saveTerminalSettings(next);
 	}, []);
 
-	const activeSessionExists = useMemo(() => sessions.some((s) => s.id === activeId), [sessions, activeId]);
+	const handleExit = useCallback((id: string, code: number | null) => {
+		setExitByTab((prev) => (prev[id] === code ? prev : { ...prev, [id]: code }));
+	}, []);
+
+	const activeSession = useMemo(
+		() => sessions.find((session) => session.id === activeId) ?? sessions[0] ?? null,
+		[sessions, activeId]
+	);
+
+	const defaultProfile = useMemo(
+		() =>
+			terminalSettings.profiles.find((profile) => profile.id === terminalSettings.defaultProfileId) ??
+			terminalSettings.profiles[0] ??
+			null,
+		[terminalSettings.defaultProfileId, terminalSettings.profiles]
+	);
+
+	const terminalStageStyle = useMemo(
+		(): CSSProperties =>
+			({
+				'--ref-uterm-body-opacity': String(terminalSettings.opacity),
+			}) as CSSProperties,
+		[terminalSettings.opacity]
+	);
 
 	const onToggleMaximize = useCallback(async () => {
 		if (!shell) {
 			return;
 		}
 		await shell.invoke('app:windowToggleMaximize');
-		const r = (await shell.invoke('app:windowGetState')) as { ok?: boolean; maximized?: boolean };
-		if (r?.ok && typeof r.maximized === 'boolean') {
-			setWindowMaximized(r.maximized);
+		const result = (await shell.invoke('app:windowGetState')) as { ok?: boolean; maximized?: boolean };
+		if (result?.ok && typeof result.maximized === 'boolean') {
+			setWindowMaximized(result.maximized);
 		}
 		setMenuOpen(false);
 	}, [shell]);
-
-	const bodyStyle = useMemo(
-		(): CSSProperties => ({
-			opacity: terminalSettings.opacity,
-		}),
-		[terminalSettings.opacity]
-	);
 
 	if (!shell) {
 		return <div className="ref-uterm-root ref-uterm-root--empty">{t('app.universalTerminalUnavailable')}</div>;
@@ -493,52 +525,32 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 
 	return (
 		<div className="ref-uterm-root">
-			{settingsOpen ? (
-				<TerminalSettingsPanel
-					t={t}
-					settings={terminalSettings}
-					onChange={persistSettings}
-					onClose={() => setSettingsOpen(false)}
-				/>
-			) : null}
 			<div className="ref-uterm-titlebar" role="banner">
-				<div className="ref-uterm-title">
-					<IconTerminal className="ref-uterm-title-icon" />
-					<span>{t('app.universalTerminalWindowTitle')}</span>
-				</div>
 				<div className="ref-uterm-tabstrip" role="tablist" aria-label={t('app.universalTerminalWindowTitle')}>
-					{sessions.map((s, idx) => {
-						const isActive = s.id === activeId;
-						const exitCode = exitByTab[s.id];
-						return (
-							<div
-								key={s.id}
-								role="tab"
-								aria-selected={isActive}
-								className={`ref-uterm-tab ${isActive ? 'is-active' : ''} ${
-									exitCode !== undefined ? 'is-exited' : ''
-								}`}
-							>
-								<button
-									type="button"
-									className="ref-uterm-tab-select"
-									onClick={() => setActiveId(s.id)}
-									title={s.cwd}
-								>
-									<IconTerminal className="ref-uterm-tab-icon" />
-									<span className="ref-uterm-tab-label">{s.title || `Shell ${idx + 1}`}</span>
-								</button>
-								<button
-									type="button"
-									className="ref-uterm-tab-close"
-									aria-label={t('app.universalTerminalCloseTab')}
-									onClick={() => void closeSession(s.id)}
-								>
-									×
-								</button>
-							</div>
-						);
-					})}
+					{settingsOpen ? (
+						<TerminalTabButton
+							active
+							icon={<IconSettings className="ref-uterm-tab-icon" />}
+							label={t('app.universalTerminalSettings.title')}
+							onSelect={() => setSettingsOpen(true)}
+							onClose={() => setSettingsOpen(false)}
+						/>
+					) : null}
+					{sessions.map((session, index) => (
+						<TerminalTabButton
+							key={session.id}
+							active={!settingsOpen && session.id === activeSession?.id}
+							icon={<IconTerminal className="ref-uterm-tab-icon" />}
+							label={session.title || `Shell ${index + 1}`}
+							meta={session.cwd}
+							exited={exitByTab[session.id] !== undefined}
+							onSelect={() => {
+								setActiveId(session.id);
+								setSettingsOpen(false);
+							}}
+							onClose={() => void closeSession(session.id)}
+						/>
+					))}
 					<button
 						type="button"
 						className="ref-uterm-tab-add"
@@ -549,11 +561,13 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 						<IconPlus className="ref-uterm-tab-add-icon" />
 					</button>
 				</div>
+
 				<div className="ref-uterm-drag-spacer" aria-hidden="true" />
+
 				<div className="ref-uterm-titlebar-actions">
 					<button
 						type="button"
-						className="ref-uterm-icon-btn"
+						className={`ref-uterm-icon-btn ${settingsOpen ? 'is-active' : ''}`}
 						onClick={() => setSettingsOpen(true)}
 						title={t('app.universalTerminalSettings.title')}
 						aria-label={t('app.universalTerminalSettings.title')}
@@ -566,7 +580,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 							className="ref-uterm-icon-btn"
 							aria-expanded={menuOpen}
 							aria-haspopup="menu"
-							onClick={() => setMenuOpen((o) => !o)}
+							onClick={() => setMenuOpen((prev) => !prev)}
 							title={t('app.universalTerminalMenu.title')}
 							aria-label={t('app.universalTerminalMenu.title')}
 						>
@@ -599,6 +613,34 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 								>
 									{t('app.universalTerminalMenu.closeActiveTab')}
 								</button>
+								{terminalSettings.profiles.length > 0 ? (
+									<>
+										<div className="ref-uterm-dropdown-sep" role="separator" />
+										<div className="ref-uterm-dropdown-label">
+											{t('app.universalTerminalMenu.newWithProfile')}
+										</div>
+										{terminalSettings.profiles.map((profile) => (
+											<button
+												key={profile.id}
+												type="button"
+												role="menuitem"
+												className="ref-uterm-dropdown-item ref-uterm-dropdown-item--stack"
+												onClick={() => {
+													setMenuOpen(false);
+													void createSession(profile.id);
+												}}
+											>
+												<span>{profile.name || t('app.universalTerminalSettings.profiles.untitled')}</span>
+												<span className="ref-uterm-dropdown-item-meta">
+													{describeTerminalProfileTarget(profile, t)}
+													{profile.id === defaultProfile?.id
+														? ` · ${t('app.universalTerminalMenu.defaultSuffix')}`
+														: ''}
+												</span>
+											</button>
+										))}
+									</>
+								) : null}
 								<div className="ref-uterm-dropdown-sep" role="separator" />
 								<button
 									type="button"
@@ -647,62 +689,132 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 					</div>
 				</div>
 			</div>
-			<div className="ref-uterm-body" style={bodyStyle}>
-				{sessions.length === 0 ? (
-					<div className="ref-uterm-empty">{t('app.universalTerminalEmpty')}</div>
-				) : (
-					sessions.map((s) => {
-						const isActive = activeSessionExists && s.id === activeId;
-						const exitCode = exitByTab[s.id];
-						return (
-							<div
-								key={s.id}
-								className={`ref-uterm-pane ${isActive ? 'is-active' : ''}`}
-								aria-hidden={!isActive}
-							>
-								<MemoTerminalTabView
-									sessionId={s.id}
-									active={isActive}
-									shell={shell}
-									theme={themeColors}
-									appSettings={terminalSettings}
-									onExit={(code) => handleExit(s.id, code)}
-								/>
-								{exitCode !== undefined && (
-									<div className="ref-uterm-pane-exitbadge">
-										{t('app.universalTerminalSessionExited', {
-											code: exitCode === null ? '?' : String(exitCode),
-										})}
-									</div>
-								)}
+
+			{settingsOpen ? (
+				<div className="ref-uterm-stage ref-uterm-stage--settings">
+					<TerminalSettingsPanel t={t} settings={terminalSettings} onChange={persistSettings} />
+				</div>
+			) : (
+				<div className="ref-uterm-stage ref-uterm-stage--terminal" style={terminalStageStyle}>
+					{activeSession ? (
+						<div className="ref-uterm-sessionbar">
+							<div className="ref-uterm-sessionbar-main">
+								<div className="ref-uterm-sessionbar-title">
+									{activeSession.title || t('app.universalTerminalWindowTitle')}
+								</div>
+								<div className="ref-uterm-sessionbar-subtitle">{activeSession.cwd || activeSession.shell}</div>
 							</div>
-						);
-					})
-				)}
-			</div>
+							<div className="ref-uterm-sessionbar-metrics">
+								<span className="ref-uterm-sessionbar-pill">{activeSession.shell}</span>
+								<span className="ref-uterm-sessionbar-pill">
+									{activeSession.cols}×{activeSession.rows}
+								</span>
+								<span className="ref-uterm-sessionbar-pill">{formatBufferBytes(activeSession.bufferBytes)}</span>
+							</div>
+						</div>
+					) : null}
+
+					{sessions.length === 0 ? (
+						<div className="ref-uterm-empty">{t('app.universalTerminalEmpty')}</div>
+					) : (
+						<div className="ref-uterm-panes">
+							{sessions.map((session) => {
+								const isActive = session.id === activeSession?.id;
+								const exitCode = exitByTab[session.id];
+								return (
+									<div key={session.id} className={`ref-uterm-pane ${isActive ? 'is-active' : ''}`} aria-hidden={!isActive}>
+										<MemoTerminalTabView
+											sessionId={session.id}
+											active={isActive}
+											shell={shell}
+											theme={themeColors}
+											appSettings={terminalSettings}
+											onExit={(code) => handleExit(session.id, code)}
+										/>
+										{exitCode !== undefined ? (
+											<div className="ref-uterm-pane-exitbadge">
+												{t('app.universalTerminalSessionExited', {
+													code: exitCode === null ? '?' : String(exitCode),
+												})}
+											</div>
+										) : null}
+									</div>
+								);
+							})}
+						</div>
+					)}
+				</div>
+			)}
 		</div>
 	);
 });
 
+function TerminalTabButton({
+	active,
+	icon,
+	label,
+	meta,
+	exited,
+	onSelect,
+	onClose,
+}: {
+	active: boolean;
+	icon: React.ReactNode;
+	label: string;
+	meta?: string;
+	exited?: boolean;
+	onSelect(): void;
+	onClose(): void;
+}) {
+	return (
+		<div className={`ref-uterm-tab ${active ? 'is-active' : ''} ${exited ? 'is-exited' : ''}`} role="tab" aria-selected={active}>
+			<button type="button" className="ref-uterm-tab-select" onClick={onSelect} title={meta || label}>
+				{icon}
+				<span className="ref-uterm-tab-label">{label}</span>
+			</button>
+			<button type="button" className="ref-uterm-tab-close" onClick={onClose} aria-label={label}>
+				×
+			</button>
+		</div>
+	);
+}
+
 function readCssVar(name: string, fallback: string): string {
 	try {
-		const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-		return v || fallback;
+		const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+		return value || fallback;
 	} catch {
 		return fallback;
 	}
 }
 
 function readXtermThemeColors(): XTermThemeColors {
-	const bg = readCssVar('--void-bg-0', '#11171c');
-	const fg = readCssVar('--void-fg-0', '#f3f7f8');
-	const ring = readCssVar('--void-ring', '#37d6d4');
+	const background = readCssVar('--void-bg-0', '#11171c');
+	const foreground = readCssVar('--void-fg-0', '#f3f7f8');
+	const cursor = readCssVar('--void-ring', '#37d6d4');
 	return {
-		background: bg,
-		foreground: fg,
-		cursor: ring,
+		background,
+		foreground,
+		cursor,
 		selectionBackground: '#37d6d455',
-		black: bg,
+		black: background,
 		brightBlack: '#3f4b57',
 	};
+}
+
+function formatBufferBytes(bytes: number): string {
+	if (bytes < 1024) {
+		return `${bytes} B`;
+	}
+	if (bytes < 1024 * 1024) {
+		return `${(bytes / 1024).toFixed(1)} KB`;
+	}
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function describeTerminalProfileTarget(
+	profile: Pick<TerminalAppSettings['profiles'][number], 'kind' | 'shell' | 'sshUser' | 'sshHost' | 'sshPort'>,
+	t: TFunction
+): string {
+	return buildTerminalProfileTarget(profile as TerminalAppSettings['profiles'][number]) || t('app.universalTerminalSettings.systemDefaultShell');
 }

@@ -2,6 +2,8 @@
 
 export type TerminalCursorStyle = 'bar' | 'block' | 'underline';
 export type TerminalBellStyle = 'none' | 'visual';
+export type TerminalRightClickAction = 'off' | 'paste' | 'clipboard';
+export type TerminalDisplayPresetId = 'compact' | 'balanced' | 'presentation';
 
 /** 本地 Shell 或通过 SSH 的远程会话（由 ssh 作为 pty 子进程）。 */
 export type TerminalProfileKind = 'local' | 'ssh';
@@ -35,12 +37,18 @@ export type TerminalProfile = {
 export type TerminalAppSettings = {
 	fontFamily: string;
 	fontSize: number;
+	fontWeight: number;
+	fontWeightBold: number;
 	lineHeight: number;
 	cursorStyle: TerminalCursorStyle;
 	cursorBlink: boolean;
 	scrollback: number;
+	minimumContrastRatio: number;
+	drawBoldTextInBrightColors: boolean;
+	scrollOnInput: boolean;
+	wordSeparator: string;
 	copyOnSelect: boolean;
-	rightClickPaste: boolean;
+	rightClickAction: TerminalRightClickAction;
 	bell: TerminalBellStyle;
 	/** 0.6–1.0；应用到终端内容面板背景色的不透明度（露出窗口的渐变背景）。 */
 	opacity: number;
@@ -50,6 +58,8 @@ export type TerminalAppSettings = {
 
 export const DEFAULT_PROFILE_ID = 'default';
 export const STORAGE_KEY = 'void-shell:terminal:settings';
+export const TERMINAL_SETTINGS_CHANGED_EVENT = 'async:terminal-settings-changed';
+export const DEFAULT_TERMINAL_WORD_SEPARATOR = ` ()[]{}'",`;
 
 export const FONT_FAMILY_CHOICES: { label: string; value: string }[] = [
 	{ label: 'JetBrains Mono', value: 'JetBrains Mono, Consolas, monospace' },
@@ -65,12 +75,18 @@ export function defaultTerminalSettings(): TerminalAppSettings {
 	return {
 		fontFamily: FONT_FAMILY_CHOICES[0].value,
 		fontSize: 13,
+		fontWeight: 400,
+		fontWeightBold: 700,
 		lineHeight: 1.25,
 		cursorStyle: 'bar',
 		cursorBlink: true,
 		scrollback: 4000,
+		minimumContrastRatio: 1,
+		drawBoldTextInBrightColors: true,
+		scrollOnInput: true,
+		wordSeparator: DEFAULT_TERMINAL_WORD_SEPARATOR,
 		copyOnSelect: false,
-		rightClickPaste: true,
+		rightClickAction: 'paste',
 		bell: 'none',
 		opacity: 1,
 		profiles: [
@@ -94,7 +110,7 @@ export function defaultTerminalSettings(): TerminalAppSettings {
 	};
 }
 
-function normalizeSettings(raw: unknown): TerminalAppSettings {
+export function normalizeTerminalSettings(raw: unknown): TerminalAppSettings {
 	const def = defaultTerminalSettings();
 	if (!raw || typeof raw !== 'object') {
 		return def;
@@ -134,15 +150,31 @@ function normalizeSettings(raw: unknown): TerminalAppSettings {
 			: effectiveProfiles[0].id;
 	const cursor = obj.cursorStyle;
 	const bell = obj.bell;
+	const legacyRightClickPaste = obj.rightClickPaste;
+	const rawRightClickAction = obj.rightClickAction;
 	return {
 		fontFamily: typeof obj.fontFamily === 'string' && obj.fontFamily.trim() ? obj.fontFamily : def.fontFamily,
 		fontSize: clamp(toNumber(obj.fontSize, def.fontSize), 8, 32),
+		fontWeight: snapFontWeight(toNumber(obj.fontWeight, def.fontWeight)),
+		fontWeightBold: snapFontWeight(toNumber(obj.fontWeightBold, def.fontWeightBold)),
 		lineHeight: clamp(toNumber(obj.lineHeight, def.lineHeight), 1, 2.4),
 		cursorStyle: cursor === 'block' || cursor === 'underline' || cursor === 'bar' ? cursor : def.cursorStyle,
 		cursorBlink: obj.cursorBlink !== false,
 		scrollback: clamp(Math.floor(toNumber(obj.scrollback, def.scrollback)), 100, 100_000),
+		minimumContrastRatio: clamp(toNumber(obj.minimumContrastRatio, def.minimumContrastRatio), 1, 21),
+		drawBoldTextInBrightColors: obj.drawBoldTextInBrightColors !== false,
+		scrollOnInput: obj.scrollOnInput !== false,
+		wordSeparator:
+			typeof obj.wordSeparator === 'string' && obj.wordSeparator.length > 0
+				? obj.wordSeparator
+				: def.wordSeparator,
 		copyOnSelect: Boolean(obj.copyOnSelect),
-		rightClickPaste: obj.rightClickPaste !== false,
+		rightClickAction:
+			rawRightClickAction === 'off' || rawRightClickAction === 'paste' || rawRightClickAction === 'clipboard'
+				? rawRightClickAction
+				: legacyRightClickPaste === false
+					? 'off'
+					: 'paste',
 		bell: bell === 'visual' ? 'visual' : 'none',
 		opacity: clamp(toNumber(obj.opacity, def.opacity), 0.5, 1),
 		profiles: effectiveProfiles,
@@ -156,7 +188,7 @@ export function loadTerminalSettings(): TerminalAppSettings {
 		if (!raw) {
 			return defaultTerminalSettings();
 		}
-		return normalizeSettings(JSON.parse(raw));
+		return normalizeTerminalSettings(JSON.parse(raw));
 	} catch {
 		return defaultTerminalSettings();
 	}
@@ -164,10 +196,30 @@ export function loadTerminalSettings(): TerminalAppSettings {
 
 export function saveTerminalSettings(s: TerminalAppSettings): void {
 	try {
-		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+		const next = normalizeTerminalSettings(s);
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+		emitTerminalSettingsChanged(next);
 	} catch {
 		/* ignore */
 	}
+}
+
+export function subscribeTerminalSettings(listener: () => void): () => void {
+	if (typeof window === 'undefined') {
+		return () => {};
+	}
+	const onStorage = (event: StorageEvent) => {
+		if (!event.key || event.key === STORAGE_KEY) {
+			listener();
+		}
+	};
+	const onChanged = () => listener();
+	window.addEventListener('storage', onStorage);
+	window.addEventListener(TERMINAL_SETTINGS_CHANGED_EVENT, onChanged);
+	return () => {
+		window.removeEventListener('storage', onStorage);
+		window.removeEventListener(TERMINAL_SETTINGS_CHANGED_EVENT, onChanged);
+	};
 }
 
 export function newProfileId(existing: TerminalProfile[]): string {
@@ -177,6 +229,111 @@ export function newProfileId(existing: TerminalProfile[]): string {
 		n += 1;
 	}
 	return `profile-${n}`;
+}
+
+export function cloneTerminalProfile(existing: TerminalProfile[], profile: TerminalProfile): TerminalProfile {
+	return {
+		...profile,
+		id: newProfileId(existing),
+		name: `${profile.name.trim() || 'Profile'} Copy`,
+	};
+}
+
+export function resetTerminalProfile(profile: TerminalProfile): TerminalProfile {
+	return {
+		...defaultTerminalSettings().profiles[0],
+		id: profile.id,
+		name: profile.name,
+		kind: profile.kind,
+	};
+}
+
+export function countTerminalProfileEnvEntries(profile: TerminalProfile): number {
+	return Object.keys(parseEnvString(profile.env) ?? {}).length;
+}
+
+export function buildTerminalProfileTarget(profile: TerminalProfile): string {
+	if (profile.kind === 'ssh') {
+		const user = profile.sshUser.trim();
+		const host = profile.sshHost.trim();
+		if (!user && !host) {
+			return 'SSH';
+		}
+		const target = [user, host].filter(Boolean).join('@');
+		return profile.sshPort && profile.sshPort !== 22 ? `${target}:${profile.sshPort}` : target;
+	}
+	return profile.shell.trim();
+}
+
+export function buildTerminalProfileLaunchPreview(profile: TerminalProfile): string {
+	if (profile.kind === 'ssh') {
+		const args: string[] = ['ssh', '-tt'];
+		const extraArgs = parseArgsString(profile.sshExtraArgs);
+		if (extraArgs.length) {
+			args.push(...extraArgs);
+		}
+		const identity = profile.sshIdentityFile.trim();
+		if (identity) {
+			args.push('-i', identity);
+		}
+		if (profile.sshPort && profile.sshPort !== 22) {
+			args.push('-p', String(profile.sshPort));
+		}
+		const target = [profile.sshUser.trim(), profile.sshHost.trim()].filter(Boolean).join('@');
+		if (target) {
+			args.push(target);
+		}
+		const remoteCommand = parseArgsString(profile.sshRemoteCommand);
+		if (remoteCommand.length) {
+			args.push(...remoteCommand);
+		}
+		return args.join(' ').trim() || 'ssh';
+	}
+	const shell = profile.shell.trim() || 'system shell';
+	const args = parseArgsString(profile.args);
+	return [shell, ...args].join(' ').trim();
+}
+
+export function applyTerminalDisplayPreset(
+	settings: TerminalAppSettings,
+	presetId: TerminalDisplayPresetId
+): TerminalAppSettings {
+	switch (presetId) {
+		case 'compact':
+			return normalizeTerminalSettings({
+				...settings,
+				fontSize: 12,
+				fontWeight: 400,
+				fontWeightBold: 700,
+				lineHeight: 1.12,
+				minimumContrastRatio: 4,
+				scrollback: 3000,
+				opacity: 1,
+			});
+		case 'presentation':
+			return normalizeTerminalSettings({
+				...settings,
+				fontSize: 15,
+				fontWeight: 500,
+				fontWeightBold: 800,
+				lineHeight: 1.35,
+				minimumContrastRatio: 7,
+				scrollback: 8000,
+				opacity: 0.96,
+			});
+		case 'balanced':
+		default:
+			return normalizeTerminalSettings({
+				...settings,
+				fontSize: 13,
+				fontWeight: 400,
+				fontWeightBold: 700,
+				lineHeight: 1.25,
+				minimumContrastRatio: 5,
+				scrollback: 4000,
+				opacity: 1,
+			});
+	}
 }
 
 /** 将 args 字符串按 shell 风格切分（支持 "..." / '...' 引号）。 */
@@ -279,6 +436,10 @@ function clamp(n: number, min: number, max: number): number {
 	return Math.min(Math.max(n, min), max);
 }
 
+function snapFontWeight(v: number): number {
+	return Math.round(clamp(v, 100, 900) / 100) * 100;
+}
+
 function toNumber(v: unknown, fallback: number): number {
 	if (typeof v === 'number' && Number.isFinite(v)) {
 		return v;
@@ -288,4 +449,19 @@ function toNumber(v: unknown, fallback: number): number {
 		return Number.isFinite(n) ? n : fallback;
 	}
 	return fallback;
+}
+
+function emitTerminalSettingsChanged(settings: TerminalAppSettings): void {
+	if (typeof window === 'undefined') {
+		return;
+	}
+	try {
+		window.dispatchEvent(
+			new CustomEvent(TERMINAL_SETTINGS_CHANGED_EVENT, {
+				detail: settings,
+			})
+		);
+	} catch {
+		/* ignore */
+	}
 }
