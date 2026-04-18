@@ -8,6 +8,7 @@ import path from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { getWorkspaceRootForWebContents, resolveWorkspacePath } from './workspace.js';
 import {
+	clearTerminalSessionAuthPrompt,
 	createTerminalSession,
 	getTerminalBuffer,
 	getTerminalSession,
@@ -197,6 +198,13 @@ export function registerTerminalSessionIpc(): void {
 			return { ok: false as const };
 		}
 		return { ok: writeTerminalSession(id, data) };
+	});
+
+	ipcMain.handle('term:sessionClearPrompt', (_event, id: unknown) => {
+		if (typeof id !== 'string') {
+			return { ok: false as const };
+		}
+		return { ok: clearTerminalSessionAuthPrompt(id) };
 	});
 
 	ipcMain.handle('term:sessionResize', (_event, id: unknown, cols: unknown, rows: unknown) => {

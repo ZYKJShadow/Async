@@ -5,7 +5,9 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { IconDotsHorizontal, IconPlus, IconSettings, IconTerminal } from './icons';
+import { TerminalAuthPromptModal } from './terminalWindow/TerminalAuthPromptModal';
 import { TerminalSettingsPanel } from './terminalWindow/TerminalSettingsPanel';
+import { TerminalStartPage, type TerminalStartPageProfile } from './terminalWindow/TerminalStartPage';
 import {
 	buildTerminalProfileTarget,
 	buildTermSessionCreatePayload,
@@ -44,6 +46,20 @@ type BufferSlice = {
 	alive: boolean;
 	exitCode: number | null;
 	bufferBytes: number;
+	authPrompt: TerminalSessionAuthPrompt | null;
+};
+
+type TerminalSessionAuthPrompt = {
+	prompt: string;
+	kind: 'password' | 'passphrase';
+	seq: number;
+};
+
+type ActiveTerminalAuthPrompt = TerminalSessionAuthPrompt & {
+	sessionId: string;
+	sessionTitle: string;
+	profileId: string | null;
+	profileName: string;
 };
 
 type ShellBridge = NonNullable<Window['asyncShell']>;
@@ -58,6 +74,7 @@ type TabViewProps = {
 	profile: TerminalProfile | null;
 	t: TFunction;
 	onRequestContextMenu(payload: TerminalContextMenuState): void;
+	onAuthPrompt(sessionId: string, prompt: TerminalSessionAuthPrompt): void;
 	registerRuntime(sessionId: string, runtime: TerminalRuntimeControls | null): void;
 };
 
@@ -99,6 +116,7 @@ function TerminalTabView({
 	profile,
 	t,
 	onRequestContextMenu,
+	onAuthPrompt,
 	registerRuntime,
 }: TabViewProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -114,7 +132,7 @@ function TerminalTabView({
 
 	useEffect(() => {
 		const el = containerRef.current;
-		if (!el || !shell?.subscribeTerminalSessionData) {
+		if (!el || !shell?.subscribeTerminalSessionData || !active) {
 			return;
 		}
 		const settings = appSettingsRef.current;
@@ -212,6 +230,9 @@ function TerminalTabView({
 				seenSeqRef.current = sub.slice.seq;
 				if (sub.slice.content) {
 					term.write(sub.slice.content);
+				}
+				if (sub.slice.authPrompt) {
+					onAuthPrompt(sessionId, sub.slice.authPrompt);
 				}
 				if (!sub.slice.alive) {
 					onExitRef.current?.(sub.slice.exitCode);
@@ -354,7 +375,7 @@ function TerminalTabView({
 			termRef.current = null;
 			fitRef.current = null;
 		};
-	}, [profile, sessionId, shell, t, theme, onRequestContextMenu, registerRuntime]);
+	}, [active, onAuthPrompt, profile, sessionId, shell, t, theme, onRequestContextMenu, registerRuntime]);
 
 	useEffect(() => {
 		const term = termRef.current;
@@ -436,6 +457,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [contextMenu, setContextMenu] = useState<TerminalContextMenuState | null>(null);
 	const [windowMaximized, setWindowMaximized] = useState(false);
+	const [authPromptModal, setAuthPromptModal] = useState<ActiveTerminalAuthPrompt | null>(null);
 	const creatingRef = useRef(false);
 	const initialListLoadedRef = useRef(false);
 	const createSessionRef = useRef<(profileId?: string) => Promise<void>>(async () => {});
@@ -602,16 +624,11 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 				const next = prev.filter((session) => session.id !== id);
 				requestAnimationFrame(() => {
 					setActiveId((current) => (current === id ? next[0]?.id ?? null : current));
-					if (next.length === 0 && !settingsOpen) {
-						void shell.invoke('app:windowClose').catch(() => {
-							/* ignore */
-						});
-					}
 				});
 				return next;
 			});
 		},
-		[shell, settingsOpen]
+		[shell]
 	);
 
 	useEffect(() => {
@@ -753,6 +770,44 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 		() => resolveTerminalProfile(terminalSettings.profiles, terminalSettings.defaultProfileId, builtinProfiles),
 		[builtinProfiles, terminalSettings.defaultProfileId, terminalSettings.profiles]
 	);
+	const startPageProfiles = useMemo(() => {
+		const next: TerminalStartPageProfile[] = [];
+		const seen = new Set<string>();
+		const appendProfile = (profile: TerminalProfile | null | undefined) => {
+			if (!profile || seen.has(profile.id)) {
+				return;
+			}
+			const displayProfile = withTerminalWindowProfileLabel(profile, t);
+			seen.add(displayProfile.id);
+			next.push({
+				id: displayProfile.id,
+				name: displayProfile.name || t('app.universalTerminalSettings.profiles.untitled'),
+				target: describeTerminalProfileTarget(displayProfile, t),
+				kind: displayProfile.kind,
+				isDefault: displayProfile.id === defaultProfile?.id,
+			});
+		};
+
+		appendProfile(defaultProfile);
+		for (const profile of terminalSettings.profiles) {
+			appendProfile(profile);
+		}
+		for (const profile of displayBuiltinProfiles) {
+			appendProfile(profile);
+		}
+		return next;
+	}, [defaultProfile, displayBuiltinProfiles, t, terminalSettings.profiles]);
+	const startPageDefaultMeta = useMemo(() => {
+		const profile = startPageProfiles.find((item) => item.isDefault) ?? startPageProfiles[0] ?? null;
+		if (!profile) {
+			return t('app.universalTerminalStartPageDefaultFallback');
+		}
+		return t('app.universalTerminalStartPageDefaultHint', {
+			name: profile.name,
+			target: profile.target,
+		});
+	}, [startPageProfiles, t]);
+	const visibleStartPageProfiles = useMemo(() => startPageProfiles.slice(0, 6), [startPageProfiles]);
 	const resolvedSessionProfiles = useMemo(() => {
 		const next: Record<string, TerminalProfile | null> = {};
 		for (const session of sessions) {
@@ -764,6 +819,48 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 		}
 		return next;
 	}, [builtinProfiles, sessionProfiles, sessions, terminalSettings.defaultProfileId, terminalSettings.profiles]);
+	const openAuthPrompt = useCallback(
+		(sessionId: string, prompt: TerminalSessionAuthPrompt) => {
+			const session = sessions.find((item) => item.id === sessionId) ?? null;
+			const resolvedProfile = resolvedSessionProfiles[sessionId] ?? null;
+			const displayProfile = resolvedProfile ? withTerminalWindowProfileLabel(resolvedProfile, t) : null;
+			setSettingsOpen(false);
+			setActiveId(sessionId);
+			setAuthPromptModal((current) => {
+				if (current && current.sessionId === sessionId && current.seq === prompt.seq) {
+					return current;
+				}
+				return {
+					...prompt,
+					sessionId,
+					sessionTitle: session?.title || t('app.universalTerminalWindowTitle'),
+					profileId: displayProfile?.id ?? null,
+					profileName: displayProfile?.name || t('app.universalTerminalSettings.profiles.untitled'),
+				};
+			});
+		},
+		[resolvedSessionProfiles, sessions, t]
+	);
+
+	useEffect(() => {
+		const unsubscribe = shell?.subscribeTerminalSessionAuthPrompt?.((id, prompt) => {
+			if (!prompt) {
+				return;
+			}
+			openAuthPrompt(id, prompt);
+		});
+		return () => unsubscribe?.();
+	}, [openAuthPrompt, shell]);
+
+	useEffect(() => {
+		if (!authPromptModal) {
+			return;
+		}
+		const session = sessions.find((item) => item.id === authPromptModal.sessionId) ?? null;
+		if (!session || !session.alive) {
+			setAuthPromptModal(null);
+		}
+	}, [authPromptModal, sessions]);
 
 	const terminalStageStyle = useMemo(
 		(): CSSProperties =>
@@ -821,6 +918,39 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 		}
 		setMenuOpen(false);
 	}, [shell]);
+
+	const dismissAuthPrompt = useCallback(async () => {
+		if (!authPromptModal || !shell) {
+			setAuthPromptModal(null);
+			return;
+		}
+		await shell.invoke('term:sessionClearPrompt', authPromptModal.sessionId).catch(() => {
+			/* ignore */
+		});
+		setAuthPromptModal(null);
+	}, [authPromptModal, shell]);
+
+	const submitAuthPrompt = useCallback(
+		async (value: string, remember: boolean) => {
+			const promptState = authPromptModal;
+			if (!promptState || !shell) {
+				return;
+			}
+			if (!value.length) {
+				return;
+			}
+			await shell.invoke('term:sessionWrite', promptState.sessionId, `${value}\r`).catch(() => {
+				/* ignore */
+			});
+			if (remember && promptState.kind === 'password' && promptState.profileId) {
+				await shell.invoke('term:profilePasswordSet', promptState.profileId, value).catch(() => {
+					/* ignore */
+				});
+			}
+			setAuthPromptModal(null);
+		},
+		[authPromptModal, shell]
+	);
 
 	if (!shell) {
 		return <div className="ref-uterm-root ref-uterm-root--empty">{t('app.universalTerminalUnavailable')}</div>;
@@ -1027,7 +1157,15 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 					) : null}
 
 					{sessions.length === 0 ? (
-						<div className="ref-uterm-empty">{t('app.universalTerminalEmpty')}</div>
+						<TerminalStartPage
+							t={t}
+							defaultActionMeta={startPageDefaultMeta}
+							profiles={visibleStartPageProfiles}
+							remainingProfileCount={Math.max(0, startPageProfiles.length - visibleStartPageProfiles.length)}
+							onCreate={() => void createSession()}
+							onOpenSettings={() => setSettingsOpen(true)}
+							onLaunchProfile={(profileId) => void createSession(profileId)}
+						/>
 					) : (
 						<>
 							<div className="ref-uterm-panes">
@@ -1046,6 +1184,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 												profile={sessionProfile}
 												t={t}
 												onRequestContextMenu={handleRequestContextMenu}
+												onAuthPrompt={openAuthPrompt}
 												registerRuntime={registerRuntime}
 												onExit={(code) => handleExit(session.id, code)}
 											/>
@@ -1088,6 +1227,17 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 						</>
 					)}
 			</div>
+			{authPromptModal ? (
+				<TerminalAuthPromptModal
+					t={t}
+					kind={authPromptModal.kind}
+					prompt={authPromptModal.prompt}
+					sessionTitle={authPromptModal.sessionTitle}
+					profileName={authPromptModal.profileName}
+					onCancel={() => void dismissAuthPrompt()}
+					onSubmit={(value, remember) => void submitAuthPrompt(value, remember)}
+				/>
+			) : null}
 		</div>
 	);
 });

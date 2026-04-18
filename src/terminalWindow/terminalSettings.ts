@@ -522,7 +522,7 @@ function isWindowsRenderer(): boolean {
 }
 
 /**
- * 根据配置档生成 `term:sessionCreate` 的选项（本地 Shell 或 ssh）。SSH 缺少必填项时退回本地逻辑。
+ * 根据配置生成 `term:sessionCreate` 的选项（本地 Shell 或 ssh）。SSH 缺少必填项时退回本地逻辑。
  */
 export function buildTermSessionCreatePayload(profile: TerminalProfile): Record<string, unknown> {
 	const payload: Record<string, unknown> = {};

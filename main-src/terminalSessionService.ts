@@ -14,6 +14,7 @@ import * as pty from 'node-pty';
 import { isWindows } from './platform.js';
 
 const MAX_BUFFER_BYTES = 256 * 1024;
+const MAX_PASSWORD_AUTOFILL_ATTEMPTS = 1;
 
 export type TerminalSessionCreateOpts = {
 	cwd?: string;
@@ -38,6 +39,14 @@ export type TerminalSessionInfo = {
 	createdAt: number;
 };
 
+export type TerminalSessionAuthPromptKind = 'password' | 'passphrase';
+
+export type TerminalSessionAuthPrompt = {
+	prompt: string;
+	kind: TerminalSessionAuthPromptKind;
+	seq: number;
+};
+
 type Session = {
 	id: string;
 	pty: pty.IPty;
@@ -55,6 +64,7 @@ type Session = {
 	passwordAutofill: string | null;
 	passwordAutofillCount: number;
 	recentOutputTail: string;
+	pendingAuthPrompt: TerminalSessionAuthPrompt | null;
 };
 
 const sessions = new Map<string, Session>();
@@ -125,6 +135,12 @@ export function createTerminalSession(opts: TerminalSessionCreateOpts = {}): Ter
 		env: mergedEnv,
 		cols,
 		rows,
+		...(isWindows()
+			? ({
+					useConpty: true,
+					useConptyDll: true,
+			  } satisfies pty.IWindowsPtyForkOptions)
+			: {}),
 	});
 	const session: Session = {
 		id,
@@ -143,17 +159,22 @@ export function createTerminalSession(opts: TerminalSessionCreateOpts = {}): Ter
 		passwordAutofill: opts.passwordAutofill || null,
 		passwordAutofillCount: 0,
 		recentOutputTail: '',
+		pendingAuthPrompt: null,
 	};
 	sessions.set(id, session);
 	proc.onData((data) => {
 		session.seq += 1;
 		appendBuffer(session, data);
-		maybeAutoFillPassword(session, data);
+		const authPrompt = maybeHandleAuthPrompt(session, data);
 		broadcastToSubscribers(session, 'term:data', id, data, session.seq);
+		if (authPrompt) {
+			broadcastToSubscribers(session, 'term:authPrompt', id, authPrompt);
+		}
 	});
 	proc.onExit(({ exitCode }) => {
 		session.alive = false;
 		session.exitCode = typeof exitCode === 'number' ? exitCode : null;
+		session.pendingAuthPrompt = null;
 		broadcastToSubscribers(session, 'term:exit', id, session.exitCode);
 		broadcastListChanged();
 	});
@@ -167,11 +188,21 @@ export function writeTerminalSession(id: string, data: string): boolean {
 		return false;
 	}
 	try {
+		s.pendingAuthPrompt = null;
 		s.pty.write(data);
 		return true;
 	} catch {
 		return false;
 	}
+}
+
+export function clearTerminalSessionAuthPrompt(id: string): boolean {
+	const s = sessions.get(id);
+	if (!s) {
+		return false;
+	}
+	s.pendingAuthPrompt = null;
+	return true;
 }
 
 export function resizeTerminalSession(id: string, cols: number, rows: number): boolean {
@@ -222,6 +253,7 @@ export type TerminalBufferSlice = {
 	alive: boolean;
 	exitCode: number | null;
 	bufferBytes: number;
+	authPrompt: TerminalSessionAuthPrompt | null;
 };
 
 export function getTerminalBuffer(id: string, maxBytes?: number): TerminalBufferSlice | null {
@@ -238,6 +270,7 @@ export function getTerminalBuffer(id: string, maxBytes?: number): TerminalBuffer
 		alive: s.alive,
 		exitCode: s.exitCode,
 		bufferBytes: Buffer.byteLength(s.buffer, 'utf8'),
+		authPrompt: s.pendingAuthPrompt,
 	};
 }
 
@@ -266,6 +299,7 @@ export function subscribeToSession(id: string, contents: WebContents): TerminalB
 		alive: s.alive,
 		exitCode: s.exitCode,
 		bufferBytes: Buffer.byteLength(s.buffer, 'utf8'),
+		authPrompt: s.pendingAuthPrompt,
 	};
 }
 
@@ -375,18 +409,82 @@ function defaultTitleForShell(shellPath: string): string {
 	return base.replace(/\.exe$/i, '');
 }
 
-function maybeAutoFillPassword(session: Session, chunk: string): void {
-	if (!session.passwordAutofill || session.passwordAutofillCount >= 3) {
-		return;
-	}
+function maybeHandleAuthPrompt(session: Session, chunk: string): TerminalSessionAuthPrompt | null {
 	session.recentOutputTail = (session.recentOutputTail + chunk).slice(-512);
-	if (!/(?:password|passphrase)[^:\r\n]*:\s*$/i.test(session.recentOutputTail)) {
-		return;
+	const detected = detectTerminalAuthPrompt(session.recentOutputTail);
+	if (!detected) {
+		session.pendingAuthPrompt = null;
+		return null;
 	}
-	try {
-		session.passwordAutofillCount += 1;
-		session.pty.write(session.passwordAutofill + '\r');
-	} catch {
-		/* ignore */
+
+	if (session.passwordAutofill && session.passwordAutofillCount < MAX_PASSWORD_AUTOFILL_ATTEMPTS) {
+		try {
+			session.passwordAutofillCount += 1;
+			session.pendingAuthPrompt = null;
+			session.pty.write(session.passwordAutofill + '\r');
+			return null;
+		} catch {
+			/* ignore */
+		}
 	}
+
+	const nextPrompt: TerminalSessionAuthPrompt = {
+		prompt: detected.prompt,
+		kind: detected.kind,
+		seq: session.seq,
+	};
+	session.pendingAuthPrompt = nextPrompt;
+	return nextPrompt;
+}
+
+function detectTerminalAuthPrompt(
+	tail: string
+): { prompt: string; kind: TerminalSessionAuthPromptKind } | null {
+	const printableTail = sanitizeTerminalPromptTail(tail);
+	const match = /([^\r\n]*?(password|passphrase)[^\r\n]*:\s*)$/i.exec(printableTail);
+	if (!match) {
+		return null;
+	}
+	const prompt = match[1]?.trim() ?? '';
+	if (!prompt) {
+		return null;
+	}
+	return {
+		prompt,
+		kind: /passphrase/i.test(prompt) ? 'passphrase' : 'password',
+	};
+}
+
+function sanitizeTerminalPromptTail(input: string): string {
+	let text = input;
+	text = stripOscSequences(text);
+	text = stripAnsiSequences(text);
+	text = applyBackspaces(text);
+	text = text.replace(/\r/g, '\n');
+	text = text.replace(/[^\S\n]+/g, ' ');
+	text = text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
+	text = text.replace(/\n{2,}/g, '\n');
+	return text.slice(-256);
+}
+
+function stripOscSequences(input: string): string {
+	return input.replace(/\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '');
+}
+
+function stripAnsiSequences(input: string): string {
+	return input
+		.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+		.replace(/\u001B[@-Z\\-_]/g, '');
+}
+
+function applyBackspaces(input: string): string {
+	const out: string[] = [];
+	for (const ch of input) {
+		if (ch === '\b' || ch === '\u007f') {
+			out.pop();
+			continue;
+		}
+		out.push(ch);
+	}
+	return out.join('');
 }

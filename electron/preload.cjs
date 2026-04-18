@@ -97,6 +97,7 @@ const INVOKE_CHANNELS = new Set([
 	'terminalWindow:open',
 	'term:sessionCreate',
 	'term:sessionWrite',
+	'term:sessionClearPrompt',
 	'term:sessionResize',
 	'term:sessionKill',
 	'term:sessionRename',
@@ -356,6 +357,13 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		};
 		ipcRenderer.on('term:data', handler);
 		return () => ipcRenderer.removeListener('term:data', handler);
+	},
+	subscribeTerminalSessionAuthPrompt(callback) {
+		const handler = (_e, id, prompt) => {
+			callback(String(id), prompt && typeof prompt === 'object' ? prompt : null);
+		};
+		ipcRenderer.on('term:authPrompt', handler);
+		return () => ipcRenderer.removeListener('term:authPrompt', handler);
 	},
 	subscribeTerminalSessionExit(callback) {
 		const handler = (_e, id, code) => {
