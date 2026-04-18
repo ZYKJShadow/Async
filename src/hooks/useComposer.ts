@@ -1,10 +1,7 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { type ComposerMode } from '../ComposerPlusMenu';
 import { type ComposerSegment } from '../composerSegments';
-import {
-	createEmptyLiveAgentBlocks,
-	type LiveAgentBlocksState,
-} from '../liveAgentBlocks';
+import { streamingStore } from '../streamingStore';
 
 const COMPOSER_MODE_KEY = 'async:composer-mode-v1';
 
@@ -45,16 +42,23 @@ export function useComposer() {
 	const [composerAttachErr, setComposerAttachErr] = useState<string | null>(null);
 	const composerAttachErrTimerRef = useRef<number | null>(null);
 
-	const [streamingThinking, setStreamingThinking] = useState('');
-	const [streamingToolPreview, setStreamingToolPreview] = useState<{
-		name: string;
-		partialJson: string;
-		index: number;
-	} | null>(null);
 	const streamingToolPreviewClearTimerRef = useRef<number | null>(null);
 
-	const [liveAssistantBlocks, setLiveAssistantBlocks] = useState<LiveAgentBlocksState>(() =>
-		createEmptyLiveAgentBlocks()
+	/**
+	 * streaming / streamingThinking / streamingToolPreview / liveAssistantBlocks 均已迁到
+	 * 外部 store，避免每个 token 触发 App 顶层重渲染；此处仅暴露稳定引用的写入器给订阅器使用。
+	 */
+	const setStreamingThinking = useMemo(
+		() => streamingStore.setStreamingThinking,
+		[]
+	);
+	const setStreamingToolPreview = useMemo(
+		() => streamingStore.setStreamingToolPreview,
+		[]
+	);
+	const setLiveAssistantBlocks = useMemo(
+		() => streamingStore.setLiveAssistantBlocks,
+		[]
 	);
 
 	const [toolApprovalRequest, setToolApprovalRequest] = useState<{
@@ -77,11 +81,11 @@ export function useComposer() {
 			window.clearTimeout(streamingToolPreviewClearTimerRef.current);
 			streamingToolPreviewClearTimerRef.current = null;
 		}
-		setStreamingToolPreview(null);
+		streamingStore.setStreamingToolPreview(null);
 	}, []);
 
 	const resetLiveAgentBlocks = useCallback(() => {
-		setLiveAssistantBlocks(createEmptyLiveAgentBlocks());
+		streamingStore.resetLiveBlocks();
 	}, []);
 
 	const flashComposerAttachErr = useCallback((msg: string) => {
@@ -99,7 +103,7 @@ export function useComposer() {
 	const resetComposerState = useCallback(() => {
 		setComposerSegments([]);
 		setInlineResendSegments([]);
-		setStreamingThinking('');
+		streamingStore.setStreamingThinking('');
 		clearStreamingToolPreviewNow();
 		resetLiveAgentBlocks();
 		setToolApprovalRequest(null);
@@ -116,12 +120,9 @@ export function useComposer() {
 		composerAttachErr,
 		setComposerAttachErr,
 		composerAttachErrTimerRef,
-		streamingThinking,
 		setStreamingThinking,
-		streamingToolPreview,
 		setStreamingToolPreview,
 		streamingToolPreviewClearTimerRef,
-		liveAssistantBlocks,
 		setLiveAssistantBlocks,
 		toolApprovalRequest,
 		setToolApprovalRequest,

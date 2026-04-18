@@ -1,12 +1,14 @@
 import {
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 	type Dispatch,
 	type MutableRefObject,
 	type SetStateAction,
 } from 'react';
+import { streamingStore } from '../streamingStore';
 import type { ComposerMode } from '../ComposerPlusMenu';
 import type { TeamSettings } from '../agentSettingsTypes';
 import { userMessageToSegments, type ComposerSegment } from '../composerSegments';
@@ -145,9 +147,13 @@ function escapeStreamAttr(s: string): string {
 }
 
 export function useStreamingChat() {
-	const [streaming, setStreaming] = useState('');
+	/**
+	 * streaming 文本缓冲已迁至 streamingStore：每 token 不再触发 App 顶层重渲染，
+	 * 仅 AgentChatPanel 及其子组件通过选择器订阅。
+	 */
+	const setStreaming = useMemo(() => streamingStore.setStreaming, []);
 	const [awaitingReply, setAwaitingReply] = useState(false);
-	// 改为 ref 避免每秒 10 次重渲染
+	// thinkingTickRef 保留（部分调用方直接读 .current）；实际 UI 重渲染由 streamingStore.thinkingTick 驱动
 	const thinkingTickRef = useRef(0);
 	const [thoughtSecondsByThread, setThoughtSecondsByThread] = useState<Record<string, number>>({});
 	const [subAgentBgToast, setSubAgentBgToast] = useState<StreamingToast>(null);
@@ -192,7 +198,9 @@ export function useStreamingChat() {
 		ipcInFlightChatThreadIdRef.current = threadId;
 		streamStartedAtRef.current = Date.now();
 		firstTokenAtRef.current = null;
-		setStreaming('');
+		streamingStore.setStreaming('');
+		thinkingTickRef.current = 0;
+		streamingStore.resetThinkingTick();
 		setAwaitingReply(true);
 		ipcStreamNonceRef.current += 1;
 		return ipcStreamNonceRef.current;
@@ -234,7 +242,8 @@ export function useStreamingChat() {
 		streamStartedAtRef.current = null;
 		firstTokenAtRef.current = null;
 		setAwaitingReply(false);
-		setStreaming('');
+		streamingStore.setStreaming('');
+		streamingStore.resetThinkingTick();
 	}, []);
 
 	const clearInFlightIpcRouting = useCallback((threadId?: string | null) => {
@@ -244,23 +253,28 @@ export function useStreamingChat() {
 		}
 	}, []);
 
-	// thinkingTick 改为 ref 后仍需触发 UI 更新（思考计时器显示），使用 forceUpdate
-	const [, forceUpdate] = useState(0);
+	// 思考秒数 tick：只在等待回复且尚无流式文本时跳动；驱动 streamingStore.thinkingTick，
+	// 由 <LiveAssistantBubble> 等消费端订阅，不再触发 App 顶层重渲染。
 	useEffect(() => {
-		if (!awaitingReply || streaming.length > 0) {
+		if (!awaitingReply) {
+			return;
+		}
+		if (streamingStore.getStreaming().length > 0) {
 			return;
 		}
 		const id = window.setInterval(() => {
+			if (streamingStore.getStreaming().length > 0) {
+				return;
+			}
 			thinkingTickRef.current += 1;
-			forceUpdate(x => x + 1); // 仅更新显示思考时间的组件
-		}, 1000); // 降低到 1 秒一次，足够显示秒数
+			streamingStore.incrementThinkingTick();
+		}, 1000);
 		return () => window.clearInterval(id);
-	}, [awaitingReply, streaming.length]);
+	}, [awaitingReply]);
 
 	useEffect(() => () => clearToastTimer(), [clearToastTimer]);
 
 	return {
-		streaming,
 		setStreaming,
 		awaitingReply,
 		setAwaitingReply,

@@ -20,6 +20,7 @@ import {
 } from '../agentStructuredMessage';
 import { hashAgentAssistantContent } from '../agentFileChangesPersist';
 import { planExecutedKey } from '../planExecutedKey';
+import { useStreaming } from '../streamingStore';
 
 type Message = { role: string; content: string };
 
@@ -67,9 +68,10 @@ export function usePlanSystem(
 	messagesThreadId: string | null,
 	messagesRef: RefObject<Message[]>,
 	workspace: string | null,
-	streaming: string,
 	defaultModel: string,
 ) {
+	// streaming 从外部 store 订阅，避免 App 顶层需要把 streaming 作为参数传入
+	const streaming = useStreaming();
 	const [parsedPlan, setParsedPlan] = useState<ParsedPlan | null>(null);
 	const [planFilePath, setPlanFilePath] = useState<string | null>(null);
 	const [planFileRelPath, setPlanFileRelPath] = useState<string | null>(null);

@@ -49,17 +49,17 @@ export function estimateComposerSegmentsCharLength(segments: ReadonlyArray<Compo
 	return n;
 }
 
-/** 底部输入区上下文环：会话正文 + 流式 + 思考 + 草稿 composer（与压缩估算同思路） */
+/**
+ * 底部输入区上下文环：会话正文 + 草稿 composer（与压缩估算同思路）。
+ * streaming / streamingThinking 已迁至 streamingStore，不再参与 App 级的实时估算；
+ * 每次 token 都累进会触发 App 重渲染，且端到端对用户感知影响极小，下一轮持久化后自然计入。
+ */
 export function computeComposerContextUsedEstimate(args: {
 	messages: ReadonlyArray<{ content: string }>;
-	streaming: string;
-	streamingThinking: string;
 	composerSegments: ReadonlyArray<ComposerSegment>;
 }): number {
 	const chars =
 		sumMessagesCharLength(args.messages) +
-		args.streaming.length +
-		args.streamingThinking.length +
 		estimateComposerSegmentsCharLength(args.composerSegments);
 	return estimateTokensFromCharLength(chars);
 }

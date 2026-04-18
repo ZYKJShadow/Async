@@ -41,28 +41,24 @@ export function useAgentChatPanelProps({
 	);
 
 	// Group 1: Message/Thread state (changes on thread switch or new messages)
+	// streaming / streamingThinking / streamingToolPreview / liveAssistantBlocks 均已迁至
+	// streamingStore，AgentChatPanel 内部订阅并合成 displayMessages，不再从 props 走，
+	// 避免每个 token / tool 事件触发 App 级重渲染。
 	const messageGroup = useMemo(() => ({
-		displayMessages: rest.displayMessages,
-		persistedMessageCount: rest.persistedMessageCount,
+		persistedMessages: rest.persistedMessages,
 		messagesThreadId: rest.messagesThreadId,
 		currentId: rest.currentId,
-		lastAssistantMessageIndex: rest.lastAssistantMessageIndex,
 		hasConversation: rest.hasConversation,
 		awaitingReply: rest.awaitingReply,
-		streaming: rest.streaming,
-		streamingThinking: rest.streamingThinking,
-		streamingToolPreview: rest.streamingToolPreview,
-		liveAssistantBlocks: rest.liveAssistantBlocks,
 		lastTurnUsage: rest.lastTurnUsage,
 		fileChangesDismissed: rest.fileChangesDismissed,
 		agentPlanSummaryCard: rest.agentPlanSummaryCard,
 		showScrollToBottomButton: rest.showScrollToBottomButton,
 		scrollMessagesToBottom: rest.scrollMessagesToBottom,
 	}), [
-		rest.displayMessages, rest.persistedMessageCount, rest.messagesThreadId,
-		rest.currentId, rest.lastAssistantMessageIndex,
-		rest.hasConversation, rest.awaitingReply, rest.streaming,
-		rest.streamingThinking, rest.streamingToolPreview, rest.liveAssistantBlocks,
+		rest.persistedMessages, rest.messagesThreadId,
+		rest.currentId,
+		rest.hasConversation, rest.awaitingReply,
 		rest.lastTurnUsage, rest.fileChangesDismissed,
 		rest.agentPlanSummaryCard, rest.showScrollToBottomButton, rest.scrollMessagesToBottom,
 	]);
@@ -151,7 +147,6 @@ export function useAgentChatPanelProps({
 		messagesViewportRef: rest.messagesViewportRef,
 		messagesTrackRef: rest.messagesTrackRef,
 		onMessagesScroll: rest.onMessagesScroll,
-		thinkingTickRef: rest.thinkingTickRef,
 		streamStartedAtRef: rest.streamStartedAtRef,
 		firstTokenAtRef: rest.firstTokenAtRef,
 		thoughtSecondsByThread: rest.thoughtSecondsByThread,
@@ -160,7 +155,7 @@ export function useAgentChatPanelProps({
 		rest.dismissedFiles,
 		rest.revertedFiles, rest.revertedChangeKeys,
 		rest.messagesViewportRef, rest.messagesTrackRef, rest.onMessagesScroll,
-		rest.thinkingTickRef, rest.streamStartedAtRef, rest.firstTokenAtRef,
+		rest.streamStartedAtRef, rest.firstTokenAtRef,
 		rest.thoughtSecondsByThread,
 	]);
 
@@ -182,12 +177,12 @@ export function useAgentChatPanelProps({
 					if (p.a !== actionGroup) reasons.push('action');
 					if (p.s !== stableGroup) reasons.push('stable');
 					console.log(
-						`[perf] useAgentChatPanelProps memo recomputed: messages=${messageGroup.displayMessages.length}, thread=${messageGroup.messagesThreadId}` +
+						`[perf] useAgentChatPanelProps memo recomputed: messages=${messageGroup.persistedMessages.length}, thread=${messageGroup.messagesThreadId}` +
 							(reasons.length ? ` (groups: ${reasons.join(', ')})` : '')
 					);
 				} else {
 					console.log(
-						`[perf] useAgentChatPanelProps memo recomputed: messages=${messageGroup.displayMessages.length}, thread=${messageGroup.messagesThreadId}`
+						`[perf] useAgentChatPanelProps memo recomputed: messages=${messageGroup.persistedMessages.length}, thread=${messageGroup.messagesThreadId}`
 					);
 				}
 				prevGroupsRef.current = { m: messageGroup, c: composerGroup, a: actionGroup, s: stableGroup };

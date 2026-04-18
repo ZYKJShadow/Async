@@ -35,6 +35,13 @@ import {
 	extractLastTodosFromContent,
 	segmentAssistantContentUnified,
 } from './agentChatSegments';
+import {
+	useLiveAssistantBlocks,
+	useStreaming,
+	useStreamingThinking,
+	useStreamingToolPreview,
+	useThinkingTick,
+} from './streamingStore';
 import { computeMergedAgentFileChanges } from './agentFileChangesCompute';
 import {
 	computeLatestTurnFocusSpacerPx,
@@ -47,7 +54,7 @@ import type { WizardPending } from './hooks/useWizardPending';
 import type { TFunction } from './i18n';
 import { isChatAssistantErrorLine } from './i18n';
 import { type AgentPendingPatch, type TurnTokenUsage } from './ipcTypes';
-import { extractTodosFromLiveBlocks, type LiveAgentBlocksState } from './liveAgentBlocks';
+import { extractTodosFromLiveBlocks } from './liveAgentBlocks';
 import { IconArrowDown, IconChevron, IconDoc } from './icons';
 import { type ParsedPlan, type PlanQuestion } from './planParser';
 import { type ChatMessage } from './threadTypes';
@@ -64,26 +71,20 @@ export type AgentChatPanelProps = {
 	layout?: 'agent-center' | 'editor-rail';
 	t: TFunction;
 	hasConversation: boolean;
-	displayMessages: ChatMessage[];
-	persistedMessageCount: number;
+	/** 持久化的历史消息；live 助手气泡由面板内部通过 streamingStore 订阅合成，不从这里传入 */
+	persistedMessages: ChatMessage[];
 	messagesThreadId: string | null;
 	currentId: string | null;
-	lastAssistantMessageIndex: number;
 	messagesViewportRef: RefObject<HTMLDivElement | null>;
 	messagesTrackRef: RefObject<HTMLDivElement | null>;
 	inlineResendRootRef: RefObject<HTMLDivElement | null>;
 	onMessagesScroll: () => void;
 	awaitingReply: boolean;
-	thinkingTickRef: React.RefObject<number>;
 	streamStartedAtRef: RefObject<number | null>;
 	firstTokenAtRef: RefObject<number | null>;
 	thoughtSecondsByThread: Record<string, number>;
 	lastTurnUsage: TurnTokenUsage | null;
 	composerMode: ComponentProps<typeof ChatComposer>['composerMode'];
-	streaming: string;
-	streamingThinking: string;
-	streamingToolPreview: ComponentProps<typeof ChatMarkdown>['streamingToolPreview'];
-	liveAssistantBlocks: LiveAgentBlocksState;
 	workspace: string | null;
 	workspaceBasename: string;
 	knownSlashCommands: string[];
@@ -209,26 +210,19 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	layout = 'agent-center',
 	t,
 	hasConversation,
-	displayMessages,
-	persistedMessageCount,
+	persistedMessages,
 	messagesThreadId,
 	currentId,
-	lastAssistantMessageIndex,
 	messagesViewportRef,
 	messagesTrackRef,
 	inlineResendRootRef,
 	onMessagesScroll,
 	awaitingReply,
-	thinkingTickRef,
 	streamStartedAtRef,
 	firstTokenAtRef,
 	thoughtSecondsByThread,
 	lastTurnUsage,
 	composerMode,
-	streaming,
-	streamingThinking,
-	streamingToolPreview,
-	liveAssistantBlocks,
 	workspace,
 	workspaceBasename,
 	knownSlashCommands,
@@ -290,6 +284,29 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	onTeamPlanApprove,
 	onTeamPlanReject,
 }: AgentChatPanelProps) {
+	const streamingToolPreview = useStreamingToolPreview();
+	const liveAssistantBlocks = useLiveAssistantBlocks();
+	const streaming = useStreaming();
+	const streamingThinking = useStreamingThinking();
+	// 订阅 thinkingTick：仅用于 thinking 阶段每秒刷新耗时显示（订阅成立即可，不需要读值）
+	useThinkingTick();
+	const persistedMessageCount = persistedMessages.length;
+	const displayMessages = useMemo<ChatMessage[]>(() => {
+		if (composerMode === 'team' && awaitingReply && streaming === '') {
+			return persistedMessages;
+		}
+		if (!awaitingReply && streaming === '') {
+			return persistedMessages;
+		}
+		return [...persistedMessages, { role: 'assistant' as const, content: streaming }];
+	}, [persistedMessages, streaming, awaitingReply, composerMode]);
+	const lastAssistantMessageIndex = useMemo(() => {
+		let idx = -1;
+		for (let j = 0; j < displayMessages.length; j++) {
+			if (displayMessages[j]!.role === 'assistant') idx = j;
+		}
+		return idx;
+	}, [displayMessages]);
 	if (import.meta.env.DEV) {
 		console.log(`[perf] AgentChatPanel render: thread=${messagesThreadId}, messages=${displayMessages.length}, hasConv=${hasConversation}`);
 	}
@@ -641,7 +658,6 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			let liveThoughtMeta: ComponentProps<typeof ChatMarkdown>['liveThoughtMeta'] = null;
 			let thoughtAfterBody = false;
 			if (showLiveThought && stAt) {
-				void thinkingTickRef.current; // 读取 ref 以建立依赖
 				const assistantTurnHasOutput =
 					streaming.trim().length > 0 ||
 					streamingToolPreview != null ||

@@ -113,6 +113,7 @@ import { type ChatMessage, type ThreadInfo } from './threadTypes';
 import { normWorkspaceRootKey } from './workspaceRootKey';
 import { useAgentFileReview, type AgentFilePreviewState } from './hooks/useAgentFileReview';
 import { useComposer } from './hooks/useComposer';
+import { useStreaming } from './streamingStore';
 import { useEditorTabs, type EditorInlineDiffState, clampEditorTerminalHeight } from './hooks/useEditorTabs';
 import { useTeamSession } from './hooks/useTeamSession';
 import { useAgentSession } from './hooks/useAgentSession';
@@ -557,6 +558,35 @@ function AppBrowserWindow() {
 	return <AgentBrowserWindowSurface />;
 }
 
+/**
+ * 流式跟随滚动：订阅 streamingStore 的 streaming 字段，仅该子组件按 token 重渲染，
+ * 粘底时每次 token 变化都调度一帧合并滚动，App 根不再因 streaming 重渲染。
+ */
+const MessagesScrollSync = memo(function MessagesScrollSync({
+	hasConversation,
+	pinMessagesToBottomRef,
+	scheduleMessagesScrollToBottom,
+	syncMessagesScrollIndicators,
+}: {
+	hasConversation: boolean;
+	pinMessagesToBottomRef: RefObject<boolean>;
+	scheduleMessagesScrollToBottom: () => void;
+	syncMessagesScrollIndicators: () => void;
+}) {
+	const streaming = useStreaming();
+	useLayoutEffect(() => {
+		if (!hasConversation) return;
+		if (pinMessagesToBottomRef.current) {
+			scheduleMessagesScrollToBottom();
+		}
+		const rafId = requestAnimationFrame(() => {
+			syncMessagesScrollIndicators();
+		});
+		return () => cancelAnimationFrame(rafId);
+	}, [hasConversation, streaming, pinMessagesToBottomRef, scheduleMessagesScrollToBottom, syncMessagesScrollIndicators]);
+	return null;
+});
+
 function AppMainWorkspaceInner() {
 	const {
 		shell,
@@ -730,9 +760,7 @@ function AppMainWorkspaceInner() {
 	// ─────────────────────────────────────────────────────────────────────────
 
 	const {
-		streaming,
 		awaitingReply,
-		thinkingTickRef,
 		thoughtSecondsByThread,
 		subAgentBgToast,
 		showTransientToast,
@@ -829,7 +857,7 @@ function AppMainWorkspaceInner() {
 		onPlanAddTodoSubmit,
 		onPlanQuestionSkip: recordPlanQuestionDismissed,
 		resetPlanState,
-	} = usePlanSystem(shell, currentId, currentIdRef, messages, messagesThreadId, messagesRef, workspace, streaming, defaultModel);
+	} = usePlanSystem(shell, currentId, currentIdRef, messages, messagesThreadId, messagesRef, workspace, defaultModel);
 
 	const [rootUserInputRequestsByThread, setRootUserInputRequestsByThread] = useState<
 		Record<string, AgentUserInputRequest>
@@ -856,12 +884,9 @@ function AppMainWorkspaceInner() {
 		composerMode,
 		setComposerMode,
 		composerAttachErr,
-		streamingThinking,
 		setStreamingThinking,
-		streamingToolPreview,
 		setStreamingToolPreview,
 		streamingToolPreviewClearTimerRef,
-		liveAssistantBlocks,
 		setLiveAssistantBlocks,
 		toolApprovalRequest,
 		setToolApprovalRequest,
@@ -1373,7 +1398,7 @@ function AppMainWorkspaceInner() {
 		collapsedAgentWorkspacePathSet,
 	]);
 
-	const hasConversation = messages.length > 0 || !!streaming;
+	const hasConversation = messages.length > 0 || awaitingReply;
 	const normalizedEditorSidebarSearchQuery = editorSidebarSearchQuery.trim().toLowerCase();
 	const [editorSidebarSearchResults, setEditorSidebarSearchResults] = useState<
 		{ rel: string; fileName: string; dir: string; fileIndex: number; pathIndex: number }[]
@@ -4658,29 +4683,6 @@ function AppMainWorkspaceInner() {
 		}
 	};
 
-	const displayMessages = useMemo(() => {
-		if (composerMode === 'team' && awaitingReply && streaming === '') {
-			return messages;
-		}
-		if (!awaitingReply && streaming === '') {
-			return messages;
-		}
-		return [...messages, { role: 'assistant' as const, content: streaming }];
-	}, [messages, streaming, awaitingReply, composerMode]);
-
-	const lastAssistantMessageIndex = useMemo(() => {
-		let idx = -1;
-		for (let j = 0; j < displayMessages.length; j++) {
-			if (displayMessages[j]!.role === 'assistant') {
-				idx = j;
-			}
-		}
-		return idx;
-	}, [displayMessages]);
-
-	const displayMessagesRef = useRef(displayMessages);
-	displayMessagesRef.current = displayMessages;
-
 	/**
 	 * 从 localStorage 恢复「已保留/已撤销全部」或逐文件忽略，绑定当前线程最后一条助手正文。
 	 * 降级为 useEffect（不涉及 DOM 测量）：主路径已由 onMessagesLoaded 在 startTransition
@@ -4719,7 +4721,7 @@ function AppMainWorkspaceInner() {
 			setPlanQuestionRequestId(null);
 			return;
 		}
-		if (awaitingReply || streaming !== '') {
+		if (awaitingReply) {
 			/* ask_plan_question 阻塞主进程时仍需保留弹窗与 requestId */
 			if (!planQuestionRequestId) {
 				setPlanQuestion(null);
@@ -4750,7 +4752,6 @@ function AppMainWorkspaceInner() {
 		composerMode,
 		resendFromUserIndex,
 		awaitingReply,
-		streaming,
 		planQuestionRequestId,
 	]);
 
@@ -4783,7 +4784,7 @@ function AppMainWorkspaceInner() {
 		const gp = agentGitPackRef.current;
 		const revertedPaths = new Set(
 			computeMergedAgentFileChanges(
-				displayMessagesRef.current,
+				messagesRef.current,
 				composerMode,
 				t,
 				dismissedFilesRef.current,
@@ -4949,7 +4950,7 @@ function AppMainWorkspaceInner() {
 			syncMessagesScrollIndicators();
 		});
 		return () => cancelAnimationFrame(rafId);
-	}, [hasConversation, currentId, messagesThreadId, displayMessages, syncMessagesScrollIndicators]);
+	}, [hasConversation, currentId, messagesThreadId, messages.length, syncMessagesScrollIndicators]);
 
 	/** 用户发出新消息：强制跟到底部 */
 	useLayoutEffect(() => {
@@ -4967,13 +4968,16 @@ function AppMainWorkspaceInner() {
 		}
 	}, [messages, currentId, messagesThreadId, scrollMessagesToBottom]);
 
-	/** 流式 / 思考计时 / 展示列表变化：仅在「粘底」时跟随（每帧合并一次，减轻与 RO 重复滚动） */
+	/**
+	 * 流式 / 思考计时 / 展示列表变化：粘底跟随。streaming 由 MessagesScrollSync 子组件订阅，
+	 * 每个 token 只让该组件重渲染，不再传播到 App。
+	 */
 	useLayoutEffect(() => {
 		if (!hasConversation || !pinMessagesToBottomRef.current) {
 			return;
 		}
 		scheduleMessagesScrollToBottom();
-	}, [hasConversation, displayMessages, streaming, currentId, scheduleMessagesScrollToBottom]);
+	}, [hasConversation, messages.length, currentId, scheduleMessagesScrollToBottom]);
 
 	useLayoutEffect(() => {
 		if (!hasConversation) {
@@ -4984,7 +4988,7 @@ function AppMainWorkspaceInner() {
 			syncMessagesScrollIndicators();
 		});
 		return () => cancelAnimationFrame(rafId);
-	}, [hasConversation, displayMessages, streaming, currentId, syncMessagesScrollIndicators]);
+	}, [hasConversation, messages.length, currentId, syncMessagesScrollIndicators]);
 
 	/** 内容高度异步变化（Markdown、diff 卡片等）时仍保持粘底 */
 	useEffect(() => {
@@ -5474,8 +5478,6 @@ function AppMainWorkspaceInner() {
 		const maxTokens = isDefaultMax ? DEFAULT_CONTEXT_WINDOW_TOKENS_UI : Math.floor(raw);
 		const usedEstimate = computeComposerContextUsedEstimate({
 			messages,
-			streaming,
-			streamingThinking,
 			composerSegments,
 		});
 		return { maxTokens, usedEstimate, isDefaultMax };
@@ -5484,8 +5486,6 @@ function AppMainWorkspaceInner() {
 		defaultModel,
 		modelEntries,
 		messages,
-		streaming,
-		streamingThinking,
 		composerSegments,
 	]);
 
@@ -5838,26 +5838,19 @@ function AppMainWorkspaceInner() {
 	const agentChatPanelProps = useAgentChatPanelProps({
 		t,
 		hasConversation,
-		displayMessages,
-		persistedMessageCount: messages.length,
+		persistedMessages: messages,
 		messagesThreadId,
 		currentId,
-		lastAssistantMessageIndex,
 		messagesViewportRef,
 		messagesTrackRef,
 		inlineResendRootRef,
 		onMessagesScroll,
 		awaitingReply,
-		thinkingTickRef,
 		streamStartedAtRef,
 		firstTokenAtRef,
 		thoughtSecondsByThread,
 		lastTurnUsage,
 		composerMode,
-		streaming,
-		streamingThinking,
-		streamingToolPreview,
-		liveAssistantBlocks,
 		workspace,
 		workspaceBasename,
 		knownSlashCommands: (mergedAgentCustomization.commands ?? []).map((command) => command.slash),
@@ -6275,7 +6268,6 @@ function AppMainWorkspaceInner() {
 			const triggers = [];
 			if (messagesThreadId) triggers.push(`thread=${messagesThreadId}`);
 			if (messages.length > 0) triggers.push(`msgs=${messages.length}`);
-			if (streaming) triggers.push('streaming');
 			if (awaitingReply) triggers.push('awaiting');
 			console.log(
 				`[perf] App render completed in ${renderTime.toFixed(1)}ms, count=${appRenderCountRef.current}, triggers: ${triggers.join(', ') || 'none'}`
@@ -6366,6 +6358,12 @@ function AppMainWorkspaceInner() {
 		<AppProvider shell={shell} workspace={workspace} t={t}>
 		<ComposerActionsProvider value={composerActions}>
 		<div className={`ref-shell ${layoutMode === 'agent' ? 'ref-shell--agent-layout' : ''}`}>
+			<MessagesScrollSync
+				hasConversation={hasConversation}
+				pinMessagesToBottomRef={pinMessagesToBottomRef}
+				scheduleMessagesScrollToBottom={scheduleMessagesScrollToBottom}
+				syncMessagesScrollIndicators={syncMessagesScrollIndicators}
+			/>
 			<AppShellMenubar
 				layoutMode={layoutMode}
 				t={t}
