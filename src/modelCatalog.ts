@@ -23,6 +23,19 @@ export type UserModelEntry = {
 	contextWindowTokens?: number;
 };
 
+export type DiscoveredProviderModel = {
+	requestName: string;
+	displayName?: string;
+	contextWindowTokens?: number;
+	maxOutputTokens?: number;
+};
+
+export type MergeDiscoveredProviderModelsResult = {
+	entries: UserModelEntry[];
+	addedCount: number;
+	totalDiscovered: number;
+};
+
 function newId(): string {
 	return typeof crypto !== 'undefined' && crypto.randomUUID
 		? crypto.randomUUID()
@@ -112,4 +125,101 @@ export function providerDisplayLabel(providerId: string, providers: UserLlmProvi
 	const p = providers.find((x) => x.id === providerId);
 	const n = p?.displayName?.trim();
 	return n || p?.id || '';
+}
+
+function normalizeRequestName(name: string): string {
+	return name.trim().toLowerCase();
+}
+
+function isBlankProviderEntry(entry: UserModelEntry): boolean {
+	return entry.displayName.trim().length === 0 && entry.requestName.trim().length === 0;
+}
+
+function normalizePositiveInt(value: number | undefined): number | undefined {
+	if (value == null || !Number.isFinite(value) || value <= 0) {
+		return undefined;
+	}
+	return Math.floor(value);
+}
+
+function applyDiscoveredFields(entry: UserModelEntry, model: DiscoveredProviderModel): UserModelEntry {
+	const isUnconfiguredEntry = entry.requestName.trim().length === 0;
+	const requestName = entry.requestName.trim() || model.requestName.trim();
+	const displayName = entry.displayName.trim() || model.displayName?.trim() || requestName;
+	const contextWindowTokens = entry.contextWindowTokens ?? normalizePositiveInt(model.contextWindowTokens);
+	const discoveredMaxOutputTokens = normalizePositiveInt(model.maxOutputTokens);
+	const maxOutputTokens =
+		isUnconfiguredEntry && discoveredMaxOutputTokens != null
+			? discoveredMaxOutputTokens
+			: entry.maxOutputTokens;
+	return {
+		...entry,
+		requestName,
+		displayName,
+		...(maxOutputTokens != null ? { maxOutputTokens } : {}),
+		...(contextWindowTokens != null ? { contextWindowTokens } : {}),
+	};
+}
+
+export function mergeDiscoveredProviderModels(
+	entries: UserModelEntry[],
+	providerId: string,
+	discovered: DiscoveredProviderModel[]
+): MergeDiscoveredProviderModelsResult {
+	const nextEntries = [...entries];
+	const requestToIndex = new Map<string, number>();
+	const blankIndices: number[] = [];
+
+	for (let index = 0; index < nextEntries.length; index += 1) {
+		const entry = nextEntries[index];
+		if (entry.providerId !== providerId) {
+			continue;
+		}
+		const requestKey = normalizeRequestName(entry.requestName);
+		if (requestKey) {
+			requestToIndex.set(requestKey, index);
+		} else if (isBlankProviderEntry(entry)) {
+			blankIndices.push(index);
+		}
+	}
+
+	const normalizedDiscovered = new Set<string>();
+	let addedCount = 0;
+
+	for (const model of discovered) {
+		const requestName = model.requestName.trim();
+		if (!requestName) {
+			continue;
+		}
+		const requestKey = normalizeRequestName(requestName);
+		if (!requestKey || normalizedDiscovered.has(requestKey)) {
+			continue;
+		}
+		normalizedDiscovered.add(requestKey);
+
+		const existingIndex = requestToIndex.get(requestKey);
+		if (existingIndex != null) {
+			continue;
+		}
+
+		const blankIndex = blankIndices.shift();
+		if (blankIndex != null) {
+			nextEntries[blankIndex] = applyDiscoveredFields(nextEntries[blankIndex], model);
+			requestToIndex.set(requestKey, blankIndex);
+			addedCount += 1;
+			continue;
+		}
+
+		nextEntries.push(
+			applyDiscoveredFields(createEmptyUserModel(providerId), model)
+		);
+		requestToIndex.set(requestKey, nextEntries.length - 1);
+		addedCount += 1;
+	}
+
+	return {
+		entries: nextEntries,
+		addedCount,
+		totalDiscovered: normalizedDiscovered.size,
+	};
 }

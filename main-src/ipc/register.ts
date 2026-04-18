@@ -47,6 +47,7 @@ import {
 	getMcpServerConfigs,
 	patchMcpServerConfigs,
 	removeMcpServerConfig,
+	type UserLlmProvider,
 } from '../settingsStore.js';
 import {
 	addMarketplaceFromInput,
@@ -105,6 +106,7 @@ import { parseComposerMode, type ComposerMode } from '../llm/composerMode.js';
 import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
 import { preconnectLlmBaseUrlIfEligible } from '../llm/apiPreconnect.js';
 import { scheduleRefreshOpenAiModelCapabilitiesIfStale } from '../llm/modelContext.js';
+import { discoverProviderModels } from '../llm/providerModelDiscovery.js';
 import { streamChatUnified } from '../llm/llmRouter.js';
 import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import {
@@ -1638,6 +1640,27 @@ export function registerIpc(): void {
 			}
 		}
 		return next;
+	});
+
+	ipcMain.handle('settings:discoverProviderModels', async (_e, rawProvider: unknown) => {
+		const provider = rawProvider as Partial<UserLlmProvider> | null | undefined;
+		if (
+			!provider ||
+			typeof provider !== 'object' ||
+			typeof provider.id !== 'string' ||
+			typeof provider.displayName !== 'string' ||
+			typeof provider.paradigm !== 'string'
+		) {
+			return { ok: false as const, message: 'Invalid provider payload.' };
+		}
+		return await discoverProviderModels({
+			id: provider.id,
+			displayName: provider.displayName,
+			paradigm: provider.paradigm,
+			apiKey: typeof provider.apiKey === 'string' ? provider.apiKey : undefined,
+			baseURL: typeof provider.baseURL === 'string' ? provider.baseURL : undefined,
+			proxyUrl: typeof provider.proxyUrl === 'string' ? provider.proxyUrl : undefined,
+		});
 	});
 
 	ipcMain.handle('plugins:getState', async (event) => {

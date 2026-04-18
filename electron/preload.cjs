@@ -30,6 +30,7 @@ const INVOKE_CHANNELS = new Set([
 	'workspace:memory:rebuild',
 	'settings:get',
 	'settings:set',
+	'settings:discoverProviderModels',
 	'settings:testBotConnection',
 	'plugins:getState',
 	'plugins:getRuntimeState',

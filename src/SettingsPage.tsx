@@ -3,6 +3,8 @@ import {
 	createEmptyUserLlmProvider,
 	createEmptyUserModel,
 	DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+	mergeDiscoveredProviderModels,
+	type DiscoveredProviderModel,
 	type UserLlmProvider,
 	type UserModelEntry,
 } from './modelCatalog';
@@ -74,6 +76,21 @@ export const ALL_SETTINGS_NAV_IDS: SettingsNavId[] = [
 
 
 type NavItem = { id: SettingsNavId; label: string; badge?: number };
+
+type ProviderDiscoverState = {
+	status: 'idle' | 'loading' | 'done';
+	ok?: boolean;
+	message?: string;
+};
+
+type ProviderDiscoverModalState = {
+	providerId: string;
+	providerName: string;
+	mergedEntries: UserModelEntry[];
+	addedCount: number;
+	totalDiscovered: number;
+	duplicateCount: number;
+};
 
 function navItemsForT(t: (key: string) => string): NavItem[] {
 	return [
@@ -409,6 +426,8 @@ export function SettingsPage({
 	const [nav, setNav] = useState<SettingsNavId>(initialNav);
 	const [search, setSearch] = useState('');
 	const deferredSearch = useDeferredValue(search);
+	const [providerDiscoverStateById, setProviderDiscoverStateById] = useState<Record<string, ProviderDiscoverState>>({});
+	const [providerDiscoverModal, setProviderDiscoverModal] = useState<ProviderDiscoverModalState | null>(null);
 	const [sidebarWidth, setSidebarWidth] = useState(() => readSettingsSidebarWidth());
 	const [navPending, startNavTransition] = useTransition();
 	const resolvedProviderIdentity = useMemo(
@@ -587,6 +606,101 @@ export function SettingsPage({
 			}
 		},
 		[modelEntries, onChangeModelEntries, defaultModel, onPickDefaultModel]
+	);
+
+	const applyProviderDiscoverImport = useCallback(() => {
+		if (!providerDiscoverModal) {
+			return;
+		}
+		onChangeModelEntries(providerDiscoverModal.mergedEntries);
+		setProviderDiscoverStateById((prev) => ({
+			...prev,
+			[providerDiscoverModal.providerId]: {
+				status: 'done',
+				ok: true,
+				message:
+					providerDiscoverModal.addedCount > 0
+						? t('settings.discoverModelsImported', {
+								addedCount: providerDiscoverModal.addedCount,
+								totalCount: providerDiscoverModal.totalDiscovered,
+							})
+						: t('settings.searchProviderModelsNothingNew'),
+			},
+		}));
+		setProviderDiscoverModal(null);
+	}, [onChangeModelEntries, providerDiscoverModal, t]);
+
+	const discoverModelsForProvider = useCallback(
+		async (provider: UserLlmProvider) => {
+			if (!shell) {
+				setProviderDiscoverStateById((prev) => ({
+					...prev,
+					[provider.id]: { status: 'done', ok: false, message: t('settings.discoverModelsUnavailable') },
+				}));
+				return;
+			}
+
+			setProviderDiscoverStateById((prev) => ({
+				...prev,
+				[provider.id]: { status: 'loading' },
+			}));
+
+			try {
+				const result = (await shell.invoke('settings:discoverProviderModels', provider)) as
+					| {
+							ok?: boolean;
+							models?: { id?: string; contextWindowTokens?: number; maxOutputTokens?: number }[];
+							message?: string;
+					  }
+					| undefined;
+				if (result?.ok !== true) {
+					setProviderDiscoverStateById((prev) => ({
+						...prev,
+						[provider.id]: {
+							status: 'done',
+							ok: false,
+							message: result?.message?.trim() || t('settings.discoverModelsFailed'),
+						},
+					}));
+					return;
+				}
+
+				const discoveredModels: DiscoveredProviderModel[] = (result.models ?? [])
+					.filter((model) => typeof model?.id === 'string' && model.id.trim().length > 0)
+					.map((model) => ({
+						requestName: String(model.id).trim(),
+						contextWindowTokens: model.contextWindowTokens,
+						maxOutputTokens: model.maxOutputTokens,
+					}));
+				const merged = mergeDiscoveredProviderModels(modelEntries, provider.id, discoveredModels);
+				setProviderDiscoverStateById((prev) => ({
+					...prev,
+					[provider.id]: {
+						status: 'done',
+						ok: true,
+						message: undefined,
+					},
+				}));
+				setProviderDiscoverModal({
+					providerId: provider.id,
+					providerName: provider.displayName.trim() || t('settings.providerUntitled'),
+					mergedEntries: merged.entries,
+					addedCount: merged.addedCount,
+					totalDiscovered: merged.totalDiscovered,
+					duplicateCount: Math.max(0, merged.totalDiscovered - merged.addedCount),
+				});
+			} catch (error) {
+				setProviderDiscoverStateById((prev) => ({
+					...prev,
+					[provider.id]: {
+						status: 'done',
+						ok: false,
+						message: error instanceof Error ? error.message : String(error ?? t('settings.discoverModelsFailed')),
+					},
+				}));
+			}
+		},
+		[modelEntries, shell, t]
 	);
 
 	return (
@@ -884,6 +998,7 @@ export function SettingsPage({
 								<ul className="ref-settings-provider-root-list" aria-label={t('settings.modelCatalog')}>
 									{filteredProviders.map((prov) => {
 										const subModels = modelsVisibleUnderProvider(prov);
+										const discoverState = providerDiscoverStateById[prov.id];
 										return (
 											<li key={prov.id} className="ref-settings-provider-shell">
 												<details className="ref-settings-provider-details">
@@ -960,6 +1075,18 @@ export function SettingsPage({
 														<div className="ref-settings-provider-models-head">
 															<h3 className="ref-settings-provider-models-title">{t('settings.modelsInProvider')}</h3>
 															<div className="ref-settings-provider-models-actions">
+																{prov.paradigm === 'openai-compatible' ? (
+																	<button
+																		type="button"
+																		className="ref-settings-add-model ref-settings-add-model--small ref-settings-provider-search-btn"
+																		onClick={() => void discoverModelsForProvider(prov)}
+																		disabled={!shell || discoverState?.status === 'loading'}
+																	>
+																		{discoverState?.status === 'loading'
+																			? t('settings.searchProviderModelsRunning')
+																			: t('settings.searchProviderModels')}
+																	</button>
+																) : null}
 																<button type="button" className="ref-settings-add-model ref-settings-add-model--small" onClick={() => addModelToProvider(prov.id)}>
 																	{t('settings.addModelToProvider')}
 																</button>
@@ -973,6 +1100,20 @@ export function SettingsPage({
 																</button>
 															</div>
 														</div>
+														{discoverState?.status === 'done' && discoverState.message ? (
+															<p
+																className="ref-settings-field-hint"
+																style={{
+																	marginTop: 8,
+																	color:
+																		discoverState.ok === false
+																			? 'var(--void-danger, #ef4444)'
+																			: undefined,
+																}}
+															>
+																{discoverState.message}
+															</p>
+														) : null}
 
 														<ul className="ref-settings-provider-model-list">
 															{subModels.map((m) => {
@@ -1178,6 +1319,79 @@ export function SettingsPage({
 					</div>
 				</div>
 			</div>
+			{providerDiscoverModal ? (
+				<div className="modal-backdrop" role="presentation" onClick={() => setProviderDiscoverModal(null)}>
+					<div
+						className="modal ref-settings-provider-search-modal"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="ref-settings-provider-search-title"
+						onClick={(event) => event.stopPropagation()}
+					>
+						<h2 id="ref-settings-provider-search-title">{t('settings.searchProviderModelsTitle')}</h2>
+						<div className="ref-settings-provider-search-modal-copy">
+							<p className="ref-settings-lead" style={{ marginBottom: 10 }}>
+								{t('settings.searchProviderModelsSummary', {
+									totalCount: providerDiscoverModal.totalDiscovered,
+									providerName: providerDiscoverModal.providerName,
+								})}
+							</p>
+							{providerDiscoverModal.duplicateCount > 0 ? (
+								<p className="ref-settings-field-hint" style={{ marginTop: 0 }}>
+									{t('settings.searchProviderModelsFiltered', {
+										duplicateCount: providerDiscoverModal.duplicateCount,
+									})}
+								</p>
+							) : null}
+							<p className="ref-settings-field-hint" style={{ marginTop: 0 }}>
+								{providerDiscoverModal.addedCount > 0
+									? t('settings.searchProviderModelsImportReady', {
+											addedCount: providerDiscoverModal.addedCount,
+										})
+									: t('settings.searchProviderModelsNothingNew')}
+							</p>
+						</div>
+
+						<div className="ref-settings-provider-search-stats">
+							<div className="ref-settings-provider-search-stat-row">
+								<span>{t('settings.providerName')}</span>
+								<strong>{providerDiscoverModal.providerName}</strong>
+							</div>
+							<div className="ref-settings-provider-search-stat-row">
+								<span>{t('settings.searchProviderModelsFoundLabel')}</span>
+								<strong>{String(providerDiscoverModal.totalDiscovered)}</strong>
+							</div>
+							<div className="ref-settings-provider-search-stat-row">
+								<span>{t('settings.searchProviderModelsDuplicateLabel')}</span>
+								<strong>{String(providerDiscoverModal.duplicateCount)}</strong>
+							</div>
+							<div className="ref-settings-provider-search-stat-row">
+								<span>{t('settings.searchProviderModelsImportableLabel')}</span>
+								<strong>{String(providerDiscoverModal.addedCount)}</strong>
+							</div>
+						</div>
+
+						<div className="modal-actions ref-settings-provider-search-modal-actions">
+							<button
+								type="button"
+								className="ref-settings-remove-model"
+								onClick={() => setProviderDiscoverModal(null)}
+							>
+								{t('settings.searchProviderModelsClose')}
+							</button>
+							{providerDiscoverModal.addedCount > 0 ? (
+								<button
+									type="button"
+									className="ref-settings-add-model ref-settings-provider-search-btn"
+									onClick={applyProviderDiscoverImport}
+								>
+									{t('settings.searchProviderModelsConfirm')}
+								</button>
+							) : null}
+						</div>
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
 }
