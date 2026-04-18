@@ -110,6 +110,67 @@ export function IconRefresh({ className }: { className?: string }) {
 	);
 }
 
+export function IconFolderOpen({ className }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			width="16"
+			height="16"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.9"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden
+		>
+			<path d="M3 8.5A2.5 2.5 0 0 1 5.5 6H10l2 2h6.5A2.5 2.5 0 0 1 21 10.5V11" />
+			<path d="M4.5 12.5h15l-1.6 5.1A2 2 0 0 1 16 19H6.4a2 2 0 0 1-1.93-1.47z" />
+		</svg>
+	);
+}
+
+export function IconPlug({ className }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			width="16"
+			height="16"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.9"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden
+		>
+			<path d="M9 8V3M15 8V3" />
+			<path d="M8 8h8v3a4 4 0 0 1-4 4 4 4 0 0 1-4-4z" />
+			<path d="M12 15v6" />
+		</svg>
+	);
+}
+
+export function IconPin({ className }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			width="16"
+			height="16"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.9"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden
+		>
+			<path d="M9 4h6l-1 5 2.5 2.5v1H7.5v-1L10 9z" />
+			<path d="M12 12.5V20" />
+		</svg>
+	);
+}
+
 export function IconDoc({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -233,6 +294,16 @@ export function IconPlugin({ className }: { className?: string }) {
 			<path d="M9 7.5V6a3 3 0 1 1 6 0v1.5" />
 			<path d="M7.5 10h9A2.5 2.5 0 0 1 19 12.5v1A2.5 2.5 0 0 1 16.5 16H14v3a1 1 0 0 1-2 0v-3h-2.5A2.5 2.5 0 0 1 7 13.5v-1A2.5 2.5 0 0 1 9.5 10Z" />
 			<path d="M5 13h2M17 13h2" />
+		</svg>
+	);
+}
+
+export function IconTerminal({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<rect x="3" y="4" width="18" height="16" rx="2.5" />
+			<path d="M7 9l3 3-3 3" />
+			<path d="M12 15h5" />
 		</svg>
 	);
 }

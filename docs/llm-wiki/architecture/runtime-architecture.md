@@ -1,6 +1,6 @@
 # 运行时架构
 
-- 状态：已根据 `main-src/index.ts`、`main-src/ipc/register.ts`、`main-src/workspace.ts`、`electron/preload.cjs`、`src/App.tsx` 校验。
+- 状态：已根据 `main-src/index.ts`、`main-src/ipc/register.ts`、`main-src/terminalSessionIpc.ts`、`main-src/workspace.ts`、`electron/preload.cjs`、`src/App.tsx` 校验。
 - 主题：Electron 主进程、renderer、IPC、工作区绑定和启动流程。
 
 ## 总体分层
@@ -61,6 +61,8 @@ Main (Electron / Node)
 
 这也是“行为事实的权威汇聚点”之一。
 
+按**通道名字**检索时，优先使用专题页 [IPC 通道地图](./ipc-channel-map.md)（按域分组，并标注终端子模块登记位置），不必从 `register.ts` 首行逐段扫完。终端会话池的 `term:*` 与 `terminalWindow:open` 在 `terminalSessionIpc.ts` 注册，模块说明见 [terminalSessionIpc.ts](../modules/terminal-session-ipc.md)。
+
 ## 工作区绑定模型
 
 `main-src/workspace.ts` 以 `WebContents` 为粒度绑定工作区根目录：
@@ -113,6 +115,7 @@ Main (Electron / Node)
 ## 相关页面
 
 - [仓库地图](../repo-map.md)
+- [IPC 通道地图](./ipc-channel-map.md)
 - [Agent 系统](./agent-system.md)
 - [状态与记忆](./state-and-memory.md)
 - [appShellContexts.tsx](../modules/app-shell-contexts.md)

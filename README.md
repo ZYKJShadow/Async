@@ -100,6 +100,20 @@ Async IDE is an open-source AI-native desktop application designed as your comma
   <img src="docs/assets/bot_1.png" width="2871" alt="Async 模型设置" />
 </p>
 
+### All-rounder Terminal (Internal commands can be directly invoked by Agents and robots)
+
+<p align="center">
+  <img src="docs/assets/terminal_1.png" width="2859" alt="Async 模型设置" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/terminal_2.png" width="2871" alt="Async 模型设置" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/terminal_3.png" width="2865" alt="Async 模型设置" />
+</p>
+
 ---
 
 ## Core Features

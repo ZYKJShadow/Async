@@ -8,6 +8,13 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 20
+
 jobs:
   windows-release:
     runs-on: windows-latest
@@ -19,7 +26,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
@@ -31,13 +38,76 @@ jobs:
       - name: Build Windows installers
         run: npm run release:win
 
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: release-windows
+          path: |
             release/*.exe
             release/*.msi
             release/*.blockmap
             release/latest*.yml
+          if-no-files-found: error
+
+  macos-release:
+    runs-on: macos-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build macOS packages
+        run: npm run release:mac:unsigned
+
+      - name: Upload macOS release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest*.yml
+          if-no-files-found: error
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs:
+      - windows-release
+      - macos-release
+
+    steps:
+      - name: Download Windows assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: release-assets/windows
+
+      - name: Download macOS assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-macos
+          path: release-assets/macos
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/windows/**/*
+            release-assets/macos/**/*
           fail_on_unmatched_files: true
           generate_release_notes: true

@@ -152,7 +152,8 @@ export function ComposerRichInput({
 		}
 		const domWire = segmentsToWireText(domSegs);
 		if (focusedRef.current) {
-			// 菜单回车时往往只打了「/」或半段命令：props 已扩展为完整命令/chip，DOM 仍是前缀，须允许写入
+			// 菜单回车时往往只打了「/」或半段命令：props 可能已切到完整命令/chip，
+			// DOM 仍停在旧前缀（包括模糊匹配选中的场景），这时须允许受控写回。
 			const allowSyncWhileFocused =
 				domWire === wire ||
 				isSlashCommandDomPendingUpgrade(segments, domSegs) ||

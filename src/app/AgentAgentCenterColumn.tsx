@@ -13,7 +13,6 @@ export type AgentAgentCenterColumnProps = {
 	hasConversation: boolean;
 	workspace: string | null;
 	workspaceBasename: string;
-	currentThreadTitle: string;
 	onPlanNewIdea: (e: KeyboardEvent) => void;
 	hasAgentPlanSidebarContent: boolean;
 	agentRightSidebarOpen: boolean;
@@ -30,7 +29,6 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 	hasConversation,
 	workspace,
 	workspaceBasename,
-	currentThreadTitle,
 	onPlanNewIdea,
 	hasAgentPlanSidebarContent,
 	agentRightSidebarOpen,
@@ -43,9 +41,6 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 	const threadMessagesPending =
 		chatPanelProps.currentId != null &&
 		chatPanelProps.messagesThreadId !== chatPanelProps.currentId;
-	const showThreadSubtitle =
-		hasConversation ||
-		(threadMessagesPending && currentThreadTitle.trim().length > 0);
 
 	if (import.meta.env.DEV) {
 		console.log(
@@ -68,11 +63,6 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 						<span className="ref-context-title">{workspace ? workspaceBasename : t('app.noWorkspace')}</span>
 					</span>
 				</div>
-				{showThreadSubtitle ? (
-					<div className="ref-context-sub ref-context-sub--agent" title={currentThreadTitle}>
-						{currentThreadTitle}
-					</div>
-				) : null}
 			</div>
 
 			<div className="ref-agent-rail-toggle-group" aria-label={t('app.rightSidebarViews')}>
@@ -139,7 +129,6 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 		prev.hasConversation === next.hasConversation &&
 		prev.workspace === next.workspace &&
 		prev.workspaceBasename === next.workspaceBasename &&
-		prev.currentThreadTitle === next.currentThreadTitle &&
 		prev.hasAgentPlanSidebarContent === next.hasAgentPlanSidebarContent &&
 		prev.agentRightSidebarOpen === next.agentRightSidebarOpen &&
 		prev.agentRightSidebarView === next.agentRightSidebarView &&

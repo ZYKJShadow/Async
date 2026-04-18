@@ -30,6 +30,7 @@ const INVOKE_CHANNELS = new Set([
 	'workspace:memory:rebuild',
 	'settings:get',
 	'settings:set',
+	'settings:discoverProviderModels',
 	'settings:testBotConnection',
 	'plugins:getState',
 	'plugins:getRuntimeState',
@@ -94,6 +95,39 @@ const INVOKE_CHANNELS = new Set([
 	'terminal:ptyWrite',
 	'terminal:ptyResize',
 	'terminal:ptyKill',
+	'terminalWindow:open',
+	'term:sessionCreate',
+	'term:sessionWrite',
+	'term:sessionRespondToPrompt',
+	'term:sessionClearPrompt',
+	'term:sessionResize',
+	'term:sessionKill',
+	'term:sessionRename',
+	'term:sessionList',
+	'term:listBuiltinProfiles',
+	'term:profilePasswordState',
+	'term:profilePasswordSet',
+	'term:profilePasswordCacheSet',
+	'term:profilePasswordClear',
+	'term:pickPath',
+	'term:pickSavePath',
+	'term:sessionInfo',
+	'term:sessionBuffer',
+	'term:sessionSubscribe',
+	'term:sessionUnsubscribe',
+	'term:sftpConnect',
+	'term:sftpDisconnect',
+	'term:sftpList',
+	'term:sftpStat',
+	'term:sftpRealPath',
+	'term:sftpMkdir',
+	'term:sftpDelete',
+	'term:sftpRename',
+	'term:sftpUploadFile',
+	'term:sftpUploadDirectory',
+	'term:sftpDownloadFile',
+	'term:sftpDownloadDirectory',
+	'term:sftpEditLocal',
 	'agent:applyDiffChunk',
 	'agent:applyDiffChunks',
 	'agent:keepLastTurn',
@@ -333,6 +367,34 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++browserControlSeq;
 		browserControlHandlers.set(id, callback);
 		return () => browserControlHandlers.delete(id);
+	},
+	subscribeTerminalSessionData(callback) {
+		const handler = (_e, id, data, seq) => {
+			callback(String(id), String(data), typeof seq === 'number' ? seq : 0);
+		};
+		ipcRenderer.on('term:data', handler);
+		return () => ipcRenderer.removeListener('term:data', handler);
+	},
+	subscribeTerminalSessionAuthPrompt(callback) {
+		const handler = (_e, id, prompt) => {
+			callback(String(id), prompt && typeof prompt === 'object' ? prompt : null);
+		};
+		ipcRenderer.on('term:authPrompt', handler);
+		return () => ipcRenderer.removeListener('term:authPrompt', handler);
+	},
+	subscribeTerminalSessionExit(callback) {
+		const handler = (_e, id, code) => {
+			callback(String(id), code);
+		};
+		ipcRenderer.on('term:exit', handler);
+		return () => ipcRenderer.removeListener('term:exit', handler);
+	},
+	subscribeTerminalSessionListChanged(callback) {
+		const handler = () => {
+			callback();
+		};
+		ipcRenderer.on('term:listChanged', handler);
+		return () => ipcRenderer.removeListener('term:listChanged', handler);
 	},
 	subscribeOpenSettingsNav(callback) {
 		const id = ++openSettingsNavSeq;

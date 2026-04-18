@@ -13,6 +13,7 @@ import './styles/theme-dark.css';
 import './styles/theme-light.css';
 import './styles/motion.css';
 import './styles/mac-codex.css';
+import './styles/terminal-window.css';
 
 const initialScheme = resolveEffectiveScheme(readStoredColorMode(), readPrefersDark());
 document.documentElement.setAttribute('data-ui-style', APP_UI_STYLE);
@@ -42,13 +43,36 @@ function readBrowserWindowFlagFromUrl(): boolean {
 	}
 }
 
+function readTerminalWindowFlagFromUrl(): boolean {
+	try {
+		return new URLSearchParams(window.location.search).get('terminalWindow') === '1';
+	} catch {
+		return false;
+	}
+}
+
+function readTerminalStartPageFlagFromUrl(): boolean {
+	try {
+		return new URLSearchParams(window.location.search).get('startPage') === '1';
+	} catch {
+		return false;
+	}
+}
+
 const appSurface = readAppSurfaceFromUrl();
 const browserWindow = readBrowserWindowFlagFromUrl();
+const terminalWindow = readTerminalWindowFlagFromUrl();
+const terminalStartPage = readTerminalStartPageFlagFromUrl();
 
 createRoot(document.getElementById('root')!).render(
 	<StrictMode>
 		<I18nProvider>
-			<App appSurface={appSurface} browserWindow={browserWindow} />
+			<App
+				appSurface={appSurface}
+				browserWindow={browserWindow}
+				terminalWindow={terminalWindow}
+				terminalStartPage={terminalStartPage}
+			/>
 		</I18nProvider>
 	</StrictMode>
 );

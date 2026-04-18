@@ -1,3 +1,27 @@
+import {
+	normalizeBrowserFingerprintSpoof as normalizeBrowserFingerprintSpoofImpl,
+	type BrowserFingerprintSpoofSettings,
+} from '../main-src/browser/browserFingerprintNormalize.js';
+
+export function normalizeBrowserFingerprintSpoof(raw?: unknown): BrowserFingerprintSpoofSettings {
+	return normalizeBrowserFingerprintSpoofImpl(raw);
+}
+
+export function applyBrowserFingerprintPatch(
+	current: BrowserFingerprintSpoofSettings,
+	patch: Partial<Record<keyof BrowserFingerprintSpoofSettings, string | number | boolean | undefined>>
+): BrowserFingerprintSpoofSettings {
+	const merged: Record<string, unknown> = { ...current };
+	for (const [key, raw] of Object.entries(patch)) {
+		if (raw === '' || raw === undefined) {
+			delete merged[key];
+		} else {
+			merged[key] = raw;
+		}
+	}
+	return normalizeBrowserFingerprintSpoof(merged);
+}
+
 /** 主窗口侧栏/独立窗口内置浏览器与 `browser:setConfig` 共用的配置形态（不含主进程解析后的 `extraHeaders` 数组）。 */
 export type BrowserSidebarSettingsConfig = {
 	userAgent: string;
@@ -7,6 +31,8 @@ export type BrowserSidebarSettingsConfig = {
 	proxyMode: 'system' | 'direct' | 'custom';
 	proxyRules: string;
 	proxyBypassRules: string;
+	/** 页面内指纹伪装；空对象表示全部走浏览器默认 */
+	fingerprint: BrowserFingerprintSpoofSettings;
 };
 
 export const BROWSER_SIDEBAR_CONFIG_SYNC_EVENT = 'async-shell:browser-sidebar-config-sync';
@@ -45,22 +71,33 @@ export const DEFAULT_BROWSER_SIDEBAR_CONFIG: BrowserSidebarSettingsConfig = {
 	proxyMode: 'system',
 	proxyRules: '',
 	proxyBypassRules: '',
+	fingerprint: {},
 };
 
 export function normalizeBrowserSidebarConfig(
-	raw?: Partial<BrowserSidebarSettingsConfig> | null
+	raw?: Partial<BrowserSidebarSettingsConfig> | null,
+	base?: BrowserSidebarSettingsConfig | null
 ): BrowserSidebarSettingsConfig {
+	const b = base ?? DEFAULT_BROWSER_SIDEBAR_CONFIG;
 	return {
-		userAgent: String(raw?.userAgent ?? '').trim(),
-		acceptLanguage: String(raw?.acceptLanguage ?? '').trim(),
-		extraHeadersText: String(raw?.extraHeadersText ?? '').replace(/\r/g, ''),
-		blockTrackers: raw?.blockTrackers !== false,
+		userAgent: raw?.userAgent !== undefined ? String(raw.userAgent).trim() : b.userAgent,
+		acceptLanguage: raw?.acceptLanguage !== undefined ? String(raw.acceptLanguage).trim() : b.acceptLanguage,
+		extraHeadersText:
+			raw?.extraHeadersText !== undefined ? String(raw.extraHeadersText).replace(/\r/g, '') : b.extraHeadersText,
+		blockTrackers: raw?.blockTrackers !== undefined ? raw.blockTrackers !== false : b.blockTrackers,
 		proxyMode:
 			raw?.proxyMode === 'direct' || raw?.proxyMode === 'custom' || raw?.proxyMode === 'system'
 				? raw.proxyMode
-				: 'system',
-		proxyRules: String(raw?.proxyRules ?? '').trim(),
-		proxyBypassRules: String(raw?.proxyBypassRules ?? '').trim(),
+				: raw?.proxyMode === undefined
+					? b.proxyMode
+					: 'system',
+		proxyRules: raw?.proxyRules !== undefined ? String(raw.proxyRules).trim() : b.proxyRules,
+		proxyBypassRules:
+			raw?.proxyBypassRules !== undefined ? String(raw.proxyBypassRules).trim() : b.proxyBypassRules,
+		fingerprint:
+			raw?.fingerprint !== undefined
+				? normalizeBrowserFingerprintSpoofImpl(raw.fingerprint)
+				: { ...b.fingerprint },
 	};
 }
 
@@ -88,3 +125,5 @@ export function parseBrowserExtraHeadersText(
 	}
 	return { ok: true, headers };
 }
+
+export type { BrowserFingerprintSpoofSettings } from '../main-src/browser/browserFingerprintNormalize.js';

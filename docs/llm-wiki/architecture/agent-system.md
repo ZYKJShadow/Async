@@ -1,7 +1,7 @@
 # Agent 系统
 
-- 状态：已根据 `main-src/agent/`、`main-src/llm/modelResolve.ts`、`main-src/ipc/register.ts`、`main-src/workspaceAgentStore.ts` 校验。
-- 主题：Composer 模式、模型解析、Agent 循环、工具执行、Team 模式、子 Agent。
+- 状态：已根据 `main-src/agent/`、`main-src/bots/botRuntime.ts`、`main-src/llm/modelResolve.ts`、`main-src/ipc/register.ts`、`main-src/workspaceAgentStore.ts` 校验。
+- 主题：Composer 模式、模型解析、Agent 循环、工具执行、Team 模式、子 Agent、外部平台 Bot。
 
 ## 模式概览
 
@@ -78,6 +78,12 @@
 
 因此 Team 模式不是单纯的 UI 包装，而是另一套编排层。
 
+## 外部平台 Bot（Leader / worker）
+
+桌面 Composer 之外，Slack / Discord / 飞书等会话由 `main-src/bots/botRuntime.ts` 接入同一套模型解析与工具执行栈：外层 **`runBotOrchestratorTurn`** 跑 Leader 工具循环（含会话级 `switch_workspace`、`run_async_task` 等），需要深度改仓库时再派发到内部的 `runAgentLoop` / `runTeamSession`，并复用 `threadStore`、工作区上下文扩展与文件索引。
+
+细节与工具白名单语义见 [botRuntime.ts](../modules/bot-runtime.md)。
+
 ## 子 Agent 与记忆
 
 子 Agent 相关事实分散在几个地方：
@@ -104,7 +110,7 @@
 
 排查这类问题时建议顺序：
 
-1. `main-src/ipc/register.ts`
+1. `main-src/ipc/register.ts`（通道名索引见 [IPC 通道地图](./ipc-channel-map.md)）
 2. `main-src/llm/modelResolve.ts`
 3. `main-src/agent/agentLoop.ts`
 4. `main-src/agent/toolExecutor.ts`
@@ -115,6 +121,7 @@
 - `main-src/agent/agentLoop.ts`
 - `main-src/agent/toolExecutor.ts`
 - `main-src/agent/teamOrchestrator.ts`
+- `main-src/bots/botRuntime.ts`
 - `main-src/llm/modelResolve.ts`
 - `main-src/workspaceAgentStore.ts`
 - `main-src/ipc/register.ts`
@@ -122,6 +129,7 @@
 ## 相关页面
 
 - [运行时架构](./runtime-architecture.md)
+- [IPC 通道地图](./ipc-channel-map.md)
 - [状态与记忆](./state-and-memory.md)
 - [工作区智能](./workspace-intelligence.md)
 - [agentLoop.ts](../modules/agent-loop.md)
@@ -129,6 +137,7 @@
 - [teamOrchestrator.ts](../modules/team-orchestrator.md)
 - [modelResolve.ts](../modules/model-resolve.md)
 - [useTeamSession.ts](../modules/use-team-session.md)
+- [botRuntime.ts](../modules/bot-runtime.md)
 
 ## 更新触发条件
 
@@ -136,3 +145,4 @@
 - 模型解析结构变化。
 - Team 模式编排变化。
 - 子 Agent 记忆范围或项目级 Agent 配置结构变化。
+- Bot Leader/worker 分工、会话工具或线程映射策略变化。

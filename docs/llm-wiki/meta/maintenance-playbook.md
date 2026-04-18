@@ -63,6 +63,8 @@
 - 如果能承接，就直接改现有页面
 - 只有当主题明显独立时，才新建页面
 
+若在 `main-src/ipc/register.ts` 或 `terminalSessionIpc.ts` / `terminalPty.ts` 中**新增或重命名** `ipcMain.handle` 通道，应同步更新 [IPC 通道地图](../architecture/ipc-channel-map.md)；若 renderer 需要调用，还要核对 `electron/preload.cjs` 白名单，并视情况修订 [运行时架构](../architecture/runtime-architecture.md) 中 preload 边界说明。具体步骤见 [Preload 与主进程 invoke 对齐检查清单](./preload-main-invoke-checklist.md)。
+
 ## 页面结构约定
 
 推荐每页至少保留这些段落：
@@ -111,10 +113,11 @@
 
 ## 建议的后续扩建方向
 
-- 给 `agentLoop.ts`、`toolExecutor.ts`、`threadStore.ts`、`settingsStore.ts` 建实体页
+- 给 `agentLoop.ts`、`toolExecutor.ts`、`threadStore.ts`、`settingsStore.ts` 建实体页（多数已有 [模块页索引](../modules/README.md)）
 - 增加 ADR 风格页面
 - 为高频功能建立“变更影响矩阵”
 - 让每次大功能合并后同步更新 Wiki，而不是只改 README
+- 大版本 IPC 变更时跑一遍 [Preload 与主进程 invoke 对齐检查清单](./preload-main-invoke-checklist.md) 中的步骤
 
 ## 审核清单
 

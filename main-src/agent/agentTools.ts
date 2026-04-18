@@ -246,9 +246,70 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 		},
 	},
 	{
+		name: 'Terminal',
+		description:
+			"Interact with the app's shared Universal Terminal sessions. Sessions are persistent pty processes (the user's real shell) that survive even when no terminal window is open. Use this when you need an interactive session, want to drive a long-running or REPL-style command, or need to keep terminal state (cwd, env, background processes) across calls. For one-shot commands, prefer **Bash**.\n\nActions: **open** (spawn a new session, returns id), **write** (send keystrokes/data; include \\r or \\n to submit a line), **read** (return the tail of the output buffer), **list** (enumerate active sessions), **resize** (change cols/rows), **close** (kill session), **run** (one-shot convenience: open → write → wait for exit → kill, returns full output).",
+		parameters: {
+			type: 'object',
+			properties: {
+				action: {
+					type: 'string',
+					enum: ['open', 'write', 'read', 'list', 'resize', 'close', 'run'],
+					description: 'Which terminal operation to perform.',
+				},
+				session_id: {
+					type: 'string',
+					description: 'Session id returned by open/list. Required for write/read/resize/close.',
+				},
+				data: {
+					type: 'string',
+					description:
+						'For write: raw bytes to send to the pty. Include \\r or \\n to submit a command. Control chars like \\x03 (Ctrl-C) are allowed.',
+				},
+				command: {
+					type: 'string',
+					description: 'For run: the command line to execute in a one-shot session.',
+				},
+				cwd: {
+					type: 'string',
+					description:
+						'For open/run: initial working directory. Workspace-relative or absolute inside the workspace. Defaults to the workspace root.',
+				},
+				shell: {
+					type: 'string',
+					description:
+						'For open/run: shell executable path. Defaults to the platform shell (cmd.exe on Windows, $SHELL on Unix).',
+				},
+				title: {
+					type: 'string',
+					description: 'For open: human-readable title shown in the terminal window tab.',
+				},
+				cols: {
+					type: 'number',
+					description: 'For open/resize: column count. Defaults to 120.',
+				},
+				rows: {
+					type: 'number',
+					description: 'For open/resize: row count. Defaults to 30.',
+				},
+				max_bytes: {
+					type: 'number',
+					description:
+						'For read: maximum bytes to return from the tail of the session buffer. Default 16384, max 262144.',
+				},
+				timeout_ms: {
+					type: 'number',
+					description:
+						'For run: max milliseconds to wait for the command to exit before killing it. Default 120000, max 600000.',
+				},
+			},
+			required: ['action'],
+		},
+	},
+	{
 		name: 'Browser',
 		description:
-			'Control the app\'s dedicated browser window for the current Async session. Use this to open or steer pages, read visible page content, capture webpage screenshots, click or fill page elements, wait for selectors to appear, and inspect/update browser networking settings such as User-Agent, Accept-Language, extra request headers, and proxy configuration.',
+			'Control the app\'s dedicated browser window for the current Async session. Use this to open or steer pages, read visible page content, capture webpage screenshots, click or fill page elements, wait for selectors to appear, and inspect/update browser networking settings (User-Agent, Accept-Language, extra request headers, proxy) plus optional in-page fingerprint spoofing (navigator/screen/WebGL/Canvas/WebRTC) via `set_config.fingerprint`.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -360,6 +421,52 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				proxyBypassRules: {
 					type: 'string',
 					description: 'For set_config: optional Electron proxyBypassRules string.',
+				},
+				fingerprint: {
+					type: 'object',
+					description:
+						'For set_config: optional partial fingerprint overrides injected on each top-level navigation (`dom-ready`). Omit to leave fingerprint unchanged. Pass `{}` to clear all overrides. Unset sub-fields keep their previous values; use empty string on string fields to drop that override.',
+					properties: {
+						platform: { type: 'string', description: 'navigator.platform, e.g. Win32, MacIntel, Linux x86_64' },
+						languages: {
+							type: 'string',
+							description: 'Comma-separated navigator.languages list, e.g. "en-US, en".',
+						},
+						hardwareConcurrency: { type: 'number', description: 'navigator.hardwareConcurrency (integer).' },
+						deviceMemory: { type: 'number', description: 'navigator.deviceMemory in GB (integer).' },
+						screenWidth: { type: 'number', description: 'screen.width / availWidth when height is set.' },
+						screenHeight: { type: 'number', description: 'screen.height; availHeight uses height minus offset.' },
+						availHeightOffset: {
+							type: 'number',
+							description: 'Pixels subtracted from screenHeight for screen.availHeight (taskbar). Default 40 in the injected script.',
+						},
+						devicePixelRatio: { type: 'number', description: 'window.devicePixelRatio (0.5–4).' },
+						colorDepth: { type: 'number', description: 'screen.colorDepth / pixelDepth.' },
+						timezone: { type: 'string', description: 'IANA timezone name for Intl.DateTimeFormat resolvedOptions spoofing.' },
+						timezoneOffsetMinutes: {
+							type: 'number',
+							description: 'Value returned by Date.getTimezoneOffset() (minutes from UTC).',
+						},
+						webglVendor: { type: 'string', description: 'UNMASKED_VENDOR_WEBGL string from WebGL getParameter.' },
+						webglRenderer: { type: 'string', description: 'UNMASKED_RENDERER_WEBGL string from WebGL getParameter.' },
+						canvasNoiseSeed: {
+							type: 'number',
+							description: 'Positive integer seed; enables subtle 2D canvas noise on toDataURL/toBlob for fingerprint diversity.',
+						},
+						audioNoiseSeed: {
+							type: 'number',
+							description: 'Positive integer seed; enables subtle AudioContext oscillator path noise.',
+						},
+						webrtcPolicy: {
+							type: 'string',
+							enum: ['default', 'block'],
+							description: '`block` disables RTCPeerConnection in the page; `default` leaves WebRTC unchanged.',
+						},
+						maskWebdriver: {
+							type: 'boolean',
+							description: 'Force navigator.webdriver to false when true; set false to opt out while keeping other overrides.',
+						},
+					},
 				},
 			},
 			required: ['action'],

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	getLeadingWizardCommand,
+	isSlashCommandDomPendingUpgrade,
 	newSegmentId,
 	segmentsToWireText,
 	segmentsTrimmedEmpty,
@@ -89,5 +90,31 @@ describe('segmentsToWireText — chip 与正文 glue（与 @ 引用一致）', (
 			{ id: 't', kind: 'text', text: '  x' },
 		]);
 		expect(wire).toBe(`${SLASH_COMMAND_WIRE['create-rule']}  x`);
+	});
+});
+
+describe('isSlashCommandDomPendingUpgrade — 菜单选中后允许前缀替换成 chip', () => {
+	it('已选中的命令不是当前输入前缀扩展时，也允许把旧 /前缀 升级成 chip', () => {
+		expect(
+			isSlashCommandDomPendingUpgrade(
+				[
+					{ id: 'c', kind: 'command', command: 'cpp-xx' },
+					{ id: 't', kind: 'text', text: '' },
+				],
+				[{ id: 'd', kind: 'text', text: '/cr' }]
+			)
+		).toBe(true);
+	});
+
+	it('尾部正文不一致时不误判为可升级', () => {
+		expect(
+			isSlashCommandDomPendingUpgrade(
+				[
+					{ id: 'c', kind: 'command', command: 'cpp-xx' },
+					{ id: 't', kind: 'text', text: 'hello' },
+				],
+				[{ id: 'd', kind: 'text', text: '/cr world' }]
+			)
+		).toBe(false);
 	});
 });

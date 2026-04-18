@@ -40,6 +40,7 @@ import {
 	type BrowserControlCommand,
 	type BrowserSidebarConfigPayload,
 } from '../browser/browserController.js';
+import { normalizeBrowserFingerprintSpoof } from '../browser/browserFingerprintNormalize.js';
 import {
 	clearBrowserCaptureDataForHostId,
 	getBrowserCaptureRequestForHostId,
@@ -676,6 +677,20 @@ async function executeBrowserTool(call: ToolCall, execCtx: ToolExecutionContext)
 			if (hasOwnBrowserArg(call.arguments, 'proxyBypassRules') || hasOwnBrowserArg(call.arguments, 'proxy_bypass_rules')) {
 				next.proxyBypassRules = String(firstBrowserArg(call.arguments, 'proxyBypassRules', 'proxy_bypass_rules') ?? '').trim();
 			}
+			if (hasOwnBrowserArg(call.arguments, 'fingerprint')) {
+				const fpArg = call.arguments.fingerprint;
+				if (
+					fpArg === null ||
+					(typeof fpArg === 'object' && !Array.isArray(fpArg) && Object.keys(fpArg as Record<string, unknown>).length === 0)
+				) {
+					next.fingerprint = {};
+				} else if (typeof fpArg === 'object' && !Array.isArray(fpArg)) {
+					next.fingerprint = normalizeBrowserFingerprintSpoof({
+						...current.fingerprint,
+						...(fpArg as Record<string, unknown>),
+					});
+				}
+			}
 			const result = await setBrowserSidebarConfigForHostId(hostId, next);
 			if (!result.ok) {
 				return {
@@ -986,6 +1001,8 @@ export async function executeTool(
 			return await executeGrepTool(call, execCtx);
 		case 'Bash':
 			return await executeCommand(call, hooks, execCtx);
+		case 'Terminal':
+			return await executeTerminalTool(call, execCtx);
 		case 'Browser':
 			return await executeBrowserTool(call, execCtx);
 		case 'BrowserCapture':
@@ -1936,6 +1953,156 @@ async function executeCommand(
 		if (err.stderr) output += (output ? '\n--- stderr ---\n' : '') + err.stderr;
 		if (!output.trim()) output = err.message ?? String(e);
 		return { toolCallId: call.id, name: call.name, content: `Exit code ${err.code ?? 'unknown'}\n${output}`, isError: true };
+	}
+}
+
+function resolveTerminalCwd(raw: unknown, execCtx: ToolExecutionContext): string | undefined {
+	if (typeof raw !== 'string' || !raw.trim()) {
+		return execCtx.workspaceRoot ?? undefined;
+	}
+	const trimmed = raw.trim();
+	if (path.isAbsolute(trimmed)) {
+		if (execCtx.workspaceRoot && !isPathInsideRoot(trimmed, execCtx.workspaceRoot)) {
+			throw new Error('cwd escapes workspace boundary.');
+		}
+		if (!fs.existsSync(trimmed)) {
+			throw new Error(`cwd does not exist: ${trimmed}`);
+		}
+		return trimmed;
+	}
+	if (!execCtx.workspaceRoot) {
+		throw new Error('cwd is relative but no workspace is open.');
+	}
+	const full = resolveWorkspacePath(trimmed, execCtx.workspaceRoot);
+	if (!isPathInsideRoot(full, execCtx.workspaceRoot)) {
+		throw new Error('cwd escapes workspace boundary.');
+	}
+	if (!fs.existsSync(full)) {
+		throw new Error(`cwd does not exist: ${full}`);
+	}
+	return full;
+}
+
+async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
+	throwIfToolAbortRequested(execCtx.signal, call.name, 'terminal:start');
+	const args = call.arguments;
+	const action = String(args.action ?? '').trim();
+	if (!action) {
+		return { toolCallId: call.id, name: call.name, content: 'Error: action is required', isError: true };
+	}
+	const svc = await import('../terminalSessionService.js');
+	try {
+		switch (action) {
+			case 'open': {
+				const info = svc.createTerminalSession({
+					cwd: resolveTerminalCwd(args.cwd, execCtx),
+					shell: typeof args.shell === 'string' && args.shell.trim() ? args.shell.trim() : undefined,
+					cols: typeof args.cols === 'number' ? args.cols : undefined,
+					rows: typeof args.rows === 'number' ? args.rows : undefined,
+					title: typeof args.title === 'string' ? args.title : undefined,
+				});
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: JSON.stringify(info, null, 2),
+					isError: false,
+				};
+			}
+			case 'write': {
+				const id = String(args.session_id ?? '').trim();
+				const data = typeof args.data === 'string' ? args.data : '';
+				if (!id) {
+					return { toolCallId: call.id, name: call.name, content: 'Error: session_id is required', isError: true };
+				}
+				if (!data) {
+					return { toolCallId: call.id, name: call.name, content: 'Error: data is required (include \\r or \\n to submit)', isError: true };
+				}
+				const ok = svc.writeTerminalSession(id, data);
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: ok ? 'ok' : 'write failed (session missing or exited)',
+					isError: !ok,
+				};
+			}
+			case 'read': {
+				const id = String(args.session_id ?? '').trim();
+				if (!id) {
+					return { toolCallId: call.id, name: call.name, content: 'Error: session_id is required', isError: true };
+				}
+				const maxBytes = typeof args.max_bytes === 'number' ? args.max_bytes : undefined;
+				const slice = svc.getTerminalBuffer(id, maxBytes);
+				if (!slice) {
+					return { toolCallId: call.id, name: call.name, content: 'Error: session not found', isError: true };
+				}
+				const header = `# session ${slice.id}\nalive=${slice.alive} exit_code=${
+					slice.exitCode ?? 'null'
+				} buffer_bytes=${slice.bufferBytes} seq=${slice.seq}\n---\n`;
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: header + slice.content,
+					isError: false,
+				};
+			}
+			case 'list': {
+				const list = svc.listTerminalSessions();
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: JSON.stringify(list, null, 2),
+					isError: false,
+				};
+			}
+			case 'resize': {
+				const id = String(args.session_id ?? '').trim();
+				const cols = typeof args.cols === 'number' ? args.cols : 0;
+				const rows = typeof args.rows === 'number' ? args.rows : 0;
+				if (!id || !cols || !rows) {
+					return { toolCallId: call.id, name: call.name, content: 'Error: session_id, cols, rows are required', isError: true };
+				}
+				const ok = svc.resizeTerminalSession(id, cols, rows);
+				return { toolCallId: call.id, name: call.name, content: ok ? 'ok' : 'resize failed', isError: !ok };
+			}
+			case 'close': {
+				const id = String(args.session_id ?? '').trim();
+				if (!id) {
+					return { toolCallId: call.id, name: call.name, content: 'Error: session_id is required', isError: true };
+				}
+				const ok = svc.killTerminalSession(id);
+				return { toolCallId: call.id, name: call.name, content: ok ? 'ok' : 'close failed', isError: !ok };
+			}
+			case 'run': {
+				const command = String(args.command ?? '').trim();
+				if (!command) {
+					return { toolCallId: call.id, name: call.name, content: 'Error: command is required for run', isError: true };
+				}
+				const res = await svc.runOneShotCommand({
+					command,
+					cwd: resolveTerminalCwd(args.cwd, execCtx),
+					shell: typeof args.shell === 'string' && args.shell.trim() ? args.shell.trim() : undefined,
+					timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : undefined,
+					cols: typeof args.cols === 'number' ? args.cols : undefined,
+					rows: typeof args.rows === 'number' ? args.rows : undefined,
+				});
+				const header = `exit_code=${res.exitCode ?? 'null'} timed_out=${res.timedOut}\n---\n`;
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: header + res.output,
+					isError: res.timedOut || (res.exitCode !== 0 && res.exitCode !== null),
+				};
+			}
+			default:
+				return { toolCallId: call.id, name: call.name, content: `Error: unknown action "${action}"`, isError: true };
+		}
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
 	}
 }
 

@@ -1,6 +1,6 @@
 # Async LLM Wiki
 
-- 状态：Phase 1-3 已落地，已按 2026-04-15 的仓库代码和现有记忆文件校对。
+- 状态：Phase 1-8 已落地，已按 2026-04-18 的仓库代码和现有记忆文件校对。
 - 目标：把项目知识编译成稳定的 Markdown 网络，减少每次任务都从头扫代码。
 - 定位：这里是 `用户/Agent -> Wiki -> 原始代码/配置/运行时记忆` 之间的中间层。
 
@@ -18,13 +18,14 @@
 
 - 想先知道这个项目到底是什么：看 [项目总览](./project-overview.md)。
 - 想找代码入口和目录职责：看 [仓库地图](./repo-map.md)。
-- 想理解 Electron 主进程、渲染进程和 IPC：看 [运行时架构](./architecture/runtime-architecture.md)。
+- 想理解 Electron 主进程、渲染进程和 IPC：看 [运行时架构](./architecture/runtime-architecture.md)；要按通道名查全表：看 [IPC 通道地图](./architecture/ipc-channel-map.md)。
 - 想改 Agent、工具调用、模型路由、Team 模式：看 [Agent 系统](./architecture/agent-system.md)。
 - 想查线程、设置、计划、`.async/memory`、工作区级 AI 配置：看 [状态与记忆](./architecture/state-and-memory.md)。
 - 想改文件搜索、符号索引、LSP、浏览器工具：看 [工作区智能](./architecture/workspace-intelligence.md)。
 - 想直接修改核心文件：看 [模块页索引](./modules/README.md)。
 - 想跑项目、打包、测试或发版：看 [开发与发布流程](./operations/dev-workflow.md)。
 - 想继续扩建这套 Wiki：看 [维护手册](./meta/maintenance-playbook.md)。
+- 想核对 preload `invoke` 白名单与主进程 `handle`：看 [Preload 与主进程 invoke 对齐检查清单](./meta/preload-main-invoke-checklist.md)。
 - 想确认哪些旧说法已经过时：看 [矛盾与待确认项](./meta/contradictions-and-open-questions.md)。
 
 ## 知识分层
@@ -62,11 +63,32 @@ Phase 4 已追加：
 2. 为 AppShell 上下文切片层补模块页：`appShellContexts.tsx`。
 3. 为模型解析与流式聊天基础设施补模块页：`modelResolve.ts`、`useStreamingChat.ts`。
 
+Phase 5 已追加：
+
+1. 为线程与消息加载层补模块页：`useThreads.ts`。
+2. 为 Plan 预览与双写持久化补模块页：`usePlanSystem.ts`。
+3. 为 Git 状态与 diff 预览补模块页：`useGitIntegration.ts`。
+4. 为外部平台 Bot 主进程编排补模块页：`botRuntime.ts`。
+
+Phase 8 已追加：
+
+1. 新增架构页 [IPC 通道地图](./architecture/ipc-channel-map.md)，按域汇总 `ipcMain.handle` 与终端子模块登记。
+2. 为共享 PTY 会话池补模块页：`terminalSessionService.ts`。
+3. 为 MCP 多连接管理补模块页：`mcpManager.ts`。
+
+Phase 9（进行中）已追加：
+
+1. 为终端 IPC 薄层补模块页：[terminalSessionIpc.ts](./modules/terminal-session-ipc.md)（与 Phase 8 的 `terminalSessionService` 页配对）。
+2. IPC 地图终端表与 `preload.cjs` 对齐，补全 `term:sessionRespondToPrompt` 等通道说明。
+3. 为旧版按 sender PTY 补模块页：[terminalPty.ts](./modules/terminal-pty.md)。
+4. 为插件运行时与 MCP effective 合并补模块页：[pluginRuntimeService.ts](./modules/plugin-runtime-service.md)。
+5. 新增维护向专题：[Preload 与主进程 invoke 对齐检查清单](./meta/preload-main-invoke-checklist.md)。
+
 ## 后续阶段建议
 
-- Phase 5：继续补高频模块页，比如 `useThreads.ts`、`usePlanSystem.ts`、`useGitIntegration.ts`、`botRuntime.ts`。
 - Phase 6：把每次大功能开发后的结论编译进专题页，而不是只落在聊天记录或 `.async/memory` 里。
 - Phase 7：补充 ADR 风格决策页，记录“为什么是现在这个架构”。
+- Phase 9 余量：按需把 `mcpClient.ts` / `pluginFs.ts` 等拆成更细模块页；处理 `team:userInputRespond` 白名单与主进程不一致（见矛盾页）。
 
 ## 维护约定
 
@@ -79,6 +101,7 @@ Phase 4 已追加：
 1. [项目总览](./project-overview.md)
 2. [仓库地图](./repo-map.md)
 3. [运行时架构](./architecture/runtime-architecture.md)
-4. [Agent 系统](./architecture/agent-system.md)
-5. [状态与记忆](./architecture/state-and-memory.md)
-6. [模块页索引](./modules/README.md)
+4. [IPC 通道地图](./architecture/ipc-channel-map.md)（需要按通道名排查时）
+5. [Agent 系统](./architecture/agent-system.md)
+6. [状态与记忆](./architecture/state-and-memory.md)
+7. [模块页索引](./modules/README.md)

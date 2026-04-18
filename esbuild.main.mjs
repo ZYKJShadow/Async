@@ -13,7 +13,7 @@ const ctx = await esbuild.context({
 	target: 'node20',
 	format: 'cjs',
 	outfile: path.join(__dirname, 'electron', 'main.bundle.cjs'),
-	external: ['electron', 'node-pty'],
+	external: ['electron', 'node-pty', 'ssh2', 'ssh2-sftp-client', 'cpu-features'],
 	sourcemap: true,
 	minify: !isWatch,
 });

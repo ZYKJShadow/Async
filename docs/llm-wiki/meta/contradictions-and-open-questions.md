@@ -15,6 +15,16 @@
 
 ## 待确认问题
 
+### `team:userInputRespond` 是否仍为有效契约？
+
+当前能看到：
+
+- `electron/preload.cjs` 的 `INVOKE_CHANNELS` 包含 `team:userInputRespond`
+- `main-src/ipc/register.ts`（及全 `main-src`）中 **未** 注册同名 `ipcMain.handle`
+- `src/` 中亦无对该通道的 `invoke` 引用
+
+需要未来确认：应删除白名单死项、还是补主进程 handler 与 UI 调用。维护步骤见 [Preload 与主进程 invoke 对齐检查清单](./preload-main-invoke-checklist.md)。
+
 ### `workspaceSemanticIndex.ts` 是被删除了，还是未提交？
 
 当前能看到：

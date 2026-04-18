@@ -20,6 +20,17 @@ export interface AsyncShellAPI {
 	subscribeBrowserNewWindow?(callback: (payload: { url: string; disposition?: string }) => void): () => void;
 	/** 主进程转发给内置浏览器面板的控制命令 */
 	subscribeBrowserControl?(callback: (payload: unknown) => void): () => void;
+	/** 全能终端会话输出（跨窗口共享；订阅后才会广播） */
+	subscribeTerminalSessionData?(callback: (id: string, data: string, seq: number) => void): () => void;
+	subscribeTerminalSessionAuthPrompt?(
+		callback: (
+			id: string,
+			prompt: { prompt: string; kind: 'password' | 'passphrase'; seq: number } | null
+		) => void
+	): () => void;
+	subscribeTerminalSessionExit?(callback: (id: string, code: unknown) => void): () => void;
+	subscribeTerminalSessionListChanged?(callback: () => void): () => void;
+	/** 查询全能终端设置页可显示的内置 Shell / 连接模板 */
 	/** 主进程请求主窗口打开设置并切换到指定侧栏项（如从独立浏览器窗口唤起） */
 	subscribeOpenSettingsNav?(callback: (nav: string) => void): () => void;
 }

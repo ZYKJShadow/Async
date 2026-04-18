@@ -77,6 +77,7 @@ Plan 目前至少有两层存储：
 
 - 只看 README 里“`.async/plans/`”的描述不够完整。
 - 做 Plan 相关改动时，要区分“给人看的 Markdown 文档”和“线程内结构化状态”。
+- 渲染层如何把流式输出、消息历史与上述双写串起来，见 [usePlanSystem.ts](../modules/use-plan-system.md)。
 
 ## 项目级 Agent 配置
 

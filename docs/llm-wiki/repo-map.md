@@ -22,7 +22,11 @@
 | 路径 | 主要职责 |
 | --- | --- |
 | `main-src/index.ts` | 应用启动、窗口创建、store 初始化、IPC 注册 |
-| `main-src/ipc/register.ts` | 几乎所有 renderer -> main 的行为入口 |
+| `main-src/ipc/register.ts` | 几乎所有 renderer -> main 的行为入口；通道索引见 [IPC 通道地图](./architecture/ipc-channel-map.md) |
+| `main-src/terminalSessionService.ts` | 共享 PTY 会话池与环形输出缓冲 |
+| `main-src/terminalSessionIpc.ts` | `term:*` / `terminalWindow:*` 等终端相关 IPC；细节页见 [terminalSessionIpc.ts](./modules/terminal-session-ipc.md) |
+| `main-src/terminalPty.ts` | 按 sender 绑定的 `terminal:pty*` PTY IPC；细节页见 [terminalPty.ts](./modules/terminal-pty.md) |
+| `main-src/mcp/mcpManager.ts` | MCP 多连接与工具聚合 |
 | `main-src/agent/` | Agent 循环、工具池、工具执行、计划工具、Team 编排 |
 | `main-src/llm/` | 模型解析、Provider 适配、流式输出、超时与重试 |
 | `main-src/threadStore.ts` | 线程、消息、计划、团队快照持久化 |
@@ -92,6 +96,35 @@
 - 再看 `main-src/memdir/`
 - 再看 `main-src/services/extractMemories/extractMemories.ts`
 - 再看 `src/hooks/usePlanSystem.ts`
+- 渲染层线程列表与消息加载见 `src/hooks/useThreads.ts`
+- 细节页见 [useThreads.ts](./modules/use-threads.md)
+- 细节页见 [usePlanSystem.ts](./modules/use-plan-system.md)
+
+### 想改 Git 状态、分支选择器或 diff 预览
+
+- 先看 `src/hooks/useGitIntegration.ts`
+- 再看 `main-src/ipc/register.ts` 中 `git:*` 通道
+- 细节页见 [useGitIntegration.ts](./modules/use-git-integration.md)
+
+### 想改全能终端、共享 PTY 会话或独立终端窗口
+
+- 先看 `main-src/terminalSessionService.ts`（会话池、缓冲、订阅与广播）。
+- 再看 `main-src/terminalSessionIpc.ts`（`term:*`、`terminalWindow:open` 等 handle 与 host 窗口映射）。
+- 旧按窗口绑定的 PTY 路径见 `main-src/terminalPty.ts`。
+- 细节页见 [terminalSessionService.ts](./modules/terminal-session-service.md)、[terminalSessionIpc.ts](./modules/terminal-session-ipc.md)。
+
+### 想查或新增 IPC 通道
+
+- 先看 [IPC 通道地图](./architecture/ipc-channel-map.md) 按域定位 `handle` 名称。
+- 再对照 `electron/preload.cjs` 白名单，确认 renderer 是否可 `invoke`。
+- 终端类除 `register.ts` 外还有 `terminalSessionIpc.ts`、`terminalPty.ts`；会话池实现见 [terminalSessionService.ts](./modules/terminal-session-service.md)。
+
+### 想改 MCP 连接或 Agent 中的 MCP 工具
+
+- 先看 `main-src/mcp/mcpManager.ts` 与 `main-src/mcp/mcpClient.ts`
+- 再看 `main-src/settingsStore.ts` 中 `mcpServers` 持久化
+- 再看 `main-src/plugins/pluginRuntimeService.ts` 中 `getEffectiveMcpServerConfigs`（细节页见 [pluginRuntimeService.ts](./modules/plugin-runtime-service.md)）
+- IPC 面见 [IPC 通道地图](./architecture/ipc-channel-map.md) 与 [mcpManager.ts](./modules/mcp-manager.md)
 
 ### 想改 Team 模式
 
@@ -101,6 +134,7 @@
 - bot 场景再补看 `main-src/bots/botRuntime.ts`
 - 细节页见 [teamOrchestrator.ts](./modules/team-orchestrator.md)
 - 细节页见 [useTeamSession.ts](./modules/use-team-session.md)
+- 细节页见 [botRuntime.ts](./modules/bot-runtime.md)
 
 ### 想改 App 根状态切片或减少重渲染
 
@@ -123,6 +157,7 @@
 
 - [项目总览](./project-overview.md)
 - [运行时架构](./architecture/runtime-architecture.md)
+- [IPC 通道地图](./architecture/ipc-channel-map.md)
 - [状态与记忆](./architecture/state-and-memory.md)
 - [工作区智能](./architecture/workspace-intelligence.md)
 - [模块页索引](./modules/README.md)
