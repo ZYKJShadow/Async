@@ -23,6 +23,7 @@ export type TerminalSessionCreateOpts = {
 	cols?: number;
 	rows?: number;
 	title?: string;
+	passwordAutofill?: string;
 };
 
 export type TerminalSessionInfo = {
@@ -51,6 +52,9 @@ type Session = {
 	seq: number;
 	subscribers: Set<WebContents>;
 	exitCode: number | null;
+	passwordAutofill: string | null;
+	passwordAutofillCount: number;
+	recentOutputTail: string;
 };
 
 const sessions = new Map<string, Session>();
@@ -136,11 +140,15 @@ export function createTerminalSession(opts: TerminalSessionCreateOpts = {}): Ter
 		seq: 0,
 		subscribers: new Set(),
 		exitCode: null,
+		passwordAutofill: opts.passwordAutofill || null,
+		passwordAutofillCount: 0,
+		recentOutputTail: '',
 	};
 	sessions.set(id, session);
 	proc.onData((data) => {
 		session.seq += 1;
 		appendBuffer(session, data);
+		maybeAutoFillPassword(session, data);
 		broadcastToSubscribers(session, 'term:data', id, data, session.seq);
 	});
 	proc.onExit(({ exitCode }) => {
@@ -365,4 +373,20 @@ function toInfo(s: Session): TerminalSessionInfo {
 function defaultTitleForShell(shellPath: string): string {
 	const base = shellPath.replace(/\\/g, '/').split('/').pop() ?? shellPath;
 	return base.replace(/\.exe$/i, '');
+}
+
+function maybeAutoFillPassword(session: Session, chunk: string): void {
+	if (!session.passwordAutofill || session.passwordAutofillCount >= 3) {
+		return;
+	}
+	session.recentOutputTail = (session.recentOutputTail + chunk).slice(-512);
+	if (!/(?:password|passphrase)[^:\r\n]*:\s*$/i.test(session.recentOutputTail)) {
+		return;
+	}
+	try {
+		session.passwordAutofillCount += 1;
+		session.pty.write(session.passwordAutofill + '\r');
+	} catch {
+		/* ignore */
+	}
 }

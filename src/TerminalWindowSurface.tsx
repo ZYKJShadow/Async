@@ -10,11 +10,13 @@ import {
 	buildTerminalProfileTarget,
 	buildTermSessionCreatePayload,
 	getBuiltinTerminalProfiles,
+	getTerminalColorSchemeById,
 	loadTerminalSettings,
 	resolveTerminalProfile,
 	saveTerminalSettings,
 	subscribeTerminalSettings,
 	type TerminalAppSettings,
+	type TerminalInputBackspaceMode,
 	type TerminalProfile,
 } from './terminalWindow/terminalSettings';
 import {
@@ -53,6 +55,7 @@ type TabViewProps = {
 	onExit(code: number | null): void;
 	theme: XTermThemeColors;
 	appSettings: TerminalAppSettings;
+	profile: TerminalProfile | null;
 	t: TFunction;
 	onRequestContextMenu(payload: TerminalContextMenuState): void;
 	registerRuntime(sessionId: string, runtime: TerminalRuntimeControls | null): void;
@@ -93,6 +96,7 @@ function TerminalTabView({
 	onExit,
 	theme,
 	appSettings,
+	profile,
 	t,
 	onRequestContextMenu,
 	registerRuntime,
@@ -218,6 +222,9 @@ function TerminalTabView({
 		};
 		void subscribeAndReplay();
 
+		const loginScriptsState = profile?.loginScripts.map((script) => ({ ...script })) ?? [];
+		void maybeRunLoginScripts(shell, sessionId, '', loginScriptsState);
+
 		const unsubData = shell.subscribeTerminalSessionData((id, data, seq) => {
 			if (id !== sessionId) {
 				return;
@@ -227,6 +234,7 @@ function TerminalTabView({
 			}
 			seenSeqRef.current = seq || seenSeqRef.current + 1;
 			term.write(data);
+			void maybeRunLoginScripts(shell, sessionId, data, loginScriptsState);
 		});
 		const unsubExit =
 			shell.subscribeTerminalSessionExit?.((id, code) => {
@@ -236,7 +244,7 @@ function TerminalTabView({
 			}) ?? (() => {});
 
 		const inputDisposer = term.onData((data) => {
-			void shell.invoke('term:sessionWrite', sessionId, data);
+			void shell.invoke('term:sessionWrite', sessionId, applyInputBackspaceMode(data, profile?.inputBackspace));
 		});
 
 		const selectionDisposer = term.onSelectionChange(() => {
@@ -346,7 +354,7 @@ function TerminalTabView({
 			termRef.current = null;
 			fitRef.current = null;
 		};
-	}, [sessionId, shell, t, theme, onRequestContextMenu, registerRuntime]);
+	}, [profile, sessionId, shell, t, theme, onRequestContextMenu, registerRuntime]);
 
 	useEffect(() => {
 		const term = termRef.current;
@@ -366,11 +374,6 @@ function TerminalTabView({
 		term.options.scrollOnUserInput = appSettings.scrollOnInput;
 		term.options.wordSeparator = appSettings.wordSeparator;
 		term.options.ignoreBracketedPasteMode = !appSettings.bracketedPaste;
-		try {
-			term.refresh(0, term.rows - 1);
-		} catch {
-			/* ignore */
-		}
 	}, [appSettings]);
 
 	useEffect(() => {
@@ -387,11 +390,6 @@ function TerminalTabView({
 			black: theme.black,
 			brightBlack: theme.brightBlack,
 		};
-		try {
-			term.refresh(0, term.rows - 1);
-		} catch {
-			/* ignore */
-		}
 	}, [theme]);
 
 	useEffect(() => {
@@ -755,6 +753,17 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 		() => resolveTerminalProfile(terminalSettings.profiles, terminalSettings.defaultProfileId, builtinProfiles),
 		[builtinProfiles, terminalSettings.defaultProfileId, terminalSettings.profiles]
 	);
+	const resolvedSessionProfiles = useMemo(() => {
+		const next: Record<string, TerminalProfile | null> = {};
+		for (const session of sessions) {
+			next[session.id] = resolveTerminalProfile(
+				terminalSettings.profiles,
+				sessionProfiles[session.id] ?? terminalSettings.defaultProfileId,
+				builtinProfiles
+			);
+		}
+		return next;
+	}, [builtinProfiles, sessionProfiles, sessions, terminalSettings.defaultProfileId, terminalSettings.profiles]);
 
 	const terminalStageStyle = useMemo(
 		(): CSSProperties =>
@@ -984,18 +993,21 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 				</div>
 			</div>
 
-			{settingsOpen ? (
-				<div className="ref-uterm-stage ref-uterm-stage--settings">
-					<TerminalSettingsPanel
-						t={t}
-						settings={terminalSettings}
-						builtinProfiles={builtinProfiles}
-						onChange={persistSettings}
-						onLaunchProfile={(profileId) => void createSession(profileId)}
-					/>
-				</div>
-			) : (
-				<div className="ref-uterm-stage ref-uterm-stage--terminal" style={terminalStageStyle}>
+			<div className={`ref-uterm-stage ref-uterm-stage--settings ${settingsOpen ? '' : 'is-hidden'}`}>
+				<TerminalSettingsPanel
+					t={t}
+					settings={terminalSettings}
+					builtinProfiles={builtinProfiles}
+					onChange={persistSettings}
+					onLaunchProfile={(profileId) => void createSession(profileId)}
+				/>
+			</div>
+
+			<div
+				className={`ref-uterm-stage ref-uterm-stage--terminal ${settingsOpen ? 'is-hidden' : ''}`}
+				style={terminalStageStyle}
+				aria-hidden={settingsOpen}
+			>
 					{activeSession ? (
 						<div className="ref-uterm-sessionbar">
 							<div className="ref-uterm-sessionbar-main">
@@ -1022,14 +1034,16 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 								{sessions.map((session) => {
 									const isActive = session.id === activeSession?.id;
 									const exitCode = exitByTab[session.id];
+									const sessionProfile = resolvedSessionProfiles[session.id] ?? null;
 									return (
 										<div key={session.id} className={`ref-uterm-pane ${isActive ? 'is-active' : ''}`} aria-hidden={!isActive}>
 											<MemoTerminalTabView
 												sessionId={session.id}
-												active={isActive}
+												active={!settingsOpen && isActive}
 												shell={shell}
-												theme={themeColors}
+												theme={getProfileThemeColors(sessionProfile, themeColors)}
 												appSettings={terminalSettings}
+												profile={sessionProfile}
 												t={t}
 												onRequestContextMenu={handleRequestContextMenu}
 												registerRuntime={registerRuntime}
@@ -1073,8 +1087,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t }: 
 							) : null}
 						</>
 					)}
-				</div>
-			)}
+			</div>
 		</div>
 	);
 });
@@ -1167,6 +1180,79 @@ function readXtermThemeColors(): XTermThemeColors {
 		black: background,
 		brightBlack: '#3f4b57',
 	};
+}
+
+function getProfileThemeColors(profile: TerminalProfile | null, fallback: XTermThemeColors): XTermThemeColors {
+	const scheme = getTerminalColorSchemeById(profile?.terminalColorSchemeId);
+	if (!scheme) {
+		return fallback;
+	}
+	return {
+		background: scheme.background,
+		foreground: scheme.foreground,
+		cursor: scheme.cursor,
+		selectionBackground: `${scheme.selection ?? scheme.cursor}55`,
+		black: scheme.colors[0] ?? scheme.background,
+		brightBlack: scheme.colors[8] ?? scheme.colors[0] ?? fallback.brightBlack,
+	};
+}
+
+function applyInputBackspaceMode(data: string, mode: TerminalInputBackspaceMode | undefined): string {
+	if (data !== '\x7f') {
+		return data;
+	}
+	switch (mode) {
+		case 'ctrl-h':
+			return '\x08';
+		case 'ctrl-?':
+			return '\x7f';
+		case 'delete':
+			return '\x1b[3~';
+		case 'backspace':
+		default:
+			return '\x7f';
+	}
+}
+
+async function maybeRunLoginScripts(
+	shell: ShellBridge,
+	sessionId: string,
+	chunk: string,
+	scripts: Array<{ expect: string; send: string; isRegex?: boolean; optional?: boolean }>
+): Promise<void> {
+	if (!scripts.length) {
+		return;
+	}
+	for (let index = 0; index < scripts.length; index += 1) {
+		const script = scripts[index];
+		if (!script) {
+			continue;
+		}
+		const expect = script.expect || '';
+		let matched = false;
+		if (!expect) {
+			matched = true;
+		} else if (script.isRegex) {
+			try {
+				matched = new RegExp(expect, 'g').test(chunk);
+			} catch {
+				matched = false;
+			}
+		} else {
+			matched = chunk.includes(expect);
+		}
+		if (matched) {
+			scripts.splice(index, 1);
+			await shell.invoke('term:sessionWrite', sessionId, `${script.send}\r`);
+			return;
+		}
+		if (script.optional) {
+			scripts.splice(index, 1);
+			index -= 1;
+			continue;
+		}
+		return;
+	}
 }
 
 function formatBufferBytes(bytes: number): string {

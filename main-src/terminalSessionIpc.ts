@@ -21,6 +21,12 @@ import {
 	type TerminalSessionCreateOpts,
 } from './terminalSessionService.js';
 import { listBuiltinTerminalProfiles } from './terminalBuiltinProfiles.js';
+import {
+	clearTerminalProfilePassword,
+	getTerminalProfilePassword,
+	hasTerminalProfilePassword,
+	setTerminalProfilePassword,
+} from './terminalProfileSecrets.js';
 
 const openPromisesByHost = new Map<number, Promise<number | null>>();
 const terminalWindowRendererByHost = new Map<number, number>();
@@ -172,6 +178,11 @@ export function registerTerminalSessionIpc(): void {
 			cols: typeof opts.cols === 'number' ? opts.cols : undefined,
 			rows: typeof opts.rows === 'number' ? opts.rows : undefined,
 			title: typeof opts.title === 'string' ? opts.title : undefined,
+			passwordAutofill:
+				typeof opts.profileId === 'string' &&
+				(typeof opts.sshAuthMode !== 'string' || opts.sshAuthMode === 'auto' || opts.sshAuthMode === 'password')
+					? getTerminalProfilePassword(opts.profileId) || undefined
+					: undefined,
 		};
 		try {
 			const info = createTerminalSession(createOpts);
@@ -219,6 +230,34 @@ export function registerTerminalSessionIpc(): void {
 		} catch (e) {
 			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
 		}
+	});
+
+	ipcMain.handle('term:profilePasswordState', (_event, profileId: unknown) => {
+		if (typeof profileId !== 'string') {
+			return { ok: false as const };
+		}
+		return {
+			ok: true as const,
+			hasPassword: hasTerminalProfilePassword(profileId),
+		};
+	});
+
+	ipcMain.handle('term:profilePasswordSet', (_event, profileId: unknown, password: unknown) => {
+		if (typeof profileId !== 'string' || typeof password !== 'string') {
+			return { ok: false as const };
+		}
+		return {
+			ok: setTerminalProfilePassword(profileId, password),
+		};
+	});
+
+	ipcMain.handle('term:profilePasswordClear', (_event, profileId: unknown) => {
+		if (typeof profileId !== 'string') {
+			return { ok: false as const };
+		}
+		return {
+			ok: clearTerminalProfilePassword(profileId),
+		};
 	});
 
 	ipcMain.handle('term:pickPath', async (event, rawOpts: unknown) => {

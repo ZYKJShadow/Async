@@ -6,6 +6,15 @@ export type BuiltinTerminalProfileDescriptor = {
 	id: string;
 	builtinKey?: string;
 	name: string;
+	group: string;
+	icon: string;
+	color: string;
+	disableDynamicTitle: boolean;
+	behaviorOnSessionEnd: 'auto' | 'keep' | 'reconnect' | 'close';
+	clearServiceMessagesOnConnect: boolean;
+	terminalColorSchemeId: string;
+	loginScripts: Array<{ expect: string; send: string; isRegex: boolean; optional: boolean }>;
+	inputBackspace: 'backspace' | 'ctrl-h' | 'ctrl-?' | 'delete';
 	kind: 'local' | 'ssh';
 	shell: string;
 	args: string;
@@ -21,6 +30,24 @@ export type BuiltinTerminalProfileDescriptor = {
 	sshExtraArgs: string;
 	sshKeepAliveInterval: number;
 	sshKeepAliveCountMax: number;
+	sshReadyTimeout: number;
+	sshSkipBanner: boolean;
+	sshForwardedPorts: Array<{
+		id: string;
+		type: 'local' | 'remote' | 'dynamic';
+		host: string;
+		port: number;
+		targetAddress: string;
+		targetPort: number;
+		description: string;
+	}>;
+	sshAlgorithms: {
+		cipher: string[];
+		kex: string[];
+		hmac: string[];
+		serverHostKey: string[];
+		compression: string[];
+	};
 	cwd: string;
 	env: string;
 };
@@ -155,6 +182,15 @@ function createBuiltinProfile(
 		id: `${BUILTIN_PREFIX}${idSuffix}`,
 		builtinKey: partial.builtinKey,
 		name: partial.name || idSuffix,
+		group: partial.group || '',
+		icon: partial.icon || '',
+		color: partial.color || '#000000',
+		disableDynamicTitle: partial.disableDynamicTitle ?? false,
+		behaviorOnSessionEnd: partial.behaviorOnSessionEnd || 'auto',
+		clearServiceMessagesOnConnect: partial.clearServiceMessagesOnConnect ?? false,
+		terminalColorSchemeId: partial.terminalColorSchemeId || '',
+		loginScripts: partial.loginScripts || [],
+		inputBackspace: partial.inputBackspace || 'backspace',
 		kind: partial.kind === 'ssh' ? 'ssh' : 'local',
 		shell: partial.shell || '',
 		args: partial.args || '',
@@ -170,6 +206,16 @@ function createBuiltinProfile(
 		sshExtraArgs: partial.sshExtraArgs || '',
 		sshKeepAliveInterval: partial.sshKeepAliveInterval ?? 0,
 		sshKeepAliveCountMax: partial.sshKeepAliveCountMax ?? 3,
+		sshReadyTimeout: partial.sshReadyTimeout ?? 20_000,
+		sshSkipBanner: partial.sshSkipBanner ?? false,
+		sshForwardedPorts: partial.sshForwardedPorts || [],
+		sshAlgorithms: partial.sshAlgorithms || {
+			cipher: [],
+			kex: [],
+			hmac: [],
+			serverHostKey: [],
+			compression: [],
+		},
 		cwd: partial.cwd || '',
 		env: partial.env || '',
 	};

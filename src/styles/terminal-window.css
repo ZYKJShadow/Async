@@ -286,6 +286,14 @@
 	overflow: hidden;
 }
 
+.ref-uterm-stage.is-hidden {
+	position: absolute;
+	inset: 0;
+	visibility: hidden;
+	pointer-events: none;
+	opacity: 0;
+}
+
 .ref-uterm-stage--terminal::before {
 	content: '';
 	position: absolute;
@@ -1098,6 +1106,7 @@
 	flex-direction: column;
 	gap: 18px;
 	max-height: inherit;
+	overflow: auto;
 	padding: 20px;
 	border-radius: 16px;
 	border: 1px solid color-mix(in srgb, var(--void-border) 78%, transparent);
@@ -1110,7 +1119,7 @@
 	grid-template-columns: 280px minmax(0, 1fr);
 	gap: 18px;
 	min-height: 0;
-	overflow: hidden;
+	overflow: visible;
 }
 
 .ref-uterm-settings-profile-modal-sidebar,
@@ -1122,16 +1131,46 @@
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
-	overflow: auto;
-	padding-right: 4px;
+	overflow: visible;
+}
+
+.ref-uterm-settings-profile-side-form {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
 }
 
 .ref-uterm-settings-profile-modal-main {
 	display: flex;
 	flex-direction: column;
 	gap: 14px;
-	overflow: auto;
-	padding-right: 4px;
+	overflow: visible;
+}
+
+.ref-uterm-settings-editor-tabs {
+	display: flex;
+	align-items: center;
+	gap: 28px;
+	flex-wrap: wrap;
+	padding-bottom: 6px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 64%, transparent);
+}
+
+.ref-uterm-settings-editor-tab {
+	padding: 0 0 10px;
+	border: none;
+	border-bottom: 2px solid transparent;
+	background: transparent;
+	color: var(--void-fg-2);
+	font: inherit;
+	font-size: 13px;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.ref-uterm-settings-editor-tab.is-active {
+	border-bottom-color: color-mix(in srgb, var(--void-accent-cool) 72%, transparent);
+	color: var(--void-fg-0);
 }
 
 .ref-uterm-settings-profile-meta-card {
@@ -1142,6 +1181,18 @@
 	border-radius: 12px;
 	border: 1px solid color-mix(in srgb, var(--void-border) 74%, transparent);
 	background: color-mix(in srgb, var(--void-bg-0) 76%, transparent);
+}
+
+.ref-uterm-settings-icon-preview {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 50px;
+	min-width: 50px;
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--void-bg-0) 92%, transparent);
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	color: var(--void-fg-0);
 }
 
 .ref-uterm-settings-profile-meta-label {
@@ -1385,6 +1436,32 @@
 	min-width: 0;
 }
 
+.ref-uterm-settings-fieldstack {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-uterm-settings-toggle-field {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.ref-uterm-settings-modal-page {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+}
+
+.ref-uterm-settings-ssh-grid {
+	display: grid;
+	grid-template-columns: 114px minmax(0, 1fr) 164px;
+	gap: 12px;
+	align-items: end;
+}
+
 .ref-uterm-settings-stack-control {
 	display: flex;
 	flex-direction: column;
@@ -1485,6 +1562,157 @@
 	font-size: 12px;
 	line-height: 1.5;
 	color: var(--void-fg-2);
+}
+
+.ref-uterm-settings-authbar {
+	display: grid;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	overflow: hidden;
+	border-radius: 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 72%, transparent);
+}
+
+.ref-uterm-settings-authbar-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	min-height: 82px;
+	padding: 10px 8px;
+	border: none;
+	border-right: 1px solid color-mix(in srgb, var(--void-border) 52%, transparent);
+	background: transparent;
+	color: var(--void-fg-1);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.ref-uterm-settings-authbar-item:last-child {
+	border-right: none;
+}
+
+.ref-uterm-settings-authbar-item.is-active {
+	background: color-mix(in srgb, var(--void-accent-cool) 18%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-settings-authbar-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	font-size: 16px;
+	opacity: 0.88;
+}
+
+.ref-uterm-settings-password-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.ref-uterm-settings-port-card {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 14px;
+	border-radius: 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 72%, transparent);
+}
+
+.ref-uterm-settings-port-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.ref-uterm-settings-port-grid--target {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ref-uterm-settings-port-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.ref-uterm-settings-algorithm-sections {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.ref-uterm-settings-algorithm-group {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.ref-uterm-settings-checkbox-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px 14px;
+}
+
+.ref-uterm-settings-script-row {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 14px;
+	border-radius: 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 72%, transparent);
+}
+
+.ref-uterm-settings-script-options {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.ref-uterm-settings-color-list {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.ref-uterm-settings-color-card {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 14px;
+	border-radius: 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 72%, transparent);
+	color: var(--void-fg-0);
+	text-align: left;
+	cursor: pointer;
+}
+
+.ref-uterm-settings-color-card.is-active {
+	border-color: color-mix(in srgb, var(--void-accent-cool) 52%, transparent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--void-accent-cool) 16%, transparent);
+}
+
+.ref-uterm-settings-color-card-title {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.ref-uterm-settings-color-preview {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	font-family: var(--void-code-font-family, ui-monospace, monospace);
+	font-size: 12px;
 }
 
 .ref-uterm-settings-chip-row {
@@ -1680,6 +1908,21 @@
 	color: var(--void-git-deleted, #ff6f77);
 }
 
+.ref-uterm-settings-success-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 10px 16px;
+	border: 1px solid color-mix(in srgb, #a3e635 46%, transparent);
+	border-radius: 12px;
+	background: color-mix(in srgb, #a3e635 80%, transparent);
+	color: #142300;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 700;
+	cursor: pointer;
+}
+
 .ref-uterm-settings-primary-btn:hover,
 .ref-uterm-settings-secondary-btn:hover,
 .ref-uterm-settings-danger-btn:hover:not(:disabled) {
@@ -1786,6 +2029,15 @@
 	.ref-uterm-settings-profile-modal-body {
 		grid-template-columns: 1fr;
 	}
+	.ref-uterm-settings-ssh-grid {
+		grid-template-columns: 1fr;
+	}
+	.ref-uterm-settings-port-grid,
+	.ref-uterm-settings-port-grid--target,
+	.ref-uterm-settings-color-list,
+	.ref-uterm-settings-checkbox-grid {
+		grid-template-columns: 1fr;
+	}
 	.ref-uterm-settings-drawer {
 		width: min(620px, calc(100% - 20px));
 	}
@@ -1818,6 +2070,14 @@
 	}
 	.ref-uterm-settings-field {
 		grid-template-columns: 1fr;
+	}
+	.ref-uterm-settings-authbar {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.ref-uterm-settings-password-row,
+	.ref-uterm-settings-toggle-field {
+		flex-direction: column;
+		align-items: stretch;
 	}
 	.ref-uterm-settings-input-action {
 		flex-direction: column;

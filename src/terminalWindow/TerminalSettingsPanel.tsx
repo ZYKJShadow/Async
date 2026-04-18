@@ -3,6 +3,8 @@ import type { TFunction } from '../i18n';
 import {
 	DEFAULT_PROFILE_ID,
 	FONT_FAMILY_CHOICES,
+	TERMINAL_COLOR_SCHEMES,
+	TERMINAL_SSH_ALGORITHM_OPTIONS,
 	applyTerminalDisplayPreset,
 	buildTerminalProfileLaunchPreview,
 	buildTerminalProfileTarget,
@@ -15,6 +17,9 @@ import {
 	normalizeTerminalSettings,
 	resolveTerminalProfile,
 	type TerminalAppSettings,
+	type TerminalLoginScript,
+	type TerminalPortForward,
+	type TerminalPortForwardType,
 	type TerminalDisplayPresetId,
 	type TerminalProfile,
 	type TerminalProfileKind,
@@ -25,6 +30,8 @@ import {
 type SettingsNav = 'profilesConnections' | 'appearance' | 'terminal';
 type ProfilesSubtab = 'profiles' | 'advanced';
 type ProfileEditorMode = 'create' | 'edit';
+type ProfileEditorTabId = 'general' | 'ports' | 'advanced' | 'ciphers' | 'colors' | 'loginScripts' | 'input';
+type TerminalSshConnectionMode = 'direct' | 'proxyCommand' | 'jumpHost';
 
 type Props = {
 	t: TFunction;
@@ -142,8 +149,7 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 	const [profilesSubtab, setProfilesSubtab] = useState<ProfilesSubtab>('profiles');
 	const [activeProfileId, setActiveProfileId] = useState<string>(settings.profiles[0]?.id ?? DEFAULT_PROFILE_ID);
 	const [filter, setFilter] = useState('');
-	const [collapsedGroups, setCollapsedGroups] = useState<Record<'custom' | 'builtin', boolean>>({
-		custom: false,
+	const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
 		builtin: false,
 	});
 	const [navPending, startNavTransition] = useTransition();
@@ -301,8 +307,8 @@ type ProfilesSettingsStageProps = {
 	onChangeSubtab(next: ProfilesSubtab): void;
 	filter: string;
 	onFilterChange(next: string): void;
-	collapsedGroups: Record<'custom' | 'builtin', boolean>;
-	onToggleGroup(groupId: 'custom' | 'builtin'): void;
+	collapsedGroups: Record<string, boolean>;
+	onToggleGroup(groupId: string): void;
 	onSelectProfile(id: string): void;
 	onPatchSettings(partial: Partial<TerminalAppSettings>): void;
 	onLaunchProfile(profileId: string): void;
@@ -329,7 +335,9 @@ function ProfilesSettingsStage({
 	const [createFilter, setCreateFilter] = useState('');
 	const [editorDraft, setEditorDraft] = useState<TerminalProfile | null>(null);
 	const [editorMode, setEditorMode] = useState<ProfileEditorMode>('edit');
-	const [editorDefaultChecked, setEditorDefaultChecked] = useState(false);
+	const [editorTab, setEditorTab] = useState<ProfileEditorTabId>('general');
+	const [editorSshConnectionMode, setEditorSshConnectionMode] = useState<TerminalSshConnectionMode>('direct');
+	const [editorHasSavedPassword, setEditorHasSavedPassword] = useState(false);
 	const [rowMenuProfileId, setRowMenuProfileId] = useState<string | null>(null);
 	const rowMenuRef = useRef<HTMLDivElement | null>(null);
 	const displayBuiltinProfiles = useMemo(
@@ -339,6 +347,10 @@ function ProfilesSettingsStage({
 	const filteredCustomProfiles = useMemo(() => {
 		return filterProfilesByQuery(settings.profiles, filter, t);
 	}, [filter, settings.profiles, t]);
+	const customProfileGroups = useMemo(
+		() => groupProfilesByCustomGroup(filteredCustomProfiles, t),
+		[filteredCustomProfiles, t]
+	);
 	const filteredBuiltinProfiles = useMemo(() => {
 		return filterProfilesByQuery(displayBuiltinProfiles, filter, t);
 	}, [displayBuiltinProfiles, filter, t]);
@@ -359,7 +371,6 @@ function ProfilesSettingsStage({
 		[createFilter, displayBuiltinProfiles, settings.profiles, t]
 	);
 	const editorOpen = Boolean(editorDraft);
-	const launchPreview = editorDraft ? buildTerminalProfileLaunchPreview(editorDraft) : '';
 	const editorVisual = editorDraft ? getTerminalProfileVisual(editorDraft) : null;
 	const sshIncomplete =
 		editorDraft?.kind === 'ssh' && (!editorDraft.sshHost.trim() || !editorDraft.sshUser.trim());
@@ -368,6 +379,16 @@ function ProfilesSettingsStage({
 			editorDraft.id !== DEFAULT_PROFILE_ID &&
 			settings.profiles.some((profile) => profile.id === editorDraft.id)
 		: false;
+
+	const loadPasswordState = useCallback(async (profileId: string) => {
+		const shell = window.asyncShell;
+		if (!shell || !profileId) {
+			setEditorHasSavedPassword(false);
+			return;
+		}
+		const result = (await shell.invoke('term:profilePasswordState', profileId)) as { ok?: boolean; hasPassword?: boolean };
+		setEditorHasSavedPassword(Boolean(result?.ok && result.hasPassword));
+	}, []);
 
 	const openProfileEditor = useCallback(
 		(id: string) => {
@@ -379,15 +400,22 @@ function ProfilesSettingsStage({
 			setCreateDialogOpen(false);
 			setRowMenuProfileId(null);
 			setEditorMode('edit');
-			setEditorDefaultChecked(settings.defaultProfileId === id);
+			setEditorTab('general');
+			setEditorSshConnectionMode(inferSshConnectionMode(source));
+			setEditorHasSavedPassword(false);
 			setEditorDraft({ ...source });
+			void loadPasswordState(id);
 		},
-		[onSelectProfile, settings.defaultProfileId, settings.profiles]
+		[loadPasswordState, onSelectProfile, settings.profiles]
 	);
 
 	const closeProfileEditor = useCallback(() => {
+		if (editorMode === 'create' && editorDraft && !settings.profiles.some((profile) => profile.id === editorDraft.id)) {
+			void window.asyncShell?.invoke('term:profilePasswordClear', editorDraft.id);
+		}
 		setEditorDraft(null);
-	}, []);
+		setEditorHasSavedPassword(false);
+	}, [editorDraft, editorMode, settings.profiles]);
 
 	const openTemplateEditor = useCallback((profileId?: string) => {
 		const source = profileId ? resolveTerminalProfile(settings.profiles, profileId, builtinProfiles) : null;
@@ -398,9 +426,12 @@ function ProfilesSettingsStage({
 		setCreateFilter('');
 		setRowMenuProfileId(null);
 		setEditorMode('create');
-		setEditorDefaultChecked(false);
+		setEditorTab('general');
+		setEditorSshConnectionMode(inferSshConnectionMode(draft));
+		setEditorHasSavedPassword(false);
 		setEditorDraft(draft);
-	}, [builtinProfiles, settings.profiles, t]);
+		void loadPasswordState(draft.id);
+	}, [builtinProfiles, loadPasswordState, settings.profiles, t]);
 
 	const openCreateDialog = useCallback(() => {
 		setRowMenuProfileId(null);
@@ -412,6 +443,147 @@ function ProfilesSettingsStage({
 	const patchEditorDraft = useCallback((partial: Partial<TerminalProfile>) => {
 		setEditorDraft((current) => (current ? { ...current, ...partial } : current));
 	}, []);
+
+	const addLoginScript = useCallback(() => {
+		setEditorDraft((current) =>
+			current
+				? {
+						...current,
+						loginScripts: [
+							...current.loginScripts,
+							{ expect: '', send: '', isRegex: false, optional: false } satisfies TerminalLoginScript,
+						],
+				  }
+				: current
+		);
+	}, []);
+
+	const patchLoginScript = useCallback((index: number, partial: Partial<TerminalLoginScript>) => {
+		setEditorDraft((current) =>
+			current
+				? {
+						...current,
+						loginScripts: current.loginScripts.map((script, scriptIndex) =>
+							scriptIndex === index ? { ...script, ...partial } : script
+						),
+				  }
+				: current
+		);
+	}, []);
+
+	const removeLoginScript = useCallback((index: number) => {
+		setEditorDraft((current) =>
+			current
+				? {
+						...current,
+						loginScripts: current.loginScripts.filter((_, scriptIndex) => scriptIndex !== index),
+				  }
+				: current
+		);
+	}, []);
+
+	const addForwardedPort = useCallback(() => {
+		setEditorDraft((current) =>
+			current
+				? {
+						...current,
+						sshForwardedPorts: [
+							...current.sshForwardedPorts,
+							{
+								id: `forward-${Date.now()}`,
+								type: 'local',
+								host: '127.0.0.1',
+								port: 3000,
+								targetAddress: '127.0.0.1',
+								targetPort: 3000,
+								description: '',
+							} satisfies TerminalPortForward,
+						],
+				  }
+				: current
+		);
+	}, []);
+
+	const patchForwardedPort = useCallback((index: number, partial: Partial<TerminalPortForward>) => {
+		setEditorDraft((current) =>
+			current
+				? {
+						...current,
+						sshForwardedPorts: current.sshForwardedPorts.map((forward, forwardIndex) =>
+							forwardIndex === index ? { ...forward, ...partial } : forward
+						),
+				  }
+				: current
+		);
+	}, []);
+
+	const removeForwardedPort = useCallback((index: number) => {
+		setEditorDraft((current) =>
+			current
+				? {
+						...current,
+						sshForwardedPorts: current.sshForwardedPorts.filter((_, forwardIndex) => forwardIndex !== index),
+				  }
+				: current
+		);
+	}, []);
+
+	const toggleAlgorithm = useCallback(
+		(kind: keyof typeof TERMINAL_SSH_ALGORITHM_OPTIONS, algorithm: string) => {
+			setEditorDraft((current) => {
+				if (!current) {
+					return current;
+				}
+				const active = current.sshAlgorithms[kind];
+				const next = active.includes(algorithm)
+					? active.filter((item) => item !== algorithm)
+					: [...active, algorithm];
+				return {
+					...current,
+					sshAlgorithms: {
+						...current.sshAlgorithms,
+						[kind]: next,
+					},
+				};
+			});
+		},
+		[]
+	);
+
+	const setEditorPassword = useCallback(async () => {
+		if (!editorDraft?.id) {
+			return;
+		}
+		const value = window.prompt(t('app.universalTerminalSettings.profiles.passwordPrompt'), '');
+		if (typeof value !== 'string' || !value) {
+			return;
+		}
+		const shell = window.asyncShell;
+		if (!shell) {
+			return;
+		}
+		const result = (await shell.invoke('term:profilePasswordSet', editorDraft.id, value)) as { ok?: boolean };
+		if (result?.ok) {
+			setEditorHasSavedPassword(true);
+		}
+	}, [editorDraft?.id, t]);
+
+	const clearEditorPassword = useCallback(async () => {
+		if (!editorDraft?.id) {
+			return;
+		}
+		if (!window.confirm(t('app.universalTerminalSettings.profiles.passwordClearConfirm'))) {
+			return;
+		}
+		const shell = window.asyncShell;
+		if (!shell) {
+			return;
+		}
+		const result = (await shell.invoke('term:profilePasswordClear', editorDraft.id)) as { ok?: boolean };
+		if (result?.ok) {
+			setEditorHasSavedPassword(false);
+		}
+	}, [editorDraft?.id, t]);
 
 	const pickPath = useCallback(
 		async (opts: {
@@ -495,23 +667,18 @@ function ProfilesSettingsStage({
 		if (!editorDraft) {
 			return;
 		}
-		const nextProfile = applyProfileNameFallback(editorDraft, t);
+		const nextProfile = applyProfileNameFallback(applySshConnectionMode(editorDraft, editorSshConnectionMode), t);
 		const alreadyExists = settings.profiles.some((profile) => profile.id === nextProfile.id);
 		const nextProfiles = alreadyExists
 			? settings.profiles.map((profile) => (profile.id === nextProfile.id ? nextProfile : profile))
 			: [...settings.profiles, nextProfile];
-		const nextDefaultProfileId = editorDefaultChecked
-			? nextProfile.id
-			: settings.defaultProfileId === nextProfile.id
-				? nextProfiles[0]?.id ?? DEFAULT_PROFILE_ID
-				: settings.defaultProfileId;
 		onPatchSettings({
 			profiles: nextProfiles,
-			defaultProfileId: nextDefaultProfileId,
+			defaultProfileId: settings.defaultProfileId,
 		});
 		onSelectProfile(nextProfile.id);
 		setEditorDraft(null);
-	}, [editorDefaultChecked, editorDraft, onPatchSettings, onSelectProfile, settings.defaultProfileId, settings.profiles, t]);
+	}, [editorDraft, editorSshConnectionMode, onPatchSettings, onSelectProfile, settings.defaultProfileId, settings.profiles, t]);
 
 	const deleteEditorProfile = useCallback(() => {
 		if (!editorDraft || !canDeleteDraft) {
@@ -527,8 +694,10 @@ function ProfilesSettingsStage({
 			profiles: remaining,
 			defaultProfileId: nextDefaultProfileId,
 		});
+		void window.asyncShell?.invoke('term:profilePasswordClear', editorDraft.id);
 		onSelectProfile(remaining[0].id);
 		setEditorDraft(null);
+		setEditorHasSavedPassword(false);
 	}, [canDeleteDraft, editorDraft, onPatchSettings, onSelectProfile, settings.defaultProfileId, settings.profiles]);
 
 	useEffect(() => {
@@ -569,6 +738,16 @@ function ProfilesSettingsStage({
 	useEffect(() => {
 		setRowMenuProfileId(null);
 	}, [filter, activeProfile.id]);
+
+	useEffect(() => {
+		if (!editorDraft) {
+			return;
+		}
+		const availableTabs = new Set(getEditorTabsForProfile(editorDraft, t).map((tab) => tab.id));
+		if (!availableTabs.has(editorTab)) {
+			setEditorTab('general');
+		}
+	}, [editorDraft, editorTab, t]);
 
 	return (
 		<div className="ref-uterm-settings-page">
@@ -652,18 +831,14 @@ function ProfilesSettingsStage({
 
 					<div className="ref-uterm-settings-profiles-workbench">
 						<div className="ref-uterm-settings-profile-list-shell">
-							{([
+							{[
+								...customProfileGroups,
 								{
-									id: 'custom' as const,
-									label: t('app.universalTerminalSettings.profiles.group.custom'),
-									items: filteredCustomProfiles,
-								},
-								{
-									id: 'builtin' as const,
+									id: 'builtin',
 									label: t('app.universalTerminalSettings.profiles.group.builtin'),
 									items: filteredBuiltinProfiles,
 								},
-							] as const).map((group) => (
+							].map((group) => (
 								<div
 									key={group.id}
 									className={`ref-uterm-settings-profile-group ${collapsedGroups[group.id] ? 'is-collapsed' : 'is-expanded'}`}
@@ -827,6 +1002,7 @@ function ProfilesSettingsStage({
 																							profiles: remaining,
 																							defaultProfileId: nextDefaultProfileId,
 																						});
+																						void window.asyncShell?.invoke('term:profilePasswordClear', profile.id);
 																						if (isActive) {
 																							setEditorDraft(null);
 																							onSelectProfile(remaining[0]?.id ?? DEFAULT_PROFILE_ID);
@@ -973,19 +1149,11 @@ function ProfilesSettingsStage({
 								<div className="ref-uterm-settings-profile-modal-shell">
 									<div className="ref-uterm-settings-profile-editor-head">
 										<div className="ref-uterm-settings-profile-editor-heading">
-											<span className={`ref-uterm-settings-profile-list-item-icon is-${editorVisual.tone}`}>
-												{editorVisual.icon}
-											</span>
 											<div>
 												<div className="ref-uterm-settings-profile-editor-title">
 													{editorMode === 'create'
 														? t('app.universalTerminalSettings.profiles.editorTitleNew')
 														: editorDraft.name || t('app.universalTerminalSettings.profiles.untitled')}
-												</div>
-												<div className="ref-uterm-settings-profile-editor-subtitle">
-													{editorMode === 'create'
-														? t('app.universalTerminalSettings.profiles.editorCopyNew')
-														: describeProfileTarget(editorDraft, t)}
 												</div>
 											</div>
 										</div>
@@ -993,48 +1161,86 @@ function ProfilesSettingsStage({
 
 									<div className="ref-uterm-settings-profile-modal-body">
 										<div className="ref-uterm-settings-profile-modal-sidebar">
-											<div className="ref-uterm-settings-profile-meta-card">
-												<div className="ref-uterm-settings-profile-meta-label">
-													{t('app.universalTerminalSettings.profiles.name')}
-												</div>
-												<input
-													type="text"
-													autoFocus
-													className="ref-uterm-settings-input"
-													value={editorDraft.name}
-													onChange={(event) => patchEditorDraft({ name: event.target.value })}
+											<div className="ref-uterm-settings-profile-side-form">
+												<FieldStack label={t('app.universalTerminalSettings.profiles.name')}>
+													<input
+														type="text"
+														autoFocus
+														className="ref-uterm-settings-input"
+														value={editorDraft.name}
+														onChange={(event) => patchEditorDraft({ name: event.target.value })}
+													/>
+												</FieldStack>
+
+												<FieldStack label={t('app.universalTerminalSettings.profiles.groupLabel')}>
+													<input
+														type="text"
+														className="ref-uterm-settings-input"
+														value={editorDraft.group}
+														placeholder={t('app.universalTerminalSettings.profiles.groupPlaceholder')}
+														onChange={(event) => patchEditorDraft({ group: event.target.value })}
+													/>
+												</FieldStack>
+
+												<FieldStack label={t('app.universalTerminalSettings.profiles.iconLabel')}>
+													<div className="ref-uterm-settings-input-action">
+														<input
+															type="text"
+															className="ref-uterm-settings-input"
+															value={editorDraft.icon}
+															placeholder={t('app.universalTerminalSettings.profiles.iconPlaceholder')}
+															onChange={(event) => patchEditorDraft({ icon: event.target.value })}
+														/>
+														<div className="ref-uterm-settings-icon-preview" aria-hidden>
+															{editorVisual.icon}
+														</div>
+													</div>
+												</FieldStack>
+
+												<FieldStack label={t('app.universalTerminalSettings.profiles.colorLabel')}>
+													<input
+														type="text"
+														className="ref-uterm-settings-input"
+														value={editorDraft.color}
+														placeholder="#000000"
+														onChange={(event) => patchEditorDraft({ color: event.target.value })}
+													/>
+												</FieldStack>
+
+												<ToggleField
+													label={t('app.universalTerminalSettings.profiles.disableDynamicTitle')}
+													hint={t('app.universalTerminalSettings.profiles.disableDynamicTitleHint')}
+													checked={editorDraft.disableDynamicTitle}
+													onChange={(next) => patchEditorDraft({ disableDynamicTitle: next })}
 												/>
 
-												<div className="ref-uterm-settings-profile-meta-label">
-													{t('app.universalTerminalSettings.profiles.connectionKind')}
-												</div>
-												<ChipGroup>
-													{(['local', 'ssh'] as const).map((kind) => (
-														<ChipToggle
-															key={kind}
-															active={editorDraft.kind === kind}
-															onClick={() => patchEditorDraft({ kind })}
-														>
-															{t(`app.universalTerminalSettings.profiles.kind.${kind}`)}
-														</ChipToggle>
-													))}
-												</ChipGroup>
+												<FieldStack
+													label={t('app.universalTerminalSettings.profiles.sessionEndBehavior')}
+													hint={t('app.universalTerminalSettings.profiles.sessionEndBehaviorHint')}
+												>
+													<select
+														value={editorDraft.behaviorOnSessionEnd}
+														onChange={(event) =>
+															patchEditorDraft({
+																behaviorOnSessionEnd: event.target.value as TerminalProfile['behaviorOnSessionEnd'],
+															})
+														}
+														className="ref-uterm-settings-select"
+													>
+														<option value="auto">{t('app.universalTerminalSettings.profiles.sessionEnd.auto')}</option>
+														<option value="keep">{t('app.universalTerminalSettings.profiles.sessionEnd.keep')}</option>
+														<option value="reconnect">{t('app.universalTerminalSettings.profiles.sessionEnd.reconnect')}</option>
+														<option value="close">{t('app.universalTerminalSettings.profiles.sessionEnd.close')}</option>
+													</select>
+												</FieldStack>
 
-												<div className="ref-uterm-settings-profile-meta-label">
-													{t('app.universalTerminalSettings.profiles.groupLabel')}
-												</div>
-												<div className="ref-uterm-settings-static-field">
-													{t('app.universalTerminalSettings.profiles.group.custom')}
-												</div>
-
-												<label className="ref-uterm-settings-checkbox">
-													<input
-														type="checkbox"
-														checked={editorDefaultChecked}
-														onChange={(event) => setEditorDefaultChecked(event.target.checked)}
+												{editorDraft.kind === 'ssh' ? (
+													<ToggleField
+														label={t('app.universalTerminalSettings.profiles.clearOnConnect')}
+														checked={editorDraft.clearServiceMessagesOnConnect}
+														onChange={(next) => patchEditorDraft({ clearServiceMessagesOnConnect: next })}
 													/>
-													<span>{t('app.universalTerminalSettings.profiles.setDefault')}</span>
-												</label>
+												) : null}
 											</div>
 
 											{sshIncomplete ? (
@@ -1042,33 +1248,70 @@ function ProfilesSettingsStage({
 													{t('app.universalTerminalSettings.profiles.sshIncomplete')}
 												</div>
 											) : null}
-
-											<div className="ref-uterm-settings-profile-meta-card">
-												<div className="ref-uterm-settings-card-title">
-													{t('app.universalTerminalSettings.launchPreview')}
-												</div>
-												<code className="ref-uterm-settings-preview-code">{launchPreview}</code>
-											</div>
 										</div>
 
 										<div className="ref-uterm-settings-profile-modal-main">
+											<div className="ref-uterm-settings-editor-tabs" role="tablist" aria-label={t('app.universalTerminalSettings.profiles.editorTabsLabel')}>
+												{getEditorTabsForProfile(editorDraft, t).map((tab) => (
+													<button
+														key={tab.id}
+														type="button"
+														role="tab"
+														aria-selected={editorTab === tab.id}
+														className={`ref-uterm-settings-editor-tab ${editorTab === tab.id ? 'is-active' : ''}`}
+														onClick={() => setEditorTab(tab.id)}
+													>
+														{tab.label}
+													</button>
+												))}
+											</div>
 											{editorDraft.kind === 'ssh' ? (
 												<>
-													<SettingsSection title={t('app.universalTerminalSettings.profiles.editorConnectionTitle')}>
-														<div className="ref-uterm-settings-form">
-															<Field label={t('app.universalTerminalSettings.profiles.sshHost')}>
-																<input
-																	type="text"
-																	className="ref-uterm-settings-input"
-																	value={editorDraft.sshHost}
-																	placeholder="example.com"
-																	onChange={(event) => patchEditorDraft({ sshHost: event.target.value })}
-																/>
-															</Field>
-															<Field label={t('app.universalTerminalSettings.profiles.sshPort')}>
+													{editorTab === 'general' ? (
+													<div className="ref-uterm-settings-modal-page">
+														<div className="ref-uterm-settings-ssh-grid">
+															<FieldStack label={t('app.universalTerminalSettings.profiles.connectionMode')}>
+																<select
+																	value={editorSshConnectionMode}
+																	onChange={(event) =>
+																		setEditorSshConnectionMode(event.target.value as TerminalSshConnectionMode)
+																	}
+																	className="ref-uterm-settings-select"
+																>
+																	<option value="direct">{t('app.universalTerminalSettings.profiles.connection.direct')}</option>
+																	<option value="proxyCommand">{t('app.universalTerminalSettings.profiles.connection.proxyCommand')}</option>
+																	<option value="jumpHost">{t('app.universalTerminalSettings.profiles.connection.jumpHost')}</option>
+																</select>
+															</FieldStack>
+
+															{editorSshConnectionMode !== 'proxyCommand' ? (
+																<FieldStack label={t('app.universalTerminalSettings.profiles.sshHost')}>
+																	<input
+																		type="text"
+																		className="ref-uterm-settings-input"
+																		value={editorDraft.sshHost}
+																		placeholder="192.168.1.201"
+																		onChange={(event) => patchEditorDraft({ sshHost: event.target.value })}
+																	/>
+																</FieldStack>
+															) : (
+																<FieldStack label={t('app.universalTerminalSettings.profiles.sshProxyCommand')}>
+																	<input
+																		type="text"
+																		className="ref-uterm-settings-input"
+																		value={editorDraft.sshProxyCommand}
+																		placeholder={t('app.universalTerminalSettings.profiles.sshProxyCommandPlaceholder')}
+																		onChange={(event) =>
+																			patchEditorDraft({ sshProxyCommand: event.target.value })
+																		}
+																	/>
+																</FieldStack>
+															)}
+
+															<FieldStack label={t('app.universalTerminalSettings.profiles.sshPort')}>
 																<input
 																	type="number"
-																	className="ref-uterm-settings-input ref-uterm-settings-input--narrow"
+																	className="ref-uterm-settings-input"
 																	min={1}
 																	max={65535}
 																	value={editorDraft.sshPort}
@@ -1081,17 +1324,11 @@ function ProfilesSettingsStage({
 																		})
 																	}
 																/>
-															</Field>
-															<Field label={t('app.universalTerminalSettings.profiles.sshUser')}>
-																<input
-																	type="text"
-																	className="ref-uterm-settings-input"
-																	value={editorDraft.sshUser}
-																	placeholder="ubuntu"
-																	onChange={(event) => patchEditorDraft({ sshUser: event.target.value })}
-																/>
-															</Field>
-															<Field label={t('app.universalTerminalSettings.profiles.sshJumpHost')}>
+															</FieldStack>
+														</div>
+
+														{editorSshConnectionMode === 'jumpHost' ? (
+															<FieldStack label={t('app.universalTerminalSettings.profiles.sshJumpHost')}>
 																<input
 																	type="text"
 																	className="ref-uterm-settings-input"
@@ -1099,81 +1336,102 @@ function ProfilesSettingsStage({
 																	placeholder={t('app.universalTerminalSettings.profiles.sshJumpHostPlaceholder')}
 																	onChange={(event) => patchEditorDraft({ sshJumpHost: event.target.value })}
 																/>
-															</Field>
-															<Field label={t('app.universalTerminalSettings.profiles.sshProxyCommand')}>
-																<input
-																	type="text"
-																	className="ref-uterm-settings-input"
-																	value={editorDraft.sshProxyCommand}
-																	placeholder={t('app.universalTerminalSettings.profiles.sshProxyCommandPlaceholder')}
-																	onChange={(event) =>
-																		patchEditorDraft({ sshProxyCommand: event.target.value })
-																	}
-																/>
-															</Field>
-														</div>
-													</SettingsSection>
+															</FieldStack>
+														) : null}
 
-													<SettingsSection title={t('app.universalTerminalSettings.profiles.editorAuthenticationTitle')}>
-														<div className="ref-uterm-settings-form">
-															<Field label={t('app.universalTerminalSettings.profiles.sshAuthMode')}>
-																<ChipGroup>
-																	{(
-																		[
-																			'auto',
-																			'password',
-																			'publicKey',
-																			'agent',
-																			'keyboardInteractive',
-																		] as TerminalSshAuthMode[]
-																	).map((mode) => (
-																		<ChipToggle
-																			key={mode}
-																			active={editorDraft.sshAuthMode === mode}
-																			onClick={() => patchEditorDraft({ sshAuthMode: mode })}
-																		>
-																			{t(`app.universalTerminalSettings.profiles.sshAuth.${mode}`)}
-																		</ChipToggle>
-																	))}
-																</ChipGroup>
-															</Field>
-															{editorDraft.sshAuthMode === 'password' ? (
-																<div className="ref-uterm-settings-inline-note">
-																	{t('app.universalTerminalSettings.profiles.sshPasswordAuthHint')}
-																</div>
-															) : null}
-															<Field
-																label={t('app.universalTerminalSettings.profiles.sshPrivateKeys')}
-																hint={t('app.universalTerminalSettings.profiles.sshPrivateKeysHint')}
-															>
-																<div className="ref-uterm-settings-stack-control">
-																	<div className="ref-uterm-settings-pathlist">
-																		{getSshIdentityFiles(editorDraft).length > 0 ? (
-																			getSshIdentityFiles(editorDraft).map((item, index) => (
-																				<div key={`${item}:${index}`} className="ref-uterm-settings-pathlist-item">
-																					<span className="ref-uterm-settings-pathlist-text" title={item}>
-																						{item}
-																					</span>
-																					<button
-																						type="button"
-																						className="ref-uterm-settings-pathlist-remove"
-																						onClick={() => removePrivateKey(index)}
-																					>
-																						{t('app.universalTerminalSettings.profiles.removeKey')}
-																					</button>
-																				</div>
-																			))
-																		) : (
-																			<div className="ref-uterm-settings-pathlist-empty">
-																				{t('app.universalTerminalSettings.profiles.sshPrivateKeysEmpty')}
-																			</div>
-																		)}
-																	</div>
-																	<button type="button" className="ref-uterm-settings-secondary-btn" onClick={() => void addPrivateKeys()}>
-																		{t('app.universalTerminalSettings.profiles.pickPrivateKeys')}
+														<FieldStack label={t('app.universalTerminalSettings.profiles.sshUser')}>
+															<input
+																type="text"
+																className="ref-uterm-settings-input"
+																value={editorDraft.sshUser}
+																placeholder="licl"
+																onChange={(event) => patchEditorDraft({ sshUser: event.target.value })}
+															/>
+														</FieldStack>
+
+														<FieldStack label={t('app.universalTerminalSettings.profiles.sshAuthMode')}>
+															<div className="ref-uterm-settings-authbar">
+																{(
+																	[
+																		'auto',
+																		'password',
+																		'publicKey',
+																		'agent',
+																		'keyboardInteractive',
+																	] as TerminalSshAuthMode[]
+																).map((mode) => (
+																	<button
+																		key={mode}
+																		type="button"
+																		className={`ref-uterm-settings-authbar-item ${editorDraft.sshAuthMode === mode ? 'is-active' : ''}`}
+																		onClick={() => patchEditorDraft({ sshAuthMode: mode })}
+																	>
+																		<span className="ref-uterm-settings-authbar-icon" aria-hidden>
+																			{renderSshAuthGlyph(mode)}
+																		</span>
+																		<span>{t(`app.universalTerminalSettings.profiles.sshAuth.${mode}`)}</span>
 																	</button>
+																))}
+															</div>
+														</FieldStack>
+
+														{editorDraft.sshAuthMode === 'password' ? (
+															<div className="ref-uterm-settings-password-row">
+																<div>
+																	<div className="ref-uterm-settings-profile-meta-label">
+																		{t('app.universalTerminalSettings.profiles.passwordLabel')}
+																	</div>
+																	<div className="ref-uterm-settings-hint">
+																		{t('app.universalTerminalSettings.profiles.passwordHint')}
+																	</div>
 																</div>
-															</Field>
+																<button
+																	type="button"
+																	className={editorHasSavedPassword ? 'ref-uterm-settings-danger-btn' : 'ref-uterm-settings-success-btn'}
+																	onClick={() => void (editorHasSavedPassword ? clearEditorPassword() : setEditorPassword())}
+																>
+																	{editorHasSavedPassword
+																		? t('app.universalTerminalSettings.profiles.forgetPassword')
+																		: t('app.universalTerminalSettings.profiles.setPassword')}
+																</button>
+															</div>
+														) : null}
+
+														<FieldStack label={t('app.universalTerminalSettings.profiles.sshPrivateKeys')}>
+															<div className="ref-uterm-settings-stack-control">
+																<div className="ref-uterm-settings-pathlist">
+																	{getSshIdentityFiles(editorDraft).length > 0 ? (
+																		getSshIdentityFiles(editorDraft).map((item, index) => (
+																			<div key={`${item}:${index}`} className="ref-uterm-settings-pathlist-item">
+																				<span className="ref-uterm-settings-pathlist-text" title={item}>
+																					{item}
+																				</span>
+																				<button
+																					type="button"
+																					className="ref-uterm-settings-pathlist-remove"
+																					onClick={() => removePrivateKey(index)}
+																				>
+																					{t('app.universalTerminalSettings.profiles.removeKey')}
+																				</button>
+																			</div>
+																		))
+																	) : (
+																		<div className="ref-uterm-settings-pathlist-empty">
+																			{t('app.universalTerminalSettings.profiles.sshPrivateKeysEmpty')}
+																		</div>
+																	)}
+																</div>
+																<button type="button" className="ref-uterm-settings-secondary-btn" onClick={() => void addPrivateKeys()}>
+																	{t('app.universalTerminalSettings.profiles.pickPrivateKeys')}
+																</button>
+															</div>
+														</FieldStack>
+													</div>
+													) : null}
+
+													{editorTab === 'advanced' ? (
+													<SettingsSection title={t('app.universalTerminalSettings.profiles.editorAdvancedTitle')}>
+														<div className="ref-uterm-settings-form">
 															<Field label={t('app.universalTerminalSettings.profiles.sshExtraArgs')}>
 																<input
 																	type="text"
@@ -1185,11 +1443,6 @@ function ProfilesSettingsStage({
 																	}
 																/>
 															</Field>
-														</div>
-													</SettingsSection>
-
-													<SettingsSection title={t('app.universalTerminalSettings.profiles.editorAdvancedTitle')}>
-														<div className="ref-uterm-settings-form">
 															<Field label={t('app.universalTerminalSettings.profiles.sshRemoteCommand')}>
 																<input
 																	type="text"
@@ -1247,20 +1500,212 @@ function ProfilesSettingsStage({
 																	}
 																/>
 															</Field>
-															<Field label={t('app.universalTerminalSettings.profiles.env')}>
-																<textarea
-																	className="ref-uterm-settings-textarea"
-																	rows={5}
-																	value={editorDraft.env}
-																	placeholder={'NODE_ENV=dev\nMY_VAR=value'}
-																	onChange={(event) => patchEditorDraft({ env: event.target.value })}
-																/>
-															</Field>
 														</div>
 													</SettingsSection>
+													) : null}
+
+													{editorTab === 'ports' ? (
+														<SettingsSection title={t('app.universalTerminalSettings.profiles.tab.ports')}>
+															<div className="ref-uterm-settings-stack-control">
+																{editorDraft.sshForwardedPorts.map((forward, index) => (
+																	<div key={forward.id} className="ref-uterm-settings-port-card">
+																		<div className="ref-uterm-settings-port-grid">
+																			<FieldStack label={t('app.universalTerminalSettings.profiles.forward.type')}>
+																				<select
+																					value={forward.type}
+																					onChange={(event) =>
+																						patchForwardedPort(index, {
+																							type: event.target.value as TerminalPortForwardType,
+																						})
+																					}
+																					className="ref-uterm-settings-select"
+																				>
+																					<option value="local">{t('app.universalTerminalSettings.profiles.forward.local')}</option>
+																					<option value="remote">{t('app.universalTerminalSettings.profiles.forward.remote')}</option>
+																					<option value="dynamic">{t('app.universalTerminalSettings.profiles.forward.dynamic')}</option>
+																				</select>
+																			</FieldStack>
+																			<FieldStack label={t('app.universalTerminalSettings.profiles.forward.host')}>
+																				<input
+																					type="text"
+																					className="ref-uterm-settings-input"
+																					value={forward.host}
+																					onChange={(event) => patchForwardedPort(index, { host: event.target.value })}
+																				/>
+																			</FieldStack>
+																			<FieldStack label={t('app.universalTerminalSettings.profiles.forward.port')}>
+																				<input
+																					type="number"
+																					className="ref-uterm-settings-input"
+																					min={0}
+																					max={65535}
+																					value={forward.port}
+																					onChange={(event) =>
+																						patchForwardedPort(index, {
+																							port: Math.max(0, Math.min(65535, Math.floor(Number(event.target.value) || 0))),
+																						})
+																					}
+																				/>
+																			</FieldStack>
+																		</div>
+																		{forward.type !== 'dynamic' ? (
+																			<div className="ref-uterm-settings-port-grid ref-uterm-settings-port-grid--target">
+																				<FieldStack label={t('app.universalTerminalSettings.profiles.forward.targetAddress')}>
+																					<input
+																						type="text"
+																						className="ref-uterm-settings-input"
+																						value={forward.targetAddress}
+																						onChange={(event) =>
+																							patchForwardedPort(index, { targetAddress: event.target.value })
+																						}
+																					/>
+																				</FieldStack>
+																				<FieldStack label={t('app.universalTerminalSettings.profiles.forward.targetPort')}>
+																					<input
+																						type="number"
+																						className="ref-uterm-settings-input"
+																						min={0}
+																						max={65535}
+																						value={forward.targetPort}
+																						onChange={(event) =>
+																							patchForwardedPort(index, {
+																								targetPort: Math.max(0, Math.min(65535, Math.floor(Number(event.target.value) || 0))),
+																							})
+																						}
+																					/>
+																				</FieldStack>
+																			</div>
+																		) : null}
+																		<div className="ref-uterm-settings-port-actions">
+																			<button
+																				type="button"
+																				className="ref-uterm-settings-danger-btn"
+																				onClick={() => removeForwardedPort(index)}
+																			>
+																				{t('app.universalTerminalSettings.profiles.forward.remove')}
+																			</button>
+																		</div>
+																	</div>
+																))}
+																<button type="button" className="ref-uterm-settings-secondary-btn" onClick={addForwardedPort}>
+																	{t('app.universalTerminalSettings.profiles.forward.add')}
+																</button>
+															</div>
+														</SettingsSection>
+													) : null}
+													{editorTab === 'ciphers' ? (
+														<SettingsSection title={t('app.universalTerminalSettings.profiles.tab.ciphers')}>
+															<div className="ref-uterm-settings-algorithm-sections">
+																{(Object.entries(TERMINAL_SSH_ALGORITHM_OPTIONS) as Array<
+																	[keyof typeof TERMINAL_SSH_ALGORITHM_OPTIONS, string[]]
+																>).map(([kind, options]) => (
+																	<div key={kind} className="ref-uterm-settings-algorithm-group">
+																		<div className="ref-uterm-settings-profile-meta-label">
+																			{t(`app.universalTerminalSettings.profiles.algorithms.${kind}`)}
+																		</div>
+																		<div className="ref-uterm-settings-checkbox-grid">
+																			{options.map((algorithm) => (
+																				<label key={algorithm} className="ref-uterm-settings-checkbox">
+																					<input
+																						type="checkbox"
+																						checked={editorDraft.sshAlgorithms[kind].includes(algorithm)}
+																						onChange={() => toggleAlgorithm(kind, algorithm)}
+																					/>
+																					<span>{algorithm}</span>
+																				</label>
+																			))}
+																		</div>
+																	</div>
+																))}
+															</div>
+														</SettingsSection>
+													) : null}
+													{editorTab === 'colors' ? (
+														<SettingsSection title={t('app.universalTerminalSettings.profiles.tab.colors')}>
+															<ColorSchemeList
+																selectedId={editorDraft.terminalColorSchemeId}
+																onSelect={(colorSchemeId) => patchEditorDraft({ terminalColorSchemeId: colorSchemeId })}
+															/>
+														</SettingsSection>
+													) : null}
+													{editorTab === 'loginScripts' ? (
+														<SettingsSection title={t('app.universalTerminalSettings.profiles.tab.loginScripts')}>
+															<div className="ref-uterm-settings-stack-control">
+																{editorDraft.loginScripts.map((script, index) => (
+																	<div key={`${script.expect}:${index}`} className="ref-uterm-settings-script-row">
+																		<input
+																			type="text"
+																			className="ref-uterm-settings-input"
+																			placeholder={t('app.universalTerminalSettings.profiles.login.expect')}
+																			value={script.expect}
+																			onChange={(event) => patchLoginScript(index, { expect: event.target.value })}
+																		/>
+																		<input
+																			type="text"
+																			className="ref-uterm-settings-input"
+																			placeholder={t('app.universalTerminalSettings.profiles.login.send')}
+																			value={script.send}
+																			onChange={(event) => patchLoginScript(index, { send: event.target.value })}
+																		/>
+																		<div className="ref-uterm-settings-script-options">
+																			<label className="ref-uterm-settings-checkbox">
+																				<input
+																					type="checkbox"
+																					checked={script.isRegex}
+																					onChange={(event) => patchLoginScript(index, { isRegex: event.target.checked })}
+																				/>
+																				<span>{t('app.universalTerminalSettings.profiles.login.regex')}</span>
+																			</label>
+																			<label className="ref-uterm-settings-checkbox">
+																				<input
+																					type="checkbox"
+																					checked={script.optional}
+																					onChange={(event) => patchLoginScript(index, { optional: event.target.checked })}
+																				/>
+																				<span>{t('app.universalTerminalSettings.profiles.login.optional')}</span>
+																			</label>
+																			<button
+																				type="button"
+																				className="ref-uterm-settings-danger-btn"
+																				onClick={() => removeLoginScript(index)}
+																			>
+																				{t('app.universalTerminalSettings.profiles.login.remove')}
+																			</button>
+																		</div>
+																	</div>
+																))}
+																<button type="button" className="ref-uterm-settings-secondary-btn" onClick={addLoginScript}>
+																	{t('app.universalTerminalSettings.profiles.login.add')}
+																</button>
+															</div>
+														</SettingsSection>
+													) : null}
+													{editorTab === 'input' ? (
+														<SettingsSection title={t('app.universalTerminalSettings.profiles.tab.input')}>
+															<div className="ref-uterm-settings-form">
+																<Field label={t('app.universalTerminalSettings.profiles.inputBackspace')}>
+																	<select
+																		value={editorDraft.inputBackspace}
+																		onChange={(event) =>
+																			patchEditorDraft({
+																				inputBackspace: event.target.value as TerminalProfile['inputBackspace'],
+																			})
+																		}
+																		className="ref-uterm-settings-select"
+																	>
+																		<option value="backspace">{t('app.universalTerminalSettings.profiles.backspace.backspace')}</option>
+																		<option value="ctrl-h">{t('app.universalTerminalSettings.profiles.backspace.ctrl-h')}</option>
+																		<option value="ctrl-?">{t('app.universalTerminalSettings.profiles.backspace.ctrl-?')}</option>
+																		<option value="delete">{t('app.universalTerminalSettings.profiles.backspace.delete')}</option>
+																	</select>
+																</Field>
+															</div>
+														</SettingsSection>
+													) : null}
 												</>
 											) : (
 												<>
+													{editorTab === 'general' ? (
 													<SettingsSection title={t('app.universalTerminalSettings.profiles.editorGeneralTitle')}>
 														<div className="ref-uterm-settings-form">
 															<Field label={t('app.universalTerminalSettings.profiles.shell')}>
@@ -1310,20 +1755,38 @@ function ProfilesSettingsStage({
 															</Field>
 														</div>
 													</SettingsSection>
+													) : null}
 
-													<SettingsSection title={t('app.universalTerminalSettings.profiles.editorEnvironmentTitle')}>
+													{editorTab === 'colors' ? (
+														<SettingsSection title={t('app.universalTerminalSettings.profiles.tab.colors')}>
+															<ColorSchemeList
+																selectedId={editorDraft.terminalColorSchemeId}
+																onSelect={(colorSchemeId) => patchEditorDraft({ terminalColorSchemeId: colorSchemeId })}
+															/>
+														</SettingsSection>
+													) : null}
+													{editorTab === 'input' ? (
+													<SettingsSection title={t('app.universalTerminalSettings.profiles.tab.input')}>
 														<div className="ref-uterm-settings-form">
-															<Field label={t('app.universalTerminalSettings.profiles.env')}>
-																<textarea
-																	className="ref-uterm-settings-textarea"
-																	rows={6}
-																	value={editorDraft.env}
-																	placeholder={'NODE_ENV=dev\nMY_VAR=value'}
-																	onChange={(event) => patchEditorDraft({ env: event.target.value })}
-																/>
+															<Field label={t('app.universalTerminalSettings.profiles.inputBackspace')}>
+																<select
+																	value={editorDraft.inputBackspace}
+																	onChange={(event) =>
+																		patchEditorDraft({
+																			inputBackspace: event.target.value as TerminalProfile['inputBackspace'],
+																		})
+																	}
+																	className="ref-uterm-settings-select"
+																>
+																	<option value="backspace">{t('app.universalTerminalSettings.profiles.backspace.backspace')}</option>
+																	<option value="ctrl-h">{t('app.universalTerminalSettings.profiles.backspace.ctrl-h')}</option>
+																	<option value="ctrl-?">{t('app.universalTerminalSettings.profiles.backspace.ctrl-?')}</option>
+																	<option value="delete">{t('app.universalTerminalSettings.profiles.backspace.delete')}</option>
+																</select>
 															</Field>
 														</div>
 													</SettingsSection>
+													) : null}
 												</>
 											)}
 										</div>
@@ -1786,6 +2249,38 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 	);
 }
 
+function FieldStack({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+	return (
+		<div className="ref-uterm-settings-fieldstack">
+			<div className="ref-uterm-settings-label">{label}</div>
+			{hint ? <p className="ref-uterm-settings-hint">{hint}</p> : null}
+			<div>{children}</div>
+		</div>
+	);
+}
+
+function ToggleField({
+	label,
+	hint,
+	checked,
+	onChange,
+}: {
+	label: string;
+	hint?: string;
+	checked: boolean;
+	onChange(next: boolean): void;
+}) {
+	return (
+		<div className="ref-uterm-settings-toggle-field">
+			<div>
+				<div className="ref-uterm-settings-label">{label}</div>
+				{hint ? <p className="ref-uterm-settings-hint">{hint}</p> : null}
+			</div>
+			<ToggleSwitch checked={checked} onChange={onChange} />
+		</div>
+	);
+}
+
 function SettingsSection({
 	title,
 	description,
@@ -1801,6 +2296,49 @@ function SettingsSection({
 			{description ? <p className="ref-uterm-settings-section-copy">{description}</p> : null}
 			<div className="ref-uterm-settings-section-body">{children}</div>
 		</section>
+	);
+}
+
+function ColorSchemeList({
+	selectedId,
+	onSelect,
+}: {
+	selectedId: string;
+	onSelect(colorSchemeId: string): void;
+}) {
+	return (
+		<div className="ref-uterm-settings-color-list">
+			{TERMINAL_COLOR_SCHEMES.map((scheme) => (
+				<button
+					key={scheme.id}
+					type="button"
+					className={`ref-uterm-settings-color-card ${selectedId === scheme.id ? 'is-active' : ''}`}
+					onClick={() => onSelect(scheme.id)}
+				>
+					<div className="ref-uterm-settings-color-card-title">{scheme.name}</div>
+					<div
+						className="ref-uterm-settings-color-preview"
+						style={{ backgroundColor: scheme.background, color: scheme.foreground }}
+					>
+						<div>
+							<span style={{ color: scheme.colors[2] }}>john</span>
+							<span style={{ color: scheme.colors[6] }}>@</span>
+							<span style={{ color: scheme.colors[4] }}>host</span>
+							<strong style={{ color: scheme.colors[1] }}> $</strong>
+							<span> ls</span>
+						</div>
+						<div>
+							<span>-rwxr-xr-x 1 root </span>
+							<strong style={{ color: scheme.colors[3] }}>Documents</strong>
+						</div>
+						<div>
+							<span>-rwxr-xr-x 1 root </span>
+							<strong style={{ color: scheme.colors[12] }}>Music</strong>
+						</div>
+					</div>
+				</button>
+			))}
+		</div>
 	);
 }
 
@@ -1914,6 +2452,100 @@ function filterProfilesByQuery(profiles: TerminalProfile[], query: string, t: TF
 	);
 }
 
+function groupProfilesByCustomGroup(
+	profiles: TerminalProfile[],
+	t: TFunction
+): Array<{ id: string; label: string; items: TerminalProfile[] }> {
+	const groups = new Map<string, TerminalProfile[]>();
+	for (const profile of profiles) {
+		const key = profile.group.trim();
+		const bucketKey = key || '';
+		const bucket = groups.get(bucketKey) ?? [];
+		bucket.push(profile);
+		groups.set(bucketKey, bucket);
+	}
+	return Array.from(groups.entries())
+		.sort(([a], [b]) => {
+			if (!a && b) {
+				return -1;
+			}
+			if (a && !b) {
+				return 1;
+			}
+			return a.localeCompare(b);
+		})
+		.map(([groupName, items]) => ({
+			id: `custom:${groupName || 'ungrouped'}`,
+			label: groupName || t('app.universalTerminalSettings.profiles.group.custom'),
+			items: [...items].sort((a, b) => a.name.localeCompare(b.name)),
+		}));
+}
+
+function getEditorTabsForProfile(
+	profile: TerminalProfile,
+	t: TFunction
+): Array<{ id: ProfileEditorTabId; label: string }> {
+	if (profile.kind === 'ssh') {
+		return [
+			{ id: 'general', label: t('app.universalTerminalSettings.profiles.tab.general') },
+			{ id: 'ports', label: t('app.universalTerminalSettings.profiles.tab.ports') },
+			{ id: 'advanced', label: t('app.universalTerminalSettings.profiles.tab.advanced') },
+			{ id: 'ciphers', label: t('app.universalTerminalSettings.profiles.tab.ciphers') },
+			{ id: 'colors', label: t('app.universalTerminalSettings.profiles.tab.colors') },
+			{ id: 'loginScripts', label: t('app.universalTerminalSettings.profiles.tab.loginScripts') },
+			{ id: 'input', label: t('app.universalTerminalSettings.profiles.tab.input') },
+		];
+	}
+	return [
+		{ id: 'general', label: t('app.universalTerminalSettings.profiles.tab.general') },
+		{ id: 'colors', label: t('app.universalTerminalSettings.profiles.tab.colors') },
+		{ id: 'input', label: t('app.universalTerminalSettings.profiles.tab.input') },
+	];
+}
+
+function inferSshConnectionMode(profile: TerminalProfile): TerminalSshConnectionMode {
+	if (profile.sshProxyCommand.trim()) {
+		return 'proxyCommand';
+	}
+	if (profile.sshJumpHost.trim()) {
+		return 'jumpHost';
+	}
+	return 'direct';
+}
+
+function applySshConnectionMode(profile: TerminalProfile, mode: TerminalSshConnectionMode): TerminalProfile {
+	if (profile.kind !== 'ssh') {
+		return profile;
+	}
+	if (mode === 'direct') {
+		return {
+			...profile,
+			sshProxyCommand: '',
+			sshJumpHost: '',
+		};
+	}
+	if (mode === 'proxyCommand') {
+		return {
+			...profile,
+			sshJumpHost: '',
+		};
+	}
+	return {
+		...profile,
+		sshProxyCommand: '',
+	};
+}
+
+function renderSshAuthGlyph(mode: TerminalSshAuthMode): string {
+	return {
+		auto: '?',
+		password: 'A',
+		publicKey: 'K',
+		agent: 'G',
+		keyboardInteractive: 'T',
+	}[mode];
+}
+
 function createEmptyProfileDraft(
 	existing: TerminalProfile[],
 	kind: TerminalProfileKind,
@@ -1926,6 +2558,7 @@ function createEmptyProfileDraft(
 			kind === 'ssh'
 				? t('app.universalTerminalSettings.profiles.newSshName')
 				: t('app.universalTerminalSettings.profiles.untitled'),
+		group: '',
 		kind,
 	};
 }
@@ -1940,6 +2573,7 @@ function applyProfileNameFallback(profile: TerminalProfile, t: TFunction): Termi
 	const identityFiles = getSshIdentityFiles(profile);
 	return {
 		...profile,
+		group: profile.group.trim(),
 		sshIdentityFiles: identityFiles,
 		sshIdentityFile: identityFiles[0] ?? '',
 		name:
