@@ -537,6 +537,7 @@
 .ref-uterm-settings-stage {
 	flex: 1 1 auto;
 	min-width: 0;
+	position: relative;
 	padding: 22px 26px 26px;
 	overflow: auto;
 	background:
@@ -617,11 +618,36 @@
 	border-bottom-color: var(--void-fg-0);
 }
 
+.ref-uterm-settings-default-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	width: min(760px, 100%);
+}
+
+.ref-uterm-settings-default-label {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-settings-default-copy {
+	max-width: 520px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-settings-default-picker {
+	width: min(240px, 100%);
+}
+
 .ref-uterm-settings-toolbar {
 	display: grid;
-	grid-template-columns: minmax(220px, 320px) 1fr;
-	gap: 16px;
-	align-items: end;
+	width: min(760px, 100%);
+	grid-template-columns: 1fr;
+	gap: 10px;
+	align-items: start;
 }
 
 .ref-uterm-settings-inline-field {
@@ -638,15 +664,18 @@
 
 .ref-uterm-settings-toolbar-actions {
 	display: flex;
-	align-items: end;
-	justify-content: flex-end;
+	align-items: center;
+	justify-content: flex-start;
 	gap: 12px;
 	min-width: 0;
+	width: 100%;
 }
 
 .ref-uterm-settings-search {
 	position: relative;
-	width: min(360px, 100%);
+	flex: 1 1 auto;
+	width: auto;
+	max-width: 560px;
 }
 
 .ref-uterm-settings-search-ico {
@@ -670,10 +699,41 @@
 }
 
 .ref-uterm-settings-profiles-workbench {
-	display: grid;
-	grid-template-columns: minmax(280px, 0.95fr) minmax(400px, 1.2fr);
-	gap: 16px;
+	width: min(760px, 100%);
 	min-height: 0;
+}
+
+.ref-uterm-settings-sections {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	width: min(760px, 100%);
+}
+
+.ref-uterm-settings-section {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.ref-uterm-settings-section-title {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-settings-section-copy {
+	margin: -4px 0 0;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-settings-section-body {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
 }
 
 .ref-uterm-settings-profile-list-shell,
@@ -687,34 +747,38 @@
 }
 
 .ref-uterm-settings-profile-list-shell {
-	padding: 10px;
+	padding: 14px;
 	overflow: auto;
-	background: color-mix(in srgb, var(--void-bg-0) 82%, transparent);
+	min-height: 420px;
+	background: color-mix(in srgb, var(--void-bg-0) 88%, transparent);
 }
 
 .ref-uterm-settings-profile-group + .ref-uterm-settings-profile-group {
-	margin-top: 8px;
+	margin-top: 16px;
 }
 
 .ref-uterm-settings-profile-group-head {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	gap: 9px;
 	width: 100%;
-	padding: 8px 10px;
+	padding: 8px 10px 10px;
 	border: none;
-	border-radius: 8px;
+	border-radius: 0;
 	background: transparent;
-	color: var(--void-fg-0);
+	color: var(--void-fg-1);
 	font: inherit;
 	font-size: 13px;
 	font-weight: 600;
 	text-align: left;
 	cursor: pointer;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 52%, transparent);
 }
 
 .ref-uterm-settings-profile-group-chevron {
 	display: inline-block;
+	font-size: 13px;
+	color: var(--void-fg-2);
 	transition: transform 120ms ease;
 }
 
@@ -722,41 +786,95 @@
 	transform: rotate(-90deg);
 }
 
+.ref-uterm-settings-profile-group-label {
+	letter-spacing: 0.01em;
+}
+
 .ref-uterm-settings-profile-group-count {
 	margin-left: auto;
-	font-size: 11px;
+	font-size: 10px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
 	color: var(--void-fg-2);
 }
 
 .ref-uterm-settings-profile-group-body {
 	display: grid;
-	gap: 6px;
-	padding: 4px 0 0;
+	gap: 5px;
+	padding: 8px 0 0;
 }
 
 .ref-uterm-settings-profile-list-item {
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: 14px;
 	width: 100%;
-	padding: 10px 12px;
+	padding: 12px 14px;
 	border: 1px solid transparent;
-	border-radius: 10px;
-	background: color-mix(in srgb, var(--void-bg-0) 86%, transparent);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--void-bg-0) 90%, transparent);
 	color: var(--void-fg-0);
 	font: inherit;
 	text-align: left;
 	cursor: pointer;
-	transition: border-color 120ms ease, background 120ms ease;
+	transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
 }
 
 .ref-uterm-settings-profile-list-item:hover {
-	background: color-mix(in srgb, var(--void-bg-2) 88%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 90%, transparent);
+	transform: translateY(-1px);
+}
+
+.ref-uterm-settings-profile-list-item:focus-visible {
+	outline: none;
+	border-color: color-mix(in srgb, var(--void-accent-cool) 52%, transparent);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--void-accent-cool) 14%, transparent);
 }
 
 .ref-uterm-settings-profile-list-item.is-active {
-	border-color: color-mix(in srgb, var(--void-accent-cool) 42%, transparent);
-	background: color-mix(in srgb, var(--void-accent-cool) 10%, var(--void-bg-2));
+	border-color: color-mix(in srgb, var(--void-accent-cool) 56%, transparent);
+	background: color-mix(in srgb, var(--void-accent-cool) 14%, var(--void-bg-2));
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-accent-cool) 16%, transparent);
+}
+
+.ref-uterm-settings-profile-list-item.is-builtin {
+	cursor: default;
+}
+
+.ref-uterm-settings-profile-list-item.is-builtin:hover {
+	transform: none;
+}
+
+.ref-uterm-settings-profile-list-item-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	width: 34px;
+	height: 34px;
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--void-bg-2) 92%, transparent);
+	color: var(--void-fg-1);
+}
+
+.ref-uterm-settings-profile-list-item-icon.is-terminal {
+	color: color-mix(in srgb, var(--void-accent-cool) 68%, var(--void-fg-0));
+}
+
+.ref-uterm-settings-profile-list-item-icon.is-windows {
+	color: #55a7ff;
+}
+
+.ref-uterm-settings-profile-list-item-icon.is-powershell {
+	color: #79aaff;
+}
+
+.ref-uterm-settings-profile-list-item-icon.is-bash {
+	color: #82d88f;
+}
+
+.ref-uterm-settings-profile-list-item-icon.is-ssh {
+	color: color-mix(in srgb, var(--void-accent-warm, #f59e0b) 72%, var(--void-fg-0));
 }
 
 .ref-uterm-settings-profile-list-item-main {
@@ -769,12 +887,13 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 13px;
+	font-size: 14px;
+	font-weight: 600;
 }
 
 .ref-uterm-settings-profile-list-item-meta {
 	display: block;
-	margin-top: 3px;
+	margin-top: 4px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -788,22 +907,79 @@
 	justify-content: flex-end;
 	gap: 6px;
 	flex: 0 0 auto;
+	align-items: center;
+}
+
+.ref-uterm-settings-profile-list-item-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: auto;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+
+.ref-uterm-settings-profile-list-item:hover .ref-uterm-settings-profile-list-item-actions,
+.ref-uterm-settings-profile-list-item.has-menu-open .ref-uterm-settings-profile-list-item-actions,
+.ref-uterm-settings-profile-list-item.is-active .ref-uterm-settings-profile-list-item-actions {
+	opacity: 1;
+}
+
+.ref-uterm-settings-profile-action-menu {
+	position: relative;
+}
+
+.ref-uterm-settings-profile-action-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--void-fg-2);
+	cursor: pointer;
+	transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ref-uterm-settings-profile-action-btn:hover,
+.ref-uterm-settings-profile-action-btn.is-active {
+	border-color: color-mix(in srgb, var(--void-border) 62%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 90%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-settings-row-dropdown {
+	top: calc(100% + 8px);
+	right: 0;
+	left: auto;
+	min-width: 184px;
 }
 
 .ref-uterm-settings-badge {
-	padding: 3px 8px;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--void-bg-2) 86%, transparent);
-	font-size: 10px;
+	padding: 4px 8px 3px;
+	border-radius: 8px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 92%, transparent);
+	font-size: 9px;
 	font-weight: 700;
-	letter-spacing: 0.05em;
+	letter-spacing: 0.09em;
 	text-transform: uppercase;
 	color: var(--void-fg-1);
 }
 
 .ref-uterm-settings-badge--accent {
-	background: color-mix(in srgb, var(--void-accent-cool) 16%, transparent);
-	color: var(--void-fg-0);
+	border-color: color-mix(in srgb, var(--void-accent-cool) 42%, transparent);
+	background: color-mix(in srgb, var(--void-accent-cool) 18%, transparent);
+	color: color-mix(in srgb, var(--void-accent-cool) 40%, var(--void-fg-0));
+}
+
+.ref-uterm-settings-badge--ssh {
+	border-color: color-mix(in srgb, var(--void-border) 78%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 98%, transparent);
+	color: color-mix(in srgb, var(--void-fg-1) 86%, transparent);
 }
 
 .ref-uterm-settings-empty-list {
@@ -818,11 +994,24 @@
 	background: color-mix(in srgb, var(--void-bg-1) 58%, transparent);
 }
 
+.ref-uterm-settings-profile-editor-shell {
+	padding: 18px;
+	max-height: 100%;
+	overflow: auto;
+}
+
 .ref-uterm-settings-profile-editor-head {
 	display: flex;
 	align-items: start;
 	justify-content: space-between;
 	gap: 14px;
+}
+
+.ref-uterm-settings-profile-editor-heading {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
 }
 
 .ref-uterm-settings-profile-editor-title {
@@ -841,6 +1030,43 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: 10px;
+}
+
+.ref-uterm-settings-drawer-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 20;
+	pointer-events: none;
+}
+
+.ref-uterm-settings-drawer-backdrop {
+	position: absolute;
+	inset: 0;
+	border: none;
+	background: color-mix(in srgb, var(--void-bg-0) 42%, transparent);
+	backdrop-filter: blur(4px);
+	pointer-events: auto;
+}
+
+.ref-uterm-settings-drawer {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	bottom: 10px;
+	width: min(560px, calc(100% - 20px));
+	pointer-events: auto;
+	animation: ref-uterm-settings-drawer-in 180ms ease-out both;
+}
+
+@keyframes ref-uterm-settings-drawer-in {
+	from {
+		opacity: 0;
+		transform: translateX(28px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
 }
 
 .ref-uterm-settings-inline-grid,
@@ -1092,6 +1318,35 @@
 	cursor: pointer;
 }
 
+.ref-uterm-settings-create-wrap {
+	position: relative;
+}
+
+.ref-uterm-settings-inline-dropdown {
+	top: calc(100% + 8px);
+	right: 0;
+}
+
+.ref-uterm-settings-primary-btn--menu {
+	gap: 10px;
+	min-width: 132px;
+	justify-content: space-between;
+}
+
+.ref-uterm-settings-primary-btn-plus {
+	font-size: 16px;
+	line-height: 1;
+}
+
+.ref-uterm-settings-primary-btn-caret {
+	font-size: 11px;
+	transition: transform 140ms ease;
+}
+
+.ref-uterm-settings-primary-btn-caret.is-open {
+	transform: rotate(180deg);
+}
+
 .ref-uterm-settings-primary-btn {
 	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 54%, transparent);
 	background: color-mix(in srgb, var(--void-accent-cool) 18%, transparent);
@@ -1129,6 +1384,10 @@
 
 .ref-uterm-settings-preview-shell {
 	padding: 14px;
+}
+
+.ref-uterm-settings-preview-shell--block {
+	background: color-mix(in srgb, var(--void-bg-1) 66%, transparent);
 }
 
 .ref-uterm-settings-preview-shell-top {
@@ -1181,9 +1440,14 @@
 	color: var(--void-fg-1);
 }
 
+.ref-uterm-context-menu {
+	position: fixed;
+	z-index: 80;
+}
+
 @media (max-width: 1100px) {
 	.ref-uterm-settings-profiles-workbench {
-		grid-template-columns: 1fr;
+		width: 100%;
 	}
 }
 
@@ -1195,11 +1459,14 @@
 		grid-template-columns: 1fr;
 	}
 	.ref-uterm-settings-toolbar {
-		grid-template-columns: 1fr;
+		width: 100%;
 	}
 	.ref-uterm-settings-toolbar-actions {
 		justify-content: flex-start;
 		flex-wrap: wrap;
+	}
+	.ref-uterm-settings-drawer {
+		width: min(620px, calc(100% - 20px));
 	}
 }
 
@@ -1227,5 +1494,27 @@
 	}
 	.ref-uterm-settings-field {
 		grid-template-columns: 1fr;
+	}
+	.ref-uterm-settings-drawer {
+		top: 0;
+		right: 0;
+		bottom: 0;
+		width: 100%;
+	}
+	.ref-uterm-settings-drawer-backdrop {
+		background: color-mix(in srgb, var(--void-bg-0) 26%, transparent);
+	}
+	.ref-uterm-settings-profile-editor-head {
+		flex-direction: column;
+		align-items: stretch;
+	}
+	.ref-uterm-settings-profile-list-item {
+		align-items: flex-start;
+	}
+	.ref-uterm-settings-profile-list-item-actions {
+		opacity: 1;
+	}
+	.ref-uterm-settings-profile-list-item-side {
+		margin-left: 0;
 	}
 }

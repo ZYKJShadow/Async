@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
 	applyTerminalDisplayPreset,
 	buildTerminalProfileLaunchPreview,
+	cloneTerminalProfile,
 	countTerminalProfileEnvEntries,
 	defaultTerminalSettings,
+	getBuiltinTerminalProfiles,
 	normalizeTerminalSettings,
+	resolveTerminalProfile,
 } from './terminalSettings';
 
 describe('terminalSettings', () => {
@@ -58,5 +61,77 @@ describe('terminalSettings', () => {
 		};
 
 		expect(countTerminalProfileEnvEntries(profile)).toBe(3);
+	});
+
+	it('normalizes the extended terminal interaction settings', () => {
+		const settings = normalizeTerminalSettings({
+			rightClickAction: 'menu',
+			pasteOnMiddleClick: true,
+			bracketedPaste: false,
+			warnOnMultilinePaste: false,
+			trimWhitespaceOnPaste: false,
+			bell: 'audible',
+			autoOpen: false,
+			restoreTabs: false,
+		});
+
+		expect(settings.rightClickAction).toBe('menu');
+		expect(settings.pasteOnMiddleClick).toBe(true);
+		expect(settings.bracketedPaste).toBe(false);
+		expect(settings.warnOnMultilinePaste).toBe(false);
+		expect(settings.trimWhitespaceOnPaste).toBe(false);
+		expect(settings.bell).toBe('audible');
+		expect(settings.autoOpen).toBe(false);
+		expect(settings.restoreTabs).toBe(false);
+	});
+
+	it('uses Windows-style interaction defaults when the renderer platform is win32', () => {
+		const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+		Object.defineProperty(globalThis, 'navigator', {
+			value: {
+				platform: 'Win32',
+				userAgent: 'Windows',
+			},
+			configurable: true,
+		});
+
+		try {
+			const settings = defaultTerminalSettings();
+			expect(settings.rightClickAction).toBe('clipboard');
+			expect(settings.copyOnSelect).toBe(true);
+			expect(settings.pasteOnMiddleClick).toBe(false);
+		} finally {
+			if (previousNavigator) {
+				Object.defineProperty(globalThis, 'navigator', previousNavigator);
+			} else {
+				delete (globalThis as { navigator?: unknown }).navigator;
+			}
+		}
+	});
+
+	it('keeps builtin default profile ids when normalizing settings', () => {
+		const builtin = getBuiltinTerminalProfiles()[0];
+		const settings = normalizeTerminalSettings({
+			defaultProfileId: builtin.id,
+		});
+
+		expect(settings.defaultProfileId).toBe(builtin.id);
+	});
+
+	it('duplicates builtin profiles into editable custom profiles', () => {
+		const base = defaultTerminalSettings();
+		const builtin = getBuiltinTerminalProfiles().find((profile) => profile.builtinKey === 'sshConnection');
+		expect(builtin).toBeTruthy();
+
+		const next = cloneTerminalProfile(base.profiles, builtin!);
+		expect(next.id).not.toBe(builtin!.id);
+		expect(next.builtinKey).toBeUndefined();
+		expect(next.kind).toBe('ssh');
+	});
+
+	it('resolves builtin profiles alongside saved custom profiles', () => {
+		const builtin = getBuiltinTerminalProfiles()[0];
+		const resolved = resolveTerminalProfile(defaultTerminalSettings().profiles, builtin.id);
+		expect(resolved?.id).toBe(builtin.id);
 	});
 });

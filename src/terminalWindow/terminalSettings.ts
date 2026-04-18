@@ -1,8 +1,8 @@
 /** Universal Terminal 用户设置；纯前端，localStorage 持久化，不走 settings.json。 */
 
 export type TerminalCursorStyle = 'bar' | 'block' | 'underline';
-export type TerminalBellStyle = 'none' | 'visual';
-export type TerminalRightClickAction = 'off' | 'paste' | 'clipboard';
+export type TerminalBellStyle = 'none' | 'visual' | 'audible';
+export type TerminalRightClickAction = 'off' | 'menu' | 'paste' | 'clipboard';
 export type TerminalDisplayPresetId = 'compact' | 'balanced' | 'presentation';
 
 /** 本地 Shell 或通过 SSH 的远程会话（由 ssh 作为 pty 子进程）。 */
@@ -11,6 +11,7 @@ export type TerminalProfileKind = 'local' | 'ssh';
 export type TerminalProfile = {
 	id: string;
 	name: string;
+	builtinKey?: string;
 	kind: TerminalProfileKind;
 	/** SSH：主机名或 IP。 */
 	sshHost: string;
@@ -49,7 +50,13 @@ export type TerminalAppSettings = {
 	wordSeparator: string;
 	copyOnSelect: boolean;
 	rightClickAction: TerminalRightClickAction;
+	pasteOnMiddleClick: boolean;
+	bracketedPaste: boolean;
+	warnOnMultilinePaste: boolean;
+	trimWhitespaceOnPaste: boolean;
 	bell: TerminalBellStyle;
+	autoOpen: boolean;
+	restoreTabs: boolean;
 	/** 0.6–1.0；应用到终端内容面板背景色的不透明度（露出窗口的渐变背景）。 */
 	opacity: number;
 	profiles: TerminalProfile[];
@@ -57,6 +64,7 @@ export type TerminalAppSettings = {
 };
 
 export const DEFAULT_PROFILE_ID = 'default';
+export const BUILTIN_PROFILE_PREFIX = 'builtin:';
 export const STORAGE_KEY = 'void-shell:terminal:settings';
 export const TERMINAL_SETTINGS_CHANGED_EVENT = 'async:terminal-settings-changed';
 export const DEFAULT_TERMINAL_WORD_SEPARATOR = ` ()[]{}'",`;
@@ -72,6 +80,7 @@ export const FONT_FAMILY_CHOICES: { label: string; value: string }[] = [
 ];
 
 export function defaultTerminalSettings(): TerminalAppSettings {
+	const behaviorDefaults = getPlatformTerminalBehaviorDefaults();
 	return {
 		fontFamily: FONT_FAMILY_CHOICES[0].value,
 		fontSize: 13,
@@ -85,9 +94,15 @@ export function defaultTerminalSettings(): TerminalAppSettings {
 		drawBoldTextInBrightColors: true,
 		scrollOnInput: true,
 		wordSeparator: DEFAULT_TERMINAL_WORD_SEPARATOR,
-		copyOnSelect: false,
-		rightClickAction: 'paste',
+		copyOnSelect: behaviorDefaults.copyOnSelect,
+		rightClickAction: behaviorDefaults.rightClickAction,
+		pasteOnMiddleClick: behaviorDefaults.pasteOnMiddleClick,
+		bracketedPaste: true,
+		warnOnMultilinePaste: true,
+		trimWhitespaceOnPaste: true,
 		bell: 'none',
+		autoOpen: true,
+		restoreTabs: true,
 		opacity: 1,
 		profiles: [
 			{
@@ -144,8 +159,12 @@ export function normalizeTerminalSettings(raw: unknown): TerminalAppSettings {
 		})
 		.filter((v): v is TerminalProfile => Boolean(v));
 	const effectiveProfiles = profiles.length ? profiles : def.profiles;
+	const validDefaultProfileIds = new Set([
+		...effectiveProfiles.map((profile) => profile.id),
+		...getBuiltinTerminalProfiles().map((profile) => profile.id),
+	]);
 	const defaultProfileId =
-		typeof obj.defaultProfileId === 'string' && effectiveProfiles.some((p) => p.id === obj.defaultProfileId)
+		typeof obj.defaultProfileId === 'string' && validDefaultProfileIds.has(obj.defaultProfileId)
 			? obj.defaultProfileId
 			: effectiveProfiles[0].id;
 	const cursor = obj.cursorStyle;
@@ -159,23 +178,32 @@ export function normalizeTerminalSettings(raw: unknown): TerminalAppSettings {
 		fontWeightBold: snapFontWeight(toNumber(obj.fontWeightBold, def.fontWeightBold)),
 		lineHeight: clamp(toNumber(obj.lineHeight, def.lineHeight), 1, 2.4),
 		cursorStyle: cursor === 'block' || cursor === 'underline' || cursor === 'bar' ? cursor : def.cursorStyle,
-		cursorBlink: obj.cursorBlink !== false,
+		cursorBlink: toBoolean(obj.cursorBlink, def.cursorBlink),
 		scrollback: clamp(Math.floor(toNumber(obj.scrollback, def.scrollback)), 100, 100_000),
 		minimumContrastRatio: clamp(toNumber(obj.minimumContrastRatio, def.minimumContrastRatio), 1, 21),
-		drawBoldTextInBrightColors: obj.drawBoldTextInBrightColors !== false,
-		scrollOnInput: obj.scrollOnInput !== false,
+		drawBoldTextInBrightColors: toBoolean(obj.drawBoldTextInBrightColors, def.drawBoldTextInBrightColors),
+		scrollOnInput: toBoolean(obj.scrollOnInput, def.scrollOnInput),
 		wordSeparator:
 			typeof obj.wordSeparator === 'string' && obj.wordSeparator.length > 0
 				? obj.wordSeparator
 				: def.wordSeparator,
-		copyOnSelect: Boolean(obj.copyOnSelect),
+		copyOnSelect: toBoolean(obj.copyOnSelect, def.copyOnSelect),
 		rightClickAction:
-			rawRightClickAction === 'off' || rawRightClickAction === 'paste' || rawRightClickAction === 'clipboard'
+			rawRightClickAction === 'off' ||
+			rawRightClickAction === 'menu' ||
+			rawRightClickAction === 'paste' ||
+			rawRightClickAction === 'clipboard'
 				? rawRightClickAction
 				: legacyRightClickPaste === false
 					? 'off'
-					: 'paste',
-		bell: bell === 'visual' ? 'visual' : 'none',
+					: def.rightClickAction,
+		pasteOnMiddleClick: toBoolean(obj.pasteOnMiddleClick, def.pasteOnMiddleClick),
+		bracketedPaste: toBoolean(obj.bracketedPaste, def.bracketedPaste),
+		warnOnMultilinePaste: toBoolean(obj.warnOnMultilinePaste, def.warnOnMultilinePaste),
+		trimWhitespaceOnPaste: toBoolean(obj.trimWhitespaceOnPaste, def.trimWhitespaceOnPaste),
+		bell: bell === 'visual' || bell === 'audible' ? bell : 'none',
+		autoOpen: toBoolean(obj.autoOpen, def.autoOpen),
+		restoreTabs: toBoolean(obj.restoreTabs, def.restoreTabs),
 		opacity: clamp(toNumber(obj.opacity, def.opacity), 0.5, 1),
 		profiles: effectiveProfiles,
 		defaultProfileId,
@@ -234,6 +262,7 @@ export function newProfileId(existing: TerminalProfile[]): string {
 export function cloneTerminalProfile(existing: TerminalProfile[], profile: TerminalProfile): TerminalProfile {
 	return {
 		...profile,
+		builtinKey: undefined,
 		id: newProfileId(existing),
 		name: `${profile.name.trim() || 'Profile'} Copy`,
 	};
@@ -352,13 +381,7 @@ export function parseArgsString(s: string): string[] {
 }
 
 function isWindowsRenderer(): boolean {
-	if (typeof document !== 'undefined') {
-		const p = document.documentElement.getAttribute('data-platform');
-		if (p === 'win32' || p === 'darwin' || p === 'linux') {
-			return p === 'win32';
-		}
-	}
-	return typeof navigator !== 'undefined' && /win/i.test(navigator.platform || navigator.userAgent || '');
+	return readRendererPlatform() === 'win32';
 }
 
 /**
@@ -429,6 +452,143 @@ export function parseEnvString(s: string): Record<string, string> | undefined {
 	return Object.keys(env).length ? env : undefined;
 }
 
+export function getBuiltinTerminalProfiles(): TerminalProfile[] {
+	switch (readRendererPlatform()) {
+		case 'win32':
+			return [
+				createBuiltinTerminalProfile('system-default', 'systemDefault', {
+					name: 'System default',
+				}),
+				createBuiltinTerminalProfile('cmd', 'cmd', {
+					name: 'Command Prompt',
+					shell: 'cmd.exe',
+				}),
+				createBuiltinTerminalProfile('powershell', 'powershell', {
+					name: 'PowerShell',
+					shell: 'powershell.exe',
+				}),
+				createBuiltinTerminalProfile('pwsh', 'pwsh', {
+					name: 'PowerShell 7',
+					shell: 'pwsh.exe',
+				}),
+				createBuiltinTerminalProfile('git-bash', 'gitBash', {
+					name: 'Git Bash',
+					shell: 'C:\\Program Files\\Git\\bin\\bash.exe',
+				}),
+				createBuiltinTerminalProfile('wsl', 'wsl', {
+					name: 'WSL',
+					shell: 'wsl.exe',
+				}),
+				createBuiltinTerminalProfile('ssh-template', 'sshConnection', {
+					name: 'SSH connection',
+					kind: 'ssh',
+					sshUser: 'root',
+				}),
+			];
+		case 'darwin':
+			return [
+				createBuiltinTerminalProfile('system-default', 'systemDefault', {
+					name: 'System default',
+				}),
+				createBuiltinTerminalProfile('zsh', 'zsh', {
+					name: 'zsh',
+					shell: '/bin/zsh',
+				}),
+				createBuiltinTerminalProfile('bash', 'bash', {
+					name: 'bash',
+					shell: '/bin/bash',
+				}),
+				createBuiltinTerminalProfile('ssh-template', 'sshConnection', {
+					name: 'SSH connection',
+					kind: 'ssh',
+					sshUser: 'root',
+				}),
+			];
+		case 'linux':
+		default:
+			return [
+				createBuiltinTerminalProfile('system-default', 'systemDefault', {
+					name: 'System default',
+				}),
+				createBuiltinTerminalProfile('bash', 'bash', {
+					name: 'bash',
+					shell: '/bin/bash',
+				}),
+				createBuiltinTerminalProfile('zsh', 'zsh', {
+					name: 'zsh',
+					shell: '/bin/zsh',
+				}),
+				createBuiltinTerminalProfile('ssh-template', 'sshConnection', {
+					name: 'SSH connection',
+					kind: 'ssh',
+					sshUser: 'root',
+				}),
+			];
+	}
+}
+
+export function resolveTerminalProfile(
+	customProfiles: TerminalProfile[],
+	profileId: string | null | undefined
+): TerminalProfile | null {
+	if (!profileId) {
+		return customProfiles[0] ?? getBuiltinTerminalProfiles()[0] ?? null;
+	}
+	return (
+		customProfiles.find((profile) => profile.id === profileId) ??
+		getBuiltinTerminalProfiles().find((profile) => profile.id === profileId) ??
+		customProfiles[0] ??
+		getBuiltinTerminalProfiles()[0] ??
+		null
+	);
+}
+
+export function isBuiltinTerminalProfileId(profileId: string): boolean {
+	return profileId.startsWith(BUILTIN_PROFILE_PREFIX);
+}
+
+function getPlatformTerminalBehaviorDefaults(): Pick<
+	TerminalAppSettings,
+	'copyOnSelect' | 'rightClickAction' | 'pasteOnMiddleClick'
+> {
+	switch (readRendererPlatform()) {
+		case 'win32':
+			return {
+				copyOnSelect: true,
+				rightClickAction: 'clipboard',
+				pasteOnMiddleClick: false,
+			};
+		case 'linux':
+			return {
+				copyOnSelect: false,
+				rightClickAction: 'menu',
+				pasteOnMiddleClick: false,
+			};
+		case 'darwin':
+		default:
+			return {
+				copyOnSelect: false,
+				rightClickAction: 'menu',
+				pasteOnMiddleClick: true,
+			};
+	}
+}
+
+function createBuiltinTerminalProfile(
+	idSuffix: string,
+	builtinKey: string,
+	partial: Partial<TerminalProfile>
+): TerminalProfile {
+	return {
+		...defaultTerminalSettings().profiles[0],
+		...partial,
+		id: `${BUILTIN_PROFILE_PREFIX}${idSuffix}`,
+		name: partial.name || idSuffix,
+		builtinKey,
+		kind: partial.kind === 'ssh' ? 'ssh' : 'local',
+	};
+}
+
 function clamp(n: number, min: number, max: number): number {
 	if (!Number.isFinite(n)) {
 		return min;
@@ -449,6 +609,32 @@ function toNumber(v: unknown, fallback: number): number {
 		return Number.isFinite(n) ? n : fallback;
 	}
 	return fallback;
+}
+
+function toBoolean(v: unknown, fallback: boolean): boolean {
+	return typeof v === 'boolean' ? v : fallback;
+}
+
+function readRendererPlatform(): 'win32' | 'darwin' | 'linux' | 'unknown' {
+	if (typeof document !== 'undefined') {
+		const platform = document.documentElement.getAttribute('data-platform');
+		if (platform === 'win32' || platform === 'darwin' || platform === 'linux') {
+			return platform;
+		}
+	}
+	if (typeof navigator !== 'undefined') {
+		const raw = `${navigator.platform || ''} ${navigator.userAgent || ''}`.toLowerCase();
+		if (raw.includes('mac')) {
+			return 'darwin';
+		}
+		if (raw.includes('win')) {
+			return 'win32';
+		}
+		if (raw.includes('linux')) {
+			return 'linux';
+		}
+	}
+	return 'unknown';
 }
 
 function emitTerminalSettingsChanged(settings: TerminalAppSettings): void {
