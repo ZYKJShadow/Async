@@ -1,6 +1,7 @@
 import { app, BrowserWindow, webContents } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { AgentCustomization, AgentSkill } from '../agentSettingsTypes.js';
 import { AGENT_TOOLS, type AgentToolDef, ToolCall, ToolResult } from '../agent/agentTools.js';
 import type { BotInboundAttachment, BotStreamChannel } from './platforms/common.js';
 import { runAgentLoop } from '../agent/agentLoop.js';
@@ -89,6 +90,78 @@ function appendSystemBlock(base: string | undefined, block: string): string {
 		return base ?? '';
 	}
 	return base && base.trim() ? `${base}\n\n---\n${trimmed}` : trimmed;
+}
+
+function normalizeBotSkill(skill: AgentSkill): AgentSkill | null {
+	const slug = String(skill.slug ?? '').trim().replace(/^\.\//, '');
+	const content = String(skill.content ?? '').trim();
+	if (!slug || !content || skill.enabled === false) {
+		return null;
+	}
+	return {
+		...skill,
+		slug,
+		name: String(skill.name ?? '').trim() || slug,
+		description: String(skill.description ?? '').trim(),
+		content,
+		enabled: true,
+	};
+}
+
+function getEnabledBotSkills(integration: BotIntegrationConfig): AgentSkill[] {
+	return (integration.skills ?? [])
+		.map((skill) => normalizeBotSkill(skill))
+		.filter((skill): skill is AgentSkill => skill != null);
+}
+
+function mergeBotSkillsIntoAgent(
+	agent: AgentCustomization | undefined,
+	integration: BotIntegrationConfig
+): AgentCustomization | undefined {
+	const botSkills = getEnabledBotSkills(integration);
+	if (botSkills.length === 0) {
+		return agent;
+	}
+	const mergedBySlug = new Map<string, AgentSkill>();
+	for (const skill of agent?.skills ?? []) {
+		const normalized = normalizeBotSkill(skill);
+		if (!normalized) {
+			continue;
+		}
+		mergedBySlug.set(normalized.slug.toLowerCase(), normalized);
+	}
+	for (const skill of botSkills) {
+		mergedBySlug.set(skill.slug.toLowerCase(), skill);
+	}
+	return {
+		...(agent ?? {}),
+		skills: [...mergedBySlug.values()],
+	};
+}
+
+function buildBotSkillAppend(settings: ShellSettings, integration: BotIntegrationConfig): string {
+	const skills = getEnabledBotSkills(integration);
+	if (skills.length === 0) {
+		return '';
+	}
+	const language = settings.language === 'en' ? 'en' : 'zh-CN';
+	const intro =
+		language === 'en'
+			? 'These are bot-exclusive skills. They belong only to this integration. Treat them as built-in playbooks for this bot, and if the user explicitly writes `./slug`, prioritize that matching skill.'
+			: '以下是当前 Bot 独占的 Skills，只对这个接入生效。把它们当作这个 Bot 自带的专项工作流；如果用户显式写出 `./slug`，优先执行对应 Skill。';
+	return [
+		language === 'en' ? '## Bot-exclusive Skills' : '## Bot 专属 Skills',
+		intro,
+		...skills.map((skill) =>
+			[
+				`### ${skill.name} (./${skill.slug})`,
+				skill.description ? skill.description : '',
+				skill.content,
+			]
+				.filter(Boolean)
+				.join('\n\n')
+		),
+	].join('\n\n');
 }
 
 function buildEnrichedQuery(userText: string, threadMessages: ChatMessage[]): string {
@@ -419,6 +492,27 @@ function describeBotToolActivity(name: string, args: Record<string, unknown>): s
 			const command = String(args.command ?? '').trim();
 			return command ? `执行命令：${command.slice(0, 80)}` : '执行命令';
 		}
+		case 'Terminal': {
+			const action = String(args.action ?? '').trim();
+			if (action === 'list_profiles') {
+				return '读取终端 profiles';
+			}
+			if (action === 'exec') {
+				const profile = String(args.profile_id ?? '').trim();
+				return profile ? `通过 SSH profile 后台执行命令：${profile}` : '通过 SSH profile 后台执行命令';
+			}
+			if (action === 'open') {
+				const profile = String(args.profile_id ?? '').trim();
+				return profile ? `打开后台终端会话：${profile}` : '打开后台终端会话';
+			}
+			if (action === 'write') {
+				return '向后台终端写入命令';
+			}
+			if (action === 'read') {
+				return '读取后台终端输出';
+			}
+			return action ? `终端：${action}` : '操作后台终端';
+		}
 		case 'run_async_task': {
 			const task = String(args.task ?? '').trim();
 			const mode = String(args.mode ?? '').trim();
@@ -674,6 +768,7 @@ const BOT_LEADER_NATIVE_TOOL_NAMES = new Set([
 	'Read',
 	'Grep',
 	'Glob',
+	'Terminal',
 ]);
 
 
@@ -717,6 +812,7 @@ export function buildBotOrchestratorPrompt(
 	const sessionBlock = renderSessionSnapshot(settings, integration, session);
 	const userName = inbound.senderName?.trim() || inbound.senderId?.trim() || 'user';
 	const extraPrompt = integration.systemPrompt?.trim();
+	const botSkillAppend = buildBotSkillAppend(settings, integration);
 	const globalRuleAppend = buildAgentGlobalRuleAppend(settings.agent, language);
 	const lines = [
 		language === 'en'
@@ -726,11 +822,14 @@ export function buildBotOrchestratorPrompt(
 			? 'This leader loop is for app-level orchestration. It can directly use app/browser controls plus the custom bot session tools below.'
 			: '这个 Leader 循环用于应用级调度。它可以直接使用应用/浏览器控制工具，以及下面的 bot 会话工具。',
 		language === 'en'
-			? 'Your priority is fast, direct answers. Default to using your own tools (Read, Grep, Glob, Browser, BrowserCapture, TodoWrite) to answer the user without spawning a worker.'
-			: '你的首要目标是快速、直接地回答用户。默认优先使用自己的工具（Read、Grep、Glob、Browser、BrowserCapture、TodoWrite）直接回答，不要动不动就派 worker。',
+			? 'Your priority is fast, direct answers. Default to using your own tools (Read, Grep, Glob, Browser, BrowserCapture, TodoWrite, Terminal) to answer the user without spawning a worker.'
+			: '你的首要目标是快速、直接地回答用户。默认优先使用自己的工具（Read、Grep、Glob、Browser、BrowserCapture、TodoWrite、Terminal）直接回答，不要动不动就派 worker。',
 		language === 'en'
-			? 'Use run_async_task ONLY when the task requires Writes/Edits, shell commands, builds/tests, multi-file refactors, or long-running workflows. Simple reads, searches, status questions, and lookups must be answered directly by you.'
-			: '只有在任务需要写文件、改文件、执行 shell、跑构建/测试、多文件重构、或长链路流程时，才使用 run_async_task。简单的读文件、搜索、状态问询、查询必须你自己直接答。',
+			? 'Use run_async_task ONLY when the task requires Writes/Edits, builds/tests, multi-file refactors, or long-running workflows. Direct shell or SSH session work may use Terminal in-place.'
+			: '只有在任务需要写文件、改文件、跑构建/测试、多文件重构、或长链路流程时，才使用 run_async_task。直接的 shell 或 SSH 会话操作可以直接用 Terminal 在当前回合完成。',
+		language === 'en'
+			? 'For saved SSH profiles, prefer Terminal exec for one-shot remote commands. Use open + write/read only when you need a persistent interactive terminal session.'
+			: '对于已保存的 SSH profile，单次远程命令优先使用 Terminal exec；只有在需要持续交互的终端会话时，才使用 open + write/read。',
 		language === 'en'
 			? 'If the user asks about current model, workspace, browser state, git state, or other app state, inspect and answer directly.'
 			: '如果用户在问当前模型、工作区、浏览器状态、Git 状态或其他应用状态，直接检查并回答。',
@@ -750,6 +849,9 @@ export function buildBotOrchestratorPrompt(
 			? 'For user-visible replies on external platforms like Feishu, be explicit and reasonably detailed. For substantial work, summarize what was checked, what was done, key findings, affected areas, and the next step.'
 			: '在飞书这类外部平台上给用户回复时，要明确且信息量充足。只要工作不算特别轻，就总结：检查了什么、做了什么、关键发现、影响范围，以及下一步建议。',
 		language === 'en'
+			? 'If this bot has exclusive skills below, use them as part of your normal reasoning. They are not global skills; they belong only to this bot.'
+			: '如果下方配置了 Bot 专属 Skills，请把它们纳入你的正常推理流程。它们不是全局 Skill，只属于当前 Bot。',
+		language === 'en'
 			? `Current bot user: ${userName}`
 			: `当前外部用户：${userName}`,
 		'',
@@ -758,6 +860,9 @@ export function buildBotOrchestratorPrompt(
 	];
 	if (extraPrompt) {
 		lines.push('', '## Integration Prompt', extraPrompt);
+	}
+	if (botSkillAppend.trim()) {
+		lines.push('', botSkillAppend);
 	}
 	if (globalRuleAppend.trim()) {
 		lines.push(
@@ -911,9 +1016,12 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 		}
 
 		const projectAgent = readWorkspaceAgentProjectSlice(session.workspaceRoot);
-		const agentForTurn = mergeAgentWithPluginRuntime(
-			mergeAgentWithProjectSlice(effectiveSettings.agent, projectAgent),
-			session.workspaceRoot
+		const agentForTurn = mergeBotSkillsIntoAgent(
+			mergeAgentWithPluginRuntime(
+				mergeAgentWithProjectSlice(effectiveSettings.agent, projectAgent),
+				session.workspaceRoot
+			),
+			integration
 		);
 		const uiLanguage = effectiveSettings.language === 'en' ? 'en' : 'zh-CN';
 		const prepared = prepareUserTurnForChat(task, agentForTurn, session.workspaceRoot, workspaceFiles, uiLanguage);

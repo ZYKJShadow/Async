@@ -45,6 +45,7 @@ import {
 	setTerminalProfileRuntimePassword,
 	setTerminalProfilePassword,
 } from './terminalProfileSecrets.js';
+import { syncTerminalSettings } from './terminalProfileStore.js';
 
 const openPromisesByHost = new Map<number, Promise<number | null>>();
 const terminalWindowRendererByHost = new Map<number, number>();
@@ -268,6 +269,15 @@ export function registerTerminalSessionIpc(): void {
 
 	ipcMain.handle('term:sessionList', () => {
 		return { ok: true as const, sessions: listTerminalSessions() };
+	});
+
+	ipcMain.handle('term:settingsSync', (_event, rawSettings: unknown) => {
+		try {
+			const result = syncTerminalSettings(rawSettings);
+			return { ok: true as const, profileCount: result.profileCount };
+		} catch (e) {
+			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+		}
 	});
 
 	ipcMain.handle('term:listBuiltinProfiles', async () => {

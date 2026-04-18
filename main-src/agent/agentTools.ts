@@ -248,13 +248,13 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Terminal',
 		description:
-			"Interact with the app's shared Universal Terminal sessions. Sessions are persistent pty processes (the user's real shell) that survive even when no terminal window is open. Use this when you need an interactive session, want to drive a long-running or REPL-style command, or need to keep terminal state (cwd, env, background processes) across calls. For one-shot commands, prefer **Bash**.\n\nActions: **open** (spawn a new session, returns id), **write** (send keystrokes/data; include \\r or \\n to submit a line), **read** (return the tail of the output buffer), **list** (enumerate active sessions), **resize** (change cols/rows), **close** (kill session), **run** (one-shot convenience: open → write → wait for exit → kill, returns full output).",
+			"Interact with the app's shared Universal Terminal sessions. Sessions are persistent pty processes (the user's real shell) that survive even when no terminal window is open. Use this when you need an interactive session, want to drive a long-running or REPL-style command, or need to keep terminal state (cwd, env, background processes) across calls. For one-shot commands, prefer **Bash** unless you specifically need a saved Universal Terminal profile. You can also enumerate saved Universal Terminal profiles, then open one in the background by profile id or name. This is the supported way to reuse saved SSH profiles without opening the terminal window.\n\nActions: **open** (spawn a new session, optionally from a saved profile, returns id), **write** (send keystrokes/data; include \\r or \\n to submit a line), **read** (return the tail of the output buffer), **list** (enumerate active sessions), **list_profiles** (enumerate saved terminal profiles, including SSH), **resize** (change cols/rows), **close** (kill session), **run** (one-shot convenience for local/non-interactive shells), **exec** (execute a one-shot command through a saved SSH profile in the background; useful for remote Linux hosts when you want profile auth/settings but no visible terminal window).",
 		parameters: {
 			type: 'object',
 			properties: {
 				action: {
 					type: 'string',
-					enum: ['open', 'write', 'read', 'list', 'resize', 'close', 'run'],
+					enum: ['open', 'write', 'read', 'list', 'list_profiles', 'resize', 'close', 'run', 'exec'],
 					description: 'Which terminal operation to perform.',
 				},
 				session_id: {
@@ -268,17 +268,22 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				},
 				command: {
 					type: 'string',
-					description: 'For run: the command line to execute in a one-shot session.',
+					description: 'For run/exec: the command line to execute in a one-shot session.',
+				},
+				profile_id: {
+					type: 'string',
+					description:
+						'For open: optional saved terminal profile id or exact profile name. For exec: required saved SSH profile id or exact profile name. Use list_profiles first to discover SSH/local profiles. When set, the profile decides shell/args/env/auth behavior and no terminal window is shown.',
 				},
 				cwd: {
 					type: 'string',
 					description:
-						'For open/run: initial working directory. Workspace-relative or absolute inside the workspace. Defaults to the workspace root.',
+						'For open/run without profile_id: initial working directory. Workspace-relative or absolute inside the workspace. Defaults to the workspace root.',
 				},
 				shell: {
 					type: 'string',
 					description:
-						'For open/run: shell executable path. Defaults to the platform shell (cmd.exe on Windows, $SHELL on Unix).',
+						'For open/run without profile_id: shell executable path. Defaults to the platform shell (cmd.exe on Windows, $SHELL on Unix).',
 				},
 				title: {
 					type: 'string',
@@ -300,7 +305,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				timeout_ms: {
 					type: 'number',
 					description:
-						'For run: max milliseconds to wait for the command to exit before killing it. Default 120000, max 600000.',
+						'For run/exec: max milliseconds to wait for the command to exit before killing it. Default 120000, max 600000.',
 				},
 			},
 			required: ['action'],

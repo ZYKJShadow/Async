@@ -125,6 +125,11 @@ import { AppProvider } from './AppContext';
 import { ComposerActionsProvider } from './ComposerActionsContext';
 import { AgentBrowserWindowSurface } from './AgentRightSidebar';
 import { TerminalWindowSurface } from './TerminalWindowSurface';
+import {
+	loadTerminalSettings,
+	subscribeTerminalSettings,
+	syncTerminalSettingsToMain,
+} from './terminalWindow/terminalSettings';
 import { runDesktopShellInit } from './app/desktopShellInit';
 import {
 	DEFAULT_SHELL_LAYOUT_MODE_KEY,
@@ -218,6 +223,16 @@ export default function App({
 	const shellLsPrefix = appSurface === 'editor' ? 'void-shell:editor:' : '';
 	const shellLayoutStorageKey = `${shellLsPrefix}${DEFAULT_SHELL_LAYOUT_MODE_KEY}`;
 	const sidebarLayoutStorageKey = `${shellLsPrefix}${DEFAULT_SIDEBAR_LAYOUT_KEY}`;
+
+	useEffect(() => {
+		if (!shell) {
+			return;
+		}
+		syncTerminalSettingsToMain(loadTerminalSettings());
+		return subscribeTerminalSettings(() => {
+			syncTerminalSettingsToMain(loadTerminalSettings());
+		});
+	}, [shell]);
 	const [colorMode, setColorMode] = useState<AppColorMode>(() => readStoredColorMode());
 	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(() => defaultAppearanceSettings());
 	const { effectiveScheme, setTransitionOrigin } = useAppColorScheme({ colorMode });

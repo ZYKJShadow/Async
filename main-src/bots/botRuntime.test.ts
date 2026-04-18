@@ -37,6 +37,16 @@ describe('buildBotOrchestratorPrompt', () => {
 			id: 'bot-1',
 			name: 'Test Bot',
 			platform: 'telegram',
+			skills: [
+				{
+					id: 'skill-1',
+					name: 'Ops Runbook',
+					description: 'Triage production issues first.',
+					slug: 'ops-runbook',
+					content: 'Always collect impact, scope, timeline, and rollback status before proposing actions.',
+					enabled: true,
+				},
+			],
 		};
 		const session: BotSessionState = {
 			integrationId: integration.id,
@@ -64,6 +74,10 @@ describe('buildBotOrchestratorPrompt', () => {
 		expect(prompt).toContain('click_element');
 		expect(prompt).toContain('BrowserCapture');
 		expect(prompt).toContain('pause_for_qr_login');
+		expect(prompt).toContain('## Bot 专属 Skills');
+		expect(prompt).toContain('Ops Runbook (./ops-runbook)');
+		expect(prompt).toContain('Triage production issues first.');
+		expect(prompt).toContain('Always collect impact, scope, timeline, and rollback status before proposing actions.');
 	});
 });
 

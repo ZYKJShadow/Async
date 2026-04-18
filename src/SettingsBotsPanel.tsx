@@ -5,6 +5,7 @@ import {
 	type BotIntegrationConfig,
 	type BotPlatform,
 } from './botSettingsTypes';
+import type { AgentSkill } from './agentSettingsTypes';
 import type { UserModelEntry } from './modelCatalog';
 import { useI18n, type TFunction } from './i18n';
 import { VoidSelect } from './VoidSelect';
@@ -44,6 +45,20 @@ function linesFromText(raw: string): string[] {
 
 function textFromLines(lines: string[] | undefined): string {
 	return (lines ?? []).join('\n');
+}
+
+function newBotSkill(): AgentSkill {
+	return {
+		id:
+			typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+				? crypto.randomUUID()
+				: `bot-skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+		name: '',
+		description: '',
+		slug: '',
+		content: '',
+		enabled: true,
+	};
 }
 
 function platformProxyValue(item: BotIntegrationConfig): string {
@@ -99,6 +114,7 @@ function ensurePlatformShape(item: BotIntegrationConfig, platform: BotPlatform):
 		platform,
 		allowedReplyChatIds: item.allowedReplyChatIds ?? [],
 		allowedReplyUserIds: item.allowedReplyUserIds ?? [],
+		skills: (item.skills ?? []).map((skill) => ({ ...skill })),
 		telegram: item.telegram ?? { requireMentionInGroups: true, allowedChatIds: [] },
 		slack: item.slack ?? { allowedChannelIds: [] },
 		discord: item.discord ?? { allowedChannelIds: [], requireMentionInGuilds: true },
@@ -125,6 +141,7 @@ function cloneIntegration(item: BotIntegrationConfig): BotIntegrationConfig {
 			...item,
 			allowedReplyChatIds: [...(item.allowedReplyChatIds ?? [])],
 			allowedReplyUserIds: [...(item.allowedReplyUserIds ?? [])],
+			skills: (item.skills ?? []).map((skill) => ({ ...skill })),
 			telegram: item.telegram ? { ...item.telegram, allowedChatIds: [...(item.telegram.allowedChatIds ?? [])] } : undefined,
 			slack: item.slack ? { ...item.slack, allowedChannelIds: [...(item.slack.allowedChannelIds ?? [])] } : undefined,
 			discord: item.discord ? { ...item.discord, allowedChannelIds: [...(item.discord.allowedChannelIds ?? [])] } : undefined,
@@ -161,6 +178,10 @@ function countAllowedUsers(item: BotIntegrationConfig): number {
 	return item.allowedReplyUserIds?.length ?? 0;
 }
 
+function countEnabledSkills(item: BotIntegrationConfig): number {
+	return (item.skills ?? []).filter((skill) => skill.enabled !== false && skill.content?.trim()).length;
+}
+
 function modelLabel(modelId: string | undefined, modelEntries: UserModelEntry[], t: TFunction): string {
 	if (!modelId) {
 		return t('settings.bots.option.notSet');
@@ -169,15 +190,20 @@ function modelLabel(modelId: string | undefined, modelEntries: UserModelEntry[],
 	return entry?.displayName.trim() || entry?.requestName || modelId;
 }
 
-function botCardSummary(item: BotIntegrationConfig, t: TFunction): { chats: string; users: string; prompt: string } {
+function botCardSummary(item: BotIntegrationConfig, t: TFunction): { chats: string; users: string; prompt: string; skills: string } {
 	const chatCount = countAllowedChats(item);
 	const userCount = countAllowedUsers(item);
+	const skillCount = countEnabledSkills(item);
 	return {
 		chats: chatCount > 0 ? t('settings.bots.summary.groupsScoped', { count: chatCount }) : t('settings.bots.summary.groupsAll'),
 		users: userCount > 0 ? t('settings.bots.summary.usersScoped', { count: userCount }) : t('settings.bots.summary.usersAll'),
 		prompt: item.systemPrompt?.trim()
 			? t('settings.bots.summary.promptCustom')
 			: t('settings.bots.summary.promptDefault'),
+		skills:
+			skillCount > 0
+				? t('settings.bots.summary.skillsConfigured', { count: skillCount })
+				: t('settings.bots.summary.skillsEmpty'),
 	};
 }
 
@@ -198,14 +224,16 @@ type BotEditorModalProps = {
 	mode: EditorMode;
 	draft: BotIntegrationConfig;
 	modelEntries: UserModelEntry[];
+	shell: NonNullable<Window['asyncShell']> | null;
 	onChangeDraft: (next: BotIntegrationConfig) => void;
 	onClose: () => void;
 	onSave: () => void;
 };
 
 function BotEditorModal(props: BotEditorModalProps) {
-	const { t, mode, draft, modelEntries, onChangeDraft, onClose, onSave } = props;
+	const { t, mode, draft, modelEntries, shell, onChangeDraft, onClose, onSave } = props;
 	const firstInputRef = useRef<HTMLInputElement | null>(null);
+	const [importingSkill, setImportingSkill] = useState(false);
 	const modelOptions = useMemo(
 		() =>
 			[{ value: '', label: t('settings.bots.option.notSet') }].concat(
@@ -239,6 +267,60 @@ function BotEditorModal(props: BotEditorModalProps) {
 	}, [onClose]);
 
 	const patchDraft = (patch: Partial<BotIntegrationConfig>) => onChangeDraft({ ...draft, ...patch });
+	const patchSkill = (id: string, patch: Partial<AgentSkill>) =>
+		patchDraft({
+			skills: (draft.skills ?? []).map((skill) => (skill.id === id ? { ...skill, ...patch } : skill)),
+		});
+	const addSkill = () => patchDraft({ skills: [...(draft.skills ?? []), newBotSkill()] });
+	const removeSkill = (id: string) =>
+		patchDraft({
+			skills: (draft.skills ?? []).filter((skill) => skill.id !== id),
+		});
+	const importSkillFolder = async () => {
+		if (!shell || importingSkill) {
+			return;
+		}
+		setImportingSkill(true);
+		try {
+			const result = (await shell.invoke('settings:importBotSkillFolder')) as
+				| {
+						ok?: boolean;
+						canceled?: boolean;
+						error?: string;
+						skill?: Pick<AgentSkill, 'name' | 'description' | 'slug' | 'content'>;
+				  }
+				| undefined;
+			if (result?.ok && result.skill) {
+				patchDraft({
+					skills: [
+						...(draft.skills ?? []),
+						{
+							...newBotSkill(),
+							...result.skill,
+							enabled: true,
+						},
+					],
+				});
+				return;
+			}
+			if (result?.canceled) {
+				return;
+			}
+			if (result?.error === 'missing-skill-md') {
+				window.alert(t('settings.bots.importSkill.missingSkillMd'));
+				return;
+			}
+			if (result?.error === 'invalid-skill') {
+				window.alert(t('settings.bots.importSkill.invalidSkill'));
+				return;
+			}
+			window.alert(result?.error ? String(result.error) : t('settings.bots.importSkill.failed'));
+		} catch (error) {
+			window.alert(error instanceof Error ? error.message : t('settings.bots.importSkill.failed'));
+		} finally {
+			setImportingSkill(false);
+		}
+	};
 
 	const modal = (
 		<div className="ref-settings-bot-modal-backdrop" role="presentation" onClick={onClose}>
@@ -566,6 +648,101 @@ function BotEditorModal(props: BotEditorModalProps) {
 							/>
 						</label>
 					</section>
+
+					<section className="ref-settings-bot-section">
+						<div className="ref-settings-bots-section-head">
+							<div>
+								<div className="ref-settings-bots-section-kicker">{t('settings.bots.section.skills.kicker')}</div>
+								<h5 className="ref-settings-bots-section-title">{t('settings.bots.section.skills.title')}</h5>
+							</div>
+							<div>
+								<p className="ref-settings-bots-section-copy">{t('settings.bots.section.skills.copy')}</p>
+								<div className="ref-settings-bot-card-actions">
+									<button
+										type="button"
+										className={`ref-settings-bot-chip-btn ${importingSkill ? 'is-active' : ''}`}
+										onClick={() => void importSkillFolder()}
+										disabled={!shell || importingSkill}
+									>
+										{importingSkill
+											? t('settings.bots.action.importSkillLoading')
+											: t('settings.bots.action.importSkillFolder')}
+									</button>
+								</div>
+							</div>
+						</div>
+						<div className="ref-settings-bot-platform-stack">
+							{(draft.skills ?? []).map((skill, index) => (
+								<div key={skill.id} className="ref-settings-bot-preference-card">
+									<div className="ref-settings-bot-grid ref-settings-bot-grid--runtime">
+										<label className="ref-settings-field">
+											<span>{t('settings.bots.field.skillName')}</span>
+											<input
+												type="text"
+												value={skill.name}
+												onChange={(event) => patchSkill(skill.id, { name: event.target.value })}
+												placeholder={t('settings.bots.placeholder.skillName', { index: index + 1 })}
+											/>
+										</label>
+										<label className="ref-settings-field">
+											<span>{t('settings.bots.field.skillSlug')}</span>
+											<input
+												type="text"
+												value={skill.slug}
+												onChange={(event) =>
+													patchSkill(skill.id, {
+														slug: event.target.value.replace(/^\.\//, '').trimStart(),
+													})
+												}
+												placeholder={t('settings.bots.placeholder.skillSlug')}
+											/>
+											<p className="ref-settings-field-hint">{t('settings.bots.hint.skillSlug')}</p>
+										</label>
+									</div>
+									<label className="ref-settings-field">
+										<span>{t('settings.bots.field.skillDescription')}</span>
+										<input
+											type="text"
+											value={skill.description}
+											onChange={(event) => patchSkill(skill.id, { description: event.target.value })}
+											placeholder={t('settings.bots.placeholder.skillDescription')}
+										/>
+									</label>
+									<label className="ref-settings-field">
+										<span>{t('settings.bots.field.skillContent')}</span>
+										<textarea
+											value={skill.content}
+											onChange={(event) => patchSkill(skill.id, { content: event.target.value })}
+											placeholder={t('settings.bots.placeholder.skillContent')}
+											rows={6}
+										/>
+									</label>
+									<div className="ref-settings-bot-card-actions">
+										<button
+											type="button"
+											className={`ref-settings-bot-chip-btn ${skill.enabled !== false ? 'is-active' : ''}`}
+											onClick={() => patchSkill(skill.id, { enabled: skill.enabled === false })}
+										>
+											{skill.enabled !== false ? t('settings.bots.action.skillEnabled') : t('settings.bots.action.skillDisabled')}
+										</button>
+										<button
+											type="button"
+											className="ref-settings-bot-chip-btn is-danger"
+											onClick={() => removeSkill(skill.id)}
+										>
+											{t('settings.bots.action.removeSkill')}
+										</button>
+									</div>
+								</div>
+							))}
+							<button type="button" className="ref-settings-bot-chip-btn" onClick={addSkill}>
+								{t('settings.bots.action.addSkill')}
+							</button>
+							{(draft.skills ?? []).length === 0 ? (
+								<p className="ref-settings-field-hint">{t('settings.bots.empty.skills')}</p>
+							) : null}
+						</div>
+					</section>
 				</div>
 
 				<div className="ref-settings-bot-modal-foot">
@@ -824,6 +1001,7 @@ export function SettingsBotsPanel({ value, onChange, modelEntries, shell }: Prop
 										<span className="ref-settings-bot-badge">{modelText}</span>
 										<span className="ref-settings-bot-badge">{summary.chats}</span>
 										<span className="ref-settings-bot-badge">{summary.users}</span>
+										<span className="ref-settings-bot-badge">{summary.skills}</span>
 									</div>
 
 									{connectionState ? (
@@ -867,6 +1045,10 @@ export function SettingsBotsPanel({ value, onChange, modelEntries, shell }: Prop
 											<span>{t('settings.bots.overview.prompt')}</span>
 											<strong>{summary.prompt}</strong>
 										</div>
+										<div className="ref-settings-bot-overview-item">
+											<span>{t('settings.bots.overview.skills')}</span>
+											<strong>{summary.skills}</strong>
+										</div>
 									</div>
 								</article>
 							);
@@ -881,6 +1063,7 @@ export function SettingsBotsPanel({ value, onChange, modelEntries, shell }: Prop
 					mode={editorMode}
 					draft={draft}
 					modelEntries={modelEntries}
+					shell={shell}
 					onChangeDraft={setDraft}
 					onClose={closeEditor}
 					onSave={saveEditor}
