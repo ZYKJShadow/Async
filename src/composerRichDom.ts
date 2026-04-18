@@ -1,6 +1,6 @@
 /** 富文本输入：内联文件 chip + @ 提及的 DOM 工具（contenteditable） */
 
-import { fileTypeIconHtmlForRelPath } from './fileTypeIcons';
+import { fileTypeIconHtmlForRelPath, isRasterImageRelPath } from './fileTypeIcons';
 import {
 	newSegmentId,
 	slashCommandWire,
@@ -181,6 +181,9 @@ export function createFileChipElement(relPath: string, segId: string, h: FileChi
 	span.dataset.voidRel = relPath;
 	span.dataset.segId = segId;
 	span.className = CHIP_CLASS;
+	if (isRasterImageRelPath(relPath)) {
+		span.classList.add('ref-inline-file-chip--image');
+	}
 	span.setAttribute('role', 'button');
 	span.setAttribute('tabindex', '0');
 	span.title = relPath;

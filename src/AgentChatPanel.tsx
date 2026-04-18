@@ -155,6 +155,7 @@ export type AgentChatPanelProps = {
 	onSelectTeamExpert: (taskId: string) => void;
 	onTeamPlanApprove: (proposalId: string, feedback?: string) => void;
 	onTeamPlanReject: (proposalId: string, feedback?: string) => void;
+	onChatPanelDropFiles: (files: File[]) => Promise<void>;
 };
 
 /** 未测量行时用于高度预算的估算高度（与旧虚拟列表 estimate 对齐） */
@@ -283,6 +284,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	onSelectTeamExpert,
 	onTeamPlanApprove,
 	onTeamPlanReject,
+	onChatPanelDropFiles,
 }: AgentChatPanelProps) {
 	const streamingToolPreview = useStreamingToolPreview();
 	const liveAssistantBlocks = useLiveAssistantBlocks();
@@ -345,6 +347,8 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	);
 
 	const isEditorRail = layout === 'editor-rail';
+	const dropDepthRef = useRef(0);
+	const [chatPanelFileDragOver, setChatPanelFileDragOver] = useState(false);
 	const [collapsedTodos, setCollapsedTodos] = useState<Set<number>>(new Set());
 	const toggleTodoCollapse = useCallback((msgIndex: number) => {
 		setCollapsedTodos(prev => {
@@ -1098,6 +1102,58 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		return nodes;
 	};
 
+	const dataTransferHasFiles = (dt: DataTransfer | null): boolean => !!dt?.types?.includes('Files');
+
+	const onChatPanelDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+		if (!dataTransferHasFiles(e.dataTransfer)) {
+			return;
+		}
+		e.preventDefault();
+		dropDepthRef.current += 1;
+		setChatPanelFileDragOver(true);
+	};
+
+	const onChatPanelDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+		if (!dataTransferHasFiles(e.dataTransfer)) {
+			return;
+		}
+		e.preventDefault();
+		dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
+		if (dropDepthRef.current === 0) {
+			setChatPanelFileDragOver(false);
+		}
+	};
+
+	const onChatPanelDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+		if (!dataTransferHasFiles(e.dataTransfer)) {
+			return;
+		}
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'copy';
+	};
+
+	const onChatPanelDrop = (e: React.DragEvent<HTMLDivElement>) => {
+		if (!dataTransferHasFiles(e.dataTransfer)) {
+			return;
+		}
+		e.preventDefault();
+		dropDepthRef.current = 0;
+		setChatPanelFileDragOver(false);
+		const files = Array.from(e.dataTransfer.files ?? []).filter((f) => f.size > 0);
+		if (files.length === 0) {
+			return;
+		}
+		void onChatPanelDropFiles(files);
+	};
+
+	const onChatPanelDropCapture = (e: React.DragEvent<HTMLDivElement>) => {
+		if (!dataTransferHasFiles(e.dataTransfer)) {
+			return;
+		}
+		dropDepthRef.current = 0;
+		setChatPanelFileDragOver(false);
+	};
+
 	const messagesEl = hasConversation ? (
 		<div className="ref-messages" ref={messagesViewportRef} onScroll={onMessagesScroll}>
 			<div
@@ -1321,32 +1377,50 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	if (isEditorRail) {
 		return (
 			<>
-				<div className="ref-editor-chat-body">
-					{!hasConversation ? (
-						<>
-							{editorRailHeroComposer}
-							{editorContextStrip}
-							<div className="ref-editor-rail-message-spring" aria-hidden />
-						</>
-					) : (
-						<>
-							{editorContextStrip}
-							{messagesEl}
-						</>
-					)}
+				<div
+					className={`ref-chat-drop-zone ${chatPanelFileDragOver ? 'is-file-drag-over' : ''}`}
+					onDragEnter={onChatPanelDragEnter}
+					onDragLeave={onChatPanelDragLeave}
+					onDragOver={onChatPanelDragOver}
+					onDropCapture={onChatPanelDropCapture}
+					onDrop={onChatPanelDrop}
+				>
+					<div className="ref-editor-chat-body">
+						{!hasConversation ? (
+							<>
+								{editorRailHeroComposer}
+								{editorContextStrip}
+								<div className="ref-editor-rail-message-spring" aria-hidden />
+							</>
+						) : (
+							<>
+								{editorContextStrip}
+								{messagesEl}
+							</>
+						)}
+					</div>
+					{commandStack}
 				</div>
 				{sharedOverlays}
-				{commandStack}
 			</>
 		);
 	}
 
 	return (
 		<>
-			{messagesEl}
-			{!hasConversation ? <div className="ref-hero-spacer" /> : null}
+			<div
+				className={`ref-chat-drop-zone ${chatPanelFileDragOver ? 'is-file-drag-over' : ''}`}
+				onDragEnter={onChatPanelDragEnter}
+				onDragLeave={onChatPanelDragLeave}
+				onDragOver={onChatPanelDragOver}
+				onDropCapture={onChatPanelDropCapture}
+				onDrop={onChatPanelDrop}
+			>
+				{messagesEl}
+				{!hasConversation ? <div className="ref-hero-spacer" /> : null}
+				{commandStack}
+			</div>
 			{sharedOverlays}
-			{commandStack}
 		</>
 	);
 });

@@ -8,6 +8,17 @@ function extOf(fileName: string): string {
 	return i >= 0 ? fileName.slice(i + 1).toLowerCase() : '';
 }
 
+export function isRasterImageFileName(fileName: string): boolean {
+	return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'avif', 'heic', 'tiff', 'tif'].includes(
+		extOf(fileName)
+	);
+}
+
+export function isRasterImageRelPath(relPath: string): boolean {
+	const name = relPath.replace(/\\/g, '/').split('/').pop() || relPath;
+	return isRasterImageFileName(name);
+}
+
 /** 资源管理器：文件夹与按扩展名区分的文件图标（高辨识度、暗色主题友好） */
 export function FileTypeIcon({ fileName, isDirectory, className }: { fileName: string; isDirectory: boolean; className?: string }) {
 	if (isDirectory) {
@@ -24,7 +35,7 @@ export function FileTypeIcon({ fileName, isDirectory, className }: { fileName: s
 		return <IconSvgImage className={className} />;
 	}
 
-	if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'avif', 'heic', 'tiff', 'tif'].includes(ext)) {
+	if (isRasterImageFileName(fileName)) {
 		return <IconRasterImage className={className} ext={ext} />;
 	}
 

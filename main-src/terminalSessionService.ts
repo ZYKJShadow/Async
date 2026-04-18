@@ -10,6 +10,7 @@
 import { BrowserWindow, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
 import * as pty from 'node-pty';
 import { isWindows } from './platform.js';
 import { appendTerminalAuthPromptTail, detectTerminalAuthPrompt, type TerminalSessionAuthPromptKind } from './terminalAuthPrompt.js';
@@ -395,6 +396,55 @@ export async function runOneShotCommand(opts: {
 			resolve({ id: info.id, exitCode: null, output: '', timedOut: false });
 		}
 	});
+}
+
+export async function runTerminalSessionToExit(opts: {
+	createOpts: TerminalSessionCreateOpts;
+	timeoutMs?: number;
+}): Promise<{
+	id: string;
+	exitCode: number | null;
+	output: string;
+	timedOut: boolean;
+	authPrompt: TerminalSessionAuthPrompt | null;
+}> {
+	const info = createTerminalSession(opts.createOpts);
+	const session = sessions.get(info.id)!;
+	const timeoutMs = Math.max(500, Math.min(opts.timeoutMs ?? 120_000, 600_000));
+	const deadline = Date.now() + timeoutMs;
+	try {
+		while (Date.now() < deadline) {
+			if (session.pendingAuthPrompt) {
+				return {
+					id: info.id,
+					exitCode: null,
+					output: getTerminalBuffer(info.id, MAX_BUFFER_BYTES)?.content ?? '',
+					timedOut: false,
+					authPrompt: session.pendingAuthPrompt,
+				};
+			}
+			if (!session.alive) {
+				const slice = getTerminalBuffer(info.id, MAX_BUFFER_BYTES);
+				return {
+					id: info.id,
+					exitCode: session.exitCode,
+					output: slice?.content ?? '',
+					timedOut: false,
+					authPrompt: null,
+				};
+			}
+			await delay(120);
+		}
+		return {
+			id: info.id,
+			exitCode: null,
+			output: getTerminalBuffer(info.id, MAX_BUFFER_BYTES)?.content ?? '',
+			timedOut: true,
+			authPrompt: session.pendingAuthPrompt,
+		};
+	} finally {
+		killTerminalSession(info.id);
+	}
 }
 
 function toInfo(s: Session): TerminalSessionInfo {

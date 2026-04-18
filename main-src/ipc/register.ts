@@ -4,7 +4,6 @@ import { applyThemeChromeToWindow, type NativeChromeOverride, type ThemeChromeSc
 import { applyPatch, formatPatch, parsePatch, reversePatch } from 'diff';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -276,6 +275,41 @@ function appendSystemBlock(base: string | undefined, block: string): string {
 		return base ?? '';
 	}
 	return base && base.trim() ? `${base}\n\n---\n${trimmed}` : trimmed;
+}
+
+function stripSkillFrontmatter(md: string): { body: string; name?: string; description?: string } {
+	const t = md.trim();
+	if (!t.startsWith('---')) {
+		return { body: md };
+	}
+	const end = t.indexOf('\n---', 3);
+	if (end < 0) {
+		return { body: md };
+	}
+	const yamlBlock = t.slice(3, end).trim();
+	const body = t.slice(end + 4).trim();
+	const meta: Record<string, string> = {};
+	for (const line of yamlBlock.split('\n')) {
+		const m = line.match(/^([a-zA-Z0-9_-]+)\s*:\s*(.*)$/);
+		if (m) {
+			meta[m[1]!] = (m[2] ?? '').replace(/^["']|["']$/g, '').trim();
+		}
+	}
+	return {
+		body,
+		name: meta.name || meta.title,
+		description: meta.description,
+	};
+}
+
+function sanitizeSkillSlug(raw: string): string {
+	return String(raw ?? '')
+		.trim()
+		.toLowerCase()
+		.replace(/^\.\//, '')
+		.replace(/[^a-z0-9-]+/g, '-')
+		.replace(/-{2,}/g, '-')
+		.replace(/^-+|-+$/g, '');
 }
 
 function logChatPipelineLatency(
@@ -1597,8 +1631,11 @@ export function registerIpc(): void {
 				typeof payload?.fileName === 'string' && payload.fileName.trim()
 					? path.basename(payload.fileName)
 					: 'attachment';
-			const safe =
-				rawName.replace(/[^\w.\u4e00-\u9fff-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 120) || 'file';
+			const safeName =
+				rawName
+					.replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+					.replace(/[. ]+$/g, '')
+					.slice(0, 120) || 'attachment';
 			let buf: Buffer;
 			try {
 				buf = Buffer.from(String(payload?.base64 ?? ''), 'base64');
@@ -1615,14 +1652,56 @@ export function registerIpc(): void {
 			const dirAbs = path.join(root, dirRel);
 			try {
 				fs.mkdirSync(dirAbs, { recursive: true });
-				const id = randomUUID();
-				const relPath = `${dirRel}/${id}-${safe}`;
+				const parsed = path.parse(safeName);
+				const baseName = parsed.name || 'attachment';
+				const ext = parsed.ext || '';
+				let finalName = `${baseName}${ext}`;
+				let seq = 2;
+				while (fs.existsSync(path.join(dirAbs, finalName))) {
+					finalName = `${baseName} (${seq})${ext}`;
+					seq += 1;
+				}
+				const relPath = `${dirRel}/${finalName}`;
 				fs.writeFileSync(path.join(root, relPath), buf);
 				registerKnownWorkspaceRelPath(relPath, root);
 				return { ok: true as const, relPath };
 			} catch {
 				return { ok: false as const, error: 'write-failed' as const };
 			}
+		}
+	);
+
+	ipcMain.handle(
+		'workspace:resolveDroppedFilePath',
+		async (
+			event,
+			payload: { fullPath?: string }
+		): Promise<
+			| { ok: true; relPath: string }
+			| { ok: false; error: 'no-workspace' | 'outside-workspace' | 'not-file' }
+		> => {
+			const root = senderWorkspaceRoot(event);
+			if (!root) {
+				return { ok: false as const, error: 'no-workspace' as const };
+			}
+			const raw = typeof payload?.fullPath === 'string' ? payload.fullPath.trim() : '';
+			if (!raw) {
+				return { ok: false as const, error: 'not-file' as const };
+			}
+			const abs = path.resolve(raw);
+			if (!isPathInsideRoot(abs, root)) {
+				return { ok: false as const, error: 'outside-workspace' as const };
+			}
+			try {
+				if (!fs.statSync(abs).isFile()) {
+					return { ok: false as const, error: 'not-file' as const };
+				}
+			} catch {
+				return { ok: false as const, error: 'not-file' as const };
+			}
+			const relPath = path.relative(root, abs).replace(/\\/g, '/');
+			registerKnownWorkspaceRelPath(relPath, root);
+			return { ok: true as const, relPath };
 		}
 	);
 
@@ -1842,6 +1921,56 @@ export function registerIpc(): void {
 		}
 		const lang = getSettings().language === 'en' ? 'en' : 'zh-CN';
 		return await testBotIntegrationConnection(integration, lang);
+	});
+
+	ipcMain.handle('settings:importBotSkillFolder', async (event) => {
+		try {
+			const win = BrowserWindow.fromWebContents(event.sender);
+			const result = await dialog.showOpenDialog(win ?? undefined, {
+				properties: ['openDirectory'],
+			});
+			if (result.canceled || !result.filePaths[0]) {
+				return { ok: false as const, canceled: true as const };
+			}
+			const folderPath = path.resolve(result.filePaths[0]);
+			const skillFilePath = path.join(folderPath, 'SKILL.md');
+			if (!fs.existsSync(skillFilePath) || !fs.statSync(skillFilePath).isFile()) {
+				return {
+					ok: false as const,
+					error: 'missing-skill-md' as const,
+					folderPath,
+				};
+			}
+			const raw = fs.readFileSync(skillFilePath, 'utf8');
+			const parsed = stripSkillFrontmatter(raw);
+			const folderName = path.basename(folderPath);
+			const name = (parsed.name || folderName).trim();
+			const slug = sanitizeSkillSlug(parsed.name || folderName);
+			const content = parsed.body.trim();
+			if (!name || !slug || !content) {
+				return {
+					ok: false as const,
+					error: 'invalid-skill' as const,
+					folderPath,
+				};
+			}
+			return {
+				ok: true as const,
+				skill: {
+					name,
+					description: (parsed.description || '').trim(),
+					slug,
+					content,
+				},
+				folderPath,
+				skillFilePath,
+			};
+		} catch (error) {
+			return {
+				ok: false as const,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
 	});
 
 	ipcMain.handle(

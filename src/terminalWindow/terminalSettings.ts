@@ -47,6 +47,7 @@ export type TerminalSshAlgorithms = {
 
 /** 本地 Shell 或通过 SSH 的远程会话（由 ssh 作为 pty 子进程）。 */
 export type TerminalProfileKind = 'local' | 'ssh';
+export type TerminalRuntimePlatform = 'win32' | 'darwin' | 'linux' | 'unknown';
 
 export type TerminalProfile = {
 	id: string;
@@ -373,6 +374,7 @@ export function saveTerminalSettings(s: TerminalAppSettings): void {
 		const next = normalizeTerminalSettings(s);
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 		emitTerminalSettingsChanged(next);
+		syncTerminalSettingsToMain(next);
 	} catch {
 		/* ignore */
 	}
@@ -517,14 +519,17 @@ export function parseArgsString(s: string): string[] {
 	return out;
 }
 
-function isWindowsRenderer(): boolean {
-	return readRendererPlatform() === 'win32';
+function isWindowsRenderer(platform: TerminalRuntimePlatform = readRendererPlatform()): boolean {
+	return platform === 'win32';
 }
 
 /**
  * 根据配置生成 `term:sessionCreate` 的选项（本地 Shell 或 ssh）。SSH 缺少必填项时退回本地逻辑。
  */
-export function buildTermSessionCreatePayload(profile: TerminalProfile): Record<string, unknown> {
+export function buildTermSessionCreatePayload(
+	profile: TerminalProfile,
+	runtimePlatform: TerminalRuntimePlatform = readRendererPlatform()
+): Record<string, unknown> {
 	const payload: Record<string, unknown> = {};
 	if (profile.name.trim()) {
 		payload.title = profile.name.trim();
@@ -543,7 +548,7 @@ export function buildTermSessionCreatePayload(profile: TerminalProfile): Record<
 
 	if (sshReady) {
 		payload.sshAuthMode = profile.sshAuthMode;
-		payload.shell = isWindowsRenderer() ? 'ssh.exe' : 'ssh';
+		payload.shell = isWindowsRenderer(runtimePlatform) ? 'ssh.exe' : 'ssh';
 		payload.args = buildSshArgs(profile);
 		return payload;
 	}
@@ -556,6 +561,27 @@ export function buildTermSessionCreatePayload(profile: TerminalProfile): Record<
 		payload.args = a;
 	}
 	return payload;
+}
+
+export function buildSshExecArgs(profile: TerminalProfile, command: string): string[] {
+	const remoteCommand = command.trim();
+	if (!remoteCommand) {
+		return buildSshConnectionArgs(profile, {
+			allocateTty: true,
+			includeForwarding: true,
+			includeRemoteCommand: false,
+			portFlag: '-p',
+		});
+	}
+	return [
+		...buildSshConnectionArgs(profile, {
+			allocateTty: true,
+			includeForwarding: true,
+			includeRemoteCommand: false,
+			portFlag: '-p',
+		}),
+		`sh -lc ${quotePosixShellArg(remoteCommand)}`,
+	];
 }
 
 export function buildSftpArgs(profile: TerminalProfile): string[] {
@@ -599,8 +625,8 @@ export function getTerminalColorSchemeById(colorSchemeId: string | null | undefi
 	return TERMINAL_COLOR_SCHEMES.find((scheme) => scheme.id === colorSchemeId) ?? null;
 }
 
-export function getBuiltinTerminalProfiles(): TerminalProfile[] {
-	switch (readRendererPlatform()) {
+export function getBuiltinTerminalProfiles(platform: TerminalRuntimePlatform = readRendererPlatform()): TerminalProfile[] {
+	switch (platform) {
 		case 'win32':
 			return [
 				createBuiltinTerminalProfile('system-default', 'systemDefault', {
@@ -966,6 +992,10 @@ function buildSshConnectionArgs(
 	return args;
 }
 
+function quotePosixShellArg(value: string): string {
+	return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 function appendSshAlgorithmArgs(args: string[], algorithms: TerminalSshAlgorithms): void {
 	if (algorithms.cipher.length && !matchesAlgorithmDefault(algorithms.cipher, TERMINAL_SSH_ALGORITHM_OPTIONS.cipher)) {
 		args.push('-o', `Ciphers=${algorithms.cipher.join(',')}`);
@@ -1014,7 +1044,7 @@ function matchesAlgorithmDefault(items: string[], defaults: string[]): boolean {
 	return items.length === defaults.length && items.every((item, index) => item === defaults[index]);
 }
 
-function readRendererPlatform(): 'win32' | 'darwin' | 'linux' | 'unknown' {
+function readRendererPlatform(): TerminalRuntimePlatform {
 	if (typeof document !== 'undefined') {
 		const platform = document.documentElement.getAttribute('data-platform');
 		if (platform === 'win32' || platform === 'darwin' || platform === 'linux') {
@@ -1049,4 +1079,18 @@ function emitTerminalSettingsChanged(settings: TerminalAppSettings): void {
 	} catch {
 		/* ignore */
 	}
+}
+
+export function syncTerminalSettingsToMain(settings?: TerminalAppSettings): void {
+	if (typeof window === 'undefined') {
+		return;
+	}
+	const shell = window.asyncShell;
+	if (!shell?.invoke) {
+		return;
+	}
+	const next = settings ?? loadTerminalSettings();
+	void shell.invoke('term:settingsSync', next).catch(() => {
+		/* ignore */
+	});
 }

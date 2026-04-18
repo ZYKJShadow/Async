@@ -1,5 +1,5 @@
 import { slashCommandWire, type ComposerSegment } from './composerSegments';
-import { FileTypeIcon } from './fileTypeIcons';
+import { FileTypeIcon, isRasterImageRelPath } from './fileTypeIcons';
 
 function fileBasename(path: string): string {
 	const n = path.replace(/\\/g, '/');
@@ -36,7 +36,13 @@ export function UserMessageRich({ segments, onFileClick }: Props) {
 						key={s.id}
 						role="button"
 						tabIndex={0}
-						className="ref-inline-file-chip ref-inline-file-chip--readonly"
+						className={[
+							'ref-inline-file-chip',
+							'ref-inline-file-chip--readonly',
+							isRasterImageRelPath(s.path) ? 'ref-inline-file-chip--image' : '',
+						]
+							.filter(Boolean)
+							.join(' ')}
 						title={s.path}
 						onClick={(e) => {
 							e.preventDefault();

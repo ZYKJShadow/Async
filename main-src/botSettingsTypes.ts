@@ -1,3 +1,5 @@
+import type { AgentSkill } from './agentSettingsTypes.js';
+
 export type BotComposerMode = 'agent' | 'ask' | 'plan' | 'team';
 
 export type BotPlatform = 'feishu' | 'telegram' | 'discord' | 'slack';
@@ -47,6 +49,7 @@ export type BotIntegrationConfig = {
 	allowedReplyChatIds?: string[];
 	allowedReplyUserIds?: string[];
 	systemPrompt?: string;
+	skills?: AgentSkill[];
 	permissionPolicy?: BotPermissionPolicy;
 	telegram?: TelegramBotConfig;
 	slack?: SlackBotConfig;

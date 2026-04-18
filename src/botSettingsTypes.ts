@@ -1,3 +1,5 @@
+import type { AgentSkill } from './agentSettingsTypes';
+
 export type BotComposerMode = 'agent' | 'ask' | 'plan' | 'team';
 
 export type BotPlatform = 'feishu' | 'telegram' | 'discord' | 'slack';
@@ -45,6 +47,7 @@ export type BotIntegrationConfig = {
 	allowedReplyChatIds?: string[];
 	allowedReplyUserIds?: string[];
 	systemPrompt?: string;
+	skills?: AgentSkill[];
 	telegram?: TelegramBotConfig;
 	slack?: SlackBotConfig;
 	discord?: DiscordBotConfig;
@@ -64,6 +67,7 @@ export function createEmptyBotIntegration(): BotIntegrationConfig {
 		workspaceRoots: [],
 		allowedReplyChatIds: [],
 		allowedReplyUserIds: [],
+		skills: [],
 		telegram: {
 			requireMentionInGroups: true,
 			allowedChatIds: [],

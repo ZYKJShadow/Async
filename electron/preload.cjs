@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 /** @type {Set<string>} */
 const INVOKE_CHANNELS = new Set([
@@ -21,6 +21,7 @@ const INVOKE_CHANNELS = new Set([
 	'browser:windowReady',
 	'browser:openWindow',
 	'workspace:saveComposerAttachment',
+	'workspace:resolveDroppedFilePath',
 	'workspace:searchSymbols',
 	'lsp:ts:start',
 	'lsp:ts:stop',
@@ -32,6 +33,7 @@ const INVOKE_CHANNELS = new Set([
 	'settings:set',
 	'settings:discoverProviderModels',
 	'settings:testBotConnection',
+	'settings:importBotSkillFolder',
 	'plugins:getState',
 	'plugins:getRuntimeState',
 	'plugins:pickUserDirectory',
@@ -104,6 +106,7 @@ const INVOKE_CHANNELS = new Set([
 	'term:sessionKill',
 	'term:sessionRename',
 	'term:sessionList',
+	'term:settingsSync',
 	'term:listBuiltinProfiles',
 	'term:profilePasswordState',
 	'term:profilePasswordSet',
@@ -308,6 +311,13 @@ contextBridge.exposeInMainWorld('asyncShell', {
 			throw new Error(`async-shell: blocked IPC channel "${channel}"`);
 		}
 		return ipcRenderer.invoke(channel, ...args);
+	},
+	getPathForFile(file) {
+		try {
+			return webUtils.getPathForFile(file) || null;
+		} catch {
+			return null;
+		}
 	},
 	subscribeTerminalPtyData(callback) {
 		const handler = (_e, id, data) => {

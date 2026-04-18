@@ -1993,18 +1993,58 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 	const svc = await import('../terminalSessionService.js');
 	try {
 		switch (action) {
-			case 'open': {
-				const info = svc.createTerminalSession({
-					cwd: resolveTerminalCwd(args.cwd, execCtx),
-					shell: typeof args.shell === 'string' && args.shell.trim() ? args.shell.trim() : undefined,
-					cols: typeof args.cols === 'number' ? args.cols : undefined,
-					rows: typeof args.rows === 'number' ? args.rows : undefined,
-					title: typeof args.title === 'string' ? args.title : undefined,
-				});
+			case 'list_profiles': {
+				const profileStore = await import('../terminalProfileStore.js');
+				const profiles = profileStore.listTerminalToolProfiles();
 				return {
 					toolCallId: call.id,
 					name: call.name,
-					content: JSON.stringify(info, null, 2),
+					content: JSON.stringify(profiles, null, 2),
+					isError: false,
+				};
+			}
+			case 'open': {
+				const profileNeedle = typeof args.profile_id === 'string' ? args.profile_id.trim() : '';
+				let createOpts: Parameters<typeof svc.createTerminalSession>[0];
+				let profileMeta: unknown = null;
+				if (profileNeedle) {
+					const profileStore = await import('../terminalProfileStore.js');
+					const resolved = profileStore.resolveTerminalToolCreateOpts(profileNeedle);
+					if (!resolved) {
+						return {
+							toolCallId: call.id,
+							name: call.name,
+							content: `Error: terminal profile not found: ${profileNeedle}`,
+							isError: true,
+						};
+					}
+					createOpts = {
+						...resolved.createOpts,
+						cwd: resolved.createOpts.cwd
+							? resolveTerminalCwd(resolved.createOpts.cwd, execCtx)
+							: resolved.createOpts.cwd,
+						cols: typeof args.cols === 'number' ? args.cols : resolved.createOpts.cols,
+						rows: typeof args.rows === 'number' ? args.rows : resolved.createOpts.rows,
+						title:
+							typeof args.title === 'string' && args.title.trim()
+								? args.title
+								: resolved.createOpts.title,
+					};
+					profileMeta = resolved.profile;
+				} else {
+					createOpts = {
+						cwd: resolveTerminalCwd(args.cwd, execCtx),
+						shell: typeof args.shell === 'string' && args.shell.trim() ? args.shell.trim() : undefined,
+						cols: typeof args.cols === 'number' ? args.cols : undefined,
+						rows: typeof args.rows === 'number' ? args.rows : undefined,
+						title: typeof args.title === 'string' ? args.title : undefined,
+					};
+				}
+				const info = svc.createTerminalSession(createOpts);
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: JSON.stringify(profileMeta ? { session: info, profile: profileMeta } : info, null, 2),
 					isError: false,
 				};
 			}
@@ -2073,6 +2113,15 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 				return { toolCallId: call.id, name: call.name, content: ok ? 'ok' : 'close failed', isError: !ok };
 			}
 			case 'run': {
+				if (typeof args.profile_id === 'string' && args.profile_id.trim()) {
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content:
+							'Error: run does not support profile_id. Use exec for one-shot SSH profile commands, or use list_profiles + open + write/read for a persistent interactive session.',
+						isError: true,
+					};
+				}
 				const command = String(args.command ?? '').trim();
 				if (!command) {
 					return { toolCallId: call.id, name: call.name, content: 'Error: command is required for run', isError: true };
@@ -2086,6 +2135,77 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 					rows: typeof args.rows === 'number' ? args.rows : undefined,
 				});
 				const header = `exit_code=${res.exitCode ?? 'null'} timed_out=${res.timedOut}\n---\n`;
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: header + res.output,
+					isError: res.timedOut || (res.exitCode !== 0 && res.exitCode !== null),
+				};
+			}
+			case 'exec': {
+				const profileNeedle = typeof args.profile_id === 'string' ? args.profile_id.trim() : '';
+				if (!profileNeedle) {
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content: 'Error: profile_id is required for exec',
+						isError: true,
+					};
+				}
+				const command = String(args.command ?? '').trim();
+				if (!command) {
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content: 'Error: command is required for exec',
+						isError: true,
+					};
+				}
+				const profileStore = await import('../terminalProfileStore.js');
+				const resolved = profileStore.resolveTerminalToolExecCreateOpts(profileNeedle, command);
+				if (!resolved) {
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content: `Error: terminal profile not found: ${profileNeedle}`,
+						isError: true,
+					};
+				}
+				if ('error' in resolved) {
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content: `Error: ${resolved.error}`,
+						isError: true,
+					};
+				}
+				const res = await svc.runTerminalSessionToExit({
+					createOpts: {
+						...resolved.createOpts,
+						cwd: resolved.createOpts.cwd
+							? resolveTerminalCwd(resolved.createOpts.cwd, execCtx)
+							: resolved.createOpts.cwd,
+						cols: typeof args.cols === 'number' ? args.cols : resolved.createOpts.cols,
+						rows: typeof args.rows === 'number' ? args.rows : resolved.createOpts.rows,
+						title:
+							typeof args.title === 'string' && args.title.trim()
+								? args.title
+								: resolved.createOpts.title,
+					},
+					timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : undefined,
+				});
+				if (res.authPrompt) {
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content:
+							`Authentication prompt blocked background exec for profile "${resolved.profile.name}". ` +
+							`Prompt: ${res.authPrompt.prompt}. Save credentials for the profile or use open + write/read for manual interaction.\n---\n` +
+							res.output,
+						isError: true,
+					};
+				}
+				const header = `profile=${resolved.profile.name} exit_code=${res.exitCode ?? 'null'} timed_out=${res.timedOut}\n---\n`;
 				return {
 					toolCallId: call.id,
 					name: call.name,

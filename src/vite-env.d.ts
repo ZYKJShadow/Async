@@ -3,6 +3,7 @@ import type * as React from 'react';
 
 export interface AsyncShellAPI {
 	invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+	getPathForFile?(file: File): string | null;
 	subscribeChat(callback: (payload: unknown) => void): () => void;
 	/** 窗口移动 / 缩放时触发，用于重算 fixed 浮层锚点 */
 	subscribeLayout?(callback: () => void): () => void;

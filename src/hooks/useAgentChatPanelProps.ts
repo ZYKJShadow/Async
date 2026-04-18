@@ -76,11 +76,12 @@ export function useAgentChatPanelProps({
 		setInlineResendSegments: rest.setInlineResendSegments,
 		onStartInlineResend: rest.onStartInlineResend,
 		inlineResendRootRef: rest.inlineResendRootRef,
+		onChatPanelDropFiles: rest.onChatPanelDropFiles,
 	}), [
 		rest.composerMode, rest.composerSegments, rest.setComposerSegments,
 		rest.canSendComposer, rest.canSendInlineResend, rest.sharedComposerProps,
 		rest.resendFromUserIndex, rest.inlineResendSegments, rest.setInlineResendSegments,
-		rest.onStartInlineResend, rest.inlineResendRootRef,
+		rest.onStartInlineResend, rest.inlineResendRootRef, rest.onChatPanelDropFiles,
 	]);
 
 	// Group 3: Agent action/review state (changes on agent actions)

@@ -127,6 +127,11 @@ import { AppProvider } from './AppContext';
 import { ComposerActionsProvider } from './ComposerActionsContext';
 import { AgentBrowserWindowSurface } from './AgentRightSidebar';
 import { TerminalWindowSurface } from './TerminalWindowSurface';
+import {
+	loadTerminalSettings,
+	subscribeTerminalSettings,
+	syncTerminalSettingsToMain,
+} from './terminalWindow/terminalSettings';
 import { runDesktopShellInit } from './app/desktopShellInit';
 import {
 	DEFAULT_SHELL_LAYOUT_MODE_KEY,
@@ -222,6 +227,16 @@ export default function App({
 	const shellLsPrefix = appSurface === 'editor' ? 'void-shell:editor:' : '';
 	const shellLayoutStorageKey = `${shellLsPrefix}${DEFAULT_SHELL_LAYOUT_MODE_KEY}`;
 	const sidebarLayoutStorageKey = `${shellLsPrefix}${DEFAULT_SIDEBAR_LAYOUT_KEY}`;
+
+	useEffect(() => {
+		if (!shell) {
+			return;
+		}
+		syncTerminalSettingsToMain(loadTerminalSettings());
+		return subscribeTerminalSettings(() => {
+			syncTerminalSettingsToMain(loadTerminalSettings());
+		});
+	}, [shell]);
 	const [colorMode, setColorMode] = useState<AppColorMode>(() => readStoredColorMode());
 	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(() => defaultAppearanceSettings());
 	const { effectiveScheme, setTransitionOrigin } = useAppColorScheme({ colorMode });
@@ -1837,6 +1852,17 @@ function AppMainWorkspaceInner() {
 		}
 		const out: string[] = [];
 		for (const f of files) {
+			const droppedFilePath =
+				typeof sh.getPathForFile === 'function' ? sh.getPathForFile(f) : null;
+			if (droppedFilePath) {
+				const directRef = (await sh.invoke('workspace:resolveDroppedFilePath', {
+					fullPath: droppedFilePath,
+				})) as { ok?: boolean; relPath?: string };
+				if (directRef?.ok && typeof directRef.relPath === 'string') {
+					out.push(directRef.relPath);
+					continue;
+				}
+			}
 			const b64 = await new Promise<string>((resolve, reject) => {
 				const r = new FileReader();
 				r.onload = () => {
@@ -1866,6 +1892,59 @@ function AppMainWorkspaceInner() {
 		}
 		return out;
 	}, []);
+
+	const focusPreferredComposerInput = useCallback(() => {
+		queueMicrotask(() => {
+			if (composerRichBottomRef.current) {
+				composerRichBottomRef.current.focus();
+				return;
+			}
+			composerRichHeroRef.current?.focus();
+		});
+	}, [composerRichBottomRef, composerRichHeroRef]);
+
+	const appendComposerFileReferences = useCallback(
+		(relPaths: string[]) => {
+			const normalized = relPaths
+				.map((rel) => rel.replace(/\\/g, '/').trim())
+				.filter((rel) => rel.length > 0);
+			if (normalized.length === 0) {
+				return;
+			}
+			setComposerSegments((prev) => {
+				const next = [...prev];
+				const last = next[next.length - 1];
+				if (last?.kind === 'text' && last.text.length > 0 && !/\s$/.test(last.text)) {
+					next[next.length - 1] = { ...last, text: `${last.text} ` };
+				} else if (last?.kind === 'file') {
+					next.push({ id: newSegmentId(), kind: 'text', text: ' ' });
+				}
+				for (let i = 0; i < normalized.length; i++) {
+					if (i > 0) {
+						next.push({ id: newSegmentId(), kind: 'text', text: ' ' });
+					}
+					next.push({ id: newSegmentId(), kind: 'file', path: normalized[i]! });
+				}
+				if (next[next.length - 1]?.kind !== 'text') {
+					next.push({ id: newSegmentId(), kind: 'text', text: '' });
+				}
+				return next;
+			});
+			focusPreferredComposerInput();
+		},
+		[focusPreferredComposerInput]
+	);
+
+	const onChatPanelDropFiles = useCallback(
+		async (files: File[]) => {
+			const relPaths = await persistComposerAttachments(files);
+			if (relPaths.length === 0) {
+				return;
+			}
+			appendComposerFileReferences(relPaths);
+		},
+		[persistComposerAttachments, appendComposerFileReferences]
+	);
 
 	const onApplyAgentPatchOne = useCallback(
 		async (id: string) => {
@@ -5942,6 +6021,7 @@ function AppMainWorkspaceInner() {
 		canSendComposer,
 		canSendInlineResend,
 		sharedComposerProps,
+		onChatPanelDropFiles,
 		onStartInlineResend,
 		shell,
 		onExplorerOpenFile,
