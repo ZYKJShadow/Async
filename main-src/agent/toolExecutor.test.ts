@@ -4,6 +4,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 const resolveTerminalToolExecCreateOptsMock = vi.fn();
+const createTerminalSessionMock = vi.fn();
+const startOneShotCommandSessionMock = vi.fn();
+const runOneShotCommandMock = vi.fn();
 const runTerminalSessionToExitMock = vi.fn();
 
 vi.mock('../terminalProfileStore.js', () => ({
@@ -11,6 +14,9 @@ vi.mock('../terminalProfileStore.js', () => ({
 }));
 
 vi.mock('../terminalSessionService.js', () => ({
+	createTerminalSession: (...args: unknown[]) => createTerminalSessionMock(...args),
+	startOneShotCommandSession: (...args: unknown[]) => startOneShotCommandSessionMock(...args),
+	runOneShotCommand: (...args: unknown[]) => runOneShotCommandMock(...args),
 	runTerminalSessionToExit: (...args: unknown[]) => runTerminalSessionToExitMock(...args),
 }));
 
@@ -95,7 +101,7 @@ describe('executeTool view_image', () => {
 });
 
 describe('executeTool Terminal exec', () => {
-	it('executes a saved SSH profile command in the background', async () => {
+	it('waits for a saved SSH profile command to finish', async () => {
 		resolveTerminalToolExecCreateOptsMock.mockReturnValue({
 			createOpts: {
 				shell: 'ssh',
@@ -120,6 +126,8 @@ describe('executeTool Terminal exec', () => {
 			output: 'Linux host 6.8.0',
 			timedOut: false,
 			authPrompt: null,
+			sessionKept: false,
+			alive: false,
 		});
 
 		const result = await executeTool({
@@ -143,10 +151,67 @@ describe('executeTool Terminal exec', () => {
 				rows: undefined,
 			},
 			timeoutMs: undefined,
+			preserveOnTimeout: true,
+			preserveOnAuthPrompt: true,
 		});
 		expect(result.isError).toBe(false);
 		expect(result.content).toContain('profile=Prod SSH');
 		expect(result.content).toContain('Linux host 6.8.0');
+	});
+
+	it('can start a saved SSH profile command in the background and return a session id immediately', async () => {
+		resolveTerminalToolExecCreateOptsMock.mockReturnValue({
+			createOpts: {
+				shell: 'ssh',
+				args: ['user@example.com', "sh -lc 'uname -a'"],
+				title: 'Prod SSH',
+			},
+			profile: {
+				id: 'ssh-prod',
+				name: 'Prod SSH',
+				kind: 'ssh',
+				source: 'user',
+				target: 'root@example.com',
+				authMode: 'publicKey',
+				hasStoredPassword: false,
+				defaultProfile: false,
+				hasRemoteCommand: false,
+			},
+		});
+		createTerminalSessionMock.mockReturnValue({
+			id: 'term-bg-1',
+			title: 'Prod SSH',
+			cwd: process.cwd(),
+			shell: 'ssh',
+			cols: 120,
+			rows: 30,
+			alive: true,
+			bufferBytes: 0,
+			createdAt: Date.now(),
+		});
+
+		const result = await executeTool({
+			id: 'terminal-exec-bg-1',
+			name: 'Terminal',
+			arguments: {
+				action: 'exec',
+				profile_id: 'ssh-prod',
+				command: 'uname -a',
+				run_in_background: true,
+			},
+		});
+
+		expect(createTerminalSessionMock).toHaveBeenCalledWith({
+			shell: 'ssh',
+			args: ['user@example.com', "sh -lc 'uname -a'"],
+			title: 'Prod SSH',
+			cwd: undefined,
+			cols: undefined,
+			rows: undefined,
+		});
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain('session_id=term-bg-1');
+		expect(result.content).toContain('profile "Prod SSH"');
 	});
 
 	it('surfaces background auth prompts as actionable errors', async () => {
@@ -178,6 +243,8 @@ describe('executeTool Terminal exec', () => {
 				kind: 'password',
 				seq: 3,
 			},
+			sessionKept: true,
+			alive: true,
 		});
 
 		const result = await executeTool({
@@ -191,7 +258,132 @@ describe('executeTool Terminal exec', () => {
 		});
 
 		expect(result.isError).toBe(true);
-		expect(result.content).toContain('Authentication prompt blocked background exec');
+		expect(result.content).toContain('session_id=term-2');
+		expect(result.content).toContain('Interactive prompt blocked completion');
 		expect(result.content).toContain('Password:');
+	});
+
+	it('keeps the session alive when foreground exec times out', async () => {
+		resolveTerminalToolExecCreateOptsMock.mockReturnValue({
+			createOpts: {
+				shell: 'ssh',
+				args: ['user@example.com', "sh -lc 'npm install'"],
+				title: 'Prod SSH',
+			},
+			profile: {
+				id: 'ssh-prod',
+				name: 'Prod SSH',
+				kind: 'ssh',
+				source: 'user',
+				target: 'root@example.com',
+				authMode: 'publicKey',
+				hasStoredPassword: false,
+				defaultProfile: false,
+				hasRemoteCommand: false,
+			},
+		});
+		runTerminalSessionToExitMock.mockResolvedValue({
+			id: 'term-timeout-1',
+			exitCode: null,
+			output: 'Downloading packages...',
+			timedOut: true,
+			authPrompt: null,
+			sessionKept: true,
+			alive: true,
+		});
+
+		const result = await executeTool({
+			id: 'terminal-exec-timeout-1',
+			name: 'Terminal',
+			arguments: {
+				action: 'exec',
+				profile_id: 'ssh-prod',
+				command: 'npm install',
+				timeout_ms: 1000,
+			},
+		});
+
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain('session_id=term-timeout-1');
+		expect(result.content).toContain('Downloading packages...');
+	});
+});
+
+describe('executeTool Terminal run', () => {
+	it('can start a local one-shot command in the background', async () => {
+		startOneShotCommandSessionMock.mockReturnValue({
+			id: 'term-run-bg-1',
+			title: '(one-shot) npm install',
+			cwd: process.cwd(),
+			shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash',
+			cols: 120,
+			rows: 30,
+			alive: true,
+			bufferBytes: 0,
+			createdAt: Date.now(),
+		});
+
+		const result = await executeTool(
+			{
+				id: 'terminal-run-bg-1',
+				name: 'Terminal',
+				arguments: {
+					action: 'run',
+					command: 'npm install',
+					run_in_background: true,
+				},
+			},
+			undefined,
+			{ workspaceRoot: process.cwd() }
+		);
+
+		expect(startOneShotCommandSessionMock).toHaveBeenCalledWith({
+			command: 'npm install',
+			cwd: process.cwd(),
+			shell: undefined,
+			cols: undefined,
+			rows: undefined,
+		});
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain('session_id=term-run-bg-1');
+		expect(result.content).toContain('Started background terminal command.');
+	});
+
+	it('keeps the session alive when foreground run times out', async () => {
+		runOneShotCommandMock.mockResolvedValue({
+			id: 'term-run-timeout-1',
+			exitCode: null,
+			output: 'Downloading packages...',
+			timedOut: true,
+			sessionKept: true,
+			alive: true,
+		});
+
+		const result = await executeTool(
+			{
+				id: 'terminal-run-timeout-1',
+				name: 'Terminal',
+				arguments: {
+					action: 'run',
+					command: 'npm install',
+					timeout_ms: 1000,
+				},
+			},
+			undefined,
+			{ workspaceRoot: process.cwd() }
+		);
+
+		expect(runOneShotCommandMock).toHaveBeenCalledWith({
+			command: 'npm install',
+			cwd: process.cwd(),
+			shell: undefined,
+			timeoutMs: 1000,
+			cols: undefined,
+			rows: undefined,
+			preserveOnTimeout: true,
+		});
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain('session_id=term-run-timeout-1');
+		expect(result.content).toContain('Downloading packages...');
 	});
 });

@@ -12,6 +12,7 @@ import {
 	getAgentFilePreviewHighlighter,
 	type GitSidebarDiffLineRender,
 } from './agentFilePreviewShiki';
+import { useDomColorScheme } from './useDomColorScheme';
 
 /** 达到条数后 Agent 侧栏 Git 卡片使用虚拟列表（卡片含 diff，高度由 measureElement 测量） */
 export const AGENT_GIT_SCM_VIRTUAL_THRESHOLD = 8;
@@ -77,6 +78,7 @@ const GitDiffLines = memo(function GitDiffLines({
 	relPath: string;
 	t: TFunction;
 }) {
+	const colorScheme = useDomColorScheme();
 	const trimmed = useMemo(() => trimGitDiffForSidebarCard(diff), [diff]);
 	const lines = useMemo(() => trimmed.split('\n').slice(0, 120), [trimmed]);
 	const [views, setViews] = useState<GitSidebarDiffLineRender[] | null>(null);
@@ -95,7 +97,7 @@ const GitDiffLines = memo(function GitDiffLines({
 					return;
 				}
 				const next = lines.map((line) =>
-					buildGitSidebarDiffLineRender(h, lang, line, gitSidebarDiffLineClass(line))
+					buildGitSidebarDiffLineRender(h, lang, line, gitSidebarDiffLineClass(line), colorScheme)
 				);
 				if (!cancelled) {
 					setViews(next);
@@ -110,7 +112,7 @@ const GitDiffLines = memo(function GitDiffLines({
 		return () => {
 			cancelled = true;
 		};
-	}, [lines, relPath]);
+	}, [lines, relPath, colorScheme]);
 
 	return (
 		<div className="ref-git-card-diff" role="region" aria-label={t('git.diffPreview')}>

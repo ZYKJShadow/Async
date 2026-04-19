@@ -257,11 +257,16 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Bash',
 		description:
-			'Run a shell command in the workspace directory (on Windows the runtime uses PowerShell for the same purpose). Use for tests, installs, builds, git, etc. Do not use Bash for reading or discovering source files when **Read**, **Glob**, or **Grep** can do the job. Do not use Bash to run `grep` or `rg` for codebase search — use **Grep**. 120-second timeout.',
+			'Run a shell command in the workspace directory (on Windows the runtime uses PowerShell for the same purpose). Use for tests, installs, builds, git, etc. Do not use Bash for reading or discovering source files when **Read**, **Glob**, or **Grep** can do the job. Do not use Bash to run `grep` or `rg` for codebase search — use **Grep**. Default timeout is 120 seconds; set **timeout_ms** for slower installs/downloads.',
 		parameters: {
 			type: 'object',
 			properties: {
 				command: { type: 'string', description: 'The command line to execute' },
+				timeout_ms: {
+					type: 'number',
+					description:
+						'Optional max milliseconds to wait for the command to finish. Default 120000, max 600000.',
+				},
 			},
 			required: ['command'],
 		},
@@ -269,7 +274,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Terminal',
 		description:
-			"Interact with the app's shared Universal Terminal sessions. Sessions are persistent pty processes (the user's real shell) that survive even when no terminal window is open. Use this when you need an interactive session, want to drive a long-running or REPL-style command, or need to keep terminal state (cwd, env, background processes) across calls. For one-shot commands, prefer **Bash** unless you specifically need a saved Universal Terminal profile. You can also enumerate saved Universal Terminal profiles, then open one in the background by profile id or name. This is the supported way to reuse saved SSH profiles without opening the terminal window.\n\nActions: **open** (spawn a new session, optionally from a saved profile, returns id), **write** (send keystrokes/data; include \\r or \\n to submit a line), **read** (return the tail of the output buffer), **list** (enumerate active sessions), **list_profiles** (enumerate saved terminal profiles, including SSH), **resize** (change cols/rows), **close** (kill session), **run** (one-shot convenience for local/non-interactive shells), **exec** (execute a one-shot command through a saved SSH profile in the background; useful for remote Linux hosts when you want profile auth/settings but no visible terminal window).",
+			"Interact with the app's shared Universal Terminal sessions. Sessions are persistent pty processes (the user's real shell) that survive even when no terminal window is open. Use this when you need an interactive session, want to drive a long-running or REPL-style command, or need to keep terminal state (cwd, env, background processes) across calls. For one-shot commands, prefer **Bash** unless you specifically need a saved Universal Terminal profile. You can also enumerate saved Universal Terminal profiles, then open one in the background by profile id or name. This is the supported way to reuse saved SSH profiles without opening the terminal window.\n\nActions: **open** (spawn a new session, optionally from a saved profile, returns id), **write** (send keystrokes/data; include \\r or \\n to submit a line), **read** (return the tail of the output buffer), **list** (enumerate active sessions), **list_profiles** (enumerate saved terminal profiles, including SSH), **resize** (change cols/rows), **close** (kill session), **run** (one-shot convenience for local/non-interactive shells), **exec** (execute a one-shot command through a saved SSH profile with no visible terminal window). For **run**/**exec**, set **run_in_background** to return immediately with a session id; if a foreground wait times out, the session is kept so you can continue with **read**/**close**.",
 		parameters: {
 			type: 'object',
 			properties: {
@@ -327,6 +332,11 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 					type: 'number',
 					description:
 						'For run/exec: max milliseconds to wait for the command to exit before killing it. Default 120000, max 600000.',
+				},
+				run_in_background: {
+					type: 'boolean',
+					description:
+						'For run/exec: if true, start the command and return immediately with a session id. Use read/list/close to monitor it later.',
 				},
 			},
 			required: ['action'],

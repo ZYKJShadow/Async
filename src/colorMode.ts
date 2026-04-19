@@ -1,5 +1,6 @@
 /** ???? `ShellColorMode` ??????????? main-src ??? */
 export type AppColorMode = 'light' | 'dark' | 'system';
+export type EffectiveColorScheme = 'light' | 'dark';
 export type ThemeTransitionOrigin = { x: number; y: number };
 
 export const APP_UI_STYLE = 'mac-codex';
@@ -38,21 +39,25 @@ export function readPrefersDark(): boolean {
 	return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-export function resolveEffectiveScheme(mode: AppColorMode, prefersDark: boolean): 'light' | 'dark' {
+export function resolveEffectiveScheme(mode: AppColorMode, prefersDark: boolean): EffectiveColorScheme {
 	if (mode === 'system') {
 		return prefersDark ? 'dark' : 'light';
 	}
 	return mode;
 }
 
-export function getVoidMonacoTheme(effective: 'light' | 'dark'): 'void-light' | 'void-dark' {
+export function readDomColorScheme(doc: Document | null | undefined = typeof document !== 'undefined' ? document : null): EffectiveColorScheme {
+	if (!doc) {
+		return 'dark';
+	}
+	return doc.documentElement.getAttribute('data-color-scheme') === 'light' ? 'light' : 'dark';
+}
+
+export function getVoidMonacoTheme(effective: EffectiveColorScheme): 'void-light' | 'void-dark' {
 	return effective === 'light' ? 'void-light' : 'void-dark';
 }
 
 /** Agent ????????????? DOM */
 export function getVoidMonacoThemeFromDom(): 'void-light' | 'void-dark' {
-	if (typeof document === 'undefined') {
-		return 'void-dark';
-	}
-	return document.documentElement.getAttribute('data-color-scheme') === 'light' ? 'void-light' : 'void-dark';
+	return getVoidMonacoTheme(readDomColorScheme());
 }

@@ -4946,7 +4946,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-agent-diff-card-open:hover .ref-agent-diff-card-head,
 .ref-agent-diff-card-open:focus-visible .ref-agent-diff-card-head {
-	background: rgba(129, 140, 248, 0.1);
+	background: color-mix(in srgb, var(--void-accent-assist) 12%, transparent);
 }
 
 .ref-agent-diff-card-open:focus-visible {
@@ -5008,11 +5008,11 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-diff-stat-add {
-	color: #86efac;
+	color: var(--void-git-added);
 }
 
 .ref-agent-diff-stat-del {
-	color: #fca5a5;
+	color: var(--void-git-deleted);
 }
 
 .ref-agent-diff-stat-neutral {
@@ -5050,7 +5050,11 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	margin-top: 0;
 	padding: 6px 0 4px;
 	border-top: 1px solid var(--void-border-soft);
-	background: linear-gradient(to top, rgba(10, 10, 14, 0.98) 70%, rgba(10, 10, 14, 0));
+	background: linear-gradient(
+		to top,
+		color-mix(in srgb, var(--surface-panel-bg-strong) 98%, transparent) 70%,
+		transparent
+	);
 	position: sticky;
 	bottom: 0;
 }
@@ -5063,9 +5067,9 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	height: 52px;
 	background: linear-gradient(
 		to bottom,
-		rgba(10, 10, 14, 0) 0%,
-		rgba(10, 10, 14, 0.75) 50%,
-		rgba(10, 10, 14, 0.96) 100%
+		transparent 0%,
+		color-mix(in srgb, var(--surface-panel-bg-strong) 74%, transparent) 50%,
+		color-mix(in srgb, var(--surface-panel-bg-strong) 96%, transparent) 100%
 	);
 	pointer-events: none;
 }
@@ -5078,9 +5082,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	height: 28px;
 	margin: 0;
 	padding: 0;
-	border: none;
+	border: 1px solid color-mix(in srgb, var(--surface-glass-stroke) 88%, transparent);
 	border-radius: 8px;
-	background: rgba(255, 255, 255, 0.06);
+	background: color-mix(in srgb, var(--surface-control-bg) 92%, transparent);
+	box-shadow: var(--shadow-pressed);
 	color: var(--void-fg-3);
 	cursor: pointer;
 	position: relative;
@@ -5089,7 +5094,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-diff-toggle:hover {
-	background: rgba(255, 255, 255, 0.1);
+	background: color-mix(in srgb, var(--surface-control-bg-hover) 94%, transparent);
 	color: var(--void-fg-1);
 }
 
@@ -5118,18 +5123,18 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-diff-line.is-add {
-	background: rgba(22, 101, 52, 0.45);
-	color: #bbf7d0;
+	background: color-mix(in srgb, var(--void-git-added) 20%, transparent);
+	color: color-mix(in srgb, var(--void-git-added) 70%, var(--void-fg-0) 30%);
 }
 
 .ref-agent-diff-line.is-del {
-	background: rgba(127, 29, 29, 0.42);
-	color: #fecaca;
+	background: color-mix(in srgb, var(--void-git-deleted) 18%, transparent);
+	color: color-mix(in srgb, var(--void-git-deleted) 72%, var(--void-fg-0) 28%);
 }
 
 .ref-agent-diff-line.is-hunk {
-	color: #a5b4fc;
-	background: rgba(79, 70, 229, 0.12);
+	color: color-mix(in srgb, var(--void-accent-assist) 76%, var(--void-fg-0) 24%);
+	background: color-mix(in srgb, var(--void-accent-assist) 12%, transparent);
 }
 
 .ref-agent-diff-line.is-meta {
@@ -9421,16 +9426,24 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-agent-file-preview-hunk-segment--add {
 	background:
-		linear-gradient(90deg, color-mix(in srgb, #22c55e 18%, transparent) 0%, color-mix(in srgb, #22c55e 10%, transparent) 100%);
-	border-top: 1px solid color-mix(in srgb, #22c55e 18%, transparent);
-	border-bottom: 1px solid color-mix(in srgb, #22c55e 14%, transparent);
+		linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--void-git-added) 18%, transparent) 0%,
+			color-mix(in srgb, var(--void-git-added) 10%, transparent) 100%
+		);
+	border-top: 1px solid color-mix(in srgb, var(--void-git-added) 18%, transparent);
+	border-bottom: 1px solid color-mix(in srgb, var(--void-git-added) 14%, transparent);
 }
 
 .ref-agent-file-preview-hunk-segment--del {
 	background:
-		linear-gradient(90deg, color-mix(in srgb, #ef4444 18%, transparent) 0%, color-mix(in srgb, #ef4444 10%, transparent) 100%);
-	border-top: 1px solid color-mix(in srgb, #ef4444 18%, transparent);
-	border-bottom: 1px solid color-mix(in srgb, #ef4444 14%, transparent);
+		linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--void-git-deleted) 18%, transparent) 0%,
+			color-mix(in srgb, var(--void-git-deleted) 10%, transparent) 100%
+		);
+	border-top: 1px solid color-mix(in srgb, var(--void-git-deleted) 18%, transparent);
+	border-bottom: 1px solid color-mix(in srgb, var(--void-git-deleted) 14%, transparent);
 }
 
 .ref-agent-file-preview-hunk-segment-mark {
@@ -9444,11 +9457,11 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-file-preview-hunk-segment--add .ref-agent-file-preview-hunk-segment-mark {
-	color: #4ade80;
+	color: var(--void-git-added);
 }
 
 .ref-agent-file-preview-hunk-segment--del .ref-agent-file-preview-hunk-segment-mark {
-	color: #f87171;
+	color: var(--void-git-deleted);
 }
 
 .ref-agent-file-preview-row {
@@ -9464,15 +9477,23 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-file-preview-row--add {
-	border-left-color: color-mix(in srgb, #22c55e 82%, transparent);
+	border-left-color: color-mix(in srgb, var(--void-git-added) 82%, transparent);
 	background:
-		linear-gradient(90deg, color-mix(in srgb, #22c55e 16%, transparent) 0%, color-mix(in srgb, #22c55e 8%, transparent) 100%);
+		linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--void-git-added) 16%, transparent) 0%,
+			color-mix(in srgb, var(--void-git-added) 8%, transparent) 100%
+		);
 }
 
 .ref-agent-file-preview-row--del {
-	border-left-color: color-mix(in srgb, #ef4444 82%, transparent);
+	border-left-color: color-mix(in srgb, var(--void-git-deleted) 82%, transparent);
 	background:
-		linear-gradient(90deg, color-mix(in srgb, #ef4444 15%, transparent) 0%, color-mix(in srgb, #ef4444 7%, transparent) 100%);
+		linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--void-git-deleted) 15%, transparent) 0%,
+			color-mix(in srgb, var(--void-git-deleted) 7%, transparent) 100%
+		);
 }
 
 .ref-agent-file-preview-row.is-target {
@@ -9521,11 +9542,11 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-file-preview-row--add .ref-agent-file-preview-sign {
-	color: #4ade80;
+	color: var(--void-git-added);
 }
 
 .ref-agent-file-preview-row--del .ref-agent-file-preview-sign {
-	color: #f87171;
+	color: var(--void-git-deleted);
 }
 
 .ref-agent-file-preview-line {
@@ -9545,7 +9566,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-file-preview-row--del .ref-agent-file-preview-line {
-	color: color-mix(in srgb, var(--void-fg-1) 76%, #fca5a5 24%);
+	color: color-mix(in srgb, var(--void-fg-1) 74%, var(--void-git-deleted) 26%);
 	opacity: 0.9;
 }
 
@@ -9558,12 +9579,12 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-file-preview-token--add {
-	background: color-mix(in srgb, #22c55e 22%, transparent);
+	background: color-mix(in srgb, var(--void-git-added) 22%, transparent);
 	border-radius: 3px;
 }
 
 .ref-agent-file-preview-token--del {
-	background: color-mix(in srgb, #ef4444 24%, transparent);
+	background: color-mix(in srgb, var(--void-git-deleted) 24%, transparent);
 	border-radius: 3px;
 }
 
@@ -10683,18 +10704,18 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-git-diff-line.is-add {
-	background: rgba(55, 120, 75, 0.28);
-	color: #b9f6c8;
+	background: color-mix(in srgb, var(--void-git-added) 14%, transparent);
+	color: color-mix(in srgb, var(--void-git-added) 68%, var(--void-fg-0) 32%);
 }
 
 .ref-git-diff-line.is-del {
-	background: rgba(120, 45, 45, 0.22);
-	color: #f5b8b8;
+	background: color-mix(in srgb, var(--void-git-deleted) 12%, transparent);
+	color: color-mix(in srgb, var(--void-git-deleted) 68%, var(--void-fg-0) 32%);
 }
 
 .ref-git-diff-line.is-hunk {
-	color: var(--void-ring);
-	background: rgba(129, 140, 248, 0.08);
+	color: color-mix(in srgb, var(--void-accent-assist) 76%, var(--void-fg-0) 24%);
+	background: color-mix(in srgb, var(--void-accent-assist) 10%, transparent);
 }
 
 .ref-git-diff-line.is-meta {
@@ -16834,11 +16855,11 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-edit-card-preview-line--add {
-	background: color-mix(in srgb, #22c55e 10%, transparent);
+	background: color-mix(in srgb, var(--void-git-added) 10%, transparent);
 }
 
 .ref-edit-card-preview-line--del {
-	background: color-mix(in srgb, #ef4444 9%, transparent);
+	background: color-mix(in srgb, var(--void-git-deleted) 9%, transparent);
 }
 
 .ref-edit-card-preview-sign {
@@ -16849,11 +16870,11 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-edit-card-preview-line--add .ref-edit-card-preview-sign {
-	color: #22c55e;
+	color: var(--void-git-added);
 }
 
 .ref-edit-card-preview-line--del .ref-edit-card-preview-sign {
-	color: #ef4444;
+	color: var(--void-git-deleted);
 }
 
 .ref-edit-card-preview-code {
