@@ -1,7 +1,9 @@
-import type { BundledLanguage, Highlighter } from 'shiki';
+import type { BundledLanguage, BundledTheme, Highlighter } from 'shiki';
 import type { AgentFilePreviewRow } from './agentFilePreviewDiff';
+import type { EffectiveColorScheme } from './colorMode';
 
-export const AGENT_FILE_PREVIEW_SHIKI_THEME = 'github-dark' as const;
+export const AGENT_FILE_PREVIEW_SHIKI_THEME_DARK = 'github-dark' as const;
+export const AGENT_FILE_PREVIEW_SHIKI_THEME_LIGHT = 'github-light-default' as const;
 
 type ShikiHighlighter = Highlighter;
 
@@ -61,6 +63,12 @@ const EXT_TO_LANG: Record<string, string> = {
 
 let highlighterPromise: Promise<ShikiHighlighter> | null = null;
 
+export function resolveAgentFilePreviewShikiTheme(colorScheme: EffectiveColorScheme): BundledTheme {
+	return colorScheme === 'light'
+		? AGENT_FILE_PREVIEW_SHIKI_THEME_LIGHT
+		: AGENT_FILE_PREVIEW_SHIKI_THEME_DARK;
+}
+
 export function agentFilePreviewPathToLang(filePath: string): string {
 	const seg = filePath.replace(/\\/g, '/').split('/').pop() ?? '';
 	const i = seg.lastIndexOf('.');
@@ -78,7 +86,7 @@ export async function getAgentFilePreviewHighlighter(): Promise<ShikiHighlighter
 	if (!highlighterPromise) {
 		const { createHighlighter, createJavaScriptRegexEngine } = await import('shiki');
 		highlighterPromise = createHighlighter({
-			themes: [AGENT_FILE_PREVIEW_SHIKI_THEME],
+			themes: [AGENT_FILE_PREVIEW_SHIKI_THEME_DARK, AGENT_FILE_PREVIEW_SHIKI_THEME_LIGHT],
 			langs: ['plaintext'],
 			engine: createJavaScriptRegexEngine(),
 		});
@@ -111,12 +119,17 @@ function escapeHtml(s: string): string {
 /**
  * 行内 HTML（各 span 带 style="color:…"），用 dangerouslySetInnerHTML 渲染，不依赖外层 CSS 传色。
  */
-export function shikiLineToInlineHtml(h: ShikiHighlighter, lineText: string, lang: string): string {
+export function shikiLineToInlineHtml(
+	h: ShikiHighlighter,
+	lineText: string,
+	lang: string,
+	colorScheme: EffectiveColorScheme = 'dark'
+): string {
 	const raw = lineText === '' ? ' ' : lineText;
 	try {
 		return h.codeToHtml(raw, {
 			lang: asBundledLang(lang),
-			theme: AGENT_FILE_PREVIEW_SHIKI_THEME,
+			theme: resolveAgentFilePreviewShikiTheme(colorScheme),
 			structure: 'inline',
 		});
 	} catch {
@@ -127,9 +140,10 @@ export function shikiLineToInlineHtml(h: ShikiHighlighter, lineText: string, lan
 export function computeAgentFilePreviewLineHtmls(
 	h: ShikiHighlighter,
 	lang: string,
-	rows: AgentFilePreviewRow[]
+	rows: AgentFilePreviewRow[],
+	colorScheme: EffectiveColorScheme = 'dark'
 ): string[] {
-	return rows.map((row) => shikiLineToInlineHtml(h, row.text, lang));
+	return rows.map((row) => shikiLineToInlineHtml(h, row.text, lang, colorScheme));
 }
 
 export type GitSidebarDiffLineRender =
@@ -141,7 +155,8 @@ export function buildGitSidebarDiffLineRender(
 	h: ShikiHighlighter,
 	lang: string,
 	line: string,
-	lineClassName: string
+	lineClassName: string,
+	colorScheme: EffectiveColorScheme = 'dark'
 ): GitSidebarDiffLineRender {
 	if (lineClassName.includes('is-meta')) {
 		return { mode: 'raw', className: lineClassName, html: escapeHtml(line || '\u00a0') };
@@ -151,6 +166,6 @@ export function buildGitSidebarDiffLineRender(
 	}
 	const prefix = line[0]!;
 	const body = line.slice(1);
-	const bodyHtml = shikiLineToInlineHtml(h, body, lang);
+	const bodyHtml = shikiLineToInlineHtml(h, body, lang, colorScheme);
 	return { mode: 'split', className: lineClassName, prefix, bodyHtml };
 }

@@ -208,6 +208,106 @@ function expandStartIndexByPixelBudget(
 	return newStart;
 }
 
+type AgentTodoItem = {
+	id: string;
+	content: string;
+	status: 'pending' | 'in_progress' | 'completed';
+	activeForm?: string;
+};
+
+function AgentTodoPanel({
+	t,
+	todos,
+	isCollapsed,
+	onToggle,
+}: {
+	t: TFunction;
+	todos: AgentTodoItem[];
+	isCollapsed: boolean;
+	onToggle: () => void;
+}) {
+	const doneCount = todos.filter((todo) => todo.status === 'completed').length;
+
+	return (
+		<div className="ref-plan-review-todos ref-agent-todo-panel">
+			<button
+				type="button"
+				className="ref-plan-review-todos-head"
+				aria-expanded={!isCollapsed}
+				onClick={onToggle}
+			>
+				<span>{t('plan.review.todo', { done: doneCount, total: todos.length })}</span>
+				<svg
+					className={`ref-plan-review-chev${isCollapsed ? '' : ' is-open'}`}
+					width="16"
+					height="16"
+					viewBox="0 0 16 16"
+					fill="none"
+					aria-hidden
+				>
+					<path
+						d="M4 6l4 4 4-4"
+						stroke="currentColor"
+						strokeWidth="1.5"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					/>
+				</svg>
+			</button>
+			{!isCollapsed ? (
+				<div className="ref-plan-review-todos-list">
+					{todos.map((todo) => {
+						const done = todo.status === 'completed';
+						const active = todo.status === 'in_progress';
+						return (
+							<div
+								key={todo.id}
+								className={`ref-plan-todo ${done ? 'is-done' : ''} ${active ? 'is-active' : ''}`}
+							>
+								{active ? (
+									<span className="ref-plan-todo-spinner" aria-hidden />
+								) : (
+									<svg
+										className="ref-plan-todo-check"
+										width="16"
+										height="16"
+										viewBox="0 0 16 16"
+										fill="none"
+										aria-hidden
+									>
+										<rect
+											x="1"
+											y="1"
+											width="14"
+											height="14"
+											rx="3"
+											stroke="currentColor"
+											strokeWidth="1.5"
+											fill={done ? 'currentColor' : 'none'}
+										/>
+										{done ? (
+											<path
+												d="M4.5 8l2.5 2.5 4.5-5"
+												stroke="var(--void-bg-3, #1a1a1a)"
+												strokeWidth="1.8"
+												strokeLinecap="round"
+												strokeLinejoin="round"
+											/>
+										) : null}
+									</svg>
+								)}
+								<span className="ref-plan-todo-text">
+									{active && todo.activeForm ? todo.activeForm : todo.content}
+								</span>
+							</div>
+						);
+					})}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 export const AgentChatPanel = memo(function AgentChatPanel({
 	layout = 'agent-center',
 	t,
@@ -721,6 +821,18 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				isLast &&
 				streamingToolPreview == null &&
 				!(agentOrPlanStreaming && (liveAssistantBlocks.blocks.length > 0 || liveThoughtMeta != null));
+			const activeAssistantTodos: AgentTodoItem[] | null =
+				agentOrPlanStreaming && m.role === 'assistant'
+					? (extractTodosFromLiveBlocks(liveAssistantBlocks.blocks) ??
+						(typeof m.content === 'string' ? extractLastTodosFromContent(m.content) : null))
+					: null;
+			const hasActiveAssistantTodoPanel =
+				activeAssistantTodos != null && activeAssistantTodos.length > 0;
+			const activeAssistantTodoCollapsed =
+				hasActiveAssistantTodoPanel &&
+				collapsedTodos.has(i)
+					? !activeAssistantTodos.every((todo) => todo.status === 'completed')
+					: Boolean(hasActiveAssistantTodoPanel && activeAssistantTodos.every((todo) => todo.status === 'completed'));
 			const userMessageIndex = i < persistedMessageCount && m.role === 'user' ? i : -1;
 			const isEditingThisUser = userMessageIndex >= 0 && resendFromUserIndex === userMessageIndex;
 
@@ -743,21 +855,8 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			if (m.role === 'user') {
 				const userSegs = cachedUserMessageToSegments(m.content, m.parts);
 
-				// Look ahead: does the next assistant message contain TodoWrite?
-				const nextMsg = displayMessages[i + 1];
-				const isNextAssistantStreaming = nextMsg?.role === 'assistant' && (i + 1) === displayMessages.length - 1 && awaitingReply;
-				const userTodos = nextMsg?.role === 'assistant'
-					? (isNextAssistantStreaming && liveAssistantBlocks
-						? (extractTodosFromLiveBlocks(liveAssistantBlocks.blocks) ??
-								(typeof nextMsg.content === 'string' ? extractLastTodosFromContent(nextMsg.content) : null))
-						: typeof nextMsg.content === 'string'
-							? extractLastTodosFromContent(nextMsg.content)
-							: null)
-					: null;
-				const hasTodoPanel = userTodos != null && userTodos.length > 0;
-
 				return (
-					<div className={`ref-msg-slot ref-msg-slot--user${hasTodoPanel ? ' has-todo-panel' : ''}`}>
+					<div className="ref-msg-slot ref-msg-slot--user">
 						<button
 							type="button"
 							className="ref-msg-user"
@@ -772,56 +871,6 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						>
 							<UserMessageRich segments={userSegs} onFileClick={onOpenWorkspaceFile} />
 						</button>
-						{hasTodoPanel && (() => {
-							const doneCount = userTodos!.filter(td => td.status === 'completed').length;
-							const allDone = doneCount === userTodos!.length;
-							const userToggled = collapsedTodos.has(i);
-							const isCollapsed = userToggled ? !allDone : allDone;
-							return (
-								<div className="ref-plan-review-todos ref-agent-todo-panel">
-									<button
-										type="button"
-										className="ref-plan-review-todos-head"
-										onClick={(e) => { e.stopPropagation(); toggleTodoCollapse(i); }}
-									>
-										<span>{t('plan.review.todo', { done: doneCount, total: userTodos!.length })}</span>
-										<svg className={`ref-plan-review-chev${isCollapsed ? '' : ' is-open'}`} width="16" height="16" viewBox="0 0 16 16" fill="none">
-											<path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-										</svg>
-									</button>
-									{!isCollapsed && (
-										<div className="ref-plan-review-todos-list">
-											{userTodos!.map((todo) => {
-												const done = todo.status === 'completed';
-												const active = todo.status === 'in_progress';
-												return (
-													<div key={todo.id} className={`ref-plan-todo ${done ? 'is-done' : ''} ${active ? 'is-active' : ''}`}>
-														{active ? (
-															<span className="ref-plan-todo-spinner" aria-hidden />
-														) : (
-															<svg className="ref-plan-todo-check" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-																<rect
-																	x="1" y="1" width="14" height="14" rx="3"
-																	stroke="currentColor"
-																	strokeWidth="1.5"
-																	fill={done ? 'currentColor' : 'none'}
-																/>
-																{done ? (
-																	<path d="M4.5 8l2.5 2.5 4.5-5" stroke="var(--void-bg-3, #1a1a1a)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-																) : null}
-															</svg>
-														)}
-														<span className="ref-plan-todo-text">
-															{active && todo.activeForm ? todo.activeForm : todo.content}
-														</span>
-													</div>
-												);
-											})}
-										</div>
-									)}
-								</div>
-							);
-						})()}
 					</div>
 				);
 			}
@@ -829,7 +878,6 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			return (
 				<div key={`a-${convoKey}-${i}`} className="ref-msg-slot ref-msg-slot--assistant">
 					{thoughtBlock && !thoughtAfterBody ? thoughtBlock : null}
-					{/* TODO panel moved to user message bubble */}
 					<div className="ref-msg-assistant-body">
 						{pendingEmptyAssistant ? (
 							<span className="ref-bubble-pending" aria-hidden>
@@ -867,6 +915,14 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 								skipPlanTodo
 							/>
 						)}
+						{hasActiveAssistantTodoPanel ? (
+							<AgentTodoPanel
+								t={t}
+								todos={activeAssistantTodos}
+								isCollapsed={activeAssistantTodoCollapsed}
+								onToggle={() => toggleTodoCollapse(i)}
+							/>
+						) : null}
 					</div>
 					{thoughtBlock && thoughtAfterBody ? thoughtBlock : null}
 				</div>

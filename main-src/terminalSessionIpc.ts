@@ -3,7 +3,14 @@
  * 会话本身由 terminalSessionService.ts 管理；这里只暴露 IPC 面。
  */
 
-import { BrowserWindow, dialog, ipcMain, type FileFilter, type WebContents } from 'electron';
+import {
+	BrowserWindow,
+	dialog,
+	ipcMain,
+	nativeTheme,
+	type FileFilter,
+	type WebContents,
+} from 'electron';
 import path from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { getWorkspaceRootForWebContents, resolveWorkspacePath } from './workspace.js';
@@ -46,6 +53,16 @@ import {
 	setTerminalProfilePassword,
 } from './terminalProfileSecrets.js';
 import { syncTerminalSettings } from './terminalProfileStore.js';
+import { getSettings } from './settingsStore.js';
+import {
+	nativeWindowChromeFromAppearance,
+	normalizeAppearanceSettings,
+} from '../src/appearanceSettings.js';
+import {
+	INITIAL_WINDOW_THEME_QUERY_PARAM,
+	serializeInitialWindowThemePayload,
+} from '../src/initialWindowTheme.js';
+import type { ThemeChromeScheme } from './themeChrome.js';
 
 const openPromisesByHost = new Map<number, Promise<number | null>>();
 const terminalWindowRendererByHost = new Map<number, number>();
@@ -54,6 +71,31 @@ const terminalWindowHostByRenderer = new Map<number, number>();
 type OpenTerminalWindowOptions = {
 	startPage?: boolean;
 };
+
+function resolveInitialTerminalWindowTheme(): {
+	queryValue: string;
+	scheme: ThemeChromeScheme;
+	chromeOverride: ReturnType<typeof nativeWindowChromeFromAppearance>;
+} {
+	const settings = getSettings();
+	const ui = (settings.ui ?? {}) as Partial<Record<string, unknown>>;
+	const colorMode =
+		ui.colorMode === 'light' || ui.colorMode === 'dark' || ui.colorMode === 'system'
+			? ui.colorMode
+			: 'dark';
+	const scheme: ThemeChromeScheme =
+		colorMode === 'system' ? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light') : colorMode;
+	const appearance = normalizeAppearanceSettings(ui, scheme);
+	return {
+		queryValue: serializeInitialWindowThemePayload({
+			colorMode,
+			scheme,
+			ui,
+		}),
+		scheme,
+		chromeOverride: nativeWindowChromeFromAppearance(appearance, scheme),
+	};
+}
 
 function resolveHostId(sender: WebContents): number {
 	return terminalWindowHostByRenderer.get(sender.id) ?? sender.id;
@@ -120,12 +162,18 @@ async function ensureTerminalWindowForHostId(hostId: number, options: OpenTermin
 			}
 			const initialWorkspace = getWorkspaceRootForWebContents(source);
 			const { createAppWindow } = await import('./appWindow.js');
+			const initialTheme = resolveInitialTerminalWindowTheme();
 			const win = createAppWindow({
 				blank: true,
 				surface: 'agent',
 				initialWorkspace,
+				initialThemeChrome: {
+					scheme: initialTheme.scheme,
+					override: initialTheme.chromeOverride,
+				},
 				queryParams: {
 					terminalWindow: '1',
+					[INITIAL_WINDOW_THEME_QUERY_PARAM]: initialTheme.queryValue,
 					...(options.startPage ? { startPage: '1' } : {}),
 				},
 			});

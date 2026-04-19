@@ -73,7 +73,6 @@
 :root[data-ui-style='mac-codex'] .ref-left {
 	background:
 		linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-strong) 94%, transparent) 0%, var(--surface-panel-bg) 100%);
-	border-right: 1px solid var(--surface-glass-stroke);
 }
 
 :root[data-ui-style='mac-codex'] .ref-center {
@@ -85,7 +84,10 @@
 :root[data-ui-style='mac-codex'] .ref-right {
 	background:
 		linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-strong) 92%, transparent) 0%, var(--surface-panel-bg-soft) 100%);
-	border-left: 1px solid var(--surface-glass-stroke);
+}
+
+:root[data-ui-style='mac-codex'] .ref-resize-handle {
+	background: color-mix(in srgb, var(--surface-panel-bg) 88%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-resize-handle::after {
@@ -828,7 +830,6 @@
 	background: var(--surface-bubble-user);
 	border-color: color-mix(in srgb, var(--color-accent) 16%, var(--surface-glass-stroke));
 	border-radius: 22px;
-	box-shadow: var(--shadow-floating), var(--shadow-pressed);
 }
 
 :root[data-ui-style='mac-codex'] .ref-msg-user:hover:not(:disabled) {
@@ -865,11 +866,17 @@
 
 :root[data-ui-style='mac-codex'] .ref-plan-review-md,
 :root[data-ui-style='mac-codex'] .ref-plan-review-todos,
+:root[data-ui-style='mac-codex'] .ref-agent-todo-panel,
 :root[data-ui-style='mac-codex'] .ref-agent-stream-tool-pre,
 :root[data-ui-style='mac-codex'] .ref-tool-approval-inline-body,
 :root[data-ui-style='mac-codex'] .ref-mistake-limit-textarea {
 	background: var(--surface-code-bg);
 	border-color: var(--surface-glass-stroke);
+}
+
+:root[data-ui-style='mac-codex'] .ref-agent-todo-panel {
+	border-radius: 18px;
+	box-shadow: var(--shadow-floating), var(--shadow-pressed);
 }
 
 :root[data-ui-style='mac-codex'] .ref-plan-review-todos-head,
@@ -1591,11 +1598,15 @@
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-msg-user {
 	background: var(--surface-bubble-user);
 	border-color: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
-	box-shadow: 0 10px 22px color-mix(in srgb, black 14%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-msg-user:hover:not(:disabled) {
 	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-3) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-3) 98%, transparent) 100%);
+}
+
+:root[data-ui-style='mac-codex'][data-color-scheme='light'] .ref-msg-user,
+:root[data-ui-style='mac-codex'][data-color-scheme='light'] .ref-agent-todo-panel {
+	box-shadow: none;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-editor-welcome-inner {
@@ -2848,13 +2859,12 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--editor-shell .ref-resize-handle {
-	background: transparent;
+	background: color-mix(in srgb, var(--surface-panel-bg) 88%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--editor-shell .ref-resize-handle::after {
 	width: 1px;
-	background:
-		linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--surface-glass-stroke) 90%, transparent) 10%, color-mix(in srgb, var(--surface-glass-stroke) 90%, transparent) 90%, transparent 100%);
+	background: color-mix(in srgb, var(--surface-glass-stroke) 90%, transparent);
 	opacity: 0.94;
 }
 
@@ -3048,8 +3058,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell .ref-resize-handle::after {
-	background:
-		linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--void-fg-0) 8%, transparent) 10%, color-mix(in srgb, var(--void-fg-0) 8%, transparent) 90%, transparent 100%);
+	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left--editor-embedded .ref-project-block--editor::before {
@@ -3263,12 +3272,11 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle {
-	background: transparent;
+	background: color-mix(in srgb, var(--surface-panel-bg) 88%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle::after {
-	background:
-		linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--surface-glass-stroke) 90%, transparent) 14%, color-mix(in srgb, var(--surface-glass-stroke) 90%, transparent) 86%, transparent 100%);
+	background: color-mix(in srgb, var(--surface-glass-stroke) 90%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle:hover,
@@ -3750,8 +3758,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell .ref-resize-handle::after {
-	background:
-		linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--void-fg-0) 8%, transparent) 12%, color-mix(in srgb, var(--void-fg-0) 8%, transparent) 88%, transparent 100%);
+	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left--agent-layout .ref-agent-empty-workspace,

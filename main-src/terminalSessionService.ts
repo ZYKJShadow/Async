@@ -264,6 +264,25 @@ export type TerminalBufferSlice = {
 	authPrompt: TerminalSessionAuthPrompt | null;
 };
 
+export type TerminalOneShotCommandResult = {
+	id: string;
+	exitCode: number | null;
+	output: string;
+	timedOut: boolean;
+	sessionKept: boolean;
+	alive: boolean;
+};
+
+export type TerminalWaitForExitResult = {
+	id: string;
+	exitCode: number | null;
+	output: string;
+	timedOut: boolean;
+	authPrompt: TerminalSessionAuthPrompt | null;
+	sessionKept: boolean;
+	alive: boolean;
+};
+
 export function getTerminalBuffer(id: string, maxBytes?: number): TerminalBufferSlice | null {
 	const s = sessions.get(id);
 	if (!s) {
@@ -337,14 +356,13 @@ export function renameTerminalSession(id: string, title: string): boolean {
  * 启动一个短命会话、等待其退出（或超时后强杀），返回完整输出。
  * 适合 agent `Terminal run` 动作：不需要持续交互时无副作用地执行命令。
  */
-export async function runOneShotCommand(opts: {
+export function startOneShotCommandSession(opts: {
 	command: string;
 	cwd?: string;
 	shell?: string;
-	timeoutMs?: number;
 	cols?: number;
 	rows?: number;
-}): Promise<{ id: string; exitCode: number | null; output: string; timedOut: boolean }> {
+}): TerminalSessionInfo {
 	const info = createTerminalSession({
 		cwd: opts.cwd,
 		shell: opts.shell,
@@ -352,23 +370,60 @@ export async function runOneShotCommand(opts: {
 		rows: opts.rows,
 		title: '(one-shot) ' + opts.command.slice(0, 40),
 	});
+	const cr = isWindows() ? '\r\n' : '\n';
+	const submitted = writeTerminalSession(info.id, opts.command + cr + (isWindows() ? 'exit\r\n' : 'exit\n'));
+	if (!submitted) {
+		killTerminalSession(info.id);
+		throw new Error('Failed to submit one-shot command to terminal session.');
+	}
+	return info;
+}
+
+export async function runOneShotCommand(opts: {
+	command: string;
+	cwd?: string;
+	shell?: string;
+	timeoutMs?: number;
+	cols?: number;
+	rows?: number;
+	preserveOnTimeout?: boolean;
+}): Promise<TerminalOneShotCommandResult> {
+	const info = startOneShotCommandSession(opts);
 	const session = sessions.get(info.id)!;
 	const timeoutMs = Math.max(500, Math.min(opts.timeoutMs ?? 120_000, 600_000));
-	return await new Promise<{ id: string; exitCode: number | null; output: string; timedOut: boolean }>((resolve) => {
+	return await new Promise<TerminalOneShotCommandResult>((resolve) => {
 		let settled = false;
 		const timer = setTimeout(() => {
 			if (settled) {
 				return;
 			}
 			settled = true;
+			const slice = getTerminalBuffer(info.id, MAX_BUFFER_BYTES);
+			if (opts.preserveOnTimeout) {
+				resolve({
+					id: info.id,
+					exitCode: slice?.exitCode ?? session.exitCode,
+					output: slice?.content ?? '',
+					timedOut: true,
+					sessionKept: true,
+					alive: slice?.alive ?? session.alive,
+				});
+				return;
+			}
 			try {
 				session.pty.kill();
 			} catch {
 				/* ignore */
 			}
-			const slice = getTerminalBuffer(info.id, MAX_BUFFER_BYTES);
 			sessions.delete(info.id);
-			resolve({ id: info.id, exitCode: null, output: slice?.content ?? '', timedOut: true });
+			resolve({
+				id: info.id,
+				exitCode: null,
+				output: slice?.content ?? '',
+				timedOut: true,
+				sessionKept: false,
+				alive: false,
+			});
 		}, timeoutMs);
 		const disposeExit = session.pty.onExit(({ exitCode }) => {
 			if (settled) {
@@ -384,43 +439,38 @@ export async function runOneShotCommand(opts: {
 				exitCode: typeof exitCode === 'number' ? exitCode : null,
 				output: slice?.content ?? '',
 				timedOut: false,
+				sessionKept: false,
+				alive: false,
 			});
 		});
-		try {
-			const cr = isWindows() ? '\r\n' : '\n';
-			session.pty.write(opts.command + cr + (isWindows() ? 'exit\r\n' : 'exit\n'));
-		} catch {
-			clearTimeout(timer);
-			disposeExit.dispose();
-			sessions.delete(info.id);
-			resolve({ id: info.id, exitCode: null, output: '', timedOut: false });
-		}
 	});
 }
 
 export async function runTerminalSessionToExit(opts: {
 	createOpts: TerminalSessionCreateOpts;
 	timeoutMs?: number;
-}): Promise<{
-	id: string;
-	exitCode: number | null;
-	output: string;
-	timedOut: boolean;
-	authPrompt: TerminalSessionAuthPrompt | null;
-}> {
+	preserveOnTimeout?: boolean;
+	preserveOnAuthPrompt?: boolean;
+}): Promise<TerminalWaitForExitResult> {
 	const info = createTerminalSession(opts.createOpts);
 	const session = sessions.get(info.id)!;
 	const timeoutMs = Math.max(500, Math.min(opts.timeoutMs ?? 120_000, 600_000));
 	const deadline = Date.now() + timeoutMs;
+	let shouldKillOnFinally = true;
 	try {
 		while (Date.now() < deadline) {
 			if (session.pendingAuthPrompt) {
+				if (opts.preserveOnAuthPrompt) {
+					shouldKillOnFinally = false;
+				}
 				return {
 					id: info.id,
 					exitCode: null,
 					output: getTerminalBuffer(info.id, MAX_BUFFER_BYTES)?.content ?? '',
 					timedOut: false,
 					authPrompt: session.pendingAuthPrompt,
+					sessionKept: opts.preserveOnAuthPrompt === true,
+					alive: session.alive,
 				};
 			}
 			if (!session.alive) {
@@ -431,9 +481,14 @@ export async function runTerminalSessionToExit(opts: {
 					output: slice?.content ?? '',
 					timedOut: false,
 					authPrompt: null,
+					sessionKept: false,
+					alive: false,
 				};
 			}
 			await delay(120);
+		}
+		if (opts.preserveOnTimeout) {
+			shouldKillOnFinally = false;
 		}
 		return {
 			id: info.id,
@@ -441,9 +496,13 @@ export async function runTerminalSessionToExit(opts: {
 			output: getTerminalBuffer(info.id, MAX_BUFFER_BYTES)?.content ?? '',
 			timedOut: true,
 			authPrompt: session.pendingAuthPrompt,
+			sessionKept: opts.preserveOnTimeout === true,
+			alive: session.alive,
 		};
 	} finally {
-		killTerminalSession(info.id);
+		if (shouldKillOnFinally) {
+			killTerminalSession(info.id);
+		}
 	}
 }
 

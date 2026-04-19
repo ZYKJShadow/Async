@@ -15,6 +15,7 @@ import {
 } from './agentFilePreviewShiki';
 import { useI18n } from './i18n';
 import { voidShellDebugLog } from './tabCloseDebug';
+import { useDomColorScheme } from './useDomColorScheme';
 
 type Props = {
 	filePath: string;
@@ -105,6 +106,7 @@ export function AgentFilePreviewPanel({
 	busyHunkPatch = null,
 }: Props) {
 	const { t } = useI18n();
+	const colorScheme = useDomColorScheme();
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const [rows, setRows] = useState<AgentFilePreviewRow[]>(() =>
 		String(diff ?? '').trim() ? [] : buildPlainAgentFilePreviewRows(content)
@@ -152,7 +154,7 @@ export function AgentFilePreviewPanel({
 				if (cancelled) {
 					return;
 				}
-				const next = computeAgentFilePreviewLineHtmls(h, lang, rows);
+				const next = computeAgentFilePreviewLineHtmls(h, lang, rows, colorScheme);
 				if (!cancelled) {
 					setShikiHtmlByRow(next);
 				}
@@ -166,7 +168,7 @@ export function AgentFilePreviewPanel({
 		return () => {
 			cancelled = true;
 		};
-	}, [filePath, rows, loading, readError, isBinary]);
+	}, [filePath, rows, loading, readError, isBinary, colorScheme]);
 
 	const hunkMap = useMemo(() => new Map(hunks.map((hunk) => [hunk.id, hunk])), [hunks]);
 	const blocks = useMemo(() => buildPreviewBlocks(rows, hunks), [rows, hunks]);

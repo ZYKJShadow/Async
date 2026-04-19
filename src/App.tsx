@@ -52,6 +52,10 @@ import {
 	type ThemeTransitionOrigin,
 	writeStoredColorMode,
 } from './colorMode';
+import {
+	persistInitialWindowThemeSnapshot,
+	type InitialWindowThemeSnapshot,
+} from './initialWindowTheme';
 // modelCatalog types are re-exported via useSettings hook return type
 import { type ComposerMode } from './ComposerPlusMenu';
 import {
@@ -217,11 +221,13 @@ type OnSendOptions = {
 export default function App({
 	appSurface,
 	browserWindow = false,
+	initialThemeSnapshot = null,
 	terminalWindow = false,
 	terminalStartPage = false,
 }: {
 	appSurface?: LayoutMode;
 	browserWindow?: boolean;
+	initialThemeSnapshot?: InitialWindowThemeSnapshot | null;
 	terminalWindow?: boolean;
 	terminalStartPage?: boolean;
 } = {}) {
@@ -240,8 +246,12 @@ export default function App({
 			syncTerminalSettingsToMain(loadTerminalSettings());
 		});
 	}, [shell]);
-	const [colorMode, setColorMode] = useState<AppColorMode>(() => readStoredColorMode());
-	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(() => defaultAppearanceSettings());
+	const [colorMode, setColorMode] = useState<AppColorMode>(
+		() => initialThemeSnapshot?.colorMode ?? readStoredColorMode()
+	);
+	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(
+		() => initialThemeSnapshot?.appearanceSettings ?? defaultAppearanceSettings()
+	);
 	const { effectiveScheme, setTransitionOrigin } = useAppColorScheme({ colorMode });
 	const monacoChromeTheme = getVoidMonacoTheme(effectiveScheme);
 	const effectiveSchemePrevRef = useRef(effectiveScheme);
@@ -299,6 +309,11 @@ export default function App({
 	// 合并 appearanceSettings 相关的 DOM 更新,减少级联渲染
 	useEffect(() => {
 		applyAppearanceSettingsToDom(appearanceSettings, effectiveScheme);
+		persistInitialWindowThemeSnapshot({
+			colorMode,
+			effectiveScheme,
+			appearanceSettings,
+		});
 		if (!shell) {
 			return;
 		}
@@ -309,7 +324,7 @@ export default function App({
 			titleBarColor: c.titleBarColor,
 			symbolColor: c.symbolColor,
 		});
-	}, [shell, appearanceSettings, effectiveScheme]);
+	}, [shell, colorMode, appearanceSettings, effectiveScheme]);
 
 	const { t, setLocale, locale } = useI18n();
 	const [ipcOk, setIpcOk] = useState<string>('…');

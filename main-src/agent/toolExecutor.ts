@@ -2073,6 +2073,11 @@ async function executeCommand(
 	const args = isWin
 		? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psCommand]
 		: ['-lc', command];
+	const timeoutMsRaw = Number(call.arguments.timeout_ms);
+	const timeoutMs =
+		Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0
+			? Math.max(1_000, Math.min(Math.floor(timeoutMsRaw), 600_000))
+			: 120_000;
 	const beforeGitState = await captureBashGitDirtyState(root);
 
 	try {
@@ -2080,7 +2085,7 @@ async function executeCommand(
 			cwd: root,
 			windowsHide: true,
 			maxBuffer: 5 * 1024 * 1024,
-			timeout: 120_000,
+			timeout: timeoutMs,
 			encoding: 'utf8',
 			signal: execCtx.signal,
 		});
@@ -2102,6 +2107,65 @@ async function executeCommand(
 		if (!output.trim()) output = err.message ?? String(e);
 		return { toolCallId: call.id, name: call.name, content: `Exit code ${err.code ?? 'unknown'}\n${output}`, isError: true };
 	}
+}
+
+function parseTerminalRunInBackground(args: Record<string, unknown>): boolean {
+	return args.run_in_background === true || args.run_in_background === 'true';
+}
+
+function parseTerminalTimeoutMs(args: Record<string, unknown>): number | undefined {
+	const raw = Number(args.timeout_ms);
+	if (!Number.isFinite(raw) || raw <= 0) {
+		return undefined;
+	}
+	return Math.max(500, Math.min(Math.floor(raw), 600_000));
+}
+
+function formatBackgroundTerminalSessionResult(opts: {
+	sessionId: string;
+	command: string;
+	profileName?: string;
+}): string {
+	const lines = [
+		`session_id=${opts.sessionId} background=true`,
+		'---',
+		opts.profileName
+			? `Started background terminal command via profile "${opts.profileName}".`
+			: 'Started background terminal command.',
+		`Command: ${opts.command}`,
+		'Use Terminal read with this session_id to inspect output, and close when finished.',
+	];
+	return lines.join('\n');
+}
+
+function formatPreservedTerminalSessionResult(opts: {
+	sessionId: string;
+	output: string;
+	command?: string;
+	profileName?: string;
+	authPrompt?: string;
+}): string {
+	const lines = [
+		opts.profileName
+			? `session_id=${opts.sessionId} profile=${opts.profileName} session_kept=true`
+			: `session_id=${opts.sessionId} session_kept=true`,
+		'---',
+	];
+	if (opts.authPrompt) {
+		lines.push(`Interactive prompt blocked completion: ${opts.authPrompt}`);
+	} else if (opts.profileName) {
+		lines.push(`Foreground wait ended, but the terminal session for profile "${opts.profileName}" is still alive.`);
+	} else {
+		lines.push('Foreground wait ended, but the terminal session is still alive.');
+	}
+	if (opts.command) {
+		lines.push(`Command: ${opts.command}`);
+	}
+	lines.push('Use Terminal read with this session_id to inspect more output, or close it when finished.');
+	if (opts.output.trim()) {
+		lines.push('', opts.output);
+	}
+	return lines.join('\n');
 }
 
 function resolveTerminalCwd(raw: unknown, execCtx: ToolExecutionContext): string | undefined {
@@ -2139,6 +2203,8 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 		return { toolCallId: call.id, name: call.name, content: 'Error: action is required', isError: true };
 	}
 	const svc = await import('../terminalSessionService.js');
+	const runInBackground = parseTerminalRunInBackground(args);
+	const timeoutMs = parseTerminalTimeoutMs(args);
 	try {
 		switch (action) {
 			case 'list_profiles': {
@@ -2274,14 +2340,45 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 				if (!command) {
 					return { toolCallId: call.id, name: call.name, content: 'Error: command is required for run', isError: true };
 				}
+				if (runInBackground) {
+					const info = svc.startOneShotCommandSession({
+						command,
+						cwd: resolveTerminalCwd(args.cwd, execCtx),
+						shell: typeof args.shell === 'string' && args.shell.trim() ? args.shell.trim() : undefined,
+						cols: typeof args.cols === 'number' ? args.cols : undefined,
+						rows: typeof args.rows === 'number' ? args.rows : undefined,
+					});
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content: formatBackgroundTerminalSessionResult({
+							sessionId: info.id,
+							command,
+						}),
+						isError: false,
+					};
+				}
 				const res = await svc.runOneShotCommand({
 					command,
 					cwd: resolveTerminalCwd(args.cwd, execCtx),
 					shell: typeof args.shell === 'string' && args.shell.trim() ? args.shell.trim() : undefined,
-					timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : undefined,
+					timeoutMs,
 					cols: typeof args.cols === 'number' ? args.cols : undefined,
 					rows: typeof args.rows === 'number' ? args.rows : undefined,
+					preserveOnTimeout: true,
 				});
+				if (res.timedOut && res.sessionKept) {
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content: formatPreservedTerminalSessionResult({
+							sessionId: res.id,
+							output: res.output,
+							command,
+						}),
+						isError: false,
+					};
+				}
 				const header = `exit_code=${res.exitCode ?? 'null'} timed_out=${res.timedOut}\n---\n`;
 				return {
 					toolCallId: call.id,
@@ -2327,6 +2424,30 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 						isError: true,
 					};
 				}
+				if (runInBackground) {
+					const info = svc.createTerminalSession({
+						...resolved.createOpts,
+						cwd: resolved.createOpts.cwd
+							? resolveTerminalCwd(resolved.createOpts.cwd, execCtx)
+							: resolved.createOpts.cwd,
+						cols: typeof args.cols === 'number' ? args.cols : resolved.createOpts.cols,
+						rows: typeof args.rows === 'number' ? args.rows : resolved.createOpts.rows,
+						title:
+							typeof args.title === 'string' && args.title.trim()
+								? args.title
+								: resolved.createOpts.title,
+					});
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content: formatBackgroundTerminalSessionResult({
+							sessionId: info.id,
+							command,
+							profileName: resolved.profile.name,
+						}),
+						isError: false,
+					};
+				}
 				const res = await svc.runTerminalSessionToExit({
 					createOpts: {
 						...resolved.createOpts,
@@ -2340,17 +2461,35 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 								? args.title
 								: resolved.createOpts.title,
 					},
-					timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : undefined,
+					timeoutMs,
+					preserveOnTimeout: true,
+					preserveOnAuthPrompt: true,
 				});
 				if (res.authPrompt) {
 					return {
 						toolCallId: call.id,
 						name: call.name,
-						content:
-							`Authentication prompt blocked background exec for profile "${resolved.profile.name}". ` +
-							`Prompt: ${res.authPrompt.prompt}. Save credentials for the profile or use open + write/read for manual interaction.\n---\n` +
-							res.output,
+						content: formatPreservedTerminalSessionResult({
+							sessionId: res.id,
+							output: res.output,
+							command,
+							profileName: resolved.profile.name,
+							authPrompt: res.authPrompt.prompt,
+						}),
 						isError: true,
+					};
+				}
+				if (res.timedOut && res.sessionKept) {
+					return {
+						toolCallId: call.id,
+						name: call.name,
+						content: formatPreservedTerminalSessionResult({
+							sessionId: res.id,
+							output: res.output,
+							command,
+							profileName: resolved.profile.name,
+						}),
+						isError: false,
 					};
 				}
 				const header = `profile=${resolved.profile.name} exit_code=${res.exitCode ?? 'null'} timed_out=${res.timedOut}\n---\n`;

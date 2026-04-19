@@ -1,7 +1,12 @@
 import { BrowserWindow, app, screen, type WebContents } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { THEME_CHROME } from './themeChrome.js';
+import {
+	applyThemeChromeToWindow,
+	THEME_CHROME,
+	type NativeChromeOverride,
+	type ThemeChromeScheme,
+} from './themeChrome.js';
 import {
 	bindWorkspaceRootToWebContents,
 	getWorkspaceRootForWebContents,
@@ -80,6 +85,10 @@ export function createAppWindow(opts?: {
 	blank?: boolean;
 	surface?: AppWindowSurface;
 	initialWorkspace?: string | null;
+	initialThemeChrome?: {
+		scheme: ThemeChromeScheme;
+		override?: NativeChromeOverride | null;
+	};
 	queryParams?: Record<string, string | number | boolean | null | undefined>;
 }): BrowserWindow {
 	const preloadPath = path.join(__dirname, 'preload.cjs');
@@ -92,14 +101,25 @@ export function createAppWindow(opts?: {
 	const x = wa.x + Math.round((wa.width - w) / 2);
 	const y = wa.y + Math.round((wa.height - h) / 2);
 
-	const darkChrome = THEME_CHROME.dark;
+	const initialThemeChrome = opts?.initialThemeChrome ?? { scheme: 'dark' as const, override: null };
+	const initialChromeTokens = THEME_CHROME[initialThemeChrome.scheme];
+	const initialBackgroundColor =
+		initialThemeChrome.override?.backgroundColor ?? initialChromeTokens.backgroundColor;
+	const initialTitleBarColor =
+		initialThemeChrome.override?.titleBarColor ?? initialChromeTokens.titleBarOverlay.color;
+	const initialSymbolColor =
+		initialThemeChrome.override?.symbolColor ?? initialChromeTokens.titleBarOverlay.symbolColor;
 	const titleBarOptions =
 		process.platform === 'darwin'
 			? { titleBarStyle: 'hiddenInset' as const }
 			: process.platform === 'win32'
 				? {
 						titleBarStyle: 'hidden' as const,
-						titleBarOverlay: { ...darkChrome.titleBarOverlay },
+						titleBarOverlay: {
+							color: initialTitleBarColor,
+							symbolColor: initialSymbolColor,
+							height: initialChromeTokens.titleBarOverlay.height,
+						},
 					}
 				: {};
 
@@ -110,7 +130,7 @@ export function createAppWindow(opts?: {
 		height: h,
 		minWidth: 800,
 		minHeight: 600,
-		backgroundColor: darkChrome.backgroundColor,
+		backgroundColor: initialBackgroundColor,
 		...(appIconPath ? { icon: appIconPath } : {}),
 		...titleBarOptions,
 		webPreferences: {
@@ -122,6 +142,7 @@ export function createAppWindow(opts?: {
 		},
 		show: false,
 	});
+	applyThemeChromeToWindow(win, initialThemeChrome.scheme, initialThemeChrome.override);
 
 	const surface: AppWindowSurface = opts?.surface ?? 'agent';
 	const webContentsId = win.webContents.id;

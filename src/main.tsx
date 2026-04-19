@@ -1,7 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { applyAppearanceSettingsToDom } from './appearanceSettings';
 import { APP_UI_STYLE, readPrefersDark, readStoredColorMode, resolveEffectiveScheme } from './colorMode';
+import { readInitialWindowThemeSnapshot } from './initialWindowTheme';
 import { I18nProvider } from './i18n';
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
@@ -15,9 +17,16 @@ import './styles/motion.css';
 import './styles/mac-codex.css';
 import './styles/terminal-window.css';
 
-const initialScheme = resolveEffectiveScheme(readStoredColorMode(), readPrefersDark());
+const initialThemeSnapshot = readInitialWindowThemeSnapshot(window.location.search, {
+	prefersDark: readPrefersDark(),
+});
+const initialScheme =
+	initialThemeSnapshot?.effectiveScheme ?? resolveEffectiveScheme(readStoredColorMode(), readPrefersDark());
 document.documentElement.setAttribute('data-ui-style', APP_UI_STYLE);
 document.documentElement.setAttribute('data-color-scheme', initialScheme);
+if (initialThemeSnapshot) {
+	applyAppearanceSettingsToDom(initialThemeSnapshot.appearanceSettings, initialThemeSnapshot.effectiveScheme);
+}
 const userAgentData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
 const platformRaw = userAgentData?.platform ?? navigator.platform ?? navigator.userAgent;
 const platform = /win/i.test(platformRaw) ? 'win32' : /mac/i.test(platformRaw) ? 'darwin' : 'linux';
@@ -70,6 +79,7 @@ createRoot(document.getElementById('root')!).render(
 			<App
 				appSurface={appSurface}
 				browserWindow={browserWindow}
+				initialThemeSnapshot={initialThemeSnapshot}
 				terminalWindow={terminalWindow}
 				terminalStartPage={terminalStartPage}
 			/>
