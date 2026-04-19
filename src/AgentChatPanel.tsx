@@ -980,29 +980,35 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 		const { agentOrPlanStreaming, liveThoughtMeta } = computeAssistantRuntime(assistantIdx);
 
+		// 完整复用 assistant 气泡的双层 DOM（slot + body），让浏览器自动产出与下方
+		// assistant 气泡 .ref-md-root--agent-chat 完全相同的内容宽度，无须任何手动计算。
 		return (
 			<div
 				key={`row-${conversationRenderKey}-preflight-${assistantIdx}`}
 				className="ref-msg-row-measure ref-msg-preflight-row"
 				data-preflight-for={String(assistantIdx)}
 			>
-				<ChatMarkdown
-					content={m.content}
-					agentUi
-					planUi={composerMode === 'plan'}
-					workspaceRoot={workspace}
-					onOpenAgentFile={onOpenAgentConversationFile}
-					onRunCommand={onRunCommand}
-					streamingToolPreview={agentOrPlanStreaming ? streamingToolPreview : null}
-					showAgentWorking={agentOrPlanStreaming}
-					hidePendingActivityTextCluster
-					liveAgentBlocksState={agentOrPlanStreaming ? liveAssistantBlocks : null}
-					liveThoughtMeta={agentOrPlanStreaming ? liveThoughtMeta : null}
-					revertedPaths={revertedFiles}
-					revertedChangeKeys={revertedChangeKeys}
-					skipPlanTodo
-					renderMode="preflight"
-				/>
+				<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--preflight">
+					<div className="ref-msg-assistant-body">
+						<ChatMarkdown
+							content={m.content}
+							agentUi
+							planUi={composerMode === 'plan'}
+							workspaceRoot={workspace}
+							onOpenAgentFile={onOpenAgentConversationFile}
+							onRunCommand={onRunCommand}
+							streamingToolPreview={agentOrPlanStreaming ? streamingToolPreview : null}
+							showAgentWorking={agentOrPlanStreaming}
+							hidePendingActivityTextCluster
+							liveAgentBlocksState={agentOrPlanStreaming ? liveAssistantBlocks : null}
+							liveThoughtMeta={agentOrPlanStreaming ? liveThoughtMeta : null}
+							revertedPaths={revertedFiles}
+							revertedChangeKeys={revertedChangeKeys}
+							skipPlanTodo
+							renderMode="preflight"
+						/>
+					</div>
+				</div>
 			</div>
 		);
 	};

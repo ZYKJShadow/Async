@@ -3518,7 +3518,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font-size: 13px;
 	line-height: 1.55;
 	color: var(--void-fg-1);
-	padding: 0 2px;
+	/* 左右各 24px 内 padding：把回复区（assistant outcome + 上方 preflight 过程区，
+	   两者复用同一 .ref-msg-assistant-body 容器）的内容相对外层 slot 左右各内缩 24px
+	   （总宽收窄 48px），视觉上比 user 气泡更紧凑；slot/box 自身宽度不变。 */
+	padding: 0 16px !important;
 }
 
 .ref-msg-slot--assistant {
@@ -4555,25 +4558,29 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 /* ===== 用户气泡正下方的「过程区」统一壳 (AgentPreflightShell) ===== */
 /* 负 margin-top 抵消 .ref-messages-track 的 flex gap，使其视觉上贴近用户气泡。
  * .ref-center--chat 下 gap=22，这里抵消 14 → 视觉间距 ~8px。
- * row 本身 width:100%；内部 .ref-md-root--agent-chat 与 .ref-msg-assistant-body 的内容
- * 完全同宽（720px - 2*2px padding），实现左右边对齐。 */
+ *
+ * row 内部直接复用 .ref-msg-slot--assistant + .ref-msg-assistant-body 的 DOM 结构，
+ * 浏览器会自动算出与 assistant 气泡内 .ref-md-root--agent-chat 完全相同的内容宽度，
+ * 不需要任何 hardcode 或手动模拟。 */
 .ref-msg-preflight-row {
 	margin: -14px 0 0 0;
 	padding: 0;
 	box-sizing: border-box;
 }
 
-.ref-msg-preflight-row > .ref-md-root,
-.ref-msg-preflight-row > .ref-md-root--agent-chat {
-	width: min(100%, 720px);
-	max-width: min(100%, 720px);
-	margin: 0 auto;
-	padding: 0 2px;
-	box-sizing: border-box;
-	gap: 0;
+/* 给 preflight 用的 slot 取消进入动画（与下方 assistant 气泡的进入动画区分，
+   避免每次 streaming 触发一次「整段重弹」的视觉干扰） */
+.ref-msg-slot--preflight {
+	animation: none !important;
 }
 
-/* 当 ChatMarkdown(renderMode='preflight') 没有内容返回 null 时，外层 row 不占布局 */
+/* 当 ChatMarkdown(renderMode='preflight') 没有内容返回 null 时，preflight slot/body
+   仍是空 div，让整个 row 折叠不占布局 */
+.ref-msg-preflight-row:has(.ref-md-root--agent-chat:empty) {
+	display: none;
+	margin: 0;
+	padding: 0;
+}
 .ref-msg-preflight-row:empty {
 	display: none;
 	margin: 0;
@@ -4599,7 +4606,9 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	padding: 6px 4px;
+	/* 水平 padding 设为 0 让 header 内容与父 .ref-md-root--agent-chat 左右边缘对齐
+	   （outcome 区的卡片 / markdown 也贴齐同一条边） */
+	padding: 6px 0;
 	border: none;
 	background: none;
 	color: var(--void-fg-3);
@@ -4653,11 +4662,20 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	align-items: center;
 	color: var(--void-fg-3);
 	opacity: 0.55;
-	transition: transform 0.22s ease;
+	transition: color 0.18s ease, opacity 0.18s ease;
 }
 
-.ref-preflight-shell-header[aria-expanded='true'] .ref-preflight-shell-chevron {
-	transform: rotate(180deg);
+.ref-preflight-shell-chevron[data-state='collapsed'] {
+	opacity: 0.45;
+}
+
+.ref-preflight-shell-chevron[data-state='expanded'] {
+	color: var(--void-fg-2);
+	opacity: 0.95;
+}
+
+.ref-preflight-shell-header:hover .ref-preflight-shell-chevron {
+	opacity: 1;
 }
 
 .ref-preflight-shell-collapse {
@@ -4681,7 +4699,9 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-preflight-shell-collapse.is-open > .ref-preflight-shell-body {
 	border-top: none;
-	padding: 4px 4px 6px;
+	/* 水平 padding 设为 0 让 body 内容与父 .ref-md-root--agent-chat 左右边缘对齐。
+	   首行（如「已思考 X.Xs」）需要与壳头部留出呼吸距离，否则在流式底部遮罩存在时容易被遮 */
+	padding: 10px 0 6px;
 	overflow-y: auto;
 }
 
@@ -4689,15 +4709,22 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	display: none;
 }
 
-.ref-preflight-shell[data-state='preview'] .ref-preflight-shell-collapse.is-open > .ref-preflight-shell-body {
+/* expanded + 流式期间：限高 + 粘底滚动；仅底部遮罩提示「下方还有更多」，
+   顶部不再使用 mask，避免把首行的「思考用时」一起遮掉 */
+.ref-preflight-shell.is-pending[data-state='expanded']
+	.ref-preflight-shell-collapse.is-open
+	> .ref-preflight-shell-body {
 	min-height: 96px;
-	max-height: 220px;
+	max-height: 280px;
 	overflow-y: auto;
-	-webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
-	mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+	-webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 14px), transparent 100%);
+	mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 14px), transparent 100%);
 }
 
-.ref-preflight-shell[data-state='expanded'] .ref-preflight-shell-collapse.is-open > .ref-preflight-shell-body {
+/* expanded + 回合结束：完整展开，不再限高 */
+.ref-preflight-shell.is-done[data-state='expanded']
+	.ref-preflight-shell-collapse.is-open
+	> .ref-preflight-shell-body {
 	max-height: none;
 	-webkit-mask-image: none;
 	mask-image: none;

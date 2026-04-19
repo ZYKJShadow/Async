@@ -88,85 +88,10 @@ function unitFollowedByToolLikeWork(
 	return false;
 }
 
-/**
- * 把 renderUnits 切成「过程段」与「结果段」。
- *
- * 过程段（preflight）：用户气泡正下方的统一收纳容器内容 —— 思考、搜索/读取活动、
- *   穿插的解释 markdown、Explored 分组等。
- * 结果段（outcome）：assistant 气泡正文 —— file_edit / diff / command /
- *   plan_todo / file_changes / sub_agent_markdown 以及最末尾的收尾总结 markdown。
- *
- * 切分规则：
- *  1) 找到第一个「强结果」单元，它之前的全部归 preflight。
- *  2) 没有强结果时：把末尾连续的 markdown 视为收尾总结，归 outcome；
- *     若末尾既无强结果也无 markdown（纯过程性），则全部归 preflight。
- */
-function isStrongOutcomeUnit(u: RenderUnit): boolean {
-	switch (u.type) {
-		case 'file_edit':
-		case 'diff':
-		case 'command':
-		case 'streaming_code':
-		case 'file_changes':
-		case 'plan_todo':
-		case 'sub_agent_markdown':
-			return true;
-		default:
-			return false;
-	}
-}
-/** 真正的过程性 unit（思考 / 搜索 / 读取 / Explored 分组）—— 决定是否值得开壳的关键 */
-function isProcessUnit(u: RenderUnit): boolean {
-	return (
-		u.type === 'thinking_group' || u.type === 'activity' || u.type === 'activity_group'
-	);
-}
-export function splitPreflightAndOutcome(
-	units: RenderUnit[],
-	opts?: { liveTurn?: boolean }
-): {
-	preflight: RenderUnit[];
-	outcome: RenderUnit[];
-} {
-	let cutoff = units.length;
-	for (let i = 0; i < units.length; i++) {
-		if (isStrongOutcomeUnit(units[i]!)) {
-			cutoff = i;
-			break;
-		}
-	}
-	// 仅在「回合已结束」（非流式）时，把末尾连续 markdown 切到 outcome 当收尾总结。
-	// 流式期间任何一段尾部 markdown 都可能只是中间解释，过一会就会被新 activity 推回 preflight，
-	// 若此时切到 outcome，会出现「先显示在 assistant 气泡里、过一秒又被收回 preflight」的闪烁。
-	if (cutoff === units.length && !opts?.liveTurn) {
-		let k = units.length;
-		while (k > 0 && units[k - 1]!.type === 'markdown') k--;
-		if (k < units.length && k > 0) {
-			cutoff = k;
-		}
-	}
-	const preflight = units.slice(0, cutoff);
-	const outcome = units.slice(cutoff);
-	// 如果 preflight 内没有任何真正过程性 unit（thinking/activity/...），说明这是一段「纯文字回答」，
-	// 不应该开壳 —— 把 preflight 整体归到 outcome 前面。
-	if (!preflight.some(isProcessUnit)) {
-		return { preflight: [], outcome: [...preflight, ...outcome] };
-	}
-	return { preflight, outcome };
-}
-
-/** preflight 段是否有渲染价值（避免空壳） */
-export function preflightHasContent(units: RenderUnit[]): boolean {
-	for (const u of units) {
-		if (u.type === 'thinking_group' || u.type === 'activity' || u.type === 'activity_group') {
-			return true;
-		}
-		if (u.type === 'markdown' && u.text.trim().length > 0) {
-			return true;
-		}
-	}
-	return false;
-}
+// preflight / outcome 切分纯函数 + 配套辅助谓词已抽到 ./preflightSplit 以便独立单元测试，
+// 这里 re-export 保持原有公共 API。
+export { splitPreflightAndOutcome, preflightHasContent } from './preflightSplit';
+import { splitPreflightAndOutcome, preflightHasContent } from './preflightSplit';
 
 /** 有 tool_input_delta 预览时，解析层也会生成 isStreaming 的 file_edit，避免与预览重复且保证预览优先显示 */
 function dropParsedStreamingFileEditWhilePreview(
@@ -497,6 +422,8 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		return out;
 	}, [renderSegments]);
 	// 注意：以下 useMemo 必须在所有条件 return 之前调用，否则违反 Hooks 顺序。
+	// 流式期间 markdown 永远留在 preflight，回合结束（liveTurn=false）才一次性切到 outcome。
+	// 这避免了「文字外置→收回」的视觉抖动 —— 任意 unit 在流式期间不会在 preflight ↔ outcome 之间反向迁移。
 	const { preflight, outcome } = useMemo(
 		() => splitPreflightAndOutcome(renderUnits, { liveTurn: showAgentWorking }),
 		[renderUnits, showAgentWorking]
