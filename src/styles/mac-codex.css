@@ -887,6 +887,15 @@
 	background: var(--surface-control-bg-hover);
 }
 
+:root[data-ui-style='mac-codex'] .ref-model-pill[aria-expanded='true'] {
+	background: var(--surface-control-bg-active);
+	border-color: color-mix(in srgb, var(--color-accent) 32%, var(--surface-glass-stroke));
+	box-shadow:
+		inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 8%, transparent),
+		0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent),
+		0 10px 24px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
 :root[data-ui-style='mac-codex'] .ref-agent-review-bar,
 :root[data-ui-style='mac-codex'] .ref-agent-review-body,
 :root[data-ui-style='mac-codex'] .ref-tool-approval-inline-inner,
@@ -1500,7 +1509,7 @@
 	color: var(--void-fg-2);
 }
 
-:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-thread-action,
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-thread-action:not(.ref-thread-action--confirm),
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-git-card-open,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-layout-btn,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-menu-item,
@@ -1524,7 +1533,7 @@
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-nav-row:hover:not(:disabled),
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-api-keys-head:hover,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-model-advanced-summary:hover,
-:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-thread-action:hover,
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-thread-action:not(.ref-thread-action--confirm):hover,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-layout-btn:hover,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-menu-item:hover,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-git-card-open:hover,
