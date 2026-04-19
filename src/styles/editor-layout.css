@@ -2009,7 +2009,7 @@
 }
 
 .ref-right--editor-chat .ref-msg-sticky-user-wrap {
-	background: var(--void-bg-1);
+	background: transparent;
 }
 
 @media (max-width: 960px) {
