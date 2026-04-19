@@ -183,6 +183,10 @@ import {
 	getWorkspaceLspManagerForWebContents,
 	disposeTsLspSessionForWebContents,
 } from '../lspSessionsByWebContents.js';
+import { registerClipboardHandlers } from './handlers/clipboardHandlers.js';
+import { registerAutoUpdateHandlers } from './handlers/autoUpdateHandlers.js';
+import { registerUsageStatsHandlers } from './handlers/usageStatsHandlers.js';
+import { registerLspHandlers } from './handlers/lspHandlers.js';
 import { setDelegateContext, clearDelegateContext } from '../agent/toolExecutor.js';
 import {
 	attachManagedAgentEmitter,
@@ -219,7 +223,7 @@ import { syncBrowserCaptureBindingsForHostId } from '../browser/browserCapture.j
 
 const execFileAsync = promisify(execFile);
 
-function senderWorkspaceRoot(event: { sender: WebContents }): string | null {
+export function senderWorkspaceRoot(event: { sender: WebContents }): string | null {
 	return getWorkspaceRootForWebContents(event.sender);
 }
 
@@ -1305,86 +1309,7 @@ export function registerIpc(): void {
 		return { ok: true as const, hits };
 	});
 
-	ipcMain.handle('lsp:ts:start', async (_event, workspaceRootArg: string) => {
-		const dir = typeof workspaceRootArg === 'string' ? workspaceRootArg.trim() : '';
-		if (!dir) {
-			return { ok: false as const, error: 'empty-root' as const };
-		}
-		/* LSP 子进程按需在首次 definition/diagnostics/Agent 工具调用时启动；此处保留通道以兼容旧前端 */
-		return { ok: true as const };
-	});
-
-	ipcMain.handle('lsp:ts:stop', async (event) => {
-		await disposeTsLspSessionForWebContents(event.sender);
-		return { ok: true as const };
-	});
-
-	ipcMain.handle('lsp:ts:definition', async (event, payload: unknown) => {
-		const p = payload as { uri?: string; line?: number; column?: number; text?: string };
-		const uri = typeof p?.uri === 'string' ? p.uri : '';
-		const text = typeof p?.text === 'string' ? p.text : '';
-		const line = typeof p?.line === 'number' && Number.isFinite(p.line) ? p.line : 1;
-		const column = typeof p?.column === 'number' && Number.isFinite(p.column) ? p.column : 1;
-		if (!uri || !text) {
-			return { ok: false as const, error: 'bad-args' as const };
-		}
-		const root = senderWorkspaceRoot(event);
-		if (!root) {
-			return { ok: false as const, error: 'no-workspace' as const };
-		}
-		let absPath: string;
-		try {
-			absPath = uri.startsWith('file:') ? fileURLToPath(uri) : '';
-		} catch {
-			absPath = '';
-		}
-		if (!absPath) {
-			return { ok: false as const, error: 'bad-uri' as const };
-		}
-		try {
-			const mgr = getWorkspaceLspManagerForWebContents(event.sender);
-			const session = await mgr.sessionForFile(absPath, root);
-			if (!session) {
-				return { ok: false as const, error: 'no-lsp-server' as const };
-			}
-			const result = await session.definition(uri, line, column, text);
-			return { ok: true as const, result };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	ipcMain.handle('lsp:ts:diagnostics', async (event, payload: unknown) => {
-		const p = payload as { relPath?: string };
-		const relPath = typeof p?.relPath === 'string' ? p.relPath : '';
-		if (!relPath) {
-			return { ok: false as const, error: 'bad-args' as const };
-		}
-		const root = senderWorkspaceRoot(event);
-		if (!root) {
-			return { ok: false as const, error: 'no-workspace' as const };
-		}
-		const absPath = path.join(root, relPath);
-		if (!fs.existsSync(absPath)) {
-			return { ok: false as const, error: 'file-not-found' as const };
-		}
-		const text = fs.readFileSync(absPath, 'utf-8');
-		const uri = pathToFileURL(absPath).href;
-		try {
-			const mgr = getWorkspaceLspManagerForWebContents(event.sender);
-			const session = await mgr.sessionForFile(absPath, root);
-			if (!session) {
-				return { ok: false as const, error: 'no-lsp-server' as const };
-			}
-			const items = await session.diagnostics(uri, text);
-			if (items === null) {
-				return { ok: false as const, error: 'not-supported' as const };
-			}
-			return { ok: true as const, diagnostics: items };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
+	registerLspHandlers();
 
 	ipcMain.handle('workspace:closeFolder', async (event) => {
 		const root = senderWorkspaceRoot(event);
@@ -2418,28 +2343,7 @@ export function registerIpc(): void {
 		return { ok: true as const, fileStates: t.fileStates ?? {} };
 	});
 
-	ipcMain.handle('usageStats:get', () => {
-		const s = getSettings();
-		if (!s.usageStats?.enabled) {
-			return { ok: false as const, reason: 'disabled' as const };
-		}
-		const dir = resolveUsageStatsDataDir(s);
-		if (!dir) {
-			return { ok: false as const, reason: 'no-directory' as const };
-		}
-		return getUsageStatsForDataDir(dir);
-	});
-
-	ipcMain.handle('usageStats:pickDirectory', async (event) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		const r = await dialog.showOpenDialog(win ?? undefined, {
-			properties: ['openDirectory', 'createDirectory'],
-		});
-		if (r.canceled || !r.filePaths[0]) {
-			return { ok: false as const };
-		}
-		return { ok: true as const, path: r.filePaths[0] };
-	});
+	registerUsageStatsHandlers();
 
 	ipcMain.handle('threads:messages', (_e, threadId: string) => {
 		const t = getThread(threadId);
@@ -3555,22 +3459,7 @@ ipcMain.handle(
 		}
 	});
 
-	ipcMain.handle('clipboard:writeText', (_e, text: string) => {
-		try {
-			clipboard.writeText(String(text ?? ''));
-			return { ok: true as const };
-		} catch (e) {
-			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
-		}
-	});
-
-	ipcMain.handle('clipboard:readText', () => {
-		try {
-			return { ok: true as const, text: clipboard.readText() };
-		} catch (e) {
-			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
-		}
-	});
+	registerClipboardHandlers();
 
 	ipcMain.handle('fs:renameEntry', (event, relPath: string, newName: string) => {
 		try {
@@ -4100,36 +3989,5 @@ ipcMain.handle(
 	});
 
 	/** 自动更新：检查更新 */
-	ipcMain.handle('auto-update:check', async (): Promise<AutoUpdateStatus> => {
-		try {
-			return await checkForUpdates();
-		} catch (e) {
-			return { state: 'error', message: String(e) };
-		}
-	});
-
-	/** 自动更新：下载更新 */
-	ipcMain.handle('auto-update:download', async (): Promise<{ ok: boolean; error?: string }> => {
-		try {
-			await downloadUpdate();
-			return { ok: true };
-		} catch (e) {
-			return { ok: false, error: String(e) };
-		}
-	});
-
-	/** 自动更新：重启并安装 */
-	ipcMain.handle('auto-update:install', (): Promise<{ ok: boolean; error?: string }> => {
-		try {
-			quitAndInstall();
-			return Promise.resolve({ ok: true });
-		} catch (e) {
-			return Promise.resolve({ ok: false, error: String(e) });
-		}
-	});
-
-	/** 自动更新：获取当前状态 */
-	ipcMain.handle('auto-update:get-status', (): AutoUpdateStatus => {
-		return getStatus();
-	});
+	registerAutoUpdateHandlers();
 }

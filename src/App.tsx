@@ -19,8 +19,7 @@ import {
 	type ChatPlanExecutePayload,
 	type TurnTokenUsage,
 } from './ipcTypes';
-import { buildAgentFilePreviewHunks } from './agentFilePreviewDiff';
-import { agentChangeKeyFromDiff, countDiffAddDel } from './agentChatSegments';
+import { agentChangeKeyFromDiff } from './agentChatSegments';
 import {
 	clearPersistedAgentFileChanges,
 	hashAgentAssistantContent,
@@ -38,15 +37,9 @@ import {
 import { type InitialWindowThemeSnapshot } from './initialWindowTheme';
 // modelCatalog types are re-exported via useSettings hook return type
 import { type ComposerMode } from './ComposerPlusMenu';
+import { pendingPlanQuestionFromMessages } from './planParser';
 import {
-	pendingPlanQuestionFromMessages,
-	parsePlanDocument,
-	toPlanMd,
-} from './planParser';
-import {
-	CREATE_SKILL_SLUG,
 	getLeadingWizardCommand,
-	newSegmentId,
 	segmentsToWireText,
 	segmentsTrimmedEmpty,
 	userMessageToSegments,
@@ -63,16 +56,7 @@ import { useComposerSlashCommand } from './useComposerSlashCommand';
 
 const EMPTY_AGENT_PENDING_PATCHES: AgentPendingPatch[] = [];
 const EMPTY_SNAPSHOT_PATHS: ReadonlySet<string> = new Set<string>();
-import { type MarkdownTabView } from './EditorTabBar';
-import {
-	isMarkdownEditorPath,
-	markdownViewForTab,
-	stripLeadingYamlFrontmatter,
-	stripPlanFrontmatterForPreview,
-} from './editorMarkdownView';
-import { isPlanMdPath, planExecutedKey } from './planExecutedKey';
-import { workspaceRelativeFileUrl } from './workspaceUri';
-import { voidShellDebugLog } from './tabCloseDebug';
+import { isPlanMdPath } from './planExecutedKey';
 import { useSettings } from './hooks/useSettings';
 import { usePlanSystem } from './hooks/usePlanSystem';
 import {
@@ -92,7 +76,7 @@ import { useWorkspaceManager } from './hooks/useWorkspaceManager';
 import { useThreads } from './hooks/useThreads';
 import { type ChatMessage, type ThreadInfo } from './threadTypes';
 import { normWorkspaceRootKey } from './workspaceRootKey';
-import { useAgentFileReview, type AgentFilePreviewState } from './hooks/useAgentFileReview';
+import { useAgentFileReview } from './hooks/useAgentFileReview';
 import { useComposer } from './hooks/useComposer';
 import { useStreaming } from './streamingStore';
 import { DevProfiler } from './devProfiler';
@@ -109,6 +93,11 @@ import { useComposerAttachments } from './hooks/useComposerAttachments';
 import { useSettingsPersistence } from './hooks/useSettingsPersistence';
 import { useWorkspaceExplorerActions } from './hooks/useWorkspaceExplorerActions';
 import { useAppShellSlices } from './hooks/useAppShellSlices';
+import { useTeamSessionActions } from './hooks/useTeamSessionActions';
+import { useAgentSessionActions } from './hooks/useAgentSessionActions';
+import { useEditorCenterDerived } from './hooks/useEditorCenterDerived';
+import { usePlanWizardActions } from './hooks/usePlanWizardActions';
+import { useAgentSidebarFilePreview } from './hooks/useAgentSidebarFilePreview';
 import { useTeamSession } from './hooks/useTeamSession';
 import { useAgentSession } from './hooks/useAgentSession';
 import type { AgentUserInputRequest } from './agentSessionTypes';
@@ -162,9 +151,7 @@ type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team' | 'browser' | 'age
 type EditorLeftSidebarView = 'explorer' | 'search' | 'git';
 import { useI18n, normalizeLocale } from './i18n';
 import { hideBootSplash } from './bootSplash';
-import { debugDiffHead, diffCreatesNewFile, sameStringArray } from './appDiffUtils';
-
-type DiffPreview = { diff: string; isBinary: boolean; additions: number; deletions: number };
+import { diffCreatesNewFile, sameStringArray } from './appDiffUtils';
 
 function workspacePathDisplayName(full: string): string {
 	const norm = full.replace(/\\/g, '/');
@@ -1854,252 +1841,7 @@ function AppMainWorkspaceInner() {
 		return onAbortRef.current();
 	}, [currentId, abortTeamSession]);
 
-	const getCurrentPlanQuestionState = useCallback(() => {
-		if (composerMode === 'team') {
-			const liveTeamSession = getTeamSession(currentIdRef.current);
-			return {
-				question: liveTeamSession?.pendingQuestion ?? planQuestion,
-				requestId: liveTeamSession?.pendingQuestionRequestId ?? planQuestionRequestId,
-			};
-		}
-		return {
-			question: planQuestion,
-			requestId: planQuestionRequestId,
-		};
-	}, [composerMode, getTeamSession, planQuestion, planQuestionRequestId, currentIdRef]);
-
-	const formatPlanQuestionReply = useCallback(
-		(answer: string) => {
-			const questionText = getCurrentPlanQuestionState().question?.text?.trim();
-			const normalizedAnswer = answer.trim();
-			if (!questionText) {
-				return `我选择：${normalizedAnswer}`;
-			}
-			return [
-				'[PLAN QUESTION]',
-				questionText,
-				'',
-				'[USER ANSWER]',
-				normalizedAnswer,
-			].join('\n');
-		},
-		[getCurrentPlanQuestionState]
-	);
-
-	const onPlanQuestionSubmit = useCallback(
-		(answer: string) => {
-			const { requestId: rid } = getCurrentPlanQuestionState();
-			const threadId = currentIdRef.current;
-			const reply = formatPlanQuestionReply(answer);
-			if (composerMode === 'team' && threadId) {
-				clearTeamPendingQuestion(threadId);
-			}
-			if (rid && shell) {
-				setPlanQuestion(null);
-				setPlanQuestionRequestId(null);
-				void shell
-					.invoke('plan:toolQuestionRespond', { requestId: rid, answerText: reply })
-					.catch((e) => console.error('[plan:toolQuestionRespond]', e));
-				return;
-			}
-			setPlanQuestion(null);
-			setPlanQuestionRequestId(null);
-			void onSend(reply);
-		},
-		[
-			clearTeamPendingQuestion,
-			composerMode,
-			currentIdRef,
-			formatPlanQuestionReply,
-			getCurrentPlanQuestionState,
-			shell,
-			setPlanQuestion,
-			setPlanQuestionRequestId,
-			onSend,
-		]
-	);
-
-	const onPlanQuestionSkip = useCallback(() => {
-		recordPlanQuestionDismissed();
-		const { requestId: rid } = getCurrentPlanQuestionState();
-		const threadId = currentIdRef.current;
-		const skipText = t('plan.q.skipUserMessage');
-		if (composerMode === 'team' && threadId) {
-			clearTeamPendingQuestion(threadId);
-		}
-		if (rid && shell) {
-			setPlanQuestion(null);
-			setPlanQuestionRequestId(null);
-			void shell
-				.invoke('plan:toolQuestionRespond', { requestId: rid, skipped: true, answerText: skipText })
-				.catch((e) => console.error('[plan:toolQuestionRespond]', e));
-			return;
-		}
-		setPlanQuestion(null);
-		setPlanQuestionRequestId(null);
-		void onSend(skipText);
-	}, [
-		t,
-		onSend,
-		shell,
-		composerMode,
-		currentIdRef,
-		clearTeamPendingQuestion,
-		getCurrentPlanQuestionState,
-		recordPlanQuestionDismissed,
-	]);
-
-	const getCurrentUserInputRequest = useCallback(() => {
-		const threadId = currentIdRef.current;
-		if (!threadId) {
-			return null;
-		}
-		if (composerMode === 'team') {
-			return getTeamSession(threadId)?.pendingUserInput ?? null;
-		}
-		return rootUserInputRequestsByThread[threadId] ?? null;
-	}, [composerMode, currentIdRef, getTeamSession, rootUserInputRequestsByThread]);
-
-	const onUserInputSubmit = useCallback(
-		async (answers: Record<string, string>) => {
-			const threadId = currentIdRef.current;
-			const request = getCurrentUserInputRequest();
-			if (!threadId || !request?.requestId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:userInputRespond', {
-				requestId: request.requestId,
-				answers,
-			})) as { ok?: boolean; error?: string };
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('app.chatSendFailed'));
-				return;
-			}
-			if (composerMode === 'team') {
-				clearTeamPendingUserInput(threadId);
-			}
-			clearRootUserInputRequest(threadId);
-			showTransientToast(true, t('agent.userInput.submittedToast'));
-		},
-		[
-			clearRootUserInputRequest,
-			clearTeamPendingUserInput,
-			composerMode,
-			currentIdRef,
-			getCurrentUserInputRequest,
-			shell,
-			showTransientToast,
-			t,
-		]
-	);
-
-
-	const onPlanBuild = useCallback(
-		(modelId: string) => {
-			if (awaitingReply) {
-				return;
-			}
-			const planToBuild = getLatestAgentPlan();
-			if (!planToBuild || !shell || !modelId.trim()) {
-				return;
-			}
-			const threadId = currentIdRef.current;
-			if (!threadId) {
-				return;
-			}
-			const pbKeyEarly = planExecutedKey(workspace, planFileRelPath, planFilePath);
-			if (pbKeyEarly && executedPlanKeys.includes(pbKeyEarly)) {
-				return;
-			}
-			const planExecute: ChatPlanExecutePayload = {
-				fromAbsPath: planFilePath ?? undefined,
-				inlineMarkdown: toPlanMd(planToBuild),
-				planTitle: planToBuild.name,
-			};
-			setPlanQuestion(null);
-			setPlanQuestionRequestId(null);
-			setAgentRightSidebarView('plan');
-			setAgentRightSidebarOpen(true);
-			setComposerModePersist('agent');
-			setComposerSegments([{ id: newSegmentId(), kind: 'text', text: '' }]);
-			void onSend(t('plan.review.executeUserBubble'), {
-				modeOverride: 'agent',
-				modelIdOverride: modelId,
-				planExecute,
-				planBuildPathKey: pbKeyEarly || undefined,
-			});
-		},
-		[
-			getLatestAgentPlan,
-			planFilePath,
-			planFileRelPath,
-			workspace,
-			executedPlanKeys,
-			shell,
-			awaitingReply,
-			setComposerModePersist,
-			t,
-		]
-	);
-
-	const onExecutePlanFromEditor = useCallback(
-		(modelId: string) => {
-			if (!shell || awaitingReply || !modelId.trim()) {
-				return;
-			}
-			const threadId = currentIdRef.current;
-			if (!threadId || !hasConversation) {
-				return;
-			}
-			const fp = filePath.trim().replace(/\\/g, '/');
-			if (!isPlanMdPath(fp)) {
-				return;
-			}
-			const pbKey = planExecutedKey(workspace, fp, null);
-			if (pbKey && executedPlanKeys.includes(pbKey)) {
-				return;
-			}
-			const body = stripLeadingYamlFrontmatter(editorValue);
-			const parsed = parsePlanDocument(body);
-			const baseName = fp.split('/').pop() ?? 'plan.plan.md';
-			const planTitle = parsed?.name ?? baseName.replace(/\.plan\.md$/i, '');
-			const planExecute: ChatPlanExecutePayload = {
-				inlineMarkdown: parsed ? toPlanMd(parsed) : editorValue,
-				planTitle,
-			};
-			setComposerModePersist('agent');
-			setComposerSegments([{ id: newSegmentId(), kind: 'text', text: '' }]);
-			void onSend(t('plan.review.executeUserBubble'), {
-				modeOverride: 'agent',
-				modelIdOverride: modelId,
-				planExecute,
-				planBuildPathKey: pbKey || undefined,
-			});
-		},
-		[
-			shell,
-			awaitingReply,
-			hasConversation,
-			filePath,
-			editorValue,
-			workspace,
-			executedPlanKeys,
-			setComposerModePersist,
-			t,
-		]
-	);
-
-	const onPlanReviewClose = useCallback(() => {
-		if (layoutMode === 'agent' && agentRightSidebarView === 'plan') {
-			setParsedPlan(null);
-			setPlanFilePath(null);
-			setPlanFileRelPath(null);
-			setAgentRightSidebarOpen(false);
-			setAgentRightSidebarView('git');
-			return;
-		}
-		setEditorPlanReviewDismissed(true);
-	}, [layoutMode, agentRightSidebarView]);
+	// usePlanWizardActions 实际调用挪到下方 closeSettingsPage 解构之后
 
 	useEffect(() => {
 		if (!layoutSwitchPending) {
@@ -2139,43 +1881,66 @@ function AppMainWorkspaceInner() {
 		layoutPinnedBySurface,
 	});
 
-	const startSkillCreatorFlow = useCallback(async () => {
-		await closeSettingsPage();
-		if (!shell) {
-			return;
-		}
-		const r = (await shell.invoke('threads:create')) as { id: string };
-		const threadId = r.id;
-		await refreshThreads();
-		await shell.invoke('threads:select', threadId);
-		setCurrentId(threadId);
-		setLastTurnUsage(null);
-		setAwaitingReply(false);
-		setStreaming('');
-		setStreamingThinking('');
-		clearStreamingToolPreviewNow();
-		streamStartedAtRef.current = null;
-		firstTokenAtRef.current = null;
-		await loadMessages(threadId);
-		setComposerSegments([
-			{ id: newSegmentId(), kind: 'command', command: CREATE_SKILL_SLUG },
-			{ id: newSegmentId(), kind: 'text', text: '' },
-		]);
-		setInlineResendSegments([]);
-		setResendFromUserIndex(null);
-		const title = t('agentSettings.skillCreatorThreadTitle');
-		const rr = (await shell.invoke('threads:rename', threadId, title)) as { ok?: boolean };
-		if (rr?.ok) {
-			await refreshThreads();
-		}
-		queueMicrotask(() => {
-			if (composerRichBottomRef.current) {
-				composerRichBottomRef.current.focus();
-			} else {
-				composerRichHeroRef.current?.focus();
-			}
-		});
-	}, [closeSettingsPage, shell, t, refreshThreads, loadMessages, clearStreamingToolPreviewNow]);
+	const {
+		onPlanQuestionSubmit,
+		onPlanQuestionSkip,
+		onUserInputSubmit,
+		onPlanBuild,
+		onExecutePlanFromEditor,
+		onPlanReviewClose,
+		startSkillCreatorFlow,
+	} = usePlanWizardActions({
+		shell,
+		t,
+		workspace,
+		currentIdRef,
+		composerMode,
+		awaitingReply,
+		hasConversation,
+		layoutMode,
+		agentRightSidebarView,
+		planQuestion,
+		planQuestionRequestId,
+		setPlanQuestion,
+		setPlanQuestionRequestId,
+		recordPlanQuestionDismissed,
+		planFilePath,
+		planFileRelPath,
+		executedPlanKeys,
+		setParsedPlan,
+		setPlanFilePath,
+		setPlanFileRelPath,
+		setEditorPlanReviewDismissed,
+		getLatestAgentPlan,
+		filePath,
+		editorValue,
+		getTeamSession,
+		clearTeamPendingQuestion,
+		clearTeamPendingUserInput,
+		rootUserInputRequestsByThread,
+		clearRootUserInputRequest,
+		setAgentRightSidebarView,
+		setAgentRightSidebarOpen,
+		setComposerModePersist,
+		setComposerSegments,
+		setInlineResendSegments,
+		setResendFromUserIndex,
+		closeSettingsPage,
+		refreshThreads,
+		loadMessages,
+		setCurrentId,
+		setLastTurnUsage,
+		setAwaitingReply,
+		setStreaming,
+		setStreamingThinking,
+		clearStreamingToolPreviewNow,
+		streamStartedAtRef,
+		firstTokenAtRef,
+		composerRichBottomRef,
+		composerRichHeroRef,
+		showTransientToast,
+		onSend,
+	});
 
 
 	const {
@@ -2233,337 +1998,18 @@ function AppMainWorkspaceInner() {
 		setTerminalMenuOpen,
 	});
 
-	const openAgentSidebarFilePreview = useCallback(
-		async (
-			rel: string,
-			revealLine?: number,
-			revealEndLine?: number,
-			options?: AgentConversationFileOpenOptions
-		) => {
-			if (!shell || layoutMode !== 'agent') {
-				await openFileInTab(rel, revealLine, revealEndLine, options);
-				return;
-			}
+	const openAgentSidebarFilePreview = useAgentSidebarFilePreview({
+		shell,
+		layoutMode,
+		currentId,
+		openFileInTab,
+		agentGitPackRef,
+		setAgentRightSidebarView,
+		setAgentRightSidebarOpen,
+		setAgentFilePreview,
+		agentFilePreviewRequestRef,
+	});
 
-			const { gitStatusOk, gitChangedPaths, diffPreviews } = agentGitPackRef.current;
-			const normalizedRel = normalizeWorkspaceRelPath(rel);
-			const safeRevealLine =
-				typeof revealLine === 'number' && Number.isFinite(revealLine) && revealLine > 0
-					? Math.floor(revealLine)
-					: undefined;
-			const safeRevealEndLine =
-				typeof revealEndLine === 'number' && Number.isFinite(revealEndLine) && revealEndLine > 0
-					? Math.floor(revealEndLine)
-					: undefined;
-			const sourceDiff = typeof options?.diff === 'string' ? options.diff.trim() : '';
-			const sourceAllowsReviewActions = options?.allowReviewActions === true;
-			const useSourceReadonlyFallback = !gitStatusOk && sourceDiff.length > 0;
-			voidShellDebugLog('agent-file-preview:open:start', {
-				relPath: normalizedRel,
-				revealLine: safeRevealLine ?? null,
-				revealEndLine: safeRevealEndLine ?? null,
-				sourceDiffLength: sourceDiff.length,
-				sourceDiffHead: sourceDiff ? debugDiffHead(sourceDiff) : '',
-				allowReviewActions: sourceAllowsReviewActions,
-				useSourceReadonlyFallback,
-				layoutMode,
-				currentId: currentId ?? '',
-			});
-
-			setAgentRightSidebarView('file');
-			setAgentRightSidebarOpen(true);
-			setAgentFilePreview((prev) => ({
-				relPath: normalizedRel,
-				revealLine: safeRevealLine,
-				revealEndLine: safeRevealEndLine,
-				loading: true,
-				content: prev?.relPath === normalizedRel ? prev.content : '',
-				diff: sourceAllowsReviewActions || useSourceReadonlyFallback ? sourceDiff : '',
-				isBinary: false,
-				readError: null,
-				additions: 0,
-				deletions: 0,
-				reviewMode:
-					prev?.relPath === normalizedRel && sourceAllowsReviewActions
-						? prev.reviewMode
-						: 'readonly',
-			}));
-
-			const requestId = ++agentFilePreviewRequestRef.current;
-			let content = '';
-			let readError: string | null = null;
-			try {
-				const fileResult = (await shell.invoke('fs:readFile', normalizedRel)) as { ok?: boolean; content?: string };
-				if (fileResult.ok && typeof fileResult.content === 'string') {
-					content = fileResult.content;
-				}
-			} catch (err) {
-				readError = err instanceof Error ? err.message : String(err);
-			}
-
-			let previewDiff = sourceAllowsReviewActions || useSourceReadonlyFallback ? sourceDiff : '';
-			let isBinary = false;
-			let additions = 0;
-			let deletions = 0;
-			let reviewMode: AgentFilePreviewState['reviewMode'] = 'readonly';
-			const isGitChanged = gitChangedPaths.some((path) => workspaceRelPathsEqual(path, normalizedRel));
-			voidShellDebugLog('agent-file-preview:open:path-match', {
-				relPath: normalizedRel,
-				isGitChanged,
-				gitChangedCount: gitChangedPaths.length,
-				gitChangedHead: gitChangedPaths.slice(0, 12).join(' | '),
-			});
-
-			if (currentId && sourceAllowsReviewActions) {
-				try {
-					const snapshotResult = (await shell.invoke('agent:getFileSnapshot', currentId, normalizedRel)) as
-						| { ok: true; hasSnapshot: false }
-						| { ok: true; hasSnapshot: true; previousContent: string | null }
-						| { ok?: false };
-					if (snapshotResult?.ok && snapshotResult.hasSnapshot) {
-						const previousContent = snapshotResult.previousContent ?? '';
-						const { createTwoFilesPatch } = await import('diff');
-						previewDiff = createTwoFilesPatch(
-							`a/${normalizedRel}`,
-							`b/${normalizedRel}`,
-							previousContent,
-							content,
-							'',
-							'',
-							{ context: 3 }
-						).trim();
-						reviewMode = 'snapshot';
-						readError = null;
-						voidShellDebugLog('agent-file-preview:open:snapshot', {
-							relPath: normalizedRel,
-							previousLength: previousContent.length,
-							contentLength: content.length,
-							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				} catch {
-					/* snapshot lookup failed; fall back to git preview */
-				}
-			}
-
-			let authoritativeGitPreviewLoaded = false;
-			if (gitStatusOk) {
-				try {
-					const fullDiffResult = (await shell.invoke('git:diffPreview', {
-						relPath: normalizedRel,
-						full: true,
-					})) as
-						| { ok: true; preview: DiffPreview }
-						| { ok: false; error?: string };
-					if (fullDiffResult.ok && fullDiffResult.preview) {
-						authoritativeGitPreviewLoaded = true;
-						const gitPreviewDiff = String(fullDiffResult.preview.diff ?? '');
-						const gitPreviewIsBinary = fullDiffResult.preview.isBinary === true;
-						const gitPreviewAdditions = fullDiffResult.preview.additions ?? 0;
-						const gitPreviewDeletions = fullDiffResult.preview.deletions ?? 0;
-						const gitPreviewHead = debugDiffHead(gitPreviewDiff);
-						if (!sourceAllowsReviewActions || reviewMode !== 'snapshot') {
-							previewDiff = gitPreviewDiff;
-							isBinary = gitPreviewIsBinary;
-							additions = gitPreviewAdditions;
-							deletions = gitPreviewDeletions;
-							reviewMode = 'readonly';
-						} else if (!gitPreviewDiff.trim()) {
-							// Snapshot exists but git shows clean: trust git and hide stale inline diff.
-							previewDiff = '';
-							isBinary = gitPreviewIsBinary;
-							additions = gitPreviewAdditions;
-							deletions = gitPreviewDeletions;
-							reviewMode = 'readonly';
-						}
-						voidShellDebugLog('agent-file-preview:open:git-authoritative', {
-							relPath: normalizedRel,
-							diffLength: gitPreviewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(gitPreviewDiff)).length,
-							isBinary: gitPreviewIsBinary,
-							additions: gitPreviewAdditions,
-							deletions: gitPreviewDeletions,
-							reviewMode,
-							diffHead: gitPreviewHead,
-						});
-					}
-				} catch {
-					/* fall back to cached preview/status heuristics below */
-				}
-			}
-
-			if (!authoritativeGitPreviewLoaded && !previewDiff && gitStatusOk && isGitChanged) {
-				const cachedPreview = Object.entries(diffPreviews).find(
-					([path]) => workspaceRelPathsEqual(path, normalizedRel)
-				)?.[1];
-				voidShellDebugLog('agent-file-preview:open:git-start', {
-					relPath: normalizedRel,
-					hasCachedPreview: Boolean(cachedPreview),
-					cachedDiffLength: String(cachedPreview?.diff ?? '').length,
-					gitStatusOk,
-					isGitChanged,
-				});
-				if (cachedPreview) {
-					isBinary = cachedPreview.isBinary === true;
-					additions = cachedPreview.additions ?? 0;
-					deletions = cachedPreview.deletions ?? 0;
-				}
-				try {
-					const fullDiffResult = (await shell.invoke('git:diffPreview', {
-						relPath: normalizedRel,
-						full: true,
-					})) as
-						| { ok: true; preview: DiffPreview }
-						| { ok: false; error?: string };
-					if (fullDiffResult.ok && fullDiffResult.preview) {
-						previewDiff = String(fullDiffResult.preview.diff ?? '');
-						isBinary = fullDiffResult.preview.isBinary === true;
-						additions = fullDiffResult.preview.additions ?? additions;
-						deletions = fullDiffResult.preview.deletions ?? deletions;
-						reviewMode = 'readonly';
-						voidShellDebugLog('agent-file-preview:open:git-full', {
-							relPath: normalizedRel,
-							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
-							isBinary,
-							additions,
-							deletions,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				} catch {
-					if (cachedPreview) {
-						previewDiff = String(cachedPreview.diff ?? '');
-						isBinary = cachedPreview.isBinary === true;
-						additions = cachedPreview.additions ?? 0;
-						deletions = cachedPreview.deletions ?? 0;
-						reviewMode = 'readonly';
-						voidShellDebugLog('agent-file-preview:open:git-cached-fallback', {
-							relPath: normalizedRel,
-							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
-							isBinary,
-							additions,
-							deletions,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				}
-			}
-
-			if (
-				!authoritativeGitPreviewLoaded &&
-				previewDiff &&
-				!isBinary &&
-				reviewMode === 'readonly' &&
-				(await buildAgentFilePreviewHunks(previewDiff)).length === 0
-			) {
-				try {
-					const fullDiffResult = (await shell.invoke('git:diffPreview', {
-						relPath: normalizedRel,
-						full: true,
-					})) as
-						| { ok: true; preview: DiffPreview }
-						| { ok: false; error?: string };
-					if (fullDiffResult.ok && fullDiffResult.preview) {
-						previewDiff = String(fullDiffResult.preview.diff ?? '');
-						isBinary = fullDiffResult.preview.isBinary === true;
-						additions = fullDiffResult.preview.additions ?? additions;
-						deletions = fullDiffResult.preview.deletions ?? deletions;
-						voidShellDebugLog('agent-file-preview:open:git-retry-full', {
-							relPath: normalizedRel,
-							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
-							isBinary,
-							additions,
-							deletions,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				} catch {
-					/* keep the existing preview fallback */
-				}
-			}
-
-			if (previewDiff) {
-				const stats = countDiffAddDel(previewDiff);
-				additions = additions || stats.additions;
-				deletions = deletions || stats.deletions;
-				readError = null;
-			}
-
-			const previewHunks = !isBinary ? await buildAgentFilePreviewHunks(previewDiff) : [];
-			if (
-				currentId &&
-				sourceAllowsReviewActions &&
-				previewDiff &&
-				!isBinary &&
-				reviewMode === 'readonly' &&
-				previewHunks.length > 0
-			) {
-				try {
-					const seedResult = (await shell.invoke('agent:seedFileSnapshot', {
-						threadId: currentId,
-						relPath: normalizedRel,
-						content,
-						diff: previewDiff,
-					})) as { ok?: boolean; seeded?: boolean; previousLength?: number; error?: string };
-					if (seedResult?.ok && seedResult.seeded) {
-						reviewMode = 'snapshot';
-						voidShellDebugLog('agent-file-preview:open:seeded-snapshot', {
-							relPath: normalizedRel,
-							contentLength: content.length,
-							previousLength: seedResult.previousLength ?? 0,
-							diffLength: previewDiff.length,
-							hunkCount: previewHunks.length,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				} catch {
-					/* derived snapshot seeding failed; keep readonly preview */
-				}
-			}
-
-			if (requestId !== agentFilePreviewRequestRef.current) {
-				voidShellDebugLog('agent-file-preview:open:stale', {
-					relPath: normalizedRel,
-					requestId,
-					activeRequestId: agentFilePreviewRequestRef.current,
-				});
-				return;
-			}
-
-			voidShellDebugLog('agent-file-preview:open:final', {
-				relPath: normalizedRel,
-				reviewMode,
-				contentLength: content.length,
-				diffLength: previewDiff.length,
-				hunkCount: previewHunks.length,
-				isBinary,
-				additions,
-				deletions,
-				readError: readError ?? '',
-				diffHead: previewDiff ? debugDiffHead(previewDiff) : '',
-			});
-
-			setAgentFilePreview({
-				relPath: normalizedRel,
-				revealLine: safeRevealLine,
-				revealEndLine: safeRevealEndLine,
-				loading: false,
-				content,
-				diff: previewDiff,
-				isBinary,
-				readError,
-				additions,
-				deletions,
-				reviewMode,
-			});
-		},
-		[currentId, layoutMode, openFileInTab, shell]
-	);
 
 	useEffect(() => {
 		if (isPlanMdPath(filePath.trim())) {
@@ -2806,66 +2252,40 @@ function AppMainWorkspaceInner() {
 		}
 	}, []);
 
-	const monacoDocumentPath = useMemo(() => {
-		const fp = filePath.trim();
-		if (!fp) {
-			return '';
-		}
-		const u = workspaceRelativeFileUrl(workspace, fp);
-		return u ?? fp.replace(/\\/g, '/');
-	}, [workspace, filePath]);
-
-	const activeEditorTab = useMemo(
-		() => openTabs.find((t2) => t2.filePath === filePath.trim()),
-		[openTabs, filePath]
-	);
-	const activeEditorInlineDiff = useMemo(() => {
-		const fp = normalizeWorkspaceRelPath(filePath.trim());
-		return fp ? editorInlineDiffByPath[fp] ?? null : null;
-	}, [editorInlineDiffByPath, filePath]);
-	const markdownPaneMode = useMemo(() => {
-		const fp = filePath.trim();
-		if (!fp) {
-			return null;
-		}
-		return markdownViewForTab(fp, activeEditorTab?.markdownView);
-	}, [filePath, activeEditorTab?.markdownView]);
-
-	const setMarkdownPaneMode = useCallback((mode: MarkdownTabView) => {
-		const fp = filePath.trim();
-		if (!fp || !isMarkdownEditorPath(fp)) {
-			return;
-		}
-		setOpenTabs((prev) => prev.map((t) => (t.filePath === fp ? { ...t, markdownView: mode } : t)));
-	}, [filePath]);
-
-	const markdownPreviewContent = useMemo(() => {
-		const fp = filePath.trim();
-		if (!fp) {
-			return editorValue;
-		}
-		return stripPlanFrontmatterForPreview(fp, editorValue);
-	}, [filePath, editorValue]);
-	const monacoOriginalDocumentPath = useMemo(() => {
-		const fp = filePath.trim();
-		if (!fp) {
-			return '';
-		}
-		return `inline-diff-original:///${fp.replace(/\\/g, '/')}`;
-	}, [filePath]);
-
-	const editorActivePlanPathKey = useMemo(() => {
-		const fp = filePath.trim();
-		if (!isPlanMdPath(fp)) {
-			return '';
-		}
-		return planExecutedKey(workspace, fp, null);
-	}, [filePath, workspace]);
-
-	const editorPlanFileIsBuilt = useMemo(
-		() => Boolean(editorActivePlanPathKey && executedPlanKeys.includes(editorActivePlanPathKey)),
-		[editorActivePlanPathKey, executedPlanKeys]
-	);
+	const teamSelectedTaskIdForCenter = getTeamSession(currentId)?.selectedTaskId ?? null;
+	const {
+		monacoDocumentPath,
+		activeEditorInlineDiff,
+		markdownPaneMode,
+		setMarkdownPaneMode,
+		markdownPreviewContent,
+		monacoOriginalDocumentPath,
+		editorPlanFileIsBuilt,
+		showPlanFileEditorChrome,
+		editorCenterPlanMarkdown,
+		showEditorPlanDocumentInCenter,
+		showEditorTeamWorkflowInCenter,
+		editorCenterPlanCanBuild,
+	} = useEditorCenterDerived({
+		filePath,
+		workspace,
+		openTabs,
+		setOpenTabs,
+		editorInlineDiffByPath,
+		editorValue,
+		executedPlanKeys,
+		hasConversation,
+		currentId,
+		awaitingReply,
+		t,
+		composerMode,
+		layoutMode,
+		agentPlanPreviewMarkdown,
+		agentPlanEffectivePlan,
+		editorPlanBuildModelId,
+		modelPickerItems,
+		teamSelectedTaskId: teamSelectedTaskIdForCenter,
+	});
 
 	useEffect(() => {
 		if (!gitStatusOk) {
@@ -2888,8 +2308,6 @@ function AppMainWorkspaceInner() {
 		});
 	}, [gitChangedPaths, gitStatusOk]);
 
-	const showPlanFileEditorChrome =
-		hasConversation && !!currentId && isPlanMdPath(filePath.trim());
 	const teamSession = useMemo(() => getTeamSession(currentId), [getTeamSession, currentId]);
 	const agentSession = useMemo(() => getAgentSession(currentId), [getAgentSession, currentId]);
 	const activePlanQuestion = useMemo(
@@ -2917,27 +2335,6 @@ function AppMainWorkspaceInner() {
 		[composerMode, teamSession]
 	);
 
-	const editorCenterPlanMarkdown = useMemo(() => {
-		if (agentPlanPreviewMarkdown.trim()) {
-			return agentPlanPreviewMarkdown;
-		}
-		if (layoutMode === 'editor' && composerMode === 'plan' && hasConversation && awaitingReply) {
-			return `# ${t('plan.review.label')}\n\n${t('app.planSidebarStreaming')}…`;
-		}
-		return '';
-	}, [agentPlanPreviewMarkdown, layoutMode, composerMode, hasConversation, awaitingReply, t]);
-	const showEditorPlanDocumentInCenter =
-		layoutMode === 'editor' &&
-		composerMode === 'plan' &&
-		hasConversation &&
-		(awaitingReply || !!editorCenterPlanMarkdown.trim());
-	const showEditorTeamWorkflowInCenter =
-		layoutMode === 'editor' &&
-		composerMode === 'team' &&
-		hasConversation &&
-		!!teamSession?.selectedTaskId;
-	const editorCenterPlanCanBuild =
-		!awaitingReply && !!agentPlanEffectivePlan && !!editorPlanBuildModelId.trim() && modelPickerItems.length > 0;
 	const agentPlanSidebarAutopenRef = useRef(false);
 
 	useEffect(() => {
@@ -3603,184 +3000,39 @@ function AppMainWorkspaceInner() {
 		}
 	};
 
-	const onSelectTeamTask = useCallback(
-		(taskId: string) => {
-			if (!currentId) {
-				return;
-			}
-			setSelectedTask(currentId, taskId);
-			setAgentRightSidebarView('team');
-			if (layoutMode === 'agent') {
-				setAgentRightSidebarOpen(true);
-			}
-		},
-		[currentId, setSelectedTask, layoutMode]
-	);
+	const { onSelectTeamTask, onTeamPlanApprove, onTeamPlanReject } = useTeamSessionActions({
+		shell,
+		currentId,
+		layoutMode,
+		setSelectedTask,
+		markTeamPlanProposalDecided,
+		setAgentRightSidebarView,
+		setAgentRightSidebarOpen,
+	});
 
-	const onTeamPlanApprove = useCallback(
-		(proposalId: string, feedback?: string) => {
-			if (!currentId || !shell) return;
-			markTeamPlanProposalDecided(currentId, proposalId, true);
-			void shell.invoke('team:planApprovalRespond', {
-				proposalId,
-				approved: true,
-				feedbackText: feedback,
-			});
-		},
-		[currentId, markTeamPlanProposalDecided, shell]
-	);
-
-	const onTeamPlanReject = useCallback(
-		(proposalId: string, feedback?: string) => {
-			if (!currentId || !shell) return;
-			markTeamPlanProposalDecided(currentId, proposalId, false);
-			void shell.invoke('team:planApprovalRespond', {
-				proposalId,
-				approved: false,
-				feedbackText: feedback,
-			});
-		},
-		[currentId, markTeamPlanProposalDecided, shell]
-	);
-
-	const onSelectAgentSession = useCallback(
-		(agentId: string | null) => {
-			if (!currentId) {
-				return;
-			}
-			setSelectedAgent(currentId, agentId);
-			setAgentRightSidebarView('agents');
-			if (layoutMode === 'agent') {
-				setAgentRightSidebarOpen(true);
-			}
-		},
-		[currentId, setSelectedAgent, layoutMode]
-	);
-
-	const onSendAgentInput = useCallback(
-		async (agentId: string, message: string, interrupt: boolean) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:sendInput', {
-				threadId: currentId,
-				agentId,
-				message,
-				interrupt,
-			})) as { ok?: boolean; error?: string };
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('app.chatSendFailed'));
-				return;
-			}
-			setSelectedAgent(currentId, agentId);
-			showTransientToast(true, t('agent.session.sentToast'));
-		},
-		[currentId, shell, showTransientToast, t, setSelectedAgent]
-	);
-
-	const onSubmitAgentUserInput = useCallback(
-		async (requestId: string, answers: Record<string, string>) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:userInputRespond', {
-				requestId,
-				answers,
-			})) as { ok?: boolean; error?: string };
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('app.chatSendFailed'));
-				return;
-			}
-			showTransientToast(true, t('agent.userInput.submittedToast'));
-		},
-		[currentId, shell, showTransientToast, t]
-	);
-
-	const onWaitAgent = useCallback(
-		async (agentId: string) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:wait', {
-				threadId: currentId,
-				agentIds: [agentId],
-				timeoutMs: 30000,
-			})) as { ok?: boolean; timedOut?: boolean; statuses?: Record<string, { status: string }> };
-			if (!result?.ok) {
-				showTransientToast(false, t('agent.session.waitFailed'));
-				return;
-			}
-			const status = result.statuses?.[agentId]?.status ?? 'running';
-			showTransientToast(
-				true,
-				result.timedOut ? t('agent.session.waitTimedOut') : t('agent.session.waitDone', { status })
-			);
-		},
-		[currentId, shell, showTransientToast, t]
-	);
-
-	const onResumeAgent = useCallback(
-		async (agentId: string) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:resume', { threadId: currentId, agentId })) as {
-				ok?: boolean;
-				error?: string;
-			};
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('agent.session.resumeFailed'));
-				return;
-			}
-			showTransientToast(true, t('agent.session.resumeDone'));
-		},
-		[currentId, shell, showTransientToast, t]
-	);
-
-	const onCloseAgent = useCallback(
-		async (agentId: string) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:close', { threadId: currentId, agentId })) as {
-				ok?: boolean;
-				error?: string;
-			};
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('agent.session.closeFailed'));
-				return;
-			}
-			showTransientToast(true, t('agent.session.closeDone'));
-		},
-		[currentId, shell, showTransientToast, t]
-	);
-
-	const onOpenAgentTranscript = useCallback(
-		(absPath: string) => {
-			if (!shell || !absPath.trim()) {
-				return;
-			}
-			void shell.invoke('shell:openDefault', absPath.trim());
-		},
-		[shell]
-	);
-
-	const onSubAgentToastClick = useCallback(
-		async (threadId: string, agentId: string) => {
-			if (!shell) {
-				return;
-			}
-			if (threadId !== currentIdRef.current) {
-				await shell.invoke('threads:select', threadId);
-				setCurrentId(threadId);
-				await loadMessages(threadId, onMessagesLoaded);
-			}
-			setSelectedAgent(threadId, agentId);
-			setAgentRightSidebarView('agents');
-			setAgentRightSidebarOpen(true);
-		},
-		[shell, loadMessages, onMessagesLoaded, setSelectedAgent]
-	);
+	const {
+		onSelectAgentSession,
+		onSendAgentInput,
+		onSubmitAgentUserInput,
+		onWaitAgent,
+		onResumeAgent,
+		onCloseAgent,
+		onOpenAgentTranscript,
+		onSubAgentToastClick,
+	} = useAgentSessionActions({
+		shell,
+		currentId,
+		currentIdRef,
+		layoutMode,
+		t,
+		setSelectedAgent,
+		setAgentRightSidebarView,
+		setAgentRightSidebarOpen,
+		setCurrentId,
+		loadMessages,
+		onMessagesLoaded,
+		showTransientToast,
+	});
 
 	useEffect(() => {
 		const onResize = () => {
