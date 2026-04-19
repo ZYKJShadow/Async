@@ -4986,7 +4986,7 @@ function AppMainWorkspaceInner() {
 			if (inlineResendRootRef.current?.contains(t)) {
 				return;
 			}
-			if (t instanceof Element && t.closest('.ref-at-menu, .ref-slash-menu, .ref-model-dd, .ref-plus-menu-wrap')) {
+			if (t instanceof Element && t.closest('.ref-at-menu, .ref-slash-menu, .ref-model-dd, .ref-plus-menu, .ref-plus-submenu')) {
 				return;
 			}
 			closeAtMenuLatestRef.current();

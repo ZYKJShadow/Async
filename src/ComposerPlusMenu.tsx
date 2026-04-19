@@ -26,6 +26,14 @@ export type ComposerPlusMcpItem = {
 const MODE_IDS: ComposerMode[] = ['agent', 'plan', 'team', 'debug', 'ask'];
 const PLUS_SUBMENU_WIDTH = 320;
 const PLUS_SUBMENU_GAP = 10;
+const PLUS_SUBMENU_EST_HEIGHT = 280;
+
+type PlusSubLayout = {
+	left: number;
+	top?: number;
+	bottom?: number;
+	maxHeight: number;
+};
 
 /** 首帧估算高度（hint + 模式行 + 分隔 + 子项） */
 const plusMenuEstHeight = () => MODE_IDS.length * 48 + 180;
@@ -255,13 +263,12 @@ export function ComposerPlusMenu({
 		() => MODE_IDS.map((id) => ({ id, label: t(`composer.mode.${id}`) })),
 		[t]
 	);
-	const menuRef = useRef<HTMLDivElement>(null);
 	const plusMainRef = useRef<HTMLDivElement>(null);
 	const plusSubRef = useRef<HTMLDivElement>(null);
 	const [submenu, setSubmenu] = useState<'skills' | 'mcp' | null>(null);
 	const [pickingImages, setPickingImages] = useState(false);
 	const [busyMcpIds, setBusyMcpIds] = useState<string[]>([]);
-	const [layout, setLayout] = useState<ClampedPopoverLayout>({
+	const [mainLayout, setMainLayout] = useState<ClampedPopoverLayout>({
 		placement: 'below',
 		left: 0,
 		width: 280,
@@ -269,6 +276,7 @@ export function ComposerPlusMenu({
 		maxHeightPx: 380,
 		minHeightPx: 160,
 	});
+	const [subLayout, setSubLayout] = useState<PlusSubLayout | null>(null);
 
 	const runLayout = useCallback(() => {
 		const el = anchorRef.current;
@@ -282,28 +290,50 @@ export function ComposerPlusMenu({
 		const w = Math.min(300, Math.max(260, vw - 2 * POPOVER_VIEW_MARGIN));
 		const est = plusMenuEstHeight();
 		const mainEl = plusMainRef.current;
-		const subOpen = submenu === 'skills' || submenu === 'mcp';
-		const subEl = plusSubRef.current;
-		let natural = est;
+		let mainNatural = est;
 		if (mainEl && mainEl.scrollHeight > 48) {
-			natural = measurePlusMainContentHeight(mainEl);
+			mainNatural = measurePlusMainContentHeight(mainEl);
 		}
-		if (subOpen && subEl) {
-			const subH = measurePlusSubmenuContentHeight(subEl);
-			natural = Math.max(natural, subH, 120);
+		if (mainNatural < 80) {
+			mainNatural = est;
 		}
-		if (natural < 80) {
-			natural = est;
+		const mainL = computeClampedPopoverLayout(r, {
+			viewportWidth: vw,
+			viewportHeight: vh,
+			menuWidth: w,
+			contentHeight: mainNatural,
+			preferAboveNearViewportBottom: true,
+		});
+		setMainLayout(mainL);
+
+		const subOpen = submenu === 'skills' || submenu === 'mcp';
+		if (!subOpen) {
+			setSubLayout(null);
+			return;
 		}
-		setLayout(
-			computeClampedPopoverLayout(r, {
-				viewportWidth: vw,
-				viewportHeight: vh,
-				menuWidth: w,
-				contentHeight: natural,
-				preferAboveNearViewportBottom: true,
-			})
-		);
+		const subEl = plusSubRef.current;
+		const subNatural = subEl ? measurePlusSubmenuContentHeight(subEl) : PLUS_SUBMENU_EST_HEIGHT;
+		const mainRight = mainL.left + mainL.width;
+		const canRight =
+			mainRight + PLUS_SUBMENU_GAP + PLUS_SUBMENU_WIDTH <= vw - POPOVER_VIEW_MARGIN;
+		const canLeft = mainL.left - PLUS_SUBMENU_GAP - PLUS_SUBMENU_WIDTH >= POPOVER_VIEW_MARGIN;
+		const side: 'left' | 'right' = canRight || !canLeft ? 'right' : 'left';
+		const subLeft =
+			side === 'right'
+				? mainRight + PLUS_SUBMENU_GAP
+				: Math.max(POPOVER_VIEW_MARGIN, mainL.left - PLUS_SUBMENU_WIDTH - PLUS_SUBMENU_GAP);
+		const hardCap = Math.max(120, Math.floor(vh * 0.88));
+		if (mainL.placement === 'below') {
+			const top = mainL.top ?? 0;
+			const avail = Math.max(0, vh - POPOVER_VIEW_MARGIN - top);
+			const maxH = Math.max(120, Math.min(subNatural, avail, hardCap));
+			setSubLayout({ left: subLeft, top, maxHeight: maxH });
+		} else {
+			const bottom = mainL.bottom ?? 0;
+			const avail = Math.max(0, vh - POPOVER_VIEW_MARGIN - bottom);
+			const maxH = Math.max(120, Math.min(subNatural, avail, hardCap));
+			setSubLayout({ left: subLeft, bottom, maxHeight: maxH });
+		}
 	}, [anchorRef, submenu]);
 
 	useLayoutEffect(() => {
@@ -315,11 +345,9 @@ export function ComposerPlusMenu({
 			runLayout();
 			requestAnimationFrame(() => runLayout());
 		});
-		const menu = menuRef.current;
 		const ro =
-			menu && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => runLayout()) : null;
-		if (menu && ro) {
-			ro.observe(menu);
+			typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => runLayout()) : null;
+		if (ro) {
 			if (plusMainRef.current) {
 				ro.observe(plusMainRef.current);
 			}
@@ -349,7 +377,11 @@ export function ComposerPlusMenu({
 		}
 		const onDoc = (e: MouseEvent) => {
 			const target = e.target as Node;
-			if (menuRef.current?.contains(target) || anchorRef.current?.contains(target)) {
+			if (
+				plusMainRef.current?.contains(target) ||
+				plusSubRef.current?.contains(target) ||
+				anchorRef.current?.contains(target)
+			) {
 				return;
 			}
 			onClose();
@@ -419,44 +451,21 @@ export function ComposerPlusMenu({
 	}
 
 	const submenuOpen = submenu === 'skills' || submenu === 'mcp';
-	const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
-	const canPlaceRight =
-		layout.left + layout.width + PLUS_SUBMENU_GAP + PLUS_SUBMENU_WIDTH <=
-		viewportWidth - POPOVER_VIEW_MARGIN;
-	const canPlaceLeft =
-		layout.left - PLUS_SUBMENU_GAP - PLUS_SUBMENU_WIDTH >= POPOVER_VIEW_MARGIN;
-	const submenuSide: 'left' | 'right' =
-		!submenuOpen || canPlaceRight || !canPlaceLeft ? 'right' : 'left';
-	const wrapperLeft =
-		submenuOpen && submenuSide === 'left'
-			? Math.max(POPOVER_VIEW_MARGIN, layout.left - PLUS_SUBMENU_WIDTH - PLUS_SUBMENU_GAP)
-			: layout.left;
-	const wrapperWidth = layout.width + (submenuOpen ? PLUS_SUBMENU_WIDTH + PLUS_SUBMENU_GAP : 0);
-	const mainLeft =
-		submenuOpen && submenuSide === 'left' ? PLUS_SUBMENU_WIDTH + PLUS_SUBMENU_GAP : 0;
 
 	return createPortal(
-		<div
-			ref={menuRef}
-			className="ref-plus-menu-wrap"
-			style={{
-				left: wrapperLeft,
-				width: wrapperWidth,
-				height: layout.maxHeightPx,
-				maxHeight: layout.maxHeightPx,
-				overflow: 'visible',
-				...(layout.placement === 'below'
-					? { top: layout.top ?? 0, bottom: 'auto' }
-					: { bottom: layout.bottom ?? 0, top: 'auto' }),
-			}}
-		>
+		<>
 			<div
 				ref={plusMainRef}
-				className={`ref-plus-menu ${layout.placement === 'above' ? 'ref-plus-menu--above' : ''}`}
+				className={`ref-plus-menu ${mainLayout.placement === 'above' ? 'ref-plus-menu--above' : ''}`}
 				style={{
-					left: mainLeft,
-					width: layout.width,
-					overflow: 'visible',
+					position: 'fixed',
+					left: mainLayout.left,
+					width: mainLayout.width,
+					maxHeight: mainLayout.maxHeightPx,
+					overflowY: 'auto',
+					...(mainLayout.placement === 'below'
+						? { top: mainLayout.top ?? 0 }
+						: { bottom: mainLayout.bottom ?? 0 }),
 				}}
 				role="menu"
 				aria-label={t('composer.plusMenuAria')}
@@ -534,13 +543,18 @@ export function ComposerPlusMenu({
 				</button>
 			</div>
 
-			{submenuOpen ? (
+			{submenuOpen && subLayout ? (
 				<div
 					ref={plusSubRef}
-					className={`ref-plus-submenu ${layout.placement === 'above' ? 'ref-plus-submenu--above' : ''}`}
+					className={`ref-plus-submenu ${mainLayout.placement === 'above' ? 'ref-plus-submenu--above' : ''}`}
 					style={{
-						left: submenuSide === 'left' ? 0 : layout.width + PLUS_SUBMENU_GAP,
+						position: 'fixed',
+						left: subLayout.left,
 						width: PLUS_SUBMENU_WIDTH,
+						maxHeight: subLayout.maxHeight,
+						...(subLayout.top !== undefined
+							? { top: subLayout.top }
+							: { bottom: subLayout.bottom ?? 0 }),
 					}}
 					role="menu"
 					aria-label={submenu === 'skills' ? t('composer.plusSkills') : t('composer.plusMcp')}
@@ -647,7 +661,7 @@ export function ComposerPlusMenu({
 					)}
 				</div>
 			) : null}
-		</div>,
+		</>,
 		document.body
 	);
 }

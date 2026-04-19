@@ -12208,34 +12208,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	background: var(--void-bg-2);
 }
 
-/* ?? ????+?????? / ???? ?? */
-.ref-plus-menu-wrap {
-	position: fixed;
-	z-index: 2195;
-	overflow: visible;
-	pointer-events: none;
-	box-sizing: border-box;
-}
-
-/* 主栏：按内容高度展开、绝不出现纵向滚动条。
-   注意：overflow-x: hidden 与 overflow-y: visible 不能同时写，否则规范会把 y 算成 auto 从而出现竖向滚动条。 */
-.ref-plus-menu-wrap .ref-plus-menu {
-	position: absolute;
-	top: 0;
-	bottom: auto;
-	height: auto;
-	overflow: visible;
-	box-sizing: border-box;
-}
-
-.ref-plus-menu-wrap .ref-plus-submenu {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	min-height: 0;
-	box-sizing: border-box;
-}
-
+/* Composer ＋ 主菜单与子菜单：各自独立的 fixed 浮层，由 JS 计算定位 */
 .ref-plus-menu {
 	box-sizing: border-box;
 	padding: 8px;
@@ -12243,8 +12216,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	border: 1px solid var(--void-border);
 	background: var(--void-bg-1);
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
-	overflow: visible;
 	pointer-events: auto;
+	z-index: 2195;
 }
 
 .ref-plus-menu--above {
@@ -12342,6 +12315,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	overflow: hidden;
 	min-height: 0;
 	pointer-events: auto;
+	z-index: 2195;
 }
 
 .ref-plus-submenu--above {
