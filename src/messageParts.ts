@@ -1,4 +1,4 @@
-import { newSegmentId, type ComposerSegment, type SlashCommandToken } from './composerSegments';
+import { newSegmentId, skillInvocationWire, type ComposerSegment, type SlashCommandToken } from './composerSegments';
 
 export const THREAD_SCHEMA_VERSION_LEGACY = 1 as const;
 export const THREAD_SCHEMA_VERSION_CURRENT = 2 as const;
@@ -84,6 +84,11 @@ export function segmentsToParts(segments: ComposerSegment[]): UserMessagePart[] 
 		}
 		if (s.kind === 'command') {
 			out.push({ kind: 'command', command: s.command });
+			continue;
+		}
+		if (s.kind === 'skill') {
+			/* skill chip 持久化时降级成 `./slug ` 文本；历史渲染走纯文本路径 */
+			out.push({ kind: 'text', text: `${skillInvocationWire(s.slug)} ` });
 			continue;
 		}
 		if (s.imageMeta) {

@@ -54,7 +54,14 @@ export type ComposerImageMeta = {
 export type ComposerSegment =
 	| { id: string; kind: 'text'; text: string }
 	| { id: string; kind: 'file'; path: string; imageMeta?: ComposerImageMeta }
-	| { id: string; kind: 'command'; command: SlashCommandToken };
+	| { id: string; kind: 'command'; command: SlashCommandToken }
+	| { id: string; kind: 'skill'; slug: string; name: string };
+
+/** 调用自定义 Skill 的 wire 前缀：与后端 agentMessagePrep 的 `./slug` 正则保持一致 */
+export function skillInvocationWire(slug: string): string {
+	const normalized = String(slug ?? '').trim().replace(/^\.\//, '');
+	return `./${normalized}`;
+}
 
 /** 组合器附件持久化结果（拖放/粘贴文件落盘后返回给 UI） */
 export type PersistedComposerAttachment = {
@@ -94,6 +101,9 @@ export function segmentsContentKey(segments: ComposerSegment[]): string {
 			}
 			if (s.kind === 'file') {
 				return `f:${s.path}`;
+			}
+			if (s.kind === 'skill') {
+				return `s:${s.slug}`;
 			}
 			return `c:${s.command}`;
 		})
@@ -235,6 +245,14 @@ export function segmentsToWireText(segments: ComposerSegment[]): string {
 			} else if (next?.kind === 'file') {
 				out += FILE_REF_GLUE_SPACE;
 			}
+		} else if (s.kind === 'skill') {
+			out += skillInvocationWire(s.slug);
+			const next = segments[k + 1];
+			if (next?.kind === 'text' && next.text.length > 0 && !/^\s/u.test(next.text)) {
+				out += FILE_REF_GLUE_SPACE;
+			} else if (next?.kind === 'file' || next?.kind === 'command') {
+				out += FILE_REF_GLUE_SPACE;
+			}
 		} else if (s.kind === 'file') {
 			out += `@${s.path}`;
 			const next = segments[k + 1];
@@ -346,6 +364,10 @@ export function segmentsTrimmedEmpty(segments: ComposerSegment[]): boolean {
 	if (first?.kind === 'command' && isSlashCommandId(first.command)) {
 		const tail = segments.slice(1);
 		return segmentsToWireText(tail).trim().length === 0;
+	}
+	if (first?.kind === 'skill') {
+		/* 仅含 ./skill 前缀也视为非空：后端会把 skill 指引注入系统块，允许直接发送 */
+		return false;
 	}
 	return segmentsToWireText(segments).trim().length === 0;
 }

@@ -3502,7 +3502,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 /* 气泡�?chip 与正文同字号，避免预览里正文 14px、chip �?13px */
 .ref-msg-user .ref-inline-file-chip,
-.ref-msg-user .ref-inline-slash-chip {
+.ref-msg-user .ref-inline-slash-chip,
+.ref-msg-user .ref-inline-skill-chip {
 	font-size: var(--void-user-composer-font-size);
 	line-height: var(--void-user-composer-line-height);
 }
@@ -5725,7 +5726,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-composer-rich-input .ref-inline-file-chip,
-.ref-composer-rich-input .ref-inline-slash-chip {
+.ref-composer-rich-input .ref-inline-slash-chip,
+.ref-composer-rich-input .ref-inline-skill-chip {
 	font-size: var(--void-user-composer-font-size);
 }
 
@@ -5858,6 +5860,69 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 .ref-inline-slash-chip.ref-inline-slash-chip--readonly {
 	padding-right: 8px;
 	cursor: default;
+}
+
+/* 技能调用 chip：沿用 slash chip 骨架，改用紫色以便与 slash 命令区分 */
+.ref-inline-skill-chip {
+	display: inline-flex;
+	vertical-align: middle;
+	align-items: center;
+	gap: 4px;
+	margin: 0 2px 0 0;
+	padding: 2px 4px 2px 8px;
+	border-radius: 8px;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.3;
+	user-select: none;
+	background: rgba(139, 92, 246, 0.28);
+	color: #c4b5fd;
+	border: 1px solid rgba(167, 139, 250, 0.45);
+	flex-shrink: 0;
+	max-width: min(240px, 60vw);
+}
+
+.ref-inline-skill-chip-label {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ref-inline-skill-chip-x {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	margin: 0 -2px 0 0;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	background: rgba(0, 0, 0, 0.22);
+	color: inherit;
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 1;
+	font-family: inherit;
+	flex-shrink: 0;
+}
+
+.ref-inline-skill-chip-x:hover {
+	background: rgba(0, 0, 0, 0.38);
+}
+
+:root[data-color-scheme='light'] .ref-inline-skill-chip {
+	background: rgba(139, 92, 246, 0.14);
+	color: #6d28d9;
+	border-color: rgba(139, 92, 246, 0.35);
+}
+
+:root[data-color-scheme='light'] .ref-inline-skill-chip-x {
+	background: rgba(109, 40, 217, 0.14);
+}
+
+:root[data-color-scheme='light'] .ref-inline-skill-chip-x:hover {
+	background: rgba(109, 40, 217, 0.24);
 }
 
 .ref-composer-stacked-body {

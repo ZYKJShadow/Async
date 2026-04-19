@@ -1994,27 +1994,36 @@ function AppMainWorkspaceInner() {
 	}, [appendComposerFileReferences, flashComposerAttachErr, shell, t]);
 
 	const insertComposerSkillInvocation = useCallback(
-		(slug: string) => {
+		(slug: string, name?: string) => {
 			const normalizedSlug = String(slug ?? '').trim().replace(/^\.\//, '');
 			if (!normalizedSlug) {
 				return;
 			}
-			const nextPrefix = `./${normalizedSlug} `;
+			const displayName = (name ?? '').trim() || normalizedSlug;
 			setComposerSegments((prev) => {
+				const skillSeg: ComposerSegment = {
+					id: newSegmentId(),
+					kind: 'skill',
+					slug: normalizedSlug,
+					name: displayName,
+				};
 				const next = [...prev];
 				const first = next[0];
-				if (first?.kind === 'text') {
-					if (LEADING_SKILL_INVOKE_RE.test(first.text)) {
-						next[0] = {
-							...first,
-							text: first.text.replace(LEADING_SKILL_INVOKE_RE, nextPrefix),
-						};
-					} else {
-						next.unshift({ id: newSegmentId(), kind: 'text', text: nextPrefix });
-					}
+				/* 替换已有的 leading skill / 旧版 `./slug ` 文本，避免重复 */
+				if (first?.kind === 'skill') {
+					next[0] = skillSeg;
 					return next;
 				}
-				return [{ id: newSegmentId(), kind: 'text', text: nextPrefix }, ...next];
+				if (first?.kind === 'text' && LEADING_SKILL_INVOKE_RE.test(first.text)) {
+					const rest = first.text.replace(LEADING_SKILL_INVOKE_RE, '');
+					if (rest.length > 0) {
+						next[0] = { ...first, text: rest };
+						return [skillSeg, ...next];
+					}
+					next.shift();
+					return [skillSeg, ...next];
+				}
+				return [skillSeg, ...next];
 			});
 			focusPreferredComposerInput();
 		},

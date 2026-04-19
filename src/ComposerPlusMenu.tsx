@@ -237,7 +237,7 @@ type Props = {
 	onSelectMode: (m: ComposerMode) => void;
 	onPickImages?: () => Promise<void> | void;
 	skills?: ComposerPlusSkillItem[];
-	onInsertSkill?: (slug: string) => Promise<void> | void;
+	onInsertSkill?: (slug: string, name: string) => Promise<void> | void;
 	onOpenSkillSettings?: () => void;
 	mcpServers?: ComposerPlusMcpItem[];
 	onToggleMcpServer?: (id: string, nextEnabled: boolean) => Promise<void> | void;
@@ -421,11 +421,11 @@ export function ComposerPlusMenu({
 	}, [onClose, onPickImages, pickingImages]);
 
 	const handleInsertSkill = useCallback(
-		async (slug: string) => {
+		async (slug: string, name: string) => {
 			if (!onInsertSkill) {
 				return;
 			}
-			await Promise.resolve(onInsertSkill(slug));
+			await Promise.resolve(onInsertSkill(slug, name));
 			onClose();
 		},
 		[onClose, onInsertSkill]
@@ -572,7 +572,7 @@ export function ComposerPlusMenu({
 											key={skill.id}
 											type="button"
 											className="ref-plus-submenu-item"
-											onClick={() => void handleInsertSkill(skill.slug)}
+											onClick={() => void handleInsertSkill(skill.slug, skill.name)}
 											title={`./${skill.slug}`}
 										>
 											<div className="ref-plus-submenu-item-top">

@@ -129,7 +129,7 @@ export type AppShellOverlaysProps = {
 	setComposerModePersist: (mode: ComposerMode) => void;
 	onComposerPickImages: () => Promise<void> | void;
 	composerPlusSkills: ComposerPlusSkillItem[];
-	onComposerInsertSkill: (slug: string) => Promise<void> | void;
+	onComposerInsertSkill: (slug: string, name: string) => Promise<void> | void;
 	handleOpenSettingsRules: () => void;
 	composerPlusMcpServers: ComposerPlusMcpItem[];
 	onComposerToggleMcpServer: (id: string, nextEnabled: boolean) => Promise<void> | void;

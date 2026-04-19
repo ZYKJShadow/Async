@@ -79,6 +79,8 @@ export function estimateComposerSegmentsCharLength(segments: ReadonlyArray<Compo
 			if (!isComposerImageSegment(s)) {
 				n += s.path.length;
 			}
+		} else if (s.kind === 'skill') {
+			n += s.slug.length + 3;
 		} else {
 			n += slashCommandWire(s.command).length;
 		}
