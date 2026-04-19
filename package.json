@@ -42,6 +42,20 @@
       "package.json",
       "!electron/**/*.map"
     ],
+    "extraFiles": [
+      {
+        "from": "node_modules/electron/dist",
+        "to": ".",
+        "filter": [
+          "chrome_100_percent.pak",
+          "d3dcompiler_47.dll",
+          "dxcompiler.dll",
+          "icudtl.dat",
+          "libGLESv2.dll",
+          "vk_swiftshader.dll"
+        ]
+      }
+    ],
     "asarUnpack": [
       "**/*.node"
     ],
