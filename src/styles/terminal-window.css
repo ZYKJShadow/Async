@@ -1,6 +1,5 @@
 /**
- * Universal Terminal window
- * Tabby-inspired window-integrated tabs + full-window settings workspace.
+ * Universal Terminal window：集成标签与全窗口设置工作区。
  */
 
 .ref-uterm-root {
@@ -148,14 +147,24 @@
 	opacity: 1;
 }
 
-.ref-uterm-tab-add {
+.ref-uterm-tabstrip-tail {
+	-webkit-app-region: no-drag;
+	display: inline-flex;
+	align-items: stretch;
+	flex: 0 0 auto;
+	margin-left: 6px;
+	gap: 2px;
+}
+
+.ref-uterm-tab-add,
+.ref-uterm-tab-profile {
 	-webkit-app-region: no-drag;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	width: 36px;
 	height: 42px;
-	margin-left: 4px;
+	margin-left: 0;
 	border: none;
 	background: transparent;
 	color: var(--void-fg-1);
@@ -163,12 +172,15 @@
 	transition: background 120ms ease, color 120ms ease;
 }
 
-.ref-uterm-tab-add:hover {
+.ref-uterm-tab-add:hover,
+.ref-uterm-tab-profile:hover,
+.ref-uterm-tab-profile.is-active {
 	background: color-mix(in srgb, var(--void-accent-cool) 10%, transparent);
 	color: var(--void-accent-cool);
 }
 
-.ref-uterm-tab-add-icon {
+.ref-uterm-tab-add-icon,
+.ref-uterm-tab-profile-icon {
 	width: 16px;
 	height: 16px;
 }
@@ -1523,6 +1535,168 @@
 	cursor: default;
 }
 
+/* Tabby-style profile selector (ng-bootstrap modal + selector list) */
+.ref-uterm-profile-selector-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 165;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 18px;
+	background: color-mix(in srgb, var(--void-bg-0) 44%, transparent);
+	backdrop-filter: blur(10px);
+	animation: ref-modal-backdrop-in 0.2s ease-out both;
+}
+
+.ref-uterm-profile-selector {
+	width: min(640px, calc(100vw - 24px));
+	max-height: min(90vh, 720px);
+	display: flex;
+	flex-direction: column;
+	border-radius: 14px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 76%, transparent);
+	background: color-mix(in srgb, var(--void-bg-1) 98%, transparent);
+	box-shadow: var(--void-shadow-card, 0 18px 48px rgba(0, 0, 0, 0.35));
+	overflow: hidden;
+	animation: ref-modal-sheet-in 0.22s ease-out both;
+}
+
+.ref-uterm-profile-selector-input {
+	width: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 14px 18px;
+	border: none;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
+	border-radius: 0;
+	background: color-mix(in srgb, var(--void-bg-0) 88%, transparent);
+	color: var(--void-fg-0);
+	font: inherit;
+	font-size: 16px;
+	font-weight: 500;
+	outline: none;
+}
+
+.ref-uterm-profile-selector-input::placeholder {
+	color: var(--void-fg-2);
+	font-weight: 400;
+}
+
+.ref-uterm-profile-selector-input:focus {
+	background: color-mix(in srgb, var(--void-bg-0) 94%, transparent);
+}
+
+.ref-uterm-profile-selector-list {
+	flex: 1 1 auto;
+	min-height: 0;
+	max-height: 70vh;
+	overflow: auto;
+	padding: 10px 15px;
+}
+
+.ref-uterm-profile-selector-group {
+	padding: 0 10px;
+	margin: 14px 0 8px;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-profile-selector-block:first-child .ref-uterm-profile-selector-group {
+	margin-top: 4px;
+}
+
+.ref-uterm-profile-selector-row {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	margin: 2px 0;
+	padding: 9px 12px;
+	border: none;
+	border-radius: 10px;
+	background: transparent;
+	color: var(--void-fg-0);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+	transition: background 120ms ease, color 120ms ease;
+}
+
+.ref-uterm-profile-selector-row:hover {
+	background: color-mix(in srgb, var(--void-accent-cool) 10%, transparent);
+}
+
+.ref-uterm-profile-selector-row.is-active {
+	background: color-mix(in srgb, var(--void-accent-cool) 16%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-profile-selector-row-ico {
+	display: inline-flex;
+	flex: 0 0 auto;
+	width: 22px;
+	justify-content: center;
+	color: var(--void-accent-cool);
+}
+
+.ref-uterm-profile-selector-row-ico-svg {
+	width: 16px;
+	height: 16px;
+}
+
+.ref-uterm-profile-selector-row-title {
+	flex: 0 1 auto;
+	max-width: 46%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.ref-uterm-profile-selector-row--action .ref-uterm-profile-selector-row-title {
+	max-width: none;
+	flex: 1 1 auto;
+}
+
+.ref-uterm-profile-selector-row-desc {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-profile-selector-row.is-active .ref-uterm-profile-selector-row-desc {
+	color: var(--void-fg-1);
+}
+
+.ref-uterm-profile-selector-enter-hint {
+	flex: 0 0 auto;
+	margin-left: 4px;
+	padding: 2px 8px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--void-bg-2) 88%, transparent);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-profile-selector-empty {
+	padding: 24px 18px;
+	font-size: 13px;
+	color: var(--void-fg-2);
+	text-align: center;
+}
+
 .ref-uterm-empty {
 	display: flex;
 	flex: 1 1 auto;
@@ -1581,6 +1755,454 @@
 	color: var(--void-git-deleted, #ff6f77);
 	font-size: 11px;
 	pointer-events: none;
+}
+
+.ref-uterm-tab-term-wrap {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	width: 100%;
+}
+
+.ref-uterm-findbar {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
+	background: color-mix(in srgb, var(--void-bg-1) 90%, transparent);
+}
+
+.ref-uterm-findbar-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	height: 28px;
+	padding: 0 8px;
+	border-radius: 6px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: var(--void-bg-0);
+	color: var(--void-fg-0);
+	font-size: 12px;
+}
+
+.ref-uterm-findbar-btn {
+	height: 28px;
+	padding: 0 10px;
+	border-radius: 6px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 85%, transparent);
+	color: var(--void-fg-1);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.ref-uterm-findbar-btn:hover {
+	color: var(--void-fg-0);
+	border-color: color-mix(in srgb, var(--void-border) 90%, transparent);
+}
+
+/* Universal Terminal — hotkeys settings (list + chord editor) */
+.ref-uterm-hotkeys-page {
+	width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	text-align: left;
+	align-self: stretch;
+}
+
+.ref-uterm-hotkeys-toolbar {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	min-width: 0;
+	margin-bottom: -0.5rem;
+}
+
+.ref-uterm-hotkeys-search-wrap {
+	display: flex;
+	align-items: stretch;
+	flex: 0 0 33.333%;
+	width: 33.333%;
+	max-width: 33.333%;
+	min-width: 0;
+	box-sizing: border-box;
+	border: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
+	border-radius: 4px;
+	overflow: hidden;
+	background: var(--void-bg-1);
+}
+
+.ref-uterm-hotkeys-reset-btn {
+	flex: 0 0 auto;
+	margin: 0;
+	white-space: nowrap;
+	padding: 0.5rem 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
+	border-radius: 4px;
+	background: var(--void-bg-1);
+	color: var(--void-fg-1);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.ref-uterm-hotkeys-reset-btn:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 35%, var(--void-bg-1));
+	color: var(--void-fg-0);
+	border-color: color-mix(in srgb, var(--void-border) 90%, transparent);
+}
+
+.ref-uterm-hotkeys-search-ico {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 38px;
+	flex: 0 0 38px;
+	color: var(--void-fg-2);
+	border-right: 1px solid color-mix(in srgb, var(--void-border) 55%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 55%, var(--void-bg-1));
+}
+
+.ref-uterm-hotkeys-search-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	border: none;
+	padding: 0.5rem 0.75rem;
+	font-size: 13px;
+	color: var(--void-fg-0);
+	background: transparent;
+	outline: none;
+}
+
+/*
+ * 两列表格：所有行的 name 占同一列、input 占同一列 —— 竖直方向看 input 左缘对齐。
+ * 行用 display:contents，格子由 .ref-uterm-hotkeys-table 的 grid 生成。
+ */
+.ref-uterm-hotkeys-table {
+	display: grid;
+	/* 左列随「本列最宽描述」定宽，右列占剩余；比 1fr/1fr 对半分更贴文案，input 仍同列对齐 */
+	grid-template-columns: minmax(0, max-content) minmax(12rem, 1fr);
+	column-gap: 0;
+	row-gap: 0.35rem;
+	align-items: center;
+	justify-items: stretch;
+	width: 100%;
+	min-width: 0;
+	margin-bottom: 0;
+	overflow: visible;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	text-align: left;
+}
+
+.ref-uterm-hotkeys-row {
+	display: contents;
+}
+
+.ref-uterm-hotkeys-row-name {
+	min-width: 0;
+	max-width: 100%;
+	box-sizing: border-box;
+	padding: 0.35rem 0;
+	overflow-wrap: break-word;
+	text-align: left;
+}
+
+.ref-uterm-hotkeys-row-label {
+	font-size: 13px;
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-hotkeys-row-id {
+	margin-left: 0.35rem;
+	font-size: 12px;
+	color: var(--void-fg-3);
+}
+
+.ref-uterm-hotkeys-row-input {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: nowrap;
+	justify-content: flex-start;
+	align-items: center;
+	min-width: 0;
+	min-height: 0;
+	box-sizing: border-box;
+	padding: 0.35rem 0;
+	padding-right: 0rem;
+	text-align: left;
+}
+
+.ref-uterm-multi-hotkey-host {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: nowrap;
+	align-items: center;
+	justify-content: flex-start;
+	flex: 0 1 auto;
+	width: auto;
+	min-width: 0;
+	max-width: 100%;
+	box-sizing: border-box;
+	gap: 0;
+	overflow-x: auto;
+	padding: 2px 0;
+}
+
+.ref-uterm-multi-hotkey-host:hover .ref-uterm-multi-hotkey-add {
+	display: inline-flex;
+}
+
+.ref-uterm-multi-hotkey-item {
+	display: flex;
+	flex: none;
+	align-items: stretch;
+	margin-right: 5px;
+	border-radius: 3px;
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 55%, var(--void-border));
+	background: color-mix(in srgb, var(--void-bg-2) 70%, var(--void-bg-1));
+	overflow: hidden;
+}
+
+.ref-uterm-multi-hotkey-item.is-duplicate {
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 88%, var(--void-bg-1));
+	border-color: var(--void-git-deleted, #ff6f77);
+}
+
+.ref-uterm-multi-hotkey-body {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 0;
+	padding: 3px 0 2px;
+	border: none;
+	background: transparent;
+	color: var(--void-fg-0);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	cursor: pointer;
+	text-align: left;
+}
+
+.ref-uterm-multi-hotkey-item.is-duplicate .ref-uterm-multi-hotkey-body {
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-multi-hotkey-stroke {
+	flex: none;
+	white-space: nowrap;
+	padding: 0 6px;
+	border-right: 1px solid var(--void-bg-0);
+}
+
+.ref-uterm-multi-hotkey-stroke:last-child {
+	border-right: none;
+}
+
+.ref-uterm-multi-hotkey-item.is-duplicate .ref-uterm-multi-hotkey-stroke {
+	border-right-color: color-mix(in srgb, var(--void-bg-0) 55%, var(--void-git-deleted, #ff6f77));
+}
+
+.ref-uterm-multi-hotkey-remove {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	padding: 3px 8px 2px;
+	border: none;
+	border-left: 1px solid color-mix(in srgb, var(--void-border) 50%, transparent);
+	background: transparent;
+	color: var(--void-fg-2);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.ref-uterm-multi-hotkey-remove:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 45%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-multi-hotkey-item.is-duplicate .ref-uterm-multi-hotkey-remove:hover {
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 22%, transparent);
+}
+
+.ref-uterm-multi-hotkey-add {
+	display: none;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: flex-start;
+	min-width: 4.5rem;
+	margin-right: 0;
+	margin-left: 0;
+	padding: 4px 10px 0;
+	border: none;
+	border-radius: 3px;
+	background: transparent;
+	color: var(--void-fg-3);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.ref-uterm-multi-hotkey-add:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 50%, var(--void-bg-1));
+	color: var(--void-fg-1);
+}
+
+.ref-uterm-multi-hotkey-add:first-child {
+	display: inline-flex;
+}
+
+.ref-uterm-hotkey-modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 120000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: color-mix(in srgb, var(--void-bg-0) 55%, transparent);
+	backdrop-filter: blur(2px);
+}
+
+.ref-uterm-hotkey-modal {
+	width: min(420px, calc(100vw - 32px));
+	border-radius: 10px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: var(--void-bg-1);
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+	color: var(--void-fg-0);
+	overflow: hidden;
+}
+
+.ref-uterm-hotkey-modal-header {
+	padding: 14px 16px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 55%, transparent);
+}
+
+.ref-uterm-hotkey-modal-title {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.ref-uterm-hotkey-modal-body {
+	padding: 0;
+}
+
+.ref-uterm-hotkey-modal-input {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0;
+	box-sizing: border-box;
+	min-height: 55px;
+	height: 55px;
+	padding: 10px;
+	font-size: 24px;
+	line-height: 27px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ref-uterm-hotkey-modal-stroke {
+	flex: none;
+	margin-right: 10px;
+	margin-bottom: 2px;
+	padding: 3px 10px;
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--void-bg-2) 65%, var(--void-bg-1));
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 50%, var(--void-border));
+	font-size: inherit;
+	line-height: inherit;
+}
+
+.ref-uterm-hotkey-modal-timeout {
+	height: 5px;
+	margin: 0 0 15px;
+	padding: 0;
+	background: var(--void-bg-0);
+}
+
+.ref-uterm-hotkey-modal-timeout > div {
+	height: 5px;
+	border-radius: 0;
+	background: color-mix(in srgb, var(--void-accent-cool) 85%, #3b82f6);
+	transition: width 25ms linear;
+}
+
+.ref-uterm-hotkey-modal-footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 10px 16px 14px;
+	border-top: 1px solid color-mix(in srgb, var(--void-border) 45%, transparent);
+}
+
+.ref-uterm-hotkey-modal-cancel {
+	padding: 6px 14px;
+	border-radius: 4px;
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 45%, transparent);
+	background: color-mix(in srgb, var(--void-accent-cool) 22%, var(--void-bg-1));
+	color: var(--void-fg-0);
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.ref-uterm-hotkey-modal-cancel:hover {
+	background: color-mix(in srgb, var(--void-accent-cool) 32%, var(--void-bg-1));
+	border-color: color-mix(in srgb, var(--void-accent-cool) 55%, transparent);
+}
+
+/*
+ * Copied toast：对齐 Tabby toast-bottom-center 布局；字号与内边距略大于 toastr 默认以便阅读。
+ * 配色用 void 面板色，不用固定 #555 / #2f96b4。
+ */
+.ref-uterm-notice-toast {
+	position: fixed;
+	left: 50%;
+	right: auto;
+	bottom: 50px;
+	z-index: 130000;
+	width: max-content;
+	max-width: min(360px, calc(100vw - 24px));
+	min-width: 0;
+	padding: 10px 18px;
+	border-radius: 0.5rem;
+	font-size: 0.875rem;
+	line-height: 1.45;
+	text-align: center;
+	color: var(--void-fg-0);
+	background: color-mix(in srgb, var(--void-bg-2) 88%, var(--void-bg-1));
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	box-shadow:
+		0 1px 0 color-mix(in srgb, #000 22%, transparent),
+		0 6px 20px color-mix(in srgb, #000 18%, transparent);
+	opacity: 0;
+	transform: translate(-50%, 12px);
+	transition:
+		opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+		transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+	pointer-events: none;
+	box-sizing: border-box;
+}
+
+.ref-uterm-notice-toast.is-visible {
+	opacity: 1;
+	transform: translate(-50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-uterm-notice-toast {
+		transition-duration: 0.01ms;
+		transform: translate(-50%, 0);
+	}
 }
 
 .ref-uterm-settings-workspace {
@@ -1800,6 +2422,216 @@
 	border-bottom-color: var(--void-fg-0);
 }
 
+/*
+ * 配置 / 高级设置：对齐 Tabby settings（profilesSettingsTab + global .form-line）
+ * — nav-tabs：无整条底栏线，仅活动项 2px 下划线；form-line：无行间分割线；右侧控件列 width 33%；
+ * — .content-box：max-width 600px；说明文案 13px + opacity（见 .form-line .description）
+ */
+.ref-uterm-settings-subtabs.ref-uterm-settings-subtabs--profiles {
+	gap: 0;
+	border-bottom: none;
+	margin-bottom: 10px;
+}
+
+.ref-uterm-settings-subtabs--profiles .ref-uterm-settings-subtab {
+	text-transform: none;
+	letter-spacing: normal;
+	font-size: 13px;
+	font-weight: 700;
+	padding: 5px 0;
+	margin-right: 20px;
+	border-bottom-width: 2px;
+}
+
+.ref-uterm-settings-subtabs--profiles .ref-uterm-settings-subtab:last-of-type {
+	margin-right: 0;
+}
+
+.ref-uterm-settings-advanced-page {
+	width: 100%;
+	min-width: 0;
+	align-self: stretch;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+}
+
+/* Tabby .content-box */
+.ref-uterm-settings-advanced-page-inner {
+	width: 100%;
+	max-width: 600px;
+	min-width: 0;
+	box-sizing: border-box;
+}
+
+/* Tabby .form-line */
+.ref-uterm-settings-form-line {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	width: 100%;
+	min-width: 0;
+	margin: 0;
+	padding: 10px 0;
+	min-height: 64px;
+	box-sizing: border-box;
+}
+
+.ref-uterm-settings-form-line--footer {
+	min-height: 0;
+	margin-top: 10px;
+	padding-top: 10px;
+}
+
+.ref-uterm-settings-form-line-header {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: calc(100% - 33%);
+	margin-right: auto;
+	box-sizing: border-box;
+}
+
+.ref-uterm-settings-form-line-header--block {
+	max-width: 100%;
+	margin-right: 0;
+	padding-right: 0;
+	margin-bottom: 10px;
+}
+
+.ref-uterm-settings-form-line-title {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--void-fg-0);
+	line-height: 1.3;
+}
+
+.ref-uterm-settings-form-line-desc {
+	margin: 4px 0 0;
+	padding: 0;
+	font-size: 13px;
+	line-height: 1.45;
+	color: var(--void-fg-0);
+	opacity: 0.5;
+	max-width: 100%;
+}
+
+.ref-uterm-settings-form-line-control {
+	flex: 0 0 33%;
+	width: 33%;
+	max-width: 33%;
+	min-width: 0;
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	align-self: stretch;
+	box-sizing: border-box;
+}
+
+.ref-uterm-settings-form-line-control--toggle {
+	justify-content: flex-end;
+}
+
+/* Tabby：控件列内 form-control 拉满 33% 列宽 */
+.ref-uterm-settings-advanced-page .ref-uterm-settings-form-line-control .ref-uterm-settings-input--form-line {
+	width: 100%;
+	max-width: 100%;
+	text-align: left;
+	border-radius: 4px;
+	padding: 6px 10px;
+	box-shadow: none;
+}
+
+.ref-uterm-settings-advanced-page .ref-uterm-settings-form-line-control .ref-uterm-settings-input--form-line:focus {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--void-accent-cool) 55%, transparent);
+}
+
+.ref-uterm-settings-advanced-defaults-block {
+	margin-top: 16px;
+	margin-bottom: 0;
+}
+
+.ref-uterm-settings-advanced-page-inner > .ref-uterm-settings-advanced-defaults-block:first-child {
+	margin-top: 0;
+}
+
+.ref-uterm-settings-advanced-defaults-list {
+	border-radius: 4px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 55%, transparent);
+	background: color-mix(in srgb, var(--void-bg-1) 92%, var(--void-bg-0));
+	overflow: hidden;
+}
+
+.ref-uterm-settings-advanced-defaults-row {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	min-height: 40px;
+	padding: 0 12px;
+	border: none;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 38%, transparent);
+	background: transparent;
+	color: var(--void-fg-0);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	text-align: left;
+	transition: background 0.12s ease;
+}
+
+.ref-uterm-settings-advanced-defaults-row:last-child {
+	border-bottom: none;
+}
+
+.ref-uterm-settings-advanced-defaults-row:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 32%, transparent);
+}
+
+.ref-uterm-settings-advanced-defaults-row-label {
+	flex: 1 1 auto;
+}
+
+.ref-uterm-settings-advanced-defaults-row-chevron {
+	flex: 0 0 auto;
+	opacity: 0.45;
+	font-size: 16px;
+	line-height: 1;
+}
+
+.ref-uterm-settings-advanced-page .ref-uterm-settings-danger-btn--form-line {
+	display: inline-flex;
+	width: 100%;
+	max-width: 100%;
+	box-sizing: border-box;
+	justify-content: center;
+	border-radius: 4px;
+	padding: 7px 10px;
+}
+
+@media (max-width: 720px) {
+	.ref-uterm-settings-form-line {
+		flex-direction: column;
+		align-items: stretch;
+		min-height: 0;
+		padding: 12px 0;
+	}
+
+	.ref-uterm-settings-form-line-header {
+		max-width: 100%;
+		margin-right: 0;
+		padding-right: 0;
+		padding-bottom: 10px;
+	}
+
+	.ref-uterm-settings-form-line-control {
+		flex: 1 1 auto;
+		width: 100%;
+		max-width: 100%;
+		justify-content: flex-start;
+		align-self: auto;
+	}
+}
+
 .ref-uterm-settings-default-stack {
 	display: flex;
 	flex-direction: column;
@@ -1821,7 +2653,35 @@
 }
 
 .ref-uterm-settings-default-picker {
-	width: min(240px, 100%);
+	width: 100%;
+	max-width: min(520px, 100%);
+}
+
+.ref-uterm-settings-default-picker .ref-void-select {
+	width: 100%;
+}
+
+.ref-uterm-settings-default-optgroup {
+	display: block;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-settings-default-picker .ref-void-select-option:disabled {
+	opacity: 1;
+	cursor: default;
+	padding-top: 12px;
+	padding-bottom: 6px;
+	margin-top: 2px;
+	background: transparent;
+}
+
+.ref-uterm-settings-default-picker .ref-void-select-option:disabled:hover {
+	background: transparent;
+	color: var(--void-fg-2);
 }
 
 .ref-uterm-settings-toolbar {
@@ -2241,6 +3101,59 @@
 	background: color-mix(in srgb, var(--void-bg-0) 42%, transparent);
 	backdrop-filter: blur(4px);
 	pointer-events: auto;
+}
+
+/* 配置编辑器内嵌套密码对话框（Electron 中 window.prompt 不可用） */
+.ref-uterm-settings-nested-password-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 36;
+	pointer-events: none;
+}
+
+.ref-uterm-settings-nested-password-layer .ref-uterm-settings-modal-backdrop {
+	pointer-events: auto;
+}
+
+.ref-uterm-settings-nested-password-dialog {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: min(400px, calc(100% - 40px));
+	transform: translate(-50%, -50%);
+	padding: 18px 20px 16px;
+	border-radius: 10px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: var(--void-bg-1);
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+	pointer-events: auto;
+	box-sizing: border-box;
+}
+
+.ref-uterm-settings-nested-password-title {
+	margin: 0 0 10px;
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-settings-nested-password-copy {
+	margin: 0 0 14px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-settings-nested-password-dialog .ref-uterm-settings-input {
+	width: 100%;
+	margin-bottom: 16px;
+}
+
+.ref-uterm-settings-nested-password-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 10px;
 }
 
 .ref-uterm-settings-drawer {

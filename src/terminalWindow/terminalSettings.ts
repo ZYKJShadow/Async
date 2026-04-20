@@ -1,5 +1,11 @@
 /** Universal Terminal 用户设置；纯前端，localStorage 持久化，不走 settings.json。 */
 
+import { TERMINAL_HOTKEY_IDS, defaultPlatformHotkeysTable, type TerminalHotkeyId } from './terminalHotkeyDefaults';
+
+export type { TerminalHotkeyId } from './terminalHotkeyDefaults';
+
+export type TerminalHotkeysUserMap = Partial<Record<TerminalHotkeyId, string[]>>;
+
 export type TerminalCursorStyle = 'bar' | 'block' | 'underline';
 export type TerminalBellStyle = 'none' | 'visual' | 'audible';
 export type TerminalRightClickAction = 'off' | 'menu' | 'paste' | 'clipboard';
@@ -105,6 +111,12 @@ export type TerminalProfile = {
 	env: string;
 };
 
+/** 与 Tabby「Default profile settings」一致：按 local / ssh 合并进从模板新建的配置。 */
+export type TerminalProfileTypeDefaults = {
+	local: Partial<TerminalProfile>;
+	ssh: Partial<TerminalProfile>;
+};
+
 export type TerminalAppSettings = {
 	fontFamily: string;
 	fontSize: number;
@@ -131,6 +143,13 @@ export type TerminalAppSettings = {
 	opacity: number;
 	profiles: TerminalProfile[];
 	defaultProfileId: string;
+	/** 配置选择器中「最近使用」最多展示条数；0 表示不展示该分组。 */
+	profileSelectorRecentMax: number;
+	/** 在配置选择器列表中是否展示内置 Shell 等内置配置。 */
+	profileSelectorShowBuiltin: boolean;
+	profileTypeDefaults: TerminalProfileTypeDefaults;
+	/** 逻辑 id → 若干组合键字符串（如 Ctrl-Shift-C）。 */
+	hotkeys: TerminalHotkeysUserMap;
 };
 
 export const DEFAULT_PROFILE_ID = 'default';
@@ -175,6 +194,19 @@ export const TERMINAL_COLOR_SCHEMES: TerminalColorScheme[] = [
 		colors: ['#18212b', '#ff6b6b', '#98d8aa', '#ffd166', '#78a8ff', '#d7aefb', '#89ddff', '#d8dbe2', '#405264', '#ff9b9b', '#b7f3c3', '#ffe08c', '#a9c3ff', '#e8c8ff', '#b8f0ff', '#ffffff'],
 	},
 ];
+
+/** 合并平台默认与用户覆盖后的 hotkeys 分支，供 TerminalHotkeyMatcher 使用。 */
+export function mergeResolvedTerminalHotkeysMap(settings: TerminalAppSettings): Record<string, unknown> {
+	const platform = readRendererPlatform();
+	const def = defaultPlatformHotkeysTable(platform);
+	const user = settings.hotkeys;
+	const branch: Record<string, unknown> = {};
+	for (const id of TERMINAL_HOTKEY_IDS) {
+		const o = user[id];
+		branch[id] = o !== undefined ? [...o] : [...def[id]];
+	}
+	return branch;
+}
 
 export const TERMINAL_SSH_ALGORITHM_OPTIONS: TerminalSshAlgorithms = {
 	cipher: ['chacha20-poly1305@openssh.com', 'aes256-gcm@openssh.com', 'aes256-ctr', 'aes192-ctr', 'aes128-ctr'],
@@ -246,6 +278,10 @@ export function defaultTerminalSettings(): TerminalAppSettings {
 			},
 		],
 		defaultProfileId: DEFAULT_PROFILE_ID,
+		profileSelectorRecentMax: 3,
+		profileSelectorShowBuiltin: true,
+		profileTypeDefaults: { local: {}, ssh: {} },
+		hotkeys: {},
 	};
 }
 
@@ -318,6 +354,7 @@ export function normalizeTerminalSettings(raw: unknown): TerminalAppSettings {
 	const bell = obj.bell;
 	const legacyRightClickPaste = obj.rightClickPaste;
 	const rawRightClickAction = obj.rightClickAction;
+	const profileTypeDefaults = readProfileTypeDefaults(obj.profileTypeDefaults, def.profileTypeDefaults);
 	return {
 		fontFamily: typeof obj.fontFamily === 'string' && obj.fontFamily.trim() ? obj.fontFamily : def.fontFamily,
 		fontSize: clamp(toNumber(obj.fontSize, def.fontSize), 8, 32),
@@ -354,6 +391,10 @@ export function normalizeTerminalSettings(raw: unknown): TerminalAppSettings {
 		opacity: clamp(toNumber(obj.opacity, def.opacity), 0.5, 1),
 		profiles: effectiveProfiles,
 		defaultProfileId,
+		profileSelectorRecentMax: clamp(Math.floor(toNumber(obj.profileSelectorRecentMax, def.profileSelectorRecentMax)), 0, 50),
+		profileSelectorShowBuiltin: toBoolean(obj.profileSelectorShowBuiltin, def.profileSelectorShowBuiltin),
+		profileTypeDefaults,
+		hotkeys: normalizeTerminalHotkeysUserMap(obj.hotkeys),
 	};
 }
 
@@ -419,6 +460,46 @@ export function cloneTerminalProfile(existing: TerminalProfile[], profile: Termi
 		inputBackspace: normalizeInputBackspace(profile.inputBackspace),
 		id: newProfileId(existing),
 		name: `${profile.name.trim() || 'Profile'} Copy`,
+	};
+}
+
+/** 将保存的「类型默认」合并进草稿（不覆盖 id / builtinKey）。 */
+export function mergeTypeDefaultsIntoProfile(base: TerminalProfile, partial: Partial<TerminalProfile> | undefined): TerminalProfile {
+	if (!partial || typeof partial !== 'object' || Object.keys(partial).length === 0) {
+		return base;
+	}
+	const { id: _id, builtinKey: _bk, ...rest } = partial;
+	return { ...base, ...rest, id: base.id, builtinKey: base.builtinKey };
+}
+
+/** 写入设置前去掉 id / builtinKey，避免误持久化。 */
+export function terminalProfileToTypeDefaultsPatch(profile: TerminalProfile): Partial<TerminalProfile> {
+	const { id: _id, builtinKey: _bk, ...rest } = profile;
+	return rest;
+}
+
+function coerceProfileTypeDefaultPartial(raw: unknown): Partial<TerminalProfile> {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+		return {};
+	}
+	try {
+		const o = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>;
+		delete o.id;
+		delete o.builtinKey;
+		return o as Partial<TerminalProfile>;
+	} catch {
+		return {};
+	}
+}
+
+function readProfileTypeDefaults(raw: unknown, fallback: TerminalProfileTypeDefaults): TerminalProfileTypeDefaults {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+		return { local: { ...fallback.local }, ssh: { ...fallback.ssh } };
+	}
+	const r = raw as Record<string, unknown>;
+	return {
+		local: coerceProfileTypeDefaultPartial(r.local),
+		ssh: coerceProfileTypeDefaultPartial(r.ssh),
 	};
 }
 
@@ -1044,7 +1125,31 @@ function matchesAlgorithmDefault(items: string[], defaults: string[]): boolean {
 	return items.length === defaults.length && items.every((item, index) => item === defaults[index]);
 }
 
-function readRendererPlatform(): TerminalRuntimePlatform {
+function normalizeTerminalHotkeysUserMap(value: unknown): TerminalHotkeysUserMap {
+	if (!value || typeof value !== 'object') {
+		return {};
+	}
+	const obj = value as Record<string, unknown>;
+	const out: TerminalHotkeysUserMap = {};
+	for (const id of TERMINAL_HOTKEY_IDS) {
+		if (!Object.prototype.hasOwnProperty.call(obj, id)) {
+			continue;
+		}
+		const v = obj[id];
+		if (!Array.isArray(v)) {
+			out[id] = [];
+			continue;
+		}
+		const strokes = v
+			.filter((item): item is string => typeof item === 'string')
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0);
+		out[id] = strokes;
+	}
+	return out;
+}
+
+export function readRendererPlatform(): TerminalRuntimePlatform {
 	if (typeof document !== 'undefined') {
 		const platform = document.documentElement.getAttribute('data-platform');
 		if (platform === 'win32' || platform === 'darwin' || platform === 'linux') {

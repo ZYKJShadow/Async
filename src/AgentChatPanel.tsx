@@ -48,6 +48,7 @@ import {
 } from './streamingStore';
 import { computeMergedAgentFileChanges } from './agentFileChangesCompute';
 import {
+	buildConversationRenderKey,
 	computeLatestTurnFocusSpacerPx,
 	findLatestTurnFocusUserIndex,
 	findStickyUserIndexForViewport,
@@ -365,7 +366,11 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	);
 
 	const isEditorRail = layout === 'editor-rail';
-	const conversationRenderKey = messagesThreadId ?? 'no-thread';
+	/**
+	 * 同线程切换 agent/team/plan 等模式时，消息轨道的 DOM 结构和高度预算都会变化。
+	 * render key 必须带上 mode，才能让行高缓存、切片起点、sticky/spacer 一起重建。
+	 */
+	const conversationRenderKey = buildConversationRenderKey(messagesThreadId, composerMode);
 	const dropDepthRef = useRef(0);
 	const [chatPanelFileDragOver, setChatPanelFileDragOver] = useState(false);
 	const [bottomTodoCollapsed, setBottomTodoCollapsed] = useState(true);
@@ -385,6 +390,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		useState<BottomTodoLayoutMode | null>(null);
 	const bottomTodoCollapsedRef = useRef(true);
 	bottomTodoCollapsedRef.current = bottomTodoCollapsed;
+
+	useLayoutEffect(() => {
+		bottomTodoAtBottomRef.current = true;
+	}, [conversationRenderKey]);
 
 	/**
 	 * 把面板「展开 + 锁定 layoutMode」的逻辑抽出来，自动展开和用户手动展开都走这一条路径。
@@ -504,16 +513,19 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const messageRowHeightsRef = useRef<Map<number, number>>(new Map());
 	/**
 	 * 「过程区」独立行（preflight row）高度缓存：key 为它附属的 assistant 消息 index。
-	 * 不参与 stickyUserIndex / data-msg-index 体系，仅用于 latestTurnFocusSpacerPx 修正。
+	 * 不参与 stickyUserIndex / data-msg-index 体系；仅在 DOM 直测缺失时作为
+	 * latestTurnFocusSpacerPx 的兜底估算。
 	 */
 	const preflightRowHeightsRef = useRef<Map<number, number>>(new Map());
 	const [messageStartIndex, setMessageStartIndex] = useState(0);
 	const [latestTurnFocusSpacerPx, setLatestTurnFocusSpacerPx] = useState(0);
 	const [stickyUserIndex, setStickyUserIndex] = useState<number | null>(null);
+	const [layoutMeasureVersion, setLayoutMeasureVersion] = useState(0);
 	const messagesTopSentinelRef = useRef<HTMLDivElement | null>(null);
 	const pendingPrependScrollRef = useRef<{ prevScrollHeight: number } | null>(null);
 	const prevDisplayMessagesLenRef = useRef(displayMessages.length);
 	const prevConversationForLenRef = useRef<string | null>(null);
+	const lastLayoutMeasureSigRef = useRef('');
 
 	const getRowHeightForBudget = useCallback(
 		(i: number) => messageRowHeightsRef.current.get(i) ?? ESTIMATED_MESSAGE_ROW_PX,
@@ -565,6 +577,11 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		}
 		prevDisplayMessagesLenRef.current = n;
 	}, [displayMessages.length, conversationRenderKey, trackGapPx]);
+
+	useLayoutEffect(() => {
+		setLatestTurnFocusSpacerPx(0);
+		setStickyUserIndex(null);
+	}, [conversationRenderKey]);
 
 	/** 顶部哨兵：再往上加载约「一整屏」高的内容（按已测/估算行高累计） */
 	useEffect(() => {
@@ -670,6 +687,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		len,
 		messageStartIndex,
 		lastMessageLayoutSig,
+		layoutMeasureVersion,
 		conversationRenderKey,
 		getRowHeightForBudget,
 		trackGapPx,
@@ -698,22 +716,40 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			return;
 		}
 		const viewport = messagesViewportRef.current;
-		if (!viewport) {
+		const track = messagesTrackRef.current;
+		if (!viewport || !track) {
 			return;
 		}
 		const viewportStyle = window.getComputedStyle(viewport);
 		const topPadding = Number.parseFloat(viewportStyle.paddingTop || '0') || 0;
 		const bottomPadding = Number.parseFloat(viewportStyle.paddingBottom || '0') || 0;
-		const activeRowHeight = Math.max(0, getRowHeightForBudget(latestTurnFocusUserIndex));
+		const activeRow = track.querySelector<HTMLElement>(
+			`.ref-msg-row-measure[data-msg-index="${latestTurnFocusUserIndex}"]`
+		);
+		const tailSpacer = track.querySelector<HTMLElement>('.ref-messages-tail-spacer');
+		let activeRowHeight = Math.max(0, getRowHeightForBudget(latestTurnFocusUserIndex));
 		let belowContentHeight = 0;
-		for (let i = latestTurnFocusUserIndex + 1; i < len; i++) {
-			belowContentHeight += Math.max(0, getRowHeightForBudget(i));
-			belowContentHeight += trackGapPx;
-			const preflightH = preflightRowHeightsRef.current.get(i);
-			if (preflightH && preflightH > 0) {
-				belowContentHeight += preflightH;
+		if (activeRow) {
+			// 用真实布局距离兜住 preflight row 的负 margin、文件 chip/图片撑高等情况，
+			// 避免统一 gap 估算把最近 user 永远差几像素顶不到 sticky 边界。
+			const measuredActiveHeight =
+				activeRow.offsetHeight || Math.ceil(activeRow.getBoundingClientRect().height);
+			activeRowHeight = Math.max(0, measuredActiveHeight);
+			const activeBottom = activeRow.offsetTop + measuredActiveHeight;
+			belowContentHeight = tailSpacer
+				? Math.max(0, tailSpacer.offsetTop - activeBottom)
+				: Math.max(0, track.scrollHeight - activeBottom);
+		} else {
+			for (let i = latestTurnFocusUserIndex + 1; i < len; i++) {
+				belowContentHeight += Math.max(0, getRowHeightForBudget(i));
 				belowContentHeight += trackGapPx;
+				const preflightH = preflightRowHeightsRef.current.get(i);
+				if (preflightH && preflightH > 0) {
+					belowContentHeight += preflightH;
+					belowContentHeight += trackGapPx;
+				}
 			}
+			belowContentHeight += trackGapPx;
 		}
 		const baseSpacer = computeLatestTurnFocusSpacerPx({
 			viewportHeight: viewport.clientHeight,
@@ -722,18 +758,68 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			activeRowHeight,
 			belowContentHeight,
 		});
-		const nextSpacer = baseSpacer > 0 ? Math.max(0, baseSpacer - trackGapPx) : 0;
+		const nextSpacer = Math.max(0, baseSpacer);
 		setLatestTurnFocusSpacerPx((prev) => (Math.abs(prev - nextSpacer) <= 1 ? prev : nextSpacer));
 	}, [
 		hasConversation,
 		latestTurnFocusUserIndex,
 		len,
 		lastMessageLayoutSig,
+		layoutMeasureVersion,
 		conversationRenderKey,
 		getRowHeightForBudget,
 		trackGapPx,
 		messagesViewportRef,
+		messagesTrackRef,
 	]);
+
+	/**
+	 * user 图片 chip / 窗口宽度 / 字体加载等都会改变 user row 的真实高度，
+	 * 但这些变化未必伴随 messages.length 或 content.length 变化。
+	 * 这里单独订阅 viewport + track 的布局尺寸，在轨道重新排版后触发一次高度重测与 spacer 重算。
+	 */
+	useEffect(() => {
+		if (!hasConversation) {
+			lastLayoutMeasureSigRef.current = '';
+			return;
+		}
+		const viewport = messagesViewportRef.current;
+		const track = messagesTrackRef.current;
+		if (!viewport || !track) {
+			return;
+		}
+		let rafId = 0;
+		const flush = () => {
+			rafId = 0;
+			const nextSig = [
+				viewport.clientWidth,
+				viewport.clientHeight,
+				track.clientWidth,
+				track.scrollHeight,
+			].join(':');
+			if (nextSig === lastLayoutMeasureSigRef.current) {
+				return;
+			}
+			lastLayoutMeasureSigRef.current = nextSig;
+			setLayoutMeasureVersion((v) => v + 1);
+		};
+		const schedule = () => {
+			if (rafId !== 0) {
+				return;
+			}
+			rafId = window.requestAnimationFrame(flush);
+		};
+		schedule();
+		const resizeObserver = new ResizeObserver(schedule);
+		resizeObserver.observe(viewport);
+		resizeObserver.observe(track);
+		return () => {
+			resizeObserver.disconnect();
+			if (rafId !== 0) {
+				window.cancelAnimationFrame(rafId);
+			}
+		};
+	}, [hasConversation, conversationRenderKey, messagesViewportRef, messagesTrackRef]);
 
 	/**
 	 * sticky 同步逻辑：用 ref 持有最新闭包，让监听器订阅 effect 只在「会话级」变量变化时
@@ -746,18 +832,24 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		if (!viewport || !track) {
 			return;
 		}
-		const viewportRect = viewport.getBoundingClientRect();
-		const viewportStyle = window.getComputedStyle(viewport);
-		const stickyTopPx = viewportRect.top + (Number.parseFloat(viewportStyle.paddingTop || '0') || 0);
+		const distFromBottom = Math.max(
+			0,
+			viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+		);
+		const isAtBottom =
+			distFromBottom <= 16 || viewport.scrollHeight <= viewport.clientHeight + 16;
+		bottomTodoAtBottomRef.current = isAtBottom;
 		const renderedRowTops = Array.from(
 			track.querySelectorAll<HTMLElement>('.ref-msg-row-measure[data-msg-index]')
 		)
 			.map((row) => {
 				const raw = row.dataset.msgIndex;
 				const index = raw ? Number(raw) : Number.NaN;
+				const height = row.offsetHeight || Math.ceil(row.getBoundingClientRect().height);
 				return {
 					index,
-					top: row.getBoundingClientRect().top - stickyTopPx,
+					top: row.offsetTop - viewport.scrollTop,
+					height,
 				};
 			})
 			.filter((row) => Number.isFinite(row.index));
@@ -765,8 +857,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			displayMessages,
 			renderedRowTops,
 			stickyTopPx: 0,
+			latestTurnFocusUserIndex,
+			latestTurnFocusSpacerPx,
 		});
-		const resolvedStickyIndex = resolveStickyUserIndex(nextStickyIndex, latestTurnFocusUserIndex);
+		const resolvedStickyIndex = resolveStickyUserIndex(nextStickyIndex);
 		setStickyUserIndex((prev) => (prev === resolvedStickyIndex ? prev : resolvedStickyIndex));
 	};
 

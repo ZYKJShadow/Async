@@ -11,6 +11,29 @@ import {
 } from './terminalSettings';
 
 describe('terminalSettings', () => {
+	it('normalizes profile selector list settings', () => {
+		const base = defaultTerminalSettings();
+		expect(base.profileSelectorRecentMax).toBe(3);
+		expect(base.profileSelectorShowBuiltin).toBe(true);
+		expect(base.profileTypeDefaults.local).toEqual({});
+		expect(base.profileTypeDefaults.ssh).toEqual({});
+		const clamped = normalizeTerminalSettings({
+			profileSelectorRecentMax: 999,
+			profileSelectorShowBuiltin: false,
+		});
+		expect(clamped.profileSelectorRecentMax).toBe(50);
+		expect(clamped.profileSelectorShowBuiltin).toBe(false);
+		const withDefaults = normalizeTerminalSettings({
+			profileTypeDefaults: {
+				local: { shell: '/bin/zsh', id: 'x', builtinKey: 'y' },
+				ssh: { sshPort: 2222 },
+			},
+		});
+		expect(withDefaults.profileTypeDefaults.local.shell).toBe('/bin/zsh');
+		expect(withDefaults.profileTypeDefaults.local.id).toBeUndefined();
+		expect(withDefaults.profileTypeDefaults.ssh.sshPort).toBe(2222);
+	});
+
 	it('migrates legacy right-click settings and clamps new numeric fields', () => {
 		const settings = normalizeTerminalSettings({
 			rightClickPaste: false,

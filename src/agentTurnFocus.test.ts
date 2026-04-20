@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	buildConversationRenderKey,
 	computeLatestTurnFocusSpacerPx,
 	findLatestTurnFocusUserIndex,
 	findStickyUserIndexForViewport,
@@ -18,6 +19,14 @@ describe('agentTurnFocus', () => {
 		];
 
 		expect(findLatestTurnFocusUserIndex(displayMessages, 'agent')).toBe(2);
+	});
+
+	it('uses composer mode in the render key so mode switches reset chat row measurements', () => {
+		expect(buildConversationRenderKey('thread-1', 'agent')).toBe('thread-1:agent');
+		expect(buildConversationRenderKey('thread-1', 'team')).toBe('thread-1:team');
+		expect(buildConversationRenderKey('thread-1', 'agent')).not.toBe(
+			buildConversationRenderKey('thread-1', 'team')
+		);
 	});
 
 	it('keeps turn focus on the latest user message even after a short assistant reply finishes', () => {
@@ -110,6 +119,8 @@ describe('agentTurnFocus', () => {
 					{ index: 4, top: 240 },
 				],
 				stickyTopPx: 0,
+				latestTurnFocusUserIndex: 4,
+				latestTurnFocusSpacerPx: 0,
 			})
 		).toBe(2);
 	});
@@ -130,21 +141,90 @@ describe('agentTurnFocus', () => {
 					{ index: 2, top: 256 },
 				],
 				stickyTopPx: 0,
+				latestTurnFocusUserIndex: 2,
+				latestTurnFocusSpacerPx: 0,
 			})
 		).toBeNull();
 	});
 
-	it('drops sticky candidate when it would overlap with latest-turn focus user', () => {
-		expect(resolveStickyUserIndex(2, 2)).toBeNull();
+	it('sticks only the latest turn user after it reaches the top boundary when focus spacer is active', () => {
+		const displayMessages: ChatMessage[] = [
+			{ role: 'user', content: '带图片的第一轮' },
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: '第二轮提问' },
+			{ role: 'assistant', content: 'a2' },
+		];
+
+		expect(
+			findStickyUserIndexForViewport({
+				displayMessages,
+				renderedRowTops: [
+					{ index: 0, top: -12, height: 104 },
+					{ index: 1, top: 92, height: 64 },
+					{ index: 2, top: -6, height: 48 },
+					{ index: 3, top: 168, height: 72 },
+				],
+				stickyTopPx: 0,
+				latestTurnFocusUserIndex: 2,
+				latestTurnFocusSpacerPx: 420,
+			})
+		).toBe(2);
 	});
 
-	it('keeps sticky candidate when it differs from latest-turn focus user', () => {
-		expect(resolveStickyUserIndex(0, 2)).toBe(0);
+	it('ignores older user bubbles while latest-turn focus spacer is active', () => {
+		const displayMessages: ChatMessage[] = [
+			{ role: 'user', content: '旧消息' },
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: '最新消息' },
+			{ role: 'assistant', content: 'a2' },
+		];
+
+		expect(
+			findStickyUserIndexForViewport({
+				displayMessages,
+				renderedRowTops: [
+					{ index: 0, top: -80, height: 104 },
+					{ index: 1, top: 48, height: 64 },
+					{ index: 2, top: 28, height: 48 },
+					{ index: 3, top: 112, height: 72 },
+				],
+				stickyTopPx: 0,
+				latestTurnFocusUserIndex: 2,
+				latestTurnFocusSpacerPx: 320,
+			})
+		).toBeNull();
+	});
+
+	it('lets an older user bubble take over once the latest focused user is no longer naturally at the top', () => {
+		const displayMessages: ChatMessage[] = [
+			{ role: 'user', content: '带文件的旧消息' },
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: '最新消息' },
+			{ role: 'assistant', content: 'a2' },
+		];
+
+		expect(
+			findStickyUserIndexForViewport({
+				displayMessages,
+				renderedRowTops: [
+					{ index: 0, top: -36, height: 72 },
+					{ index: 1, top: 40, height: 360 },
+					{ index: 2, top: 84, height: 48 },
+					{ index: 3, top: 156, height: 80 },
+				],
+				stickyTopPx: 0,
+				latestTurnFocusUserIndex: 2,
+				latestTurnFocusSpacerPx: 320,
+			})
+		).toBe(0);
+	});
+
+	it('keeps latest-turn sticky after candidate selection even when tail spacer is active', () => {
+		expect(resolveStickyUserIndex(2)).toBe(2);
 	});
 
 	it('passes through nulls', () => {
-		expect(resolveStickyUserIndex(null, 2)).toBeNull();
-		expect(resolveStickyUserIndex(null, null)).toBeNull();
-		expect(resolveStickyUserIndex(1, null)).toBe(1);
+		expect(resolveStickyUserIndex(null)).toBeNull();
+		expect(resolveStickyUserIndex(1)).toBe(1);
 	});
 });

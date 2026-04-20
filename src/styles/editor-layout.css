@@ -1063,7 +1063,19 @@
 	flex-direction: column;
 }
 
-.pty-term-root--embedded .xterm-viewport {
+.pty-term-root .ref-uterm-tab-term-wrap {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.pty-term-root .ref-uterm-tab-term-wrap > .xterm-viewport {
+	flex: 1;
+	min-height: 0;
+}
+
+.pty-term-root--embedded .ref-uterm-tab-term-wrap > .xterm-viewport {
 	flex: 1;
 	min-height: 0;
 	padding: 2px 4px 4px;

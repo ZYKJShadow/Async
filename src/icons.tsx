@@ -238,6 +238,24 @@ export function IconMic({ className }: { className?: string }) {
 	);
 }
 
+/** Font Awesome “browsers” glyph (Tabby `profiles.svg`) — profiles & connections toolbar. */
+export function IconProfilesConnections({ className }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			width="16"
+			height="16"
+			viewBox="0 0 576 512"
+			fill="currentColor"
+			aria-hidden
+			focusable="false"
+			role="img"
+		>
+			<path d="M464 480H96c-35.35 0-64-28.65-64-64V112C32 103.2 24.84 96 16 96S0 103.2 0 112V416c0 53.02 42.98 96 96 96h368c8.836 0 16-7.164 16-16S472.8 480 464 480zM512 0H160C124.7 0 96 28.65 96 64v288c0 35.35 28.65 64 64 64h352c35.35 0 64-28.65 64-64V64C576 28.65 547.3 0 512 0zM128 64c0-17.67 14.33-32 32-32h64v64H128V64zM544 352c0 17.67-14.33 32-32 32H160c-17.67 0-32-14.33-32-32V128h416V352zM544 96H256V32h256c17.67 0 32 14.33 32 32V96z" />
+		</svg>
+	);
+}
+
 export function IconPlus({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
