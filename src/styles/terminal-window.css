@@ -1,6 +1,5 @@
 /**
- * Universal Terminal window
- * Tabby-inspired window-integrated tabs + full-window settings workspace.
+ * Universal Terminal window：集成标签与全窗口设置工作区。
  */
 
 .ref-uterm-root {
@@ -1581,6 +1580,423 @@
 	color: var(--void-git-deleted, #ff6f77);
 	font-size: 11px;
 	pointer-events: none;
+}
+
+.ref-uterm-tab-term-wrap {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	width: 100%;
+}
+
+.ref-uterm-findbar {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
+	background: color-mix(in srgb, var(--void-bg-1) 90%, transparent);
+}
+
+.ref-uterm-findbar-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	height: 28px;
+	padding: 0 8px;
+	border-radius: 6px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: var(--void-bg-0);
+	color: var(--void-fg-0);
+	font-size: 12px;
+}
+
+.ref-uterm-findbar-btn {
+	height: 28px;
+	padding: 0 10px;
+	border-radius: 6px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 85%, transparent);
+	color: var(--void-fg-1);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.ref-uterm-findbar-btn:hover {
+	color: var(--void-fg-0);
+	border-color: color-mix(in srgb, var(--void-border) 90%, transparent);
+}
+
+/* Universal Terminal — hotkeys settings (list + chord editor) */
+.ref-uterm-hotkeys-page {
+	width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	text-align: left;
+	align-self: stretch;
+}
+
+.ref-uterm-hotkeys-search-wrap {
+	display: flex;
+	align-items: stretch;
+	width: 33.333%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	margin-bottom: 1.5rem;
+	border: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
+	border-radius: 4px;
+	overflow: hidden;
+	background: var(--void-bg-1);
+}
+
+.ref-uterm-hotkeys-search-ico {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 38px;
+	flex: 0 0 38px;
+	color: var(--void-fg-2);
+	border-right: 1px solid color-mix(in srgb, var(--void-border) 55%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 55%, var(--void-bg-1));
+}
+
+.ref-uterm-hotkeys-search-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	border: none;
+	padding: 0.5rem 0.75rem;
+	font-size: 13px;
+	color: var(--void-fg-0);
+	background: transparent;
+	outline: none;
+}
+
+/*
+ * 两列表格：所有行的 name 占同一列、input 占同一列 —— 竖直方向看 input 左缘对齐。
+ * 行用 display:contents，格子由 .ref-uterm-hotkeys-table 的 grid 生成。
+ */
+.ref-uterm-hotkeys-table {
+	display: grid;
+	/* 左列随「本列最宽描述」定宽，右列占剩余；比 1fr/1fr 对半分更贴文案，input 仍同列对齐 */
+	grid-template-columns: minmax(0, max-content) minmax(12rem, 1fr);
+	column-gap: 0;
+	row-gap: 0.35rem;
+	align-items: center;
+	justify-items: stretch;
+	width: 100%;
+	min-width: 0;
+	margin-bottom: 1rem;
+	max-height: min(70vh, 720px);
+	overflow-x: auto;
+	overflow-y: auto;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	text-align: left;
+}
+
+.ref-uterm-hotkeys-row {
+	display: contents;
+}
+
+.ref-uterm-hotkeys-row-name {
+	min-width: 0;
+	max-width: 100%;
+	box-sizing: border-box;
+	padding: 0.35rem 0;
+	overflow-wrap: break-word;
+	text-align: left;
+}
+
+.ref-uterm-hotkeys-row-label {
+	font-size: 13px;
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-hotkeys-row-id {
+	margin-left: 0.35rem;
+	font-size: 12px;
+	color: var(--void-fg-3);
+}
+
+.ref-uterm-hotkeys-row-input {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: nowrap;
+	justify-content: flex-start;
+	align-items: center;
+	min-width: 0;
+	min-height: 0;
+	box-sizing: border-box;
+	padding: 0.35rem 0;
+	padding-right: 0rem;
+	text-align: left;
+}
+
+.ref-uterm-multi-hotkey-host {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: nowrap;
+	align-items: center;
+	justify-content: flex-start;
+	flex: 0 1 auto;
+	width: auto;
+	min-width: 0;
+	max-width: 100%;
+	box-sizing: border-box;
+	gap: 0;
+	overflow-x: auto;
+	padding: 2px 0;
+}
+
+.ref-uterm-multi-hotkey-host:hover .ref-uterm-multi-hotkey-add {
+	display: inline-flex;
+}
+
+.ref-uterm-multi-hotkey-item {
+	display: flex;
+	flex: none;
+	align-items: stretch;
+	margin-right: 5px;
+	border-radius: 3px;
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 55%, var(--void-border));
+	background: color-mix(in srgb, var(--void-bg-2) 70%, var(--void-bg-1));
+	overflow: hidden;
+}
+
+.ref-uterm-multi-hotkey-item.is-duplicate {
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 88%, var(--void-bg-1));
+	border-color: var(--void-git-deleted, #ff6f77);
+}
+
+.ref-uterm-multi-hotkey-body {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 0;
+	padding: 3px 0 2px;
+	border: none;
+	background: transparent;
+	color: var(--void-fg-0);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	cursor: pointer;
+	text-align: left;
+}
+
+.ref-uterm-multi-hotkey-item.is-duplicate .ref-uterm-multi-hotkey-body {
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-multi-hotkey-stroke {
+	flex: none;
+	white-space: nowrap;
+	padding: 0 6px;
+	border-right: 1px solid var(--void-bg-0);
+}
+
+.ref-uterm-multi-hotkey-stroke:last-child {
+	border-right: none;
+}
+
+.ref-uterm-multi-hotkey-item.is-duplicate .ref-uterm-multi-hotkey-stroke {
+	border-right-color: color-mix(in srgb, var(--void-bg-0) 55%, var(--void-git-deleted, #ff6f77));
+}
+
+.ref-uterm-multi-hotkey-remove {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	padding: 3px 8px 2px;
+	border: none;
+	border-left: 1px solid color-mix(in srgb, var(--void-border) 50%, transparent);
+	background: transparent;
+	color: var(--void-fg-2);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.ref-uterm-multi-hotkey-remove:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 45%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-multi-hotkey-item.is-duplicate .ref-uterm-multi-hotkey-remove:hover {
+	background: color-mix(in srgb, var(--void-git-deleted, #ff6f77) 22%, transparent);
+}
+
+.ref-uterm-multi-hotkey-add {
+	display: none;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: flex-start;
+	min-width: 4.5rem;
+	margin-right: 0;
+	margin-left: 0;
+	padding: 4px 10px 0;
+	border: none;
+	border-radius: 3px;
+	background: transparent;
+	color: var(--void-fg-3);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.ref-uterm-multi-hotkey-add:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 50%, var(--void-bg-1));
+	color: var(--void-fg-1);
+}
+
+.ref-uterm-multi-hotkey-add:first-child {
+	display: inline-flex;
+}
+
+.ref-uterm-hotkeys-footer {
+	margin-top: 0.75rem;
+}
+
+.ref-uterm-hotkeys-footer .ref-uterm-btn-secondary {
+	padding: 6px 12px;
+	border-radius: 4px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 35%, transparent);
+	color: var(--void-fg-1);
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.ref-uterm-hotkeys-footer .ref-uterm-btn-secondary:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 55%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-hotkey-modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 120000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: color-mix(in srgb, var(--void-bg-0) 55%, transparent);
+	backdrop-filter: blur(2px);
+}
+
+.ref-uterm-hotkey-modal {
+	width: min(420px, calc(100vw - 32px));
+	border-radius: 10px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: var(--void-bg-1);
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+	color: var(--void-fg-0);
+	overflow: hidden;
+}
+
+.ref-uterm-hotkey-modal-header {
+	padding: 14px 16px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 55%, transparent);
+}
+
+.ref-uterm-hotkey-modal-title {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.ref-uterm-hotkey-modal-body {
+	padding: 0;
+}
+
+.ref-uterm-hotkey-modal-input {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0;
+	box-sizing: border-box;
+	min-height: 55px;
+	height: 55px;
+	padding: 10px;
+	font-size: 24px;
+	line-height: 27px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ref-uterm-hotkey-modal-stroke {
+	flex: none;
+	margin-right: 10px;
+	margin-bottom: 2px;
+	padding: 3px 10px;
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--void-bg-2) 65%, var(--void-bg-1));
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 50%, var(--void-border));
+	font-size: inherit;
+	line-height: inherit;
+}
+
+.ref-uterm-hotkey-modal-timeout {
+	height: 5px;
+	margin: 0 0 15px;
+	padding: 0;
+	background: var(--void-bg-0);
+}
+
+.ref-uterm-hotkey-modal-timeout > div {
+	height: 5px;
+	border-radius: 0;
+	background: color-mix(in srgb, var(--void-accent-cool) 85%, #3b82f6);
+	transition: width 25ms linear;
+}
+
+.ref-uterm-hotkey-modal-footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 10px 16px 14px;
+	border-top: 1px solid color-mix(in srgb, var(--void-border) 45%, transparent);
+}
+
+.ref-uterm-hotkey-modal-cancel {
+	padding: 6px 14px;
+	border-radius: 4px;
+	border: 1px solid color-mix(in srgb, var(--void-accent-cool) 45%, transparent);
+	background: color-mix(in srgb, var(--void-accent-cool) 22%, var(--void-bg-1));
+	color: var(--void-fg-0);
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.ref-uterm-hotkey-modal-cancel:hover {
+	background: color-mix(in srgb, var(--void-accent-cool) 32%, var(--void-bg-1));
+	border-color: color-mix(in srgb, var(--void-accent-cool) 55%, transparent);
+}
+
+.ref-uterm-notice-toast {
+	position: fixed;
+	right: 20px;
+	bottom: 20px;
+	z-index: 130000;
+	max-width: min(320px, calc(100vw - 40px));
+	padding: 10px 14px;
+	border-radius: 6px;
+	font-size: 13px;
+	line-height: 1.35;
+	color: #fff;
+	background: #2f96b4;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+	opacity: 0;
+	transform: translateY(6px);
+	transition: opacity 160ms ease, transform 160ms ease;
+	pointer-events: none;
+}
+
+.ref-uterm-notice-toast.is-visible {
+	opacity: 1;
+	transform: translateY(0);
 }
 
 .ref-uterm-settings-workspace {

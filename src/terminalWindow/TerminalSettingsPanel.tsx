@@ -26,8 +26,9 @@ import {
 	type TerminalRightClickAction,
 	type TerminalSshAuthMode,
 } from './terminalSettings';
+import { TerminalHotkeysSettingsStage } from './TerminalHotkeysSettingsStage';
 
-type SettingsNav = 'profilesConnections' | 'appearance' | 'terminal';
+type SettingsNav = 'profilesConnections' | 'appearance' | 'terminal' | 'hotkeys';
 type ProfilesSubtab = 'profiles' | 'advanced';
 type ProfileEditorMode = 'create' | 'edit';
 type ProfileEditorTabId = 'general' | 'ports' | 'advanced' | 'ciphers' | 'colors' | 'loginScripts' | 'input';
@@ -71,6 +72,15 @@ function IconTerminalNav() {
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
 			<rect x="3" y="4" width="18" height="16" rx="2.5" />
 			<path d="M7 9l3 3-3 3M12 15h5" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+function IconHotkeysNav() {
+	return (
+		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+			<rect x="2" y="5" width="20" height="14" rx="2" />
+			<path d="M6 9h4M14 9h4M6 13h2M10 13h8M6 17h6" strokeLinecap="round" />
 		</svg>
 	);
 }
@@ -218,12 +228,18 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 			label: t('app.universalTerminalSettings.nav.terminal'),
 			description: t('app.universalTerminalSettings.nav.terminalDesc'),
 		},
+		{
+			id: 'hotkeys',
+			label: t('app.universalTerminalSettings.nav.hotkeys'),
+			description: t('app.universalTerminalSettings.nav.hotkeysDesc'),
+		},
 	];
 
 	const navIcons: Record<SettingsNav, ReactNode> = {
 		profilesConnections: <IconProfilesNav />,
 		appearance: <IconAppearanceNav />,
 		terminal: <IconTerminalNav />,
+		hotkeys: <IconHotkeysNav />,
 	};
 
 	useEffect(() => {
@@ -311,6 +327,10 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 
 				{nav === 'terminal' ? (
 					<TerminalBehaviorStage t={t} settings={settings} onPatchSettings={patch} />
+				) : null}
+
+				{nav === 'hotkeys' ? (
+					<TerminalHotkeysSettingsStage t={t} settings={settings} onPatchSettings={patch} />
 				) : null}
 				</div>
 			</div>

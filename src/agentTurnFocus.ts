@@ -3,6 +3,13 @@ import type { ChatMessage } from './threadTypes';
 
 export const STICKY_USER_SNAP_PX = 12;
 
+export function buildConversationRenderKey(
+	threadId: string | null,
+	composerMode: ComposerMode
+): string {
+	return `${threadId ?? 'no-thread'}:${composerMode}`;
+}
+
 export function findLatestTurnFocusUserIndex(
 	displayMessages: ChatMessage[],
 	composerMode: ComposerMode

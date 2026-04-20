@@ -1,5 +1,11 @@
 /** Universal Terminal 用户设置；纯前端，localStorage 持久化，不走 settings.json。 */
 
+import { TERMINAL_HOTKEY_IDS, defaultPlatformHotkeysTable, type TerminalHotkeyId } from './terminalHotkeyDefaults';
+
+export type { TerminalHotkeyId } from './terminalHotkeyDefaults';
+
+export type TerminalHotkeysUserMap = Partial<Record<TerminalHotkeyId, string[]>>;
+
 export type TerminalCursorStyle = 'bar' | 'block' | 'underline';
 export type TerminalBellStyle = 'none' | 'visual' | 'audible';
 export type TerminalRightClickAction = 'off' | 'menu' | 'paste' | 'clipboard';
@@ -131,6 +137,8 @@ export type TerminalAppSettings = {
 	opacity: number;
 	profiles: TerminalProfile[];
 	defaultProfileId: string;
+	/** 逻辑 id → 若干组合键字符串（如 Ctrl-Shift-C）。 */
+	hotkeys: TerminalHotkeysUserMap;
 };
 
 export const DEFAULT_PROFILE_ID = 'default';
@@ -175,6 +183,19 @@ export const TERMINAL_COLOR_SCHEMES: TerminalColorScheme[] = [
 		colors: ['#18212b', '#ff6b6b', '#98d8aa', '#ffd166', '#78a8ff', '#d7aefb', '#89ddff', '#d8dbe2', '#405264', '#ff9b9b', '#b7f3c3', '#ffe08c', '#a9c3ff', '#e8c8ff', '#b8f0ff', '#ffffff'],
 	},
 ];
+
+/** 合并平台默认与用户覆盖后的 hotkeys 分支，供 TerminalHotkeyMatcher 使用。 */
+export function mergeResolvedTerminalHotkeysMap(settings: TerminalAppSettings): Record<string, unknown> {
+	const platform = readRendererPlatform();
+	const def = defaultPlatformHotkeysTable(platform);
+	const user = settings.hotkeys;
+	const branch: Record<string, unknown> = {};
+	for (const id of TERMINAL_HOTKEY_IDS) {
+		const o = user[id];
+		branch[id] = o !== undefined ? [...o] : [...def[id]];
+	}
+	return branch;
+}
 
 export const TERMINAL_SSH_ALGORITHM_OPTIONS: TerminalSshAlgorithms = {
 	cipher: ['chacha20-poly1305@openssh.com', 'aes256-gcm@openssh.com', 'aes256-ctr', 'aes192-ctr', 'aes128-ctr'],
@@ -246,6 +267,7 @@ export function defaultTerminalSettings(): TerminalAppSettings {
 			},
 		],
 		defaultProfileId: DEFAULT_PROFILE_ID,
+		hotkeys: {},
 	};
 }
 
@@ -354,6 +376,7 @@ export function normalizeTerminalSettings(raw: unknown): TerminalAppSettings {
 		opacity: clamp(toNumber(obj.opacity, def.opacity), 0.5, 1),
 		profiles: effectiveProfiles,
 		defaultProfileId,
+		hotkeys: normalizeTerminalHotkeysUserMap(obj.hotkeys),
 	};
 }
 
@@ -1042,6 +1065,30 @@ function appendSshForwardingArgs(args: string[], forwards: TerminalPortForward[]
 
 function matchesAlgorithmDefault(items: string[], defaults: string[]): boolean {
 	return items.length === defaults.length && items.every((item, index) => item === defaults[index]);
+}
+
+function normalizeTerminalHotkeysUserMap(value: unknown): TerminalHotkeysUserMap {
+	if (!value || typeof value !== 'object') {
+		return {};
+	}
+	const obj = value as Record<string, unknown>;
+	const out: TerminalHotkeysUserMap = {};
+	for (const id of TERMINAL_HOTKEY_IDS) {
+		if (!Object.prototype.hasOwnProperty.call(obj, id)) {
+			continue;
+		}
+		const v = obj[id];
+		if (!Array.isArray(v)) {
+			out[id] = [];
+			continue;
+		}
+		const strokes = v
+			.filter((item): item is string => typeof item === 'string')
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0);
+		out[id] = strokes;
+	}
+	return out;
 }
 
 function readRendererPlatform(): TerminalRuntimePlatform {

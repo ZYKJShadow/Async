@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	buildConversationRenderKey,
 	computeLatestTurnFocusSpacerPx,
 	findLatestTurnFocusUserIndex,
 	findStickyUserIndexForViewport,
@@ -18,6 +19,14 @@ describe('agentTurnFocus', () => {
 		];
 
 		expect(findLatestTurnFocusUserIndex(displayMessages, 'agent')).toBe(2);
+	});
+
+	it('uses composer mode in the render key so mode switches reset chat row measurements', () => {
+		expect(buildConversationRenderKey('thread-1', 'agent')).toBe('thread-1:agent');
+		expect(buildConversationRenderKey('thread-1', 'team')).toBe('thread-1:team');
+		expect(buildConversationRenderKey('thread-1', 'agent')).not.toBe(
+			buildConversationRenderKey('thread-1', 'team')
+		);
 	});
 
 	it('keeps turn focus on the latest user message even after a short assistant reply finishes', () => {

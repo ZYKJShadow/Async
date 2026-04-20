@@ -1,0 +1,133 @@
+export type HotkeyDefaultPlatform = 'win32' | 'darwin' | 'linux' | 'unknown';
+
+export const TERMINAL_HOTKEY_IDS = [
+	'copy',
+	'paste',
+	'select-all',
+	'home',
+	'end',
+	'previous-word',
+	'next-word',
+	'delete-previous-word',
+	'delete-line',
+	'delete-next-word',
+	'clear',
+	'zoom-in',
+	'zoom-out',
+	'reset-zoom',
+	'ctrl-c',
+	'copy-current-path',
+	'search',
+	'pane-focus-all',
+	'focus-all-tabs',
+	'scroll-to-top',
+	'scroll-page-up',
+	'scroll-up',
+	'scroll-down',
+	'scroll-page-down',
+	'scroll-to-bottom',
+	'reconnect-tab',
+	'disconnect-tab',
+] as const;
+
+export type TerminalHotkeyId = (typeof TERMINAL_HOTKEY_IDS)[number];
+
+const MAC: Record<TerminalHotkeyId, string[]> = {
+	copy: ['⌘-C'],
+	paste: ['⌘-V'],
+	'select-all': ['⌘-A'],
+	home: ['⌘-Left', 'Home'],
+	end: ['⌘-Right', 'End'],
+	'previous-word': ['⌥-Left'],
+	'next-word': ['⌥-Right'],
+	'delete-previous-word': ['⌥-Backspace'],
+	'delete-line': ['⌘-Backspace'],
+	'delete-next-word': ['⌥-Delete'],
+	clear: ['⌘-K'],
+	'zoom-in': ['⌘-=', '⌘-Shift-='],
+	'zoom-out': ['⌘--', '⌘-Shift--'],
+	'reset-zoom': ['⌘-0'],
+	'ctrl-c': ['Ctrl-C'],
+	'copy-current-path': [],
+	search: ['⌘-F'],
+	'pane-focus-all': ['⌘-Shift-I'],
+	'focus-all-tabs': ['⌘-⌥-Shift-I'],
+	'scroll-to-top': ['Shift-PageUp'],
+	'scroll-page-up': ['⌥-PageUp'],
+	'scroll-up': ['Ctrl-Shift-Up'],
+	'scroll-down': ['Ctrl-Shift-Down'],
+	'scroll-page-down': ['⌥-PageDown'],
+	'scroll-to-bottom': ['Shift-PageDown'],
+	'reconnect-tab': [],
+	'disconnect-tab': [],
+};
+
+const WIN: Record<TerminalHotkeyId, string[]> = {
+	copy: ['Ctrl-Shift-C'],
+	paste: ['Ctrl-Shift-V', 'Shift-Insert'],
+	'select-all': ['Ctrl-Shift-A'],
+	home: ['Home'],
+	end: ['End'],
+	'previous-word': ['Ctrl-Left'],
+	'next-word': ['Ctrl-Right'],
+	'delete-previous-word': ['Ctrl-Backspace'],
+	'delete-line': ['Ctrl-Shift-Backspace'],
+	'delete-next-word': ['Ctrl-Delete'],
+	clear: [],
+	'zoom-in': ['Ctrl-=', 'Ctrl-Shift-='],
+	'zoom-out': ['Ctrl--', 'Ctrl-Shift--'],
+	'reset-zoom': ['Ctrl-0'],
+	'ctrl-c': ['Ctrl-C'],
+	'copy-current-path': [],
+	search: ['Ctrl-Shift-F'],
+	'pane-focus-all': ['Ctrl-Shift-I'],
+	'focus-all-tabs': ['Ctrl-Alt-Shift-I'],
+	'scroll-to-top': ['Ctrl-PageUp'],
+	'scroll-page-up': ['Alt-PageUp'],
+	'scroll-up': ['Ctrl-Shift-Up'],
+	'scroll-down': ['Ctrl-Shift-Down'],
+	'scroll-page-down': ['Alt-PageDown'],
+	'scroll-to-bottom': ['Ctrl-PageDown'],
+	'reconnect-tab': [],
+	'disconnect-tab': [],
+};
+
+const LINUX: Record<TerminalHotkeyId, string[]> = {
+	copy: ['Ctrl-Shift-C'],
+	paste: ['Ctrl-Shift-V', 'Shift-Insert'],
+	'select-all': ['Ctrl-Shift-A'],
+	home: ['Home'],
+	end: ['End'],
+	'previous-word': ['Ctrl-Left'],
+	'next-word': ['Ctrl-Right'],
+	'delete-previous-word': ['Ctrl-Backspace'],
+	'delete-line': ['Ctrl-Shift-Backspace'],
+	'delete-next-word': ['Ctrl-Delete'],
+	clear: [],
+	'zoom-in': ['Ctrl-=', 'Ctrl-Shift-='],
+	'zoom-out': ['Ctrl--', 'Ctrl-Shift--'],
+	'reset-zoom': ['Ctrl-0'],
+	'ctrl-c': ['Ctrl-C'],
+	'copy-current-path': [],
+	search: ['Ctrl-Shift-F'],
+	'pane-focus-all': ['Ctrl-Shift-I'],
+	'focus-all-tabs': ['Ctrl-Alt-Shift-I'],
+	'scroll-to-top': ['Ctrl-PageUp'],
+	'scroll-page-up': ['Alt-PageUp'],
+	'scroll-up': ['Ctrl-Shift-Up'],
+	'scroll-down': ['Ctrl-Shift-Down'],
+	'scroll-page-down': ['Alt-PageDown'],
+	'scroll-to-bottom': ['Ctrl-PageDown'],
+	'reconnect-tab': [],
+	'disconnect-tab': [],
+};
+
+export function defaultPlatformHotkeysTable(platform: HotkeyDefaultPlatform): Record<TerminalHotkeyId, string[]> {
+	if (platform === 'darwin') {
+		return { ...MAC };
+	}
+	if (platform === 'win32') {
+		return { ...WIN };
+	}
+	return { ...LINUX };
+}

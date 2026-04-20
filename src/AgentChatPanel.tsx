@@ -48,6 +48,7 @@ import {
 } from './streamingStore';
 import { computeMergedAgentFileChanges } from './agentFileChangesCompute';
 import {
+	buildConversationRenderKey,
 	computeLatestTurnFocusSpacerPx,
 	findLatestTurnFocusUserIndex,
 	findStickyUserIndexForViewport,
@@ -365,7 +366,11 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	);
 
 	const isEditorRail = layout === 'editor-rail';
-	const conversationRenderKey = messagesThreadId ?? 'no-thread';
+	/**
+	 * 同线程切换 agent/team/plan 等模式时，消息轨道的 DOM 结构和高度预算都会变化。
+	 * render key 必须带上 mode，才能让行高缓存、切片起点、sticky/spacer 一起重建。
+	 */
+	const conversationRenderKey = buildConversationRenderKey(messagesThreadId, composerMode);
 	const dropDepthRef = useRef(0);
 	const [chatPanelFileDragOver, setChatPanelFileDragOver] = useState(false);
 	const [bottomTodoCollapsed, setBottomTodoCollapsed] = useState(true);

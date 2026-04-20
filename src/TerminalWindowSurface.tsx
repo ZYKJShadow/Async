@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from './i18n';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import {
 	IconDotsHorizontal,
@@ -27,6 +28,7 @@ import {
 	getBuiltinTerminalProfiles,
 	getTerminalColorSchemeById,
 	loadTerminalSettings,
+	mergeResolvedTerminalHotkeysMap,
 	resolveTerminalProfile,
 	saveTerminalSettings,
 	subscribeTerminalSettings,
@@ -34,6 +36,9 @@ import {
 	type TerminalInputBackspaceMode,
 	type TerminalProfile,
 } from './terminalWindow/terminalSettings';
+import { dispatchTerminalHotkey } from './terminalWindow/terminalHotkeyDispatch';
+import { installXtermHotkeyRouting } from './terminalWindow/terminalHotkeyXtermInstall';
+import { showTerminalCopiedNotice } from './terminalWindow/terminalNoticeToast';
 import {
 	isTerminalAlternateScreen,
 	playAudibleTerminalBell,
@@ -89,6 +94,9 @@ type TabViewProps = {
 	onRequestContextMenu(payload: TerminalContextMenuState): void;
 	onAuthPrompt(sessionId: string, prompt: TerminalSessionAuthPrompt): void;
 	registerRuntime(sessionId: string, runtime: TerminalRuntimeControls | null): void;
+	sessionCwd: string;
+	onReconnect?: () => void;
+	onDisconnect?: () => void;
 };
 
 type XTermThemeColors = {
@@ -134,6 +142,9 @@ function TerminalTabView({
 	onRequestContextMenu,
 	onAuthPrompt,
 	registerRuntime,
+	sessionCwd,
+	onReconnect,
+	onDisconnect,
 }: TabViewProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const termRef = useRef<XTerm | null>(null);
@@ -142,9 +153,19 @@ function TerminalTabView({
 	const activeRef = useRef(active);
 	const onExitRef = useRef(onExit);
 	const appSettingsRef = useRef(appSettings);
+	const sessionCwdRef = useRef(sessionCwd);
+	const zoomLevelRef = useRef(0);
+	const searchAddonRef = useRef<SearchAddon | null>(null);
+	const [searchUi, setSearchUi] = useState<{ open: boolean; query: string }>({ open: false, query: '' });
+	const findInputRef = useRef<HTMLInputElement | null>(null);
+	const onReconnectRef = useRef(onReconnect);
+	const onDisconnectRef = useRef(onDisconnect);
 	activeRef.current = active;
 	onExitRef.current = onExit;
 	appSettingsRef.current = appSettings;
+	sessionCwdRef.current = sessionCwd;
+	onReconnectRef.current = onReconnect;
+	onDisconnectRef.current = onDisconnect;
 
 	useEffect(() => {
 		const el = containerRef.current;
@@ -362,6 +383,57 @@ function TerminalTabView({
 			}
 		};
 
+		const applyZoomFontSize = () => {
+			const base = appSettingsRef.current.fontSize;
+			const scale = Math.pow(1.1, zoomLevelRef.current);
+			term.options.fontSize = base * scale;
+			try {
+				term.refresh(0, term.rows - 1);
+			} catch {
+				/* ignore */
+			}
+			propagateResize();
+		};
+
+		const searchAddon = new SearchAddon({ highlightLimit: 500 });
+		term.loadAddon(searchAddon);
+		searchAddonRef.current = searchAddon;
+
+		const disposeHotkeys = installXtermHotkeyRouting(
+			term,
+			() => mergeResolvedTerminalHotkeysMap(appSettingsRef.current),
+			(hotkeyId) => {
+				void dispatchTerminalHotkey(hotkeyId, {
+					term,
+					write: async (data) => {
+						await shell.invoke('term:sessionWrite', sessionId, data);
+					},
+					copySelection,
+					pasteFromClipboard,
+					selectAll: () => term.selectAll(),
+					clear: () => term.clear(),
+					getCwd: () => sessionCwdRef.current.trim(),
+					writeClipboardText: async (text) => {
+						await shell.invoke('clipboard:writeText', text);
+					},
+					showCopiedNotice: () => showTerminalCopiedNotice(t('app.universalTerminalToast.copied')),
+					zoom: {
+						levelRef: zoomLevelRef,
+						applyFontSize: () => applyZoomFontSize(),
+					},
+					search: {
+						addon: searchAddon,
+						open: () => {
+							const selected = term.getSelection().trim();
+							setSearchUi({ open: true, query: selected });
+						},
+					},
+					onReconnect: () => onReconnectRef.current?.(),
+					onDisconnect: () => onDisconnectRef.current?.(),
+				});
+			}
+		);
+
 		const observer = new ResizeObserver(() => {
 			if (resizeQueued) {
 				return;
@@ -376,6 +448,8 @@ function TerminalTabView({
 
 		return () => {
 			cancelled = true;
+			disposeHotkeys();
+			searchAddonRef.current = null;
 			observer.disconnect();
 			inputDisposer.dispose();
 			selectionDisposer.dispose();
@@ -396,12 +470,16 @@ function TerminalTabView({
 	}, [active, onAuthPrompt, profile, sessionId, shell, t, theme, onRequestContextMenu, registerRuntime]);
 
 	useEffect(() => {
+		zoomLevelRef.current = 0;
+	}, [appSettings.fontSize]);
+
+	useEffect(() => {
 		const term = termRef.current;
 		if (!term) {
 			return;
 		}
 		term.options.fontFamily = appSettings.fontFamily;
-		term.options.fontSize = appSettings.fontSize;
+		term.options.fontSize = appSettings.fontSize * Math.pow(1.1, zoomLevelRef.current);
 		term.options.fontWeight = appSettings.fontWeight;
 		term.options.fontWeightBold = appSettings.fontWeightBold;
 		term.options.lineHeight = appSettings.lineHeight;
@@ -455,7 +533,116 @@ function TerminalTabView({
 		return () => cancelAnimationFrame(raf);
 	}, [active, sessionId, shell]);
 
-	return <div ref={containerRef} className="ref-uterm-viewport" aria-hidden={!active} />;
+	useEffect(() => {
+		if (!searchUi.open || !active) {
+			return;
+		}
+		const term = termRef.current;
+		const addon = searchAddonRef.current;
+		if (!term || !addon) {
+			return;
+		}
+		const id = requestAnimationFrame(() => {
+			findInputRef.current?.focus();
+			findInputRef.current?.select();
+			const q = searchUi.query;
+			if (q) {
+				addon.findNext(q, {
+					caseSensitive: false,
+					decorations: {
+						matchOverviewRuler: '#888888',
+						activeMatchColorOverviewRuler: '#ffff00',
+						matchBackground: '#888888',
+						activeMatchBackground: '#ffff00',
+					},
+				});
+			}
+		});
+		return () => cancelAnimationFrame(id);
+	}, [searchUi.open, searchUi.query, active]);
+
+	const closeFind = useCallback(() => {
+		searchAddonRef.current?.clearDecorations();
+		setSearchUi({ open: false, query: '' });
+		const term = termRef.current;
+		term?.focus();
+	}, []);
+
+	const onFindNext = useCallback(() => {
+		const addon = searchAddonRef.current;
+		if (!addon) {
+			return;
+		}
+		const q = findInputRef.current?.value ?? searchUi.query;
+		addon.findNext(q, {
+			caseSensitive: false,
+			decorations: {
+				matchOverviewRuler: '#888888',
+				activeMatchColorOverviewRuler: '#ffff00',
+				matchBackground: '#888888',
+				activeMatchBackground: '#ffff00',
+			},
+		});
+	}, [searchUi.query]);
+
+	const onFindPrevious = useCallback(() => {
+		const addon = searchAddonRef.current;
+		if (!addon) {
+			return;
+		}
+		const q = findInputRef.current?.value ?? searchUi.query;
+		addon.findPrevious(q, {
+			caseSensitive: false,
+			decorations: {
+				matchOverviewRuler: '#888888',
+				activeMatchColorOverviewRuler: '#ffff00',
+				matchBackground: '#888888',
+				activeMatchBackground: '#ffff00',
+			},
+		});
+	}, [searchUi.query]);
+
+	return (
+		<div className="ref-uterm-tab-term-wrap">
+			{searchUi.open && active ? (
+				<div className="ref-uterm-findbar" role="search">
+					<input
+						ref={findInputRef}
+						className="ref-uterm-findbar-input"
+						type="search"
+						value={searchUi.query}
+						placeholder={t('app.universalTerminalFind.placeholder')}
+						aria-label={t('app.universalTerminalFind.placeholder')}
+						onChange={(event) => setSearchUi((prev) => ({ ...prev, query: event.target.value }))}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter') {
+								event.preventDefault();
+								if (event.shiftKey) {
+									onFindPrevious();
+								} else {
+									onFindNext();
+								}
+							}
+							if (event.key === 'Escape') {
+								event.preventDefault();
+								closeFind();
+							}
+						}}
+					/>
+					<button type="button" className="ref-uterm-findbar-btn" onClick={onFindPrevious}>
+						{t('app.universalTerminalFind.prev')}
+					</button>
+					<button type="button" className="ref-uterm-findbar-btn" onClick={onFindNext}>
+						{t('app.universalTerminalFind.next')}
+					</button>
+					<button type="button" className="ref-uterm-findbar-btn ref-uterm-findbar-btn--close" onClick={closeFind}>
+						{t('app.universalTerminalFind.close')}
+					</button>
+				</div>
+			) : null}
+			<div ref={containerRef} className="ref-uterm-viewport" aria-hidden={!active} />
+		</div>
+	);
 }
 
 const MemoTerminalTabView = memo(TerminalTabView);
@@ -1346,6 +1533,9 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 												onAuthPrompt={openAuthPrompt}
 												registerRuntime={registerRuntime}
 												onExit={(code) => handleExit(session.id, code)}
+												sessionCwd={session.cwd}
+												onReconnect={() => void reconnectSession(session.id)}
+												onDisconnect={() => void closeSession(session.id)}
 											/>
 											{renderSftpPanel ? (
 												<TerminalSftpPanel
