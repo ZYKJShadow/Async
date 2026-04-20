@@ -127,6 +127,8 @@ export type AssistantSegment =
 	| FileEditSegment
 	| ToolCallSegment
 	| PlanTodoSegment
+	/** LLM 调用 begin_outcome 工具的不可见标记：preflight ↔ outcome 切分点 */
+	| { type: 'outcome_marker' }
 	| { type: 'sub_agent_markdown'; parentToolCallId: string; depth: number; text: string; variant: 'text' | 'thinking' };
 
 const ACTIVITY_PARAGRAPH =
@@ -1342,6 +1344,12 @@ function extractToolSegments(content: string, t: TFunction): { segments: Assista
 			if (todos.length > 0) {
 				segments.push({ type: 'plan_todo', todos });
 			}
+			cursor = mk.end;
+			continue;
+		}
+
+		if (mk.name === 'begin_outcome') {
+			segments.push({ type: 'outcome_marker' });
 			cursor = mk.end;
 			continue;
 		}

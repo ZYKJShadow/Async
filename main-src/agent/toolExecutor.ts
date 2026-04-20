@@ -1044,6 +1044,13 @@ export async function executeTool(
 			return await executeListMcpResources(call);
 		case 'ReadMcpResourceTool':
 			return await executeReadMcpResource(call, execCtx);
+		case 'begin_outcome':
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: 'outcome phase started',
+				isError: false,
+			};
 		case 'TodoWrite':
 			return executeTodoWrite(call, execCtx);
 		case 'ask_plan_question':

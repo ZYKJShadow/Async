@@ -70,3 +70,21 @@ export function findStickyUserIndexForViewport(params: {
 	}
 	return candidate;
 }
+
+/**
+ * 互斥规则：sticky 候选不应与 latest-turn-focus 重合。
+ * 最新一轮 user 已经被 spacer 顶到接近视口顶，再加 sticky 包裹会导致重复定位与抖动；
+ * 此时返回 null，让 sticky 让位给 spacer。
+ */
+export function resolveStickyUserIndex(
+	candidate: number | null,
+	latestTurnFocusUserIndex: number | null
+): number | null {
+	if (candidate == null) {
+		return null;
+	}
+	if (candidate === latestTurnFocusUserIndex) {
+		return null;
+	}
+	return candidate;
+}

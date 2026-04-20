@@ -708,6 +708,13 @@ export const messagesZhCN: Record<string, string> = {
 	'composer.plusImage': '图片',
 	'composer.plusSkills': '技能（Skills）',
 	'composer.plusMcp': 'MCP 服务',
+	'composer.plusSkillsHint': '选择一个技能并自动插入 `./slug` 调用前缀。',
+	'composer.plusSkillsEmpty': '当前没有可直接调用的技能。你可以先去规则与技能设置里启用，或新建一个技能。',
+	'composer.plusUseSkill': '点击后会把这个技能插入到输入框开头。',
+	'composer.plusOpenSkillSettings': '打开技能设置',
+	'composer.plusMcpHint': '查看当前 MCP 服务状态，并可直接启用或停用。',
+	'composer.plusMcpEmpty': '当前没有配置 MCP 服务。',
+	'composer.plusOpenMcpSettings': '打开 MCP 设置',
 
 	// model picker
 	'modelPicker.auto': '自动',
@@ -1255,6 +1262,9 @@ export const messagesZhCN: Record<string, string> = {
 	'agent.edit.collapse': '收起预览',
 	'agent.edit.streamingPlaceholder': '正在流式接收补丁…',
 	'agent.working': '正在继续处理本次改动…',
+	'agent.preflight.working': '正在分析…',
+	'agent.preflight.summary.idle': '分析中',
+	'agent.preflight.summary.done': '分析完成',
 	'agent.emptyStructuredReply':
 		'本回合没有助手输出（模型未返回正文，且本回合没有工具记录；也可能被中断或出错）。',
 	'agent.toolPending': '{{name}}…',
@@ -1424,6 +1434,7 @@ export const messagesZhCN: Record<string, string> = {
 	'plan.review.fullShow': '查看完整计划（含表格与风险说明）',
 	'plan.review.fullHide': '收起完整计划',
 	'plan.review.todo': '待办（{{done}}/{{total}}）',
+	'agent.todoBottomPanel.summary': '共 {{total}} 个任务，已经完成 {{done}} 个',
 	'plan.review.model': '模型',
 	'plan.review.pickModel': '请选择模型…',
 	'plan.review.goal': '\u76ee\u6807',

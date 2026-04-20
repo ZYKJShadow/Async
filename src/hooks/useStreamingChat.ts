@@ -336,25 +336,28 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 		if (effectiveMode === 'team') {
 			rt.startTeamSession(targetThreadId, text);
 		}
+		const structuredParts: UserMessagePart[] | undefined = opts?.segments
+			? segmentsToParts(opts.segments)
+			: undefined;
+		const partsPayload =
+			structuredParts && structuredParts.length > 0 ? structuredParts : undefined;
+		const optimisticUserMessage = partsPayload
+			? { role: 'user' as const, content: text, parts: partsPayload }
+			: { role: 'user' as const, content: text };
+
 		if (rt.resendFromUserIndex !== null) {
 			const resendIdx = rt.resendFromUserIndex;
 			rt.setInlineResendSegments([]);
-			rt.setMessages((messages) => [...messages.slice(0, resendIdx), { role: 'user', content: text }]);
+			rt.setMessages((messages) => [...messages.slice(0, resendIdx), optimisticUserMessage]);
 		} else {
 			rt.setComposerSegments([]);
-			rt.setMessages((messages) => [...messages, { role: 'user', content: text }]);
+			rt.setMessages((messages) => [...messages, optimisticUserMessage]);
 		}
 
 		rt.setStreamingThinking('');
 		rt.clearStreamingToolPreviewNow();
 		rt.resetLiveAgentBlocks();
 		const streamNonce = rt.beginStream(targetThreadId);
-
-		const structuredParts: UserMessagePart[] | undefined = opts?.segments
-			? segmentsToParts(opts.segments)
-			: undefined;
-		const partsPayload =
-			structuredParts && structuredParts.length > 0 ? structuredParts : undefined;
 
 		if (opts?.planExecute && opts.planBuildPathKey) {
 			const pathKey = opts.planBuildPathKey.trim().toLowerCase();

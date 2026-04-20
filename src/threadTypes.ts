@@ -48,6 +48,13 @@ function sameUserParts(a: UserMessagePart[] | undefined, b: UserMessagePart[] | 
 		if (x.kind === 'command' && y.kind === 'command' && x.command !== y.command) {
 			return false;
 		}
+		if (
+			x.kind === 'skill_invoke' &&
+			y.kind === 'skill_invoke' &&
+			(x.slug !== y.slug || x.name !== y.name)
+		) {
+			return false;
+		}
 		if (x.kind === 'file_ref' && y.kind === 'file_ref' && x.relPath !== y.relPath) {
 			return false;
 		}

@@ -1,7 +1,9 @@
-import { memo, useCallback, useMemo, useState, type KeyboardEvent } from 'react';
+import { Fragment, memo, useCallback, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AgentActivityGroup } from './AgentActivityGroup';
+import { AgentPreflightShell } from './AgentPreflightShell';
+import { PreflightThinkingItem } from './PreflightThinkingItem';
 import { AnimatedHeightReveal } from './AnimatedHeightReveal';
 import { AgentCommandCard } from './AgentCommandCard';
 import { AgentDiffCard } from './AgentDiffCard';
@@ -47,9 +49,20 @@ function thinkingGroupRenderMeta(
 	};
 }
 
-/** 当前 Explored 分组之后是否已出现工具类块（file_edit / 命令 / diff 等），用于回合未结束时提前折叠 */
-function activityGroupFollowedByToolLikeWork(units: RenderUnit[], groupIndex: number): boolean {
-	for (let k = groupIndex + 1; k < units.length; k++) {
+/**
+ * 当前块（Explored 分组 / 思考块）之后是否已出现工具类块或收尾输出，
+ * 用于回合未结束时提前把 head 上方的过程容器收成单行 summary。
+ *
+ * 注意：思考块之后只要见到“真正的输出”就该收起，因此 markdown / plan_todo /
+ * file_changes 也算。Explored 分组与 markdown 之间常常正常并存（先搜索再说话），
+ * 不能把 markdown 也算上 —— 该函数对两类块走分支。
+ */
+function unitFollowedByToolLikeWork(
+	units: RenderUnit[],
+	currentIndex: number,
+	currentKind: 'activity_group' | 'thinking_group'
+): boolean {
+	for (let k = currentIndex + 1; k < units.length; k++) {
 		const u = units[k]!;
 		switch (u.type) {
 			case 'diff':
@@ -61,15 +74,25 @@ function activityGroupFollowedByToolLikeWork(units: RenderUnit[], groupIndex: nu
 			case 'sub_agent_markdown':
 				return true;
 			case 'markdown':
+			case 'plan_todo':
+			case 'file_changes':
+				if (currentKind === 'thinking_group') {
+					return true;
+				}
+				continue;
 			case 'thinking_group':
 			case 'activity_group':
-			case 'file_changes':
-			case 'plan_todo':
+			case 'outcome_marker':
 				continue;
 		}
 	}
 	return false;
 }
+
+// preflight / outcome 切分纯函数 + 配套辅助谓词已抽到 ./preflightSplit 以便独立单元测试，
+// 这里 re-export 保持原有公共 API。
+export { splitPreflightAndOutcome, preflightHasContent } from './preflightSplit';
+import { splitPreflightAndOutcome, preflightHasContent } from './preflightSplit';
 
 /** 有 tool_input_delta 预览时，解析层也会生成 isStreaming 的 file_edit，避免与预览重复且保证预览优先显示 */
 function dropParsedStreamingFileEditWhilePreview(
@@ -109,6 +132,13 @@ type Props = {
 	revertedChangeKeys?: ReadonlySet<string>;
 	allowAgentFileActions?: boolean;
 	skipPlanTodo?: boolean;
+	/**
+	 * 渲染范围：
+	 * - `'all'`（默认，兼容老调用方）：preflight + outcome 都在本组件渲染（整段一起）。
+	 * - `'preflight'`：仅渲染过程区（思考 / 搜索 / 解释 markdown），用于挂在用户气泡正下方。
+	 * - `'outcome'`：仅渲染结果区（file_edit / diff / 收尾总结）等，用于 assistant 气泡正文。
+	 */
+	renderMode?: 'all' | 'preflight' | 'outcome';
 };
 
 function InlineChevron({ open }: { open: boolean }) {
@@ -286,6 +316,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	revertedChangeKeys,
 	allowAgentFileActions = false,
 	skipPlanTodo = false,
+	renderMode = 'all',
 }: Props) {
 	const { t } = useI18n();
 
@@ -391,6 +422,13 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		}
 		return out;
 	}, [renderSegments]);
+	// 注意：以下 useMemo 必须在所有条件 return 之前调用，否则违反 Hooks 顺序。
+	// 流式期间 markdown 永远留在 preflight，回合结束（liveTurn=false）才一次性切到 outcome。
+	// 这避免了「文字外置→收回」的视觉抖动 —— 任意 unit 在流式期间不会在 preflight ↔ outcome 之间反向迁移。
+	const { preflight, outcome } = useMemo(
+		() => splitPreflightAndOutcome(renderUnits, { liveTurn: showAgentWorking }),
+		[renderUnits, showAgentWorking]
+	);
 	const hidePendingActivityTextCluster =
 		showAgentWorking &&
 		(
@@ -413,6 +451,245 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 
 	const agentRootClass = 'ref-md-root ref-md-root--agent-chat';
 
+	const renderUnitNode = (seg: RenderUnit, i: number, opts?: { insideShell?: boolean }): ReactNode => {
+		const insideShell = opts?.insideShell === true;
+		switch (seg.type) {
+			case 'markdown':
+				return (
+					<ReactMarkdown key={`u-${i}`} remarkPlugins={[remarkGfm]}>
+						{seg.text}
+					</ReactMarkdown>
+				);
+			case 'thinking_group': {
+				const thoughtMeta = thinkingGroupRenderMeta(seg.chunks, liveThoughtMeta);
+				if (insideShell) {
+					return (
+						<PreflightThinkingItem
+							key={seg.chunks[0]?.id ?? `thinking-${i}`}
+							phase={thoughtMeta.phase}
+							elapsedSeconds={thoughtMeta.elapsedSeconds}
+							chunks={seg.chunks.map((chunk) => ({ id: chunk.id, text: chunk.text }))}
+							streamingThinking={liveThoughtMeta?.streamingThinking ?? ''}
+						/>
+					);
+				}
+				return (
+					<ComposerThoughtBlock
+						key={seg.chunks[0]?.id ?? `thinking-${i}`}
+						phase={thoughtMeta.phase}
+						elapsedSeconds={thoughtMeta.elapsedSeconds}
+						chunks={seg.chunks.map((chunk) => ({ id: chunk.id, text: chunk.text }))}
+						streamingThinking={liveThoughtMeta?.streamingThinking ?? ''}
+						tokenUsage={thoughtMeta.phase === 'done' ? liveThoughtMeta?.tokenUsage : undefined}
+						followingToolLikeWork={unitFollowedByToolLikeWork(renderUnits, i, 'thinking_group')}
+					/>
+				);
+			}
+			case 'diff':
+				return (
+					<AgentDiffCard
+						key={`u-${i}`}
+						diff={seg.diff}
+						workspaceRoot={workspaceRoot}
+						onOpenFile={onOpenAgentFile}
+					/>
+				);
+			case 'command':
+				return (
+					<AgentCommandCard
+						key={`u-${i}`}
+						lang={seg.lang}
+						body={seg.body}
+						onRun={onRunCommand ? () => onRunCommand(seg.body) : undefined}
+					/>
+				);
+			case 'streaming_code':
+				return <AgentStreamingFenceCard key={`u-${i}`} lang={seg.lang} body={seg.body} />;
+			case 'file_edit': {
+				const changeKey = fileEditChangeKey(seg);
+				const isReverted =
+					Boolean(revertedPaths?.has(seg.path)) ||
+					Boolean(changeKey && revertedChangeKeys?.has(changeKey));
+				return (
+					<AgentEditCard
+						key={`u-${i}`}
+						edit={seg}
+						isReverted={isReverted}
+						allowReviewActions={allowAgentFileActions}
+						onOpenFile={onOpenAgentFile}
+					/>
+				);
+			}
+			case 'activity_group':
+				// preflight 内不渲染 .ref-activity-group 壳：直接把组内 items 摊平成独立活动行，
+				// 视觉上跟其它独立 activity（如 Bash/已运行）一致，过程中无任何额外折叠层。
+				if (insideShell) {
+					return (
+						<Fragment key={`u-${i}`}>
+							{seg.items.map((item, j) => (
+								<ActivityLine
+									key={`u-${i}-${j}`}
+									seg={item}
+									t={t}
+									onOpenAgentFile={onOpenAgentFile}
+									showAgentWorking={showAgentWorking}
+									hidePendingTextCluster={hidePendingActivityTextCluster}
+								/>
+							))}
+						</Fragment>
+					);
+				}
+				return (
+					<AgentActivityGroup
+						key={`u-${i}`}
+						group={seg}
+						onOpenFile={onOpenAgentFile}
+						liveTurn={showAgentWorking}
+						animateLineReveal={showAgentWorking}
+						insideShell={insideShell}
+						followingToolLikeWork={unitFollowedByToolLikeWork(renderUnits, i, 'activity_group')}
+					/>
+				);
+			case 'file_changes':
+				return null;
+			case 'sub_agent_markdown': {
+				const label =
+					seg.variant === 'thinking' ? t('agent.subAgent.thinking') : t('agent.subAgent.output');
+				return (
+					<div
+						key={`u-${i}`}
+						className="ref-sub-agent-md"
+						style={{ marginLeft: Math.min(12 + (seg.depth - 1) * 10, 40) }}
+					>
+						<div className="ref-sub-agent-md-label">{label}</div>
+						<div className="ref-md-root ref-md-root--agent-chat ref-sub-agent-md-body">
+							<ReactMarkdown remarkPlugins={[remarkGfm]}>{seg.text}</ReactMarkdown>
+						</div>
+					</div>
+				);
+			}
+			case 'activity':
+				return (
+					<ActivityLine
+						key={`u-${i}`}
+						seg={seg}
+						t={t}
+						onOpenAgentFile={onOpenAgentFile}
+						showAgentWorking={showAgentWorking}
+						hidePendingTextCluster={hidePendingActivityTextCluster}
+					/>
+				);
+			case 'tool_call':
+				if (hidePendingActivityTextCluster && showAgentWorking) {
+					return null;
+				}
+				return (
+					<p key={`u-${i}`} className="ref-agent-activity">
+						{t('agent.toolPending', { name: seg.name })}
+					</p>
+				);
+			case 'plan_todo':
+				if (skipPlanTodo) return null;
+				return (
+					<div key={`u-${i}`} className="ref-plan-review-todos">
+						<div className="ref-plan-review-todos-head">
+							<span>
+								{t('plan.review.todo', {
+									done: seg.todos.filter((td) => td.status === 'completed').length,
+									total: seg.todos.length,
+								})}
+							</span>
+						</div>
+						<div className="ref-plan-review-todos-list">
+							{seg.todos.map((todo) => {
+								const done = todo.status === 'completed';
+								const active = todo.status === 'in_progress';
+								return (
+									<div
+										key={todo.id}
+										className={`ref-plan-todo ${done ? 'is-done' : ''} ${active ? 'is-active' : ''}`}
+									>
+										{active ? (
+											<span className="ref-plan-todo-spinner" aria-hidden />
+										) : (
+											<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+												<rect
+													x="1"
+													y="1"
+													width="14"
+													height="14"
+													rx="3"
+													stroke={done ? '#e8a848' : '#555'}
+													strokeWidth="1.5"
+													fill={done ? '#e8a848' : 'none'}
+												/>
+												{done ? (
+													<path
+														d="M4.5 8l2.5 2.5 4.5-5"
+														stroke="#1a1a1a"
+														strokeWidth="1.8"
+														strokeLinecap="round"
+														strokeLinejoin="round"
+													/>
+												) : null}
+											</svg>
+										)}
+										<span className="ref-plan-todo-text">
+											{active && todo.activeForm ? todo.activeForm : todo.content}
+										</span>
+									</div>
+								);
+							})}
+						</div>
+					</div>
+				);
+			default:
+				return null;
+		}
+	};
+
+	const hasPreflight = preflightHasContent(preflight);
+	const hasOutcome = outcome.some((u) => {
+		// outcome_marker 自身不可见，单独存在不算「有 outcome」
+		if (u.type === 'outcome_marker') return false;
+		if (u.type === 'markdown') return u.text.trim().length > 0;
+		return true;
+	});
+
+	if (renderMode === 'preflight') {
+		if (!hasPreflight) return null;
+		return (
+			<div className={agentRootClass}>
+				<AgentPreflightShell
+					liveTurn={showAgentWorking}
+					hasOutcome={hasOutcome}
+					phase={liveThoughtMeta?.phase ?? (showAgentWorking ? 'thinking' : 'done')}
+					tokenUsage={liveThoughtMeta?.tokenUsage ?? null}
+				>
+					{preflight.map((seg, i) => renderUnitNode(seg, i, { insideShell: true }))}
+				</AgentPreflightShell>
+			</div>
+		);
+	}
+
+	if (renderMode === 'outcome') {
+		if (!hasOutcome) {
+			return <div className={agentRootClass} />;
+		}
+		if (outcome.length === 1 && outcome[0]!.type === 'markdown') {
+			return (
+				<div className={agentRootClass}>
+					<ReactMarkdown remarkPlugins={[remarkGfm]}>{outcome[0]!.text}</ReactMarkdown>
+				</div>
+			);
+		}
+		return (
+			<div className={agentRootClass}>
+				{outcome.map((seg, i) => renderUnitNode(seg, i))}
+			</div>
+		);
+	}
+
 	if (renderUnits.length === 0) {
 		if (content.trim()) {
 			return (
@@ -432,144 +709,6 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	}
 
 	return (
-		<div className={agentRootClass}>
-			{renderUnits.map((seg, i) => {
-				switch (seg.type) {
-					case 'markdown':
-						return <ReactMarkdown key={i} remarkPlugins={[remarkGfm]}>{seg.text}</ReactMarkdown>;
-					case 'thinking_group':
-						const thoughtMeta = thinkingGroupRenderMeta(seg.chunks, liveThoughtMeta);
-						return (
-							<ComposerThoughtBlock
-								key={seg.chunks[0]?.id ?? `thinking-${i}`}
-								phase={thoughtMeta.phase}
-								elapsedSeconds={thoughtMeta.elapsedSeconds}
-								chunks={seg.chunks.map((chunk) => ({ id: chunk.id, text: chunk.text }))}
-								streamingThinking={liveThoughtMeta?.streamingThinking ?? ''}
-								tokenUsage={thoughtMeta.phase === 'done' ? liveThoughtMeta?.tokenUsage : undefined}
-							/>
-						);
-					case 'diff':
-						return (
-							<AgentDiffCard
-								key={i}
-								diff={seg.diff}
-								workspaceRoot={workspaceRoot}
-								onOpenFile={onOpenAgentFile}
-							/>
-						);
-					case 'command':
-						return <AgentCommandCard key={i} lang={seg.lang} body={seg.body} onRun={onRunCommand ? () => onRunCommand(seg.body) : undefined} />;
-					case 'streaming_code':
-						return <AgentStreamingFenceCard key={i} lang={seg.lang} body={seg.body} />;
-					case 'file_edit':
-						const changeKey = fileEditChangeKey(seg);
-						const isReverted =
-							Boolean(revertedPaths?.has(seg.path)) ||
-							Boolean(changeKey && revertedChangeKeys?.has(changeKey));
-						return (
-							<AgentEditCard
-								key={i}
-								edit={seg}
-								isReverted={isReverted}
-								allowReviewActions={allowAgentFileActions}
-								onOpenFile={onOpenAgentFile}
-							/>
-						);
-				case 'activity_group':
-					return (
-						<AgentActivityGroup
-							key={i}
-							group={seg}
-							onOpenFile={onOpenAgentFile}
-							liveTurn={showAgentWorking}
-							animateLineReveal={showAgentWorking}
-							followingToolLikeWork={activityGroupFollowedByToolLikeWork(renderUnits, i)}
-						/>
-					);
-					case 'file_changes':
-						return null;
-					case 'sub_agent_markdown': {
-						const label =
-							seg.variant === 'thinking' ? t('agent.subAgent.thinking') : t('agent.subAgent.output');
-						return (
-							<div
-								key={i}
-								className="ref-sub-agent-md"
-								style={{ marginLeft: Math.min(12 + (seg.depth - 1) * 10, 40) }}
-							>
-								<div className="ref-sub-agent-md-label">{label}</div>
-								<div className="ref-md-root ref-md-root--agent-chat ref-sub-agent-md-body">
-									<ReactMarkdown remarkPlugins={[remarkGfm]}>{seg.text}</ReactMarkdown>
-								</div>
-							</div>
-						);
-					}
-					case 'activity': {
-						return (
-							<ActivityLine
-								key={i}
-								seg={seg}
-								t={t}
-								onOpenAgentFile={onOpenAgentFile}
-								showAgentWorking={showAgentWorking}
-								hidePendingTextCluster={hidePendingActivityTextCluster}
-							/>
-						);
-					}
-					case 'tool_call':
-						if (hidePendingActivityTextCluster && showAgentWorking) {
-							return null;
-						}
-						return (
-							<p key={i} className="ref-agent-activity">
-								{t('agent.toolPending', { name: seg.name })}
-							</p>
-						);
-					case 'plan_todo':
-						if (skipPlanTodo) return null;
-						return (
-							<div key={i} className="ref-plan-review-todos">
-								<div className="ref-plan-review-todos-head">
-									<span>{t('plan.review.todo', { 
-										done: seg.todos.filter(td => td.status === 'completed').length, 
-										total: seg.todos.length 
-									})}</span>
-								</div>
-								<div className="ref-plan-review-todos-list">
-									{seg.todos.map((todo) => {
-										const done = todo.status === 'completed';
-										const active = todo.status === 'in_progress';
-										return (
-											<div key={todo.id} className={`ref-plan-todo ${done ? 'is-done' : ''} ${active ? 'is-active' : ''}`}>
-												{active ? (
-													<span className="ref-plan-todo-spinner" aria-hidden />
-												) : (
-													<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-														<rect
-															x="1" y="1" width="14" height="14" rx="3"
-															stroke={done ? '#e8a848' : '#555'}
-															strokeWidth="1.5"
-															fill={done ? '#e8a848' : 'none'}
-														/>
-														{done ? (
-															<path d="M4.5 8l2.5 2.5 4.5-5" stroke="#1a1a1a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-														) : null}
-													</svg>
-												)}
-												<span className="ref-plan-todo-text">
-													{active && todo.activeForm ? todo.activeForm : todo.content}
-												</span>
-											</div>
-										);
-									})}
-								</div>
-							</div>
-						);
-					default:
-						return null;
-				}
-			})}
-		</div>
+		<div className={agentRootClass}>{renderUnits.map((seg, i) => renderUnitNode(seg, i))}</div>
 	);
 });

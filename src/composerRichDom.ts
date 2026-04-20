@@ -3,6 +3,7 @@
 import { fileTypeIconHtmlForRelPath, isRasterImageRelPath } from './fileTypeIcons';
 import {
 	newSegmentId,
+	skillInvocationWire,
 	slashCommandWire,
 	type ComposerImageMeta,
 	type ComposerSegment,
@@ -11,6 +12,7 @@ import {
 
 const CHIP_CLASS = 'ref-inline-file-chip';
 export const SLASH_CMD_CLASS = 'ref-inline-slash-chip';
+export const SKILL_INVOKE_CLASS = 'ref-inline-skill-chip';
 
 function fileBasename(path: string): string {
 	const n = path.replace(/\\/g, '/');
@@ -29,7 +31,11 @@ export function domPlainPrefixForAt(root: HTMLElement): string {
 			return;
 		}
 		const e = n as HTMLElement;
-		if (e.classList.contains(CHIP_CLASS) || e.classList.contains(SLASH_CMD_CLASS)) {
+		if (
+			e.classList.contains(CHIP_CLASS) ||
+			e.classList.contains(SLASH_CMD_CLASS) ||
+			e.classList.contains(SKILL_INVOKE_CLASS)
+		) {
 			return;
 		}
 		if (e.tagName === 'BR') {
@@ -140,7 +146,11 @@ export function findAtMentionDomRange(root: HTMLElement): Range | null {
 			return false;
 		}
 		const e = n as HTMLElement;
-		if (e.classList.contains(CHIP_CLASS) || e.classList.contains(SLASH_CMD_CLASS)) {
+		if (
+			e.classList.contains(CHIP_CLASS) ||
+			e.classList.contains(SLASH_CMD_CLASS) ||
+			e.classList.contains(SKILL_INVOKE_CLASS)
+		) {
 			return false;
 		}
 		if (e.tagName === 'BR') {
@@ -295,6 +305,50 @@ export function createSlashCommandChipElement(
 	return span;
 }
 
+export function createSkillInvokeChipElement(
+	segId: string,
+	slug: string,
+	name: string,
+	h: FileChipDomHandlers
+): HTMLElement {
+	const span = document.createElement('span');
+	span.contentEditable = 'false';
+	span.dataset.segId = segId;
+	span.dataset.voidSkill = slug;
+	span.dataset.voidSkillName = name;
+	span.className = SKILL_INVOKE_CLASS;
+	span.setAttribute('role', 'presentation');
+	span.title = name ? `${name} · ${skillInvocationWire(slug)}` : skillInvocationWire(slug);
+
+	const label = document.createElement('span');
+	label.className = 'ref-inline-skill-chip-label';
+	label.textContent = name || skillInvocationWire(slug);
+
+	const btn = document.createElement('button');
+	btn.type = 'button';
+	btn.className = 'ref-inline-skill-chip-x';
+	btn.setAttribute('aria-label', 'Remove skill');
+	btn.textContent = '×';
+	btn.addEventListener('mousedown', (e) => e.preventDefault());
+	btn.addEventListener('click', (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+		span.remove();
+		h.onStructureChange();
+	});
+
+	span.addEventListener('mousedown', (e) => {
+		if ((e.target as HTMLElement).closest('.ref-inline-skill-chip-x')) {
+			return;
+		}
+		e.preventDefault();
+	});
+
+	span.appendChild(label);
+	span.appendChild(btn);
+	return span;
+}
+
 export function applyFileChipFromAtMention(root: HTMLElement, relPath: string, segId: string, h: FileChipDomHandlers, imageMeta?: ComposerImageMeta): void {
 	const r = findAtMentionDomRange(root);
 	if (!r) {
@@ -411,6 +465,16 @@ export function readSegmentsFromRoot(root: HTMLElement): ComposerSegment[] {
 			});
 			return;
 		}
+		if (e.classList.contains(SKILL_INVOKE_CLASS) && e.dataset.voidSkill) {
+			flush();
+			out.push({
+				id: e.dataset.segId || newSegmentId(),
+				kind: 'skill',
+				slug: e.dataset.voidSkill,
+				name: e.dataset.voidSkillName || e.dataset.voidSkill,
+			});
+			return;
+		}
 		if (e.classList.contains(CHIP_CLASS) && e.dataset.voidRel) {
 			flush();
 			let imageMeta: ComposerImageMeta | undefined;
@@ -516,6 +580,8 @@ export function writeSegmentsToRoot(
 			}
 		} else if (s.kind === 'command') {
 			root.appendChild(createSlashCommandChipElement(s.id, s.command, h));
+		} else if (s.kind === 'skill') {
+			root.appendChild(createSkillInvokeChipElement(s.id, s.slug, s.name, h));
 		} else if (s.kind === 'file') {
 			root.appendChild(createFileChipElement(s.path, s.id, h, s.imageMeta));
 		}

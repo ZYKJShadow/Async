@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
 import type { ChatMessage } from '../threadStore.js';
 import type { UserMessagePart } from '../../src/messageParts.js';
+import { skillInvocationWire } from '../../src/composerSegments.js';
 import { resolveWorkspacePath } from '../workspace.js';
 import { getIndexedWorkspaceFilesIfFresh, listWorkspaceRelativeFiles } from '../workspaceFileIndex.js';
 import { collectAtWorkspacePathsInText } from './workspaceContextExpand.js';
@@ -168,12 +169,28 @@ async function resolveStructuredUserMessage(
 	workspaceRoot: string
 ): Promise<ResolvedUserMessage> {
 	const segments: ResolvedUserSegment[] = [];
-	for (const p of parts) {
+	for (let i = 0; i < parts.length; i++) {
+		const p = parts[i]!;
 		if (p.kind === 'text') {
 			segments.push({ kind: 'text', text: p.text });
 		} else if (p.kind === 'command') {
 			const slash = String(p.command).startsWith('/') ? String(p.command) : `/${String(p.command)}`;
 			segments.push({ kind: 'text', text: slash });
+		} else if (p.kind === 'skill_invoke') {
+			let wire = skillInvocationWire(p.slug);
+			const next = parts[i + 1];
+			if (next?.kind === 'text' && next.text.length > 0 && !/^\s/u.test(next.text)) {
+				wire += ' ';
+			} else if (
+				next &&
+				(next.kind === 'file_ref' ||
+					next.kind === 'image_ref' ||
+					next.kind === 'command' ||
+					next.kind === 'skill_invoke')
+			) {
+				wire += ' ';
+			}
+			segments.push({ kind: 'text', text: wire });
 		} else if (p.kind === 'file_ref') {
 			segments.push(resolveFileRef(p.relPath, workspaceRoot));
 		} else if (p.kind === 'image_ref') {

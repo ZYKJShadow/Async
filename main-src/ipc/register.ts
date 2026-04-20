@@ -183,6 +183,10 @@ import {
 	getWorkspaceLspManagerForWebContents,
 	disposeTsLspSessionForWebContents,
 } from '../lspSessionsByWebContents.js';
+import { registerClipboardHandlers } from './handlers/clipboardHandlers.js';
+import { registerAutoUpdateHandlers } from './handlers/autoUpdateHandlers.js';
+import { registerUsageStatsHandlers } from './handlers/usageStatsHandlers.js';
+import { registerLspHandlers } from './handlers/lspHandlers.js';
 import { setDelegateContext, clearDelegateContext } from '../agent/toolExecutor.js';
 import {
 	attachManagedAgentEmitter,
@@ -219,7 +223,7 @@ import { syncBrowserCaptureBindingsForHostId } from '../browser/browserCapture.j
 
 const execFileAsync = promisify(execFile);
 
-function senderWorkspaceRoot(event: { sender: WebContents }): string | null {
+export function senderWorkspaceRoot(event: { sender: WebContents }): string | null {
 	return getWorkspaceRootForWebContents(event.sender);
 }
 
@@ -1305,86 +1309,7 @@ export function registerIpc(): void {
 		return { ok: true as const, hits };
 	});
 
-	ipcMain.handle('lsp:ts:start', async (_event, workspaceRootArg: string) => {
-		const dir = typeof workspaceRootArg === 'string' ? workspaceRootArg.trim() : '';
-		if (!dir) {
-			return { ok: false as const, error: 'empty-root' as const };
-		}
-		/* LSP 子进程按需在首次 definition/diagnostics/Agent 工具调用时启动；此处保留通道以兼容旧前端 */
-		return { ok: true as const };
-	});
-
-	ipcMain.handle('lsp:ts:stop', async (event) => {
-		await disposeTsLspSessionForWebContents(event.sender);
-		return { ok: true as const };
-	});
-
-	ipcMain.handle('lsp:ts:definition', async (event, payload: unknown) => {
-		const p = payload as { uri?: string; line?: number; column?: number; text?: string };
-		const uri = typeof p?.uri === 'string' ? p.uri : '';
-		const text = typeof p?.text === 'string' ? p.text : '';
-		const line = typeof p?.line === 'number' && Number.isFinite(p.line) ? p.line : 1;
-		const column = typeof p?.column === 'number' && Number.isFinite(p.column) ? p.column : 1;
-		if (!uri || !text) {
-			return { ok: false as const, error: 'bad-args' as const };
-		}
-		const root = senderWorkspaceRoot(event);
-		if (!root) {
-			return { ok: false as const, error: 'no-workspace' as const };
-		}
-		let absPath: string;
-		try {
-			absPath = uri.startsWith('file:') ? fileURLToPath(uri) : '';
-		} catch {
-			absPath = '';
-		}
-		if (!absPath) {
-			return { ok: false as const, error: 'bad-uri' as const };
-		}
-		try {
-			const mgr = getWorkspaceLspManagerForWebContents(event.sender);
-			const session = await mgr.sessionForFile(absPath, root);
-			if (!session) {
-				return { ok: false as const, error: 'no-lsp-server' as const };
-			}
-			const result = await session.definition(uri, line, column, text);
-			return { ok: true as const, result };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	ipcMain.handle('lsp:ts:diagnostics', async (event, payload: unknown) => {
-		const p = payload as { relPath?: string };
-		const relPath = typeof p?.relPath === 'string' ? p.relPath : '';
-		if (!relPath) {
-			return { ok: false as const, error: 'bad-args' as const };
-		}
-		const root = senderWorkspaceRoot(event);
-		if (!root) {
-			return { ok: false as const, error: 'no-workspace' as const };
-		}
-		const absPath = path.join(root, relPath);
-		if (!fs.existsSync(absPath)) {
-			return { ok: false as const, error: 'file-not-found' as const };
-		}
-		const text = fs.readFileSync(absPath, 'utf-8');
-		const uri = pathToFileURL(absPath).href;
-		try {
-			const mgr = getWorkspaceLspManagerForWebContents(event.sender);
-			const session = await mgr.sessionForFile(absPath, root);
-			if (!session) {
-				return { ok: false as const, error: 'no-lsp-server' as const };
-			}
-			const items = await session.diagnostics(uri, text);
-			if (items === null) {
-				return { ok: false as const, error: 'not-supported' as const };
-			}
-			return { ok: true as const, diagnostics: items };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
+	registerLspHandlers();
 
 	ipcMain.handle('workspace:closeFolder', async (event) => {
 		const root = senderWorkspaceRoot(event);
@@ -1703,80 +1628,161 @@ export function registerIpc(): void {
 		sha256: string;
 	};
 
+	type ComposerAttachmentResult =
+		| { ok: true; relPath: string; imageMeta?: ComposerImageMetaDto }
+		| { ok: false; error: 'no-workspace' | 'empty' | 'too-large' | 'write-failed' };
+
+	function sanitizeComposerAttachmentName(rawName: string | undefined): string {
+		const baseName =
+			typeof rawName === 'string' && rawName.trim() ? path.basename(rawName) : 'attachment';
+		return (
+			baseName
+				.replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+				.replace(/[. ]+$/g, '')
+				.slice(0, 120) || 'attachment'
+		);
+	}
+
+	async function persistComposerAttachmentBuffer(
+		root: string | null,
+		buf: Buffer,
+		rawName: string | undefined
+	): Promise<ComposerAttachmentResult> {
+		if (!root) {
+			return { ok: false as const, error: 'no-workspace' as const };
+		}
+		if (buf.length === 0) {
+			return { ok: false as const, error: 'empty' as const };
+		}
+		if (buf.length > COMPOSER_ATTACH_MAX_BYTES) {
+			return { ok: false as const, error: 'too-large' as const };
+		}
+		const safeName = sanitizeComposerAttachmentName(rawName);
+		const dirRel = '.async/composer-drops';
+		const dirAbs = path.join(root, dirRel);
+		try {
+			fs.mkdirSync(dirAbs, { recursive: true });
+			const parsed = path.parse(safeName);
+			const baseName = parsed.name || 'attachment';
+			const ext = parsed.ext || '';
+			let finalName = `${baseName}${ext}`;
+			let seq = 2;
+			while (true) {
+				const candidateAbs = path.join(dirAbs, finalName);
+				if (!fs.existsSync(candidateAbs)) {
+					break;
+				}
+				try {
+					const existingBuf = fs.readFileSync(candidateAbs);
+					if (Buffer.compare(existingBuf, buf) === 0) {
+						const relPath = `${dirRel}/${finalName}`;
+						registerKnownWorkspaceRelPath(relPath, root);
+						const imageMeta = await probeImageMeta(buf, relPath);
+						return imageMeta
+							? { ok: true as const, relPath, imageMeta }
+							: { ok: true as const, relPath };
+					}
+				} catch {
+					/* 读取失败时继续找下一个可用名称 */
+				}
+				finalName = `${baseName} (${seq})${ext}`;
+				seq += 1;
+			}
+			const relPath = `${dirRel}/${finalName}`;
+			fs.writeFileSync(path.join(root, relPath), buf);
+			registerKnownWorkspaceRelPath(relPath, root);
+			const imageMeta = await probeImageMeta(buf, relPath);
+			return imageMeta
+				? { ok: true as const, relPath, imageMeta }
+				: { ok: true as const, relPath };
+		} catch {
+			return { ok: false as const, error: 'write-failed' as const };
+		}
+	}
+
 	ipcMain.handle(
 		'workspace:saveComposerAttachment',
 		async (
 			event,
 			payload: { base64?: string; fileName?: string }
-		): Promise<
-			| { ok: true; relPath: string; imageMeta?: ComposerImageMetaDto }
-			| { ok: false; error: 'no-workspace' | 'empty' | 'too-large' | 'write-failed' }
-		> => {
+		): Promise<ComposerAttachmentResult> => {
 			const root = senderWorkspaceRoot(event);
-			if (!root) {
-				return { ok: false as const, error: 'no-workspace' as const };
-			}
-			const rawName =
-				typeof payload?.fileName === 'string' && payload.fileName.trim()
-					? path.basename(payload.fileName)
-					: 'attachment';
-			const safeName =
-				rawName
-					.replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
-					.replace(/[. ]+$/g, '')
-					.slice(0, 120) || 'attachment';
 			let buf: Buffer;
 			try {
 				buf = Buffer.from(String(payload?.base64 ?? ''), 'base64');
 			} catch {
 				return { ok: false as const, error: 'empty' as const };
 			}
-			if (buf.length === 0) {
-				return { ok: false as const, error: 'empty' as const };
+			return persistComposerAttachmentBuffer(root, buf, payload?.fileName);
+		}
+	);
+
+	ipcMain.handle(
+		'workspace:pickComposerImages',
+		async (
+			event
+		): Promise<
+			| { ok: true; attachments: Array<{ relPath: string; imageMeta?: ComposerImageMetaDto }> }
+			| { ok: false; error: 'no-workspace'; attachments: [] }
+			| { ok: false; canceled: true; attachments: [] }
+		> => {
+			const root = senderWorkspaceRoot(event);
+			if (!root) {
+				return { ok: false as const, error: 'no-workspace' as const, attachments: [] };
 			}
-			if (buf.length > COMPOSER_ATTACH_MAX_BYTES) {
-				return { ok: false as const, error: 'too-large' as const };
+			const win = BrowserWindow.fromWebContents(event.sender);
+			const r = await dialog.showOpenDialog(win ?? undefined, {
+				properties: ['openFile', 'multiSelections'],
+				defaultPath: root,
+				filters: [
+					{
+						name: 'Images',
+						extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'],
+					},
+				],
+			});
+			if (r.canceled || r.filePaths.length === 0) {
+				return { ok: false as const, canceled: true as const, attachments: [] };
 			}
-			const dirRel = '.async/composer-drops';
-			const dirAbs = path.join(root, dirRel);
-			try {
-				fs.mkdirSync(dirAbs, { recursive: true });
-				const parsed = path.parse(safeName);
-				const baseName = parsed.name || 'attachment';
-				const ext = parsed.ext || '';
-				let finalName = `${baseName}${ext}`;
-				let seq = 2;
-				while (true) {
-					const candidateAbs = path.join(dirAbs, finalName);
-					if (!fs.existsSync(candidateAbs)) {
-						break;
+			const attachments: Array<{ relPath: string; imageMeta?: ComposerImageMetaDto }> = [];
+			for (const rawPath of r.filePaths) {
+				const abs = path.resolve(rawPath);
+				try {
+					if (!fs.statSync(abs).isFile()) {
+						continue;
 					}
-					try {
-						const existingBuf = fs.readFileSync(candidateAbs);
-						if (Buffer.compare(existingBuf, buf) === 0) {
-							const relPath = `${dirRel}/${finalName}`;
-							registerKnownWorkspaceRelPath(relPath, root);
-							const imageMeta = await probeImageMeta(buf, relPath);
-							return imageMeta
-								? { ok: true as const, relPath, imageMeta }
-								: { ok: true as const, relPath };
-						}
-					} catch {
-						/* 读取失败时继续找下一个可用名称 */
-					}
-					finalName = `${baseName} (${seq})${ext}`;
-					seq += 1;
+				} catch {
+					continue;
 				}
-				const relPath = `${dirRel}/${finalName}`;
-				fs.writeFileSync(path.join(root, relPath), buf);
-				registerKnownWorkspaceRelPath(relPath, root);
-				const imageMeta = await probeImageMeta(buf, relPath);
-				return imageMeta
-					? { ok: true as const, relPath, imageMeta }
-					: { ok: true as const, relPath };
-			} catch {
-				return { ok: false as const, error: 'write-failed' as const };
+				if (isPathInsideRoot(abs, root)) {
+					const relPath = path.relative(root, abs).replace(/\\/g, '/');
+					registerKnownWorkspaceRelPath(relPath, root);
+					try {
+						const imageMeta = await probeImageMeta(fs.readFileSync(abs), relPath);
+						attachments.push(imageMeta ? { relPath, imageMeta } : { relPath });
+					} catch {
+						attachments.push({ relPath });
+					}
+					continue;
+				}
+				try {
+					const saveResult = await persistComposerAttachmentBuffer(
+						root,
+						fs.readFileSync(abs),
+						path.basename(abs)
+					);
+					if (saveResult.ok) {
+						attachments.push(
+							saveResult.imageMeta
+								? { relPath: saveResult.relPath, imageMeta: saveResult.imageMeta }
+								: { relPath: saveResult.relPath }
+						);
+					}
+				} catch {
+					/* skip unreadable selections */
+				}
 			}
+			return { ok: true as const, attachments };
 		}
 	);
 
@@ -2337,28 +2343,7 @@ export function registerIpc(): void {
 		return { ok: true as const, fileStates: t.fileStates ?? {} };
 	});
 
-	ipcMain.handle('usageStats:get', () => {
-		const s = getSettings();
-		if (!s.usageStats?.enabled) {
-			return { ok: false as const, reason: 'disabled' as const };
-		}
-		const dir = resolveUsageStatsDataDir(s);
-		if (!dir) {
-			return { ok: false as const, reason: 'no-directory' as const };
-		}
-		return getUsageStatsForDataDir(dir);
-	});
-
-	ipcMain.handle('usageStats:pickDirectory', async (event) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		const r = await dialog.showOpenDialog(win ?? undefined, {
-			properties: ['openDirectory', 'createDirectory'],
-		});
-		if (r.canceled || !r.filePaths[0]) {
-			return { ok: false as const };
-		}
-		return { ok: true as const, path: r.filePaths[0] };
-	});
+	registerUsageStatsHandlers();
 
 	ipcMain.handle('threads:messages', (_e, threadId: string) => {
 		const t = getThread(threadId);
@@ -2506,6 +2491,15 @@ export function registerIpc(): void {
 					width: typeof r.width === 'number' ? r.width : 0,
 					height: typeof r.height === 'number' ? r.height : 0,
 					sha256: typeof r.sha256 === 'string' ? r.sha256 : '',
+				});
+			} else if (kind === 'skill_invoke') {
+				const rawSlug = typeof r.slug === 'string' ? r.slug.trim().replace(/^\.\//, '') : '';
+				const name = typeof r.name === 'string' ? r.name.trim() : '';
+				if (rawSlug.length === 0) continue;
+				out.push({
+					kind: 'skill_invoke',
+					slug: rawSlug,
+					name: name.length > 0 ? name : rawSlug,
 				});
 			}
 		}
@@ -3465,22 +3459,7 @@ ipcMain.handle(
 		}
 	});
 
-	ipcMain.handle('clipboard:writeText', (_e, text: string) => {
-		try {
-			clipboard.writeText(String(text ?? ''));
-			return { ok: true as const };
-		} catch (e) {
-			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
-		}
-	});
-
-	ipcMain.handle('clipboard:readText', () => {
-		try {
-			return { ok: true as const, text: clipboard.readText() };
-		} catch (e) {
-			return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
-		}
-	});
+	registerClipboardHandlers();
 
 	ipcMain.handle('fs:renameEntry', (event, relPath: string, newName: string) => {
 		try {
@@ -4010,36 +3989,5 @@ ipcMain.handle(
 	});
 
 	/** 自动更新：检查更新 */
-	ipcMain.handle('auto-update:check', async (): Promise<AutoUpdateStatus> => {
-		try {
-			return await checkForUpdates();
-		} catch (e) {
-			return { state: 'error', message: String(e) };
-		}
-	});
-
-	/** 自动更新：下载更新 */
-	ipcMain.handle('auto-update:download', async (): Promise<{ ok: boolean; error?: string }> => {
-		try {
-			await downloadUpdate();
-			return { ok: true };
-		} catch (e) {
-			return { ok: false, error: String(e) };
-		}
-	});
-
-	/** 自动更新：重启并安装 */
-	ipcMain.handle('auto-update:install', (): Promise<{ ok: boolean; error?: string }> => {
-		try {
-			quitAndInstall();
-			return Promise.resolve({ ok: true });
-		} catch (e) {
-			return Promise.resolve({ ok: false, error: String(e) });
-		}
-	});
-
-	/** 自动更新：获取当前状态 */
-	ipcMain.handle('auto-update:get-status', (): AutoUpdateStatus => {
-		return getStatus();
-	});
+	registerAutoUpdateHandlers();
 }

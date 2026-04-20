@@ -7,7 +7,6 @@ import {
 	useMemo,
 	useRef,
 	useState,
-	startTransition,
 	useTransition,
 	memo,
 	type RefObject,
@@ -15,64 +14,35 @@ import {
 import type { editor as MonacoEditorNS } from 'monaco-editor';
 
 import { ChatMarkdown } from './ChatMarkdown';
-import { type WorkspaceExplorerActions } from './WorkspaceExplorer';
 import {
 	type AgentPendingPatch,
 	type ChatPlanExecutePayload,
 	type TurnTokenUsage,
 } from './ipcTypes';
-import { buildAgentFilePreviewHunks } from './agentFilePreviewDiff';
-import { agentChangeKeyFromDiff, countDiffAddDel } from './agentChatSegments';
+import { agentChangeKeyFromDiff } from './agentChatSegments';
 import {
 	clearPersistedAgentFileChanges,
 	hashAgentAssistantContent,
 	readPersistedAgentFileChanges,
-	writePersistedAgentFileChanges,
 } from './agentFileChangesPersist';
 import { normalizeWorkspaceRelPath, workspaceRelPathsEqual } from './agentFileChangesFromGit';
-import { computeMergedAgentFileChanges } from './agentFileChangesCompute';
 import { ALL_SETTINGS_NAV_IDS, type SettingsNavId, type SettingsPageProps } from './SettingsPage';
+import { normalizeAppearanceSettings } from './appearanceSettings';
 import {
-	applyThemePresetToAppearance,
-	applyAppearanceSettingsToDom,
-	defaultAppearanceSettings,
-	normalizeAppearanceSettings,
-	nativeWindowChromeFromAppearance,
-	replaceBuiltinChromeColorsForScheme,
-	shouldMigrateChromeWhenLeavingScheme,
-	type AppAppearanceSettings,
-} from './appearanceSettings';
-import { useAppColorScheme } from './useAppColorScheme';
-import {
-	type AppColorMode,
-	getVoidMonacoTheme,
 	readPrefersDark,
 	readStoredColorMode,
 	resolveEffectiveScheme,
-	type ThemeTransitionOrigin,
 	writeStoredColorMode,
 } from './colorMode';
-import {
-	persistInitialWindowThemeSnapshot,
-	type InitialWindowThemeSnapshot,
-} from './initialWindowTheme';
+import { type InitialWindowThemeSnapshot } from './initialWindowTheme';
 // modelCatalog types are re-exported via useSettings hook return type
 import { type ComposerMode } from './ComposerPlusMenu';
+import { pendingPlanQuestionFromMessages } from './planParser';
 import {
-	pendingPlanQuestionFromMessages,
-	parsePlanDocument,
-	toPlanMd,
-} from './planParser';
-import {
-	CREATE_SKILL_SLUG,
 	getLeadingWizardCommand,
-	newSegmentId,
 	segmentsToWireText,
 	segmentsTrimmedEmpty,
 	userMessageToSegments,
-	type ComposerImageMeta,
-	type ComposerSegment,
-	type PersistedComposerAttachment,
 } from './composerSegments';
 import { partsToSegments, type UserMessagePart } from './messageParts';
 import {
@@ -83,22 +53,10 @@ import { getAtMentionRange } from './composerAtMention';
 import { textBeforeCaretForAt } from './composerRichDom';
 import { useComposerAtMention, type AtComposerSlot } from './useComposerAtMention';
 import { useComposerSlashCommand } from './useComposerSlashCommand';
-import { type AgentRuleScope } from './agentSettingsTypes';
-import type { BotIntegrationConfig } from './botSettingsTypes';
 
 const EMPTY_AGENT_PENDING_PATCHES: AgentPendingPatch[] = [];
 const EMPTY_SNAPSHOT_PATHS: ReadonlySet<string> = new Set<string>();
-import { tabIdFromPath, type MarkdownTabView } from './EditorTabBar';
-import {
-	isMarkdownEditorPath,
-	markdownViewForTab,
-	stripLeadingYamlFrontmatter,
-	stripPlanFrontmatterForPreview,
-} from './editorMarkdownView';
-import { isPlanMdPath, planExecutedKey } from './planExecutedKey';
-import { workspaceRelativeFileUrl } from './workspaceUri';
-import { voidShellDebugLog } from './tabCloseDebug';
-import { IconPencil, IconTrash, IconCheckCircle } from './icons';
+import { isPlanMdPath } from './planExecutedKey';
 import { useSettings } from './hooks/useSettings';
 import { usePlanSystem } from './hooks/usePlanSystem';
 import {
@@ -118,11 +76,28 @@ import { useWorkspaceManager } from './hooks/useWorkspaceManager';
 import { useThreads } from './hooks/useThreads';
 import { type ChatMessage, type ThreadInfo } from './threadTypes';
 import { normWorkspaceRootKey } from './workspaceRootKey';
-import { useAgentFileReview, type AgentFilePreviewState } from './hooks/useAgentFileReview';
+import { useAgentFileReview } from './hooks/useAgentFileReview';
 import { useComposer } from './hooks/useComposer';
 import { useStreaming } from './streamingStore';
 import { DevProfiler } from './devProfiler';
 import { useEditorTabs, type EditorInlineDiffState, clampEditorTerminalHeight } from './hooks/useEditorTabs';
+import { useResizeRails } from './hooks/useResizeRails';
+import { useUiZoom } from './hooks/useUiZoom';
+import { useEditCommands } from './hooks/useEditCommands';
+import { useLayoutWindows } from './hooks/useLayoutWindows';
+import { useWizardSends } from './hooks/useWizardSends';
+import { useMessagesScroll } from './hooks/useMessagesScroll';
+import { useAgentPatchActions } from './hooks/useAgentPatchActions';
+import { useThreadActions } from './hooks/useThreadActions';
+import { useComposerAttachments } from './hooks/useComposerAttachments';
+import { useSettingsPersistence } from './hooks/useSettingsPersistence';
+import { useWorkspaceExplorerActions } from './hooks/useWorkspaceExplorerActions';
+import { useAppShellSlices } from './hooks/useAppShellSlices';
+import { useTeamSessionActions } from './hooks/useTeamSessionActions';
+import { useAgentSessionActions } from './hooks/useAgentSessionActions';
+import { useEditorCenterDerived } from './hooks/useEditorCenterDerived';
+import { usePlanWizardActions } from './hooks/usePlanWizardActions';
+import { useAgentSidebarFilePreview } from './hooks/useAgentSidebarFilePreview';
 import { useTeamSession } from './hooks/useTeamSession';
 import { useAgentSession } from './hooks/useAgentSession';
 import type { AgentUserInputRequest } from './agentSessionTypes';
@@ -144,12 +119,8 @@ import {
 	DEFAULT_SHELL_LAYOUT_MODE_KEY,
 	DEFAULT_SIDEBAR_LAYOUT_KEY,
 	clampSidebarLayout,
-	defaultQuarterRailWidths,
 	readSidebarLayout,
 	readStoredShellLayoutModeFromKey,
-	syncDesktopShellLayoutMode,
-	syncDesktopSidebarLayout,
-	writeStoredShellLayoutMode,
 	type ShellLayoutMode,
 } from './app/shellLayoutStorage';
 import {
@@ -167,7 +138,7 @@ import { AppShellMenubar } from './app/AppShellMenubar';
 import { AppShellOverlays } from './app/AppShellOverlays';
 import type { ShellLeftRailGroupProps, ShellCenterRightGroupProps } from './app/ShellWorkspaceColumns';
 import { ShellWorkspaceGrid } from './app/ShellWorkspaceGrid';
-import { formatThreadRowSubtitle, threadRowTitle } from './app/threadRowUi';
+import { ThreadItem } from './app/ThreadItem';
 import {
 	type WorkspaceLauncherTool,
 	workspaceLauncherLabel,
@@ -178,11 +149,9 @@ const EditorMainPanel = lazy(() => import('./EditorMainPanel').then((m) => ({ de
 type LayoutMode = ShellLayoutMode;
 type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team' | 'browser' | 'agents';
 type EditorLeftSidebarView = 'explorer' | 'search' | 'git';
-import { useI18n, normalizeLocale, type AppLocale } from './i18n';
+import { useI18n, normalizeLocale } from './i18n';
 import { hideBootSplash } from './bootSplash';
-import { debugDiffHead, diffCreatesNewFile, sameStringArray } from './appDiffUtils';
-
-type DiffPreview = { diff: string; isBinary: boolean; additions: number; deletions: number };
+import { diffCreatesNewFile, sameStringArray } from './appDiffUtils';
 
 function workspacePathDisplayName(full: string): string {
 	const norm = full.replace(/\\/g, '/');
@@ -246,314 +215,30 @@ export default function App({
 			syncTerminalSettingsToMain(loadTerminalSettings());
 		});
 	}, [shell]);
-	const [colorMode, setColorMode] = useState<AppColorMode>(
-		() => initialThemeSnapshot?.colorMode ?? readStoredColorMode()
-	);
-	const [appearanceSettings, setAppearanceSettings] = useState<AppAppearanceSettings>(
-		() => initialThemeSnapshot?.appearanceSettings ?? defaultAppearanceSettings()
-	);
-	const { effectiveScheme, setTransitionOrigin } = useAppColorScheme({ colorMode });
-	const monacoChromeTheme = getVoidMonacoTheme(effectiveScheme);
-	const effectiveSchemePrevRef = useRef(effectiveScheme);
-	const shellRef = useRef(shell);
-	shellRef.current = shell;
-
-	useEffect(() => {
-		const prevScheme = effectiveSchemePrevRef.current;
-		if (prevScheme !== effectiveScheme) {
-			effectiveSchemePrevRef.current = effectiveScheme;
-			setAppearanceSettings((cur) => {
-				if (cur.themePresetId !== 'custom') {
-					const next = applyThemePresetToAppearance(cur, cur.themePresetId, effectiveScheme);
-					const s = shellRef.current;
-					if (s) {
-						queueMicrotask(() => {
-							void s.invoke('settings:set', {
-								ui: {
-									themePresetId: next.themePresetId,
-									accentColor: next.accentColor,
-									backgroundColor: next.backgroundColor,
-									foregroundColor: next.foregroundColor,
-									contrast: next.contrast,
-									translucentSidebar: next.translucentSidebar,
-								},
-							});
-						});
-					}
-					return next;
-				}
-				if (!shouldMigrateChromeWhenLeavingScheme(cur, prevScheme)) {
-					return cur;
-				}
-				const next = replaceBuiltinChromeColorsForScheme(cur, effectiveScheme);
-				const s = shellRef.current;
-				if (s) {
-					queueMicrotask(() => {
-						void s.invoke('settings:set', {
-							ui: {
-								themePresetId: next.themePresetId,
-								accentColor: next.accentColor,
-								backgroundColor: next.backgroundColor,
-								foregroundColor: next.foregroundColor,
-								contrast: next.contrast,
-								translucentSidebar: next.translucentSidebar,
-							},
-						});
-					});
-				}
-				return next;
-			});
-		}
-	}, [effectiveScheme]);
-
-	// 合并 appearanceSettings 相关的 DOM 更新,减少级联渲染
-	useEffect(() => {
-		applyAppearanceSettingsToDom(appearanceSettings, effectiveScheme);
-		persistInitialWindowThemeSnapshot({
-			colorMode,
-			effectiveScheme,
-			appearanceSettings,
-		});
-		if (!shell) {
-			return;
-		}
-		const c = nativeWindowChromeFromAppearance(appearanceSettings, effectiveScheme);
-		void shell.invoke('theme:applyChrome', {
-			scheme: effectiveScheme,
-			backgroundColor: c.backgroundColor,
-			titleBarColor: c.titleBarColor,
-			symbolColor: c.symbolColor,
-		});
-	}, [shell, colorMode, appearanceSettings, effectiveScheme]);
 
 	const { t, setLocale, locale } = useI18n();
-	const [ipcOk, setIpcOk] = useState<string>('…');
-
-	// ── 提取的 hooks（必须在所有依赖其返回值的代码之前调用）──────────────────
-	const {
-		workspace,
-		setWorkspace,
-		workspaceFileListRef: _wfListRef,
-		workspaceFileListVersion: _workspaceFileListVersion,
-		ensureWorkspaceFileListLoaded: _ensureWorkspaceFileListLoaded,
-		searchFiles: _searchFiles,
-		homeRecents,
-		setHomeRecents,
-		folderRecents,
-		setFolderRecents,
-		workspaceAliases,
-		setWorkspaceAliases,
-		hiddenAgentWorkspacePaths,
-		setHiddenAgentWorkspacePaths,
-		collapsedAgentWorkspacePaths,
-		setCollapsedAgentWorkspacePaths,
-	} = useWorkspaceManager(shell);
+	const workspaceManager = useWorkspaceManager(shell);
+	const settings = useSettings(shell, workspaceManager.workspace, t);
 
 	const {
-		modelProviders,
-		defaultModel,
-		modelEntries,
-		enabledModelIds,
-		thinkingByModelId, setThinkingByModelId,
-		providerIdentity, setProviderIdentity,
-		hasSelectedModel,
-		modelPickerItems,
-		modelPillLabel,
-		agentCustomization, setAgentCustomization,
-		refreshWorkspaceDiskSkills,
-		mergedAgentCustomization,
-		onChangeMergedAgentCustomization,
-		editorSettings, setEditorSettings,
-		mcpServers, setMcpServers,
-		mcpStatuses, setMcpStatuses,
-		settingsPageOpen, setSettingsPageOpen,
-		settingsInitialNav,
-		settingsOpenPending,
-		openSettingsPage: openSettingsPageBase,
-		onPickDefaultModel,
-		onChangeModelEntries,
-		onChangeModelProviders,
-		onRefreshMcpStatuses,
-		onStartMcpServer,
-		onStopMcpServer,
-		onRestartMcpServer,
-		applyLoadedSettings,
-		teamSettings,
-		setTeamSettings,
-		botIntegrations,
-		setBotIntegrations,
-	} = useSettings(shell, workspace, t);
-
-	const chromeCoreSlice = useMemo(
-		() => ({ shell, t, setLocale, locale }),
-		[shell, t, setLocale, locale]
-	);
-
-	const chromeLayoutSlice = useMemo(
-		() => ({
-			ipcOk,
-			setIpcOk,
-			layoutPinnedBySurface,
-			appSurface,
-			shellLayoutStorageKey,
-			sidebarLayoutStorageKey,
-		}),
-		[
-			ipcOk,
-			setIpcOk,
-			layoutPinnedBySurface,
-			appSurface,
-			shellLayoutStorageKey,
-			sidebarLayoutStorageKey,
-		]
-	);
-
-	const chromeThemeSlice = useMemo(
-		() => ({
-			colorMode,
-			setColorMode,
-			appearanceSettings,
-			setAppearanceSettings,
-			effectiveScheme,
-			setTransitionOrigin,
-			monacoChromeTheme,
-		}),
-		[
-			colorMode,
-			setColorMode,
-			appearanceSettings,
-			setAppearanceSettings,
-			effectiveScheme,
-			setTransitionOrigin,
-			monacoChromeTheme,
-		]
-	);
-
-	const workspaceSlice = useMemo(
-		() => ({
-			workspace,
-			setWorkspace,
-			workspaceFileListRef: _wfListRef,
-			workspaceFileListVersion: _workspaceFileListVersion,
-			ensureWorkspaceFileListLoaded: _ensureWorkspaceFileListLoaded,
-			searchFiles: _searchFiles,
-			homeRecents,
-			setHomeRecents,
-			folderRecents,
-			setFolderRecents,
-			workspaceAliases,
-			setWorkspaceAliases,
-			hiddenAgentWorkspacePaths,
-			setHiddenAgentWorkspacePaths,
-			collapsedAgentWorkspacePaths,
-			setCollapsedAgentWorkspacePaths,
-		}),
-		[
-			workspace,
-			setWorkspace,
-			_wfListRef,
-			_workspaceFileListVersion,
-			_ensureWorkspaceFileListLoaded,
-			_searchFiles,
-			homeRecents,
-			setHomeRecents,
-			folderRecents,
-			setFolderRecents,
-			workspaceAliases,
-			setWorkspaceAliases,
-			hiddenAgentWorkspacePaths,
-			setHiddenAgentWorkspacePaths,
-			collapsedAgentWorkspacePaths,
-			setCollapsedAgentWorkspacePaths,
-		]
-	);
-
-	const settingsSlice = useMemo(
-		() => ({
-			modelProviders,
-			defaultModel,
-			modelEntries,
-			enabledModelIds,
-			thinkingByModelId,
-			setThinkingByModelId,
-			providerIdentity,
-			setProviderIdentity,
-			hasSelectedModel,
-			modelPickerItems,
-			modelPillLabel,
-			agentCustomization,
-			setAgentCustomization,
-			refreshWorkspaceDiskSkills,
-			mergedAgentCustomization,
-			onChangeMergedAgentCustomization,
-			teamSettings,
-			setTeamSettings,
-			botIntegrations,
-			setBotIntegrations,
-			editorSettings,
-			setEditorSettings,
-			mcpServers,
-			setMcpServers,
-			mcpStatuses,
-			setMcpStatuses,
-			settingsPageOpen,
-			setSettingsPageOpen,
-			settingsInitialNav,
-			settingsOpenPending,
-			openSettingsPageBase,
-			onPickDefaultModel,
-			onChangeModelEntries,
-			onChangeModelProviders,
-			onRefreshMcpStatuses,
-			onStartMcpServer,
-			onStopMcpServer,
-			onRestartMcpServer,
-			applyLoadedSettings,
-		}),
-		[
-			modelProviders,
-			defaultModel,
-			modelEntries,
-			enabledModelIds,
-			thinkingByModelId,
-			setThinkingByModelId,
-			providerIdentity,
-			setProviderIdentity,
-			hasSelectedModel,
-			modelPickerItems,
-			modelPillLabel,
-			agentCustomization,
-			setAgentCustomization,
-			refreshWorkspaceDiskSkills,
-			mergedAgentCustomization,
-			onChangeMergedAgentCustomization,
-			botIntegrations,
-			setBotIntegrations,
-			editorSettings,
-			setEditorSettings,
-			mcpServers,
-			setMcpServers,
-			mcpStatuses,
-			setMcpStatuses,
-			settingsPageOpen,
-			setSettingsPageOpen,
-			settingsInitialNav,
-			settingsOpenPending,
-			openSettingsPageBase,
-			onPickDefaultModel,
-			onChangeModelEntries,
-			onChangeModelProviders,
-			onRefreshMcpStatuses,
-			onStartMcpServer,
-			onStopMcpServer,
-			onRestartMcpServer,
-			applyLoadedSettings,
-			teamSettings,
-			setTeamSettings,
-			botIntegrations,
-			setBotIntegrations,
-		]
-	);
+		chromeCoreSlice,
+		chromeLayoutSlice,
+		chromeThemeSlice,
+		workspaceSlice,
+		settingsSlice,
+	} = useAppShellSlices({
+		shell,
+		t,
+		setLocale,
+		locale,
+		initialThemeSnapshot,
+		layoutPinnedBySurface,
+		appSurface,
+		shellLayoutStorageKey,
+		sidebarLayoutStorageKey,
+		workspaceManager,
+		settings,
+	});
 
 	return (
 		<AppShellProviders
@@ -1238,23 +923,6 @@ function AppMainWorkspaceInner() {
 	/** 底部 composer 测高延后到 rAF，避免与虚拟列表等同步读布局挤在同一任务里触发 forced reflow */
 	const composerRichAutoHeightRafRef = useRef<number | null>(null);
 	const inlineResendRootRef = useRef<HTMLDivElement | null>(null);
-	/** 对话消息滚动容器：新消息 / 流式输出时自动滚到底（用户上移阅读时暂停跟随） */
-	const messagesViewportRef = useRef<HTMLDivElement>(null);
-	const messagesTrackRef = useRef<HTMLDivElement>(null);
-	const messagesScrollSnapshotByThreadRef = useRef(
-		new Map<string, { scrollTop: number; distanceFromBottom: number; pinned: boolean }>()
-	);
-	const pendingMessagesScrollRestoreRef = useRef<string | null>(null);
-	const pinMessagesToBottomRef = useRef(true);
-	const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
-	const suppressScrollToBottomButtonRef = useRef(false);
-	const suppressScrollToBottomButtonTimerRef = useRef<number | null>(null);
-	/** 合并粘底滚动到每帧一次，避免 useLayoutEffect + ResizeObserver 与 sticky 用户条叠加导致上下抖动 */
-	const messagesScrollToBottomRafRef = useRef<number | null>(null);
-	/** 用于区分轨道变高（跟流）与变矮（如 Explored 折叠动画）：变矮时若每帧粘底会整列表「刷新感」 */
-	const messagesTrackScrollHeightRef = useRef(0);
-	const messagesShrinkScrollTimerRef = useRef<number | null>(null);
-	const prevMessagesLenForScrollRef = useRef(0);
 	const closeAtMenuLatestRef = useRef<() => void>(() => {});
 	const plusAnchorHeroRef = useRef<HTMLDivElement>(null);
 	const plusAnchorBottomRef = useRef<HTMLDivElement>(null);
@@ -1631,412 +1299,83 @@ function AppMainWorkspaceInner() {
 		cancelWorkspaceAliasEdit();
 	}, [resetStreamingSession, resetThreadState, resetAgentReviewState, resetComposerState, cancelWorkspaceAliasEdit]);
 
-	const executeSkillCreatorSend = useCallback(
-		async (scope: 'user' | 'project', pending: { tailSegments: ComposerSegment[]; targetThreadId: string }) => {
-			if (!shell) {
-				return;
-			}
-			if (!defaultModel.trim()) {
-				flashComposerAttachErr(t('app.noModelSelected'));
-				return;
-			}
-			/* /create-skill 必须走 Agent：Plan 模式无写文件工具，否则模型只能让用户自行复制 */
-			setComposerModePersist('agent');
-			const { tailSegments, targetThreadId } = pending;
-			const tailWire = segmentsToWireText(tailSegments).trim();
-			const head =
-				scope === 'project' ? t('skillCreator.bubbleHeadProject') : t('skillCreator.bubbleHeadAll');
-			const visible = tailWire ? `${head}\n${tailWire}` : head;
+	const {
+		executeSkillCreatorSend,
+		executeRuleWizardSend,
+		executeSubagentWizardSend,
+	} = useWizardSends({
+		shell,
+		currentId,
+		defaultModel,
+		t,
+		setComposerModePersist,
+		setCurrentId,
+		loadMessages,
+		clearAgentReviewForThread,
+		setComposerSegments,
+		setStreamingThinking,
+		clearStreamingToolPreviewNow,
+		resetLiveAgentBlocks,
+		beginStream,
+		setMessages,
+		refreshThreads,
+		resetStreamingSession,
+		flashComposerAttachErr,
+	});
 
-			if (targetThreadId !== currentId) {
-				await shell.invoke('threads:select', targetThreadId);
-				setCurrentId(targetThreadId);
-				await loadMessages(targetThreadId);
-			}
-			clearAgentReviewForThread(targetThreadId);
-			setComposerSegments([]);
-			setStreamingThinking('');
-			clearStreamingToolPreviewNow();
-			resetLiveAgentBlocks();
-			const streamNonce = beginStream(targetThreadId);
-			setMessages((m) => [...m, { role: 'user', content: visible }]);
+	const {
+		persistComposerAttachments,
+		onChatPanelDropFiles,
+		pickComposerImagesFromDialog,
+		insertComposerSkillInvocation,
+		toggleComposerMcpServerEnabled,
+	} = useComposerAttachments({
+		shell,
+		workspace,
+		t,
+		flashComposerAttachErr,
+		composerRichBottomRef,
+		composerRichHeroRef,
+		setComposerSegments,
+		mcpServers,
+		setMcpServers,
+		setMcpStatuses,
+		plusMenuOpen,
+	});
 
-			const r = (await shell.invoke('chat:send', {
-				threadId: targetThreadId,
-				text: '',
-				mode: 'agent',
-				modelId: defaultModel,
-				streamNonce,
-				skillCreator: { userNote: tailWire, scope },
-			})) as { ok?: boolean; error?: string };
-
-			if (!r?.ok) {
-				resetStreamingSession();
-				void loadMessages(targetThreadId);
-				if (r?.error === 'no-workspace') {
-					window.alert(t('skillCreator.sendErrorNoWs'));
-				} else if (r?.error === 'no-model') {
-					flashComposerAttachErr(t('app.noModelSelected'));
-				}
-				return;
-			}
-			void refreshThreads();
-		},
-		[
-			shell,
-			currentId,
-			setComposerModePersist,
-			defaultModel,
-			t,
-			loadMessages,
-			clearAgentReviewForThread,
-			clearStreamingToolPreviewNow,
-			resetLiveAgentBlocks,
-			beginStream,
-			resetStreamingSession,
-			refreshThreads,
-			flashComposerAttachErr,
-		]
-	);
-
-	const executeRuleWizardSend = useCallback(
-		async (
-			ruleScope: AgentRuleScope,
-			globPattern: string | undefined,
-			pending: { tailSegments: ComposerSegment[]; targetThreadId: string }
-		) => {
-			if (!shell) {
-				return;
-			}
-			if (!defaultModel.trim()) {
-				flashComposerAttachErr(t('app.noModelSelected'));
-				return;
-			}
-			setComposerModePersist('agent');
-			const { tailSegments, targetThreadId } = pending;
-			const tailWire = segmentsToWireText(tailSegments).trim();
-			const headKey =
-				ruleScope === 'always'
-					? 'ruleWizard.bubbleHeadAlways'
-					: ruleScope === 'glob'
-						? 'ruleWizard.bubbleHeadGlob'
-						: 'ruleWizard.bubbleHeadManual';
-			const head = t(headKey);
-			const globLine =
-				ruleScope === 'glob' && globPattern?.trim()
-					? t('ruleWizard.globLine', { pattern: globPattern.trim() })
-					: '';
-			const visible = [head, globLine, tailWire].filter((x) => x.length > 0).join('\n');
-
-			if (targetThreadId !== currentId) {
-				await shell.invoke('threads:select', targetThreadId);
-				setCurrentId(targetThreadId);
-				await loadMessages(targetThreadId);
-			}
-			clearAgentReviewForThread(targetThreadId);
-			setComposerSegments([]);
-			setStreamingThinking('');
-			clearStreamingToolPreviewNow();
-			resetLiveAgentBlocks();
-			const streamNonce = beginStream(targetThreadId);
-			setMessages((m) => [...m, { role: 'user', content: visible }]);
-
-			const r = (await shell.invoke('chat:send', {
-				threadId: targetThreadId,
-				text: '',
-				mode: 'agent',
-				modelId: defaultModel,
-				streamNonce,
-				ruleCreator: {
-					userNote: tailWire,
-					ruleScope,
-					...(ruleScope === 'glob' && globPattern?.trim() ? { globPattern: globPattern.trim() } : {}),
-				},
-			})) as { ok?: boolean; error?: string };
-
-			if (!r?.ok) {
-				resetStreamingSession();
-				void loadMessages(targetThreadId);
-				if (r?.error === 'no-model') {
-					flashComposerAttachErr(t('app.noModelSelected'));
-				}
-				return;
-			}
-			void refreshThreads();
-		},
-		[
-			shell,
-			currentId,
-			setComposerModePersist,
-			defaultModel,
-			t,
-			loadMessages,
-			clearAgentReviewForThread,
-			clearStreamingToolPreviewNow,
-			resetLiveAgentBlocks,
-			beginStream,
-			resetStreamingSession,
-			refreshThreads,
-			flashComposerAttachErr,
-		]
-	);
-
-	const executeSubagentWizardSend = useCallback(
-		async (scope: 'user' | 'project', pending: { tailSegments: ComposerSegment[]; targetThreadId: string }) => {
-			if (!shell) {
-				return;
-			}
-			if (!defaultModel.trim()) {
-				flashComposerAttachErr(t('app.noModelSelected'));
-				return;
-			}
-			setComposerModePersist('agent');
-			const { tailSegments, targetThreadId } = pending;
-			const tailWire = segmentsToWireText(tailSegments).trim();
-			const head = scope === 'project' ? t('subagentWizard.bubbleHeadProject') : t('subagentWizard.bubbleHeadAll');
-			const visible = tailWire ? `${head}\n${tailWire}` : head;
-
-			if (targetThreadId !== currentId) {
-				await shell.invoke('threads:select', targetThreadId);
-				setCurrentId(targetThreadId);
-				await loadMessages(targetThreadId);
-			}
-			clearAgentReviewForThread(targetThreadId);
-			setComposerSegments([]);
-			setStreamingThinking('');
-			clearStreamingToolPreviewNow();
-			resetLiveAgentBlocks();
-			const streamNonce = beginStream(targetThreadId);
-			setMessages((m) => [...m, { role: 'user', content: visible }]);
-
-			const r = (await shell.invoke('chat:send', {
-				threadId: targetThreadId,
-				text: '',
-				mode: 'agent',
-				modelId: defaultModel,
-				streamNonce,
-				subagentCreator: { userNote: tailWire, scope },
-			})) as { ok?: boolean; error?: string };
-
-			if (!r?.ok) {
-				resetStreamingSession();
-				void loadMessages(targetThreadId);
-				if (r?.error === 'no-workspace') {
-					window.alert(t('subagentWizard.sendErrorNoWs'));
-				} else if (r?.error === 'no-model') {
-					flashComposerAttachErr(t('app.noModelSelected'));
-				}
-				return;
-			}
-			void refreshThreads();
-		},
-		[
-			shell,
-			currentId,
-			setComposerModePersist,
-			defaultModel,
-			t,
-			loadMessages,
-			clearAgentReviewForThread,
-			clearStreamingToolPreviewNow,
-			resetLiveAgentBlocks,
-			beginStream,
-			resetStreamingSession,
-			refreshThreads,
-			flashComposerAttachErr,
-		]
-	);
-
-	const onDiscardAgentReview = useCallback(() => {
-		if (currentId) {
-			clearAgentReviewForThread(currentId);
-		}
-	}, [currentId, clearAgentReviewForThread]);
-
-	const persistComposerShellRef = useRef(shell);
-	const persistComposerWorkspaceRef = useRef(workspace);
-	const persistComposerTRef = useRef(t);
-	const persistComposerFlashErrRef = useRef(flashComposerAttachErr);
-	persistComposerShellRef.current = shell;
-	persistComposerWorkspaceRef.current = workspace;
-	persistComposerTRef.current = t;
-	persistComposerFlashErrRef.current = flashComposerAttachErr;
-
-	const persistComposerAttachments = useCallback(async (files: File[]): Promise<PersistedComposerAttachment[]> => {
-		const sh = persistComposerShellRef.current;
-		if (!sh) {
-			return [];
-		}
-		const ws = persistComposerWorkspaceRef.current;
-		const tr = persistComposerTRef.current;
-		const flash = persistComposerFlashErrRef.current;
-		if (!ws) {
-			flash(tr('composer.attach.noWorkspace'));
-			return [];
-		}
-		const out: PersistedComposerAttachment[] = [];
-		for (const f of files) {
-			const droppedFilePath =
-				typeof sh.getPathForFile === 'function' ? sh.getPathForFile(f) : null;
-			if (droppedFilePath) {
-				const directRef = (await sh.invoke('workspace:resolveDroppedFilePath', {
-					fullPath: droppedFilePath,
-				})) as { ok?: boolean; relPath?: string; imageMeta?: ComposerImageMeta };
-				if (directRef?.ok && typeof directRef.relPath === 'string') {
-					out.push(
-						directRef.imageMeta
-							? { relPath: directRef.relPath, imageMeta: directRef.imageMeta }
-							: { relPath: directRef.relPath }
-					);
-					continue;
-				}
-			}
-			const b64 = await new Promise<string>((resolve, reject) => {
-				const r = new FileReader();
-				r.onload = () => {
-					const d = r.result as string;
-					const i = d.indexOf(',');
-					resolve(i >= 0 ? d.slice(i + 1) : d);
-				};
-				r.onerror = () => reject(r.error ?? new Error('read'));
-				r.readAsDataURL(f);
-			});
-			const r = (await sh.invoke('workspace:saveComposerAttachment', {
-				base64: b64,
-				fileName: f.name,
-			})) as { ok?: boolean; relPath?: string; error?: string; imageMeta?: ComposerImageMeta };
-			if (r?.ok && typeof r.relPath === 'string') {
-				out.push(r.imageMeta ? { relPath: r.relPath, imageMeta: r.imageMeta } : { relPath: r.relPath });
-			} else {
-				const err = r?.error;
-				if (err === 'too-large') {
-					flash(tr('composer.attach.tooLarge'));
-				} else if (err === 'no-workspace') {
-					flash(tr('composer.attach.noWorkspace'));
-				} else {
-					flash(tr('composer.attach.saveFailed'));
-				}
-			}
-		}
-		return out;
-	}, []);
-
-	const focusPreferredComposerInput = useCallback(() => {
-		queueMicrotask(() => {
-			if (composerRichBottomRef.current) {
-				composerRichBottomRef.current.focus();
-				return;
-			}
-			composerRichHeroRef.current?.focus();
-		});
-	}, [composerRichBottomRef, composerRichHeroRef]);
-
-	const appendComposerFileReferences = useCallback(
-		(attachments: PersistedComposerAttachment[]) => {
-			const normalized = attachments
-				.map((att) => ({
-					relPath: att.relPath.replace(/\\/g, '/').trim(),
-					imageMeta: att.imageMeta,
-				}))
-				.filter((att) => att.relPath.length > 0);
-			if (normalized.length === 0) {
-				return;
-			}
-			setComposerSegments((prev) => {
-				const next = [...prev];
-				const last = next[next.length - 1];
-				if (last?.kind === 'text' && last.text.length > 0 && !last.text.endsWith('\n')) {
-					next[next.length - 1] = { ...last, text: `${last.text}\n` };
-				} else if (last?.kind === 'file') {
-					next.push({ id: newSegmentId(), kind: 'text', text: '\n' });
-				}
-				for (const att of normalized) {
-					const seg: ComposerSegment = att.imageMeta
-						? { id: newSegmentId(), kind: 'file', path: att.relPath, imageMeta: att.imageMeta }
-						: { id: newSegmentId(), kind: 'file', path: att.relPath };
-					next.push(seg);
-					next.push({ id: newSegmentId(), kind: 'text', text: '\n' });
-				}
-				return next;
-			});
-			focusPreferredComposerInput();
-		},
-		[focusPreferredComposerInput]
-	);
-
-	const onChatPanelDropFiles = useCallback(
-		async (files: File[]) => {
-			const attachments = await persistComposerAttachments(files);
-			if (attachments.length === 0) {
-				return;
-			}
-			appendComposerFileReferences(attachments);
-		},
-		[persistComposerAttachments, appendComposerFileReferences]
-	);
-
-	const onApplyAgentPatchOne = useCallback(
-		async (id: string) => {
-			const cid = currentIdRef.current;
-			if (!shell || !cid) {
-				return;
-			}
-			const list = agentReviewPendingByThreadRef.current[cid] ?? EMPTY_AGENT_PENDING_PATCHES;
-			const patch = list.find((p) => p.id === id);
-			if (!patch) {
-				return;
-			}
-			setAgentReviewBusy(true);
-			try {
-				const ar = (await shell.invoke('agent:applyDiffChunk', {
-					threadId: cid,
-					chunk: patch.chunk,
-				})) as { applied: string[]; failed: { path: string; reason: string }[] };
-				if (ar.applied.length > 0) {
-					setAgentReviewPendingByThread((prev) => ({
-						...prev,
-						[cid]: (prev[cid] ?? []).filter((x) => x.id !== id),
-					}));
-				}
-				await loadMessages(cid);
-				await refreshGit();
-			} finally {
-				setAgentReviewBusy(false);
-			}
-		},
-		[shell, loadMessages, refreshGit]
-	);
-
-	const onApplyAgentPatchesAll = useCallback(async () => {
-		const cid = currentIdRef.current;
-		if (!shell || !cid) {
-			return;
-		}
-		const list = agentReviewPendingByThreadRef.current[cid] ?? EMPTY_AGENT_PENDING_PATCHES;
-		if (list.length === 0) {
-			return;
-		}
-		setAgentReviewBusy(true);
-		try {
-			const ar = (await shell.invoke('agent:applyDiffChunks', {
-				threadId: cid,
-				items: list.map((p) => ({ id: p.id, chunk: p.chunk })),
-			})) as {
-				applied: string[];
-				failed: { path: string; reason: string }[];
-				succeededIds: string[];
-			};
-			const okIds = new Set(ar.succeededIds ?? []);
-			setAgentReviewPendingByThread((prev) => ({
-				...prev,
-				[cid]: (prev[cid] ?? []).filter((p) => !okIds.has(p.id)),
-			}));
-			await loadMessages(cid);
-			await refreshGit();
-		} finally {
-			setAgentReviewBusy(false);
-		}
-	}, [shell, loadMessages, refreshGit]);
+	const {
+		onApplyAgentPatchOne,
+		onApplyAgentPatchesAll,
+		onDiscardAgentReview,
+		dismissAgentChangedFile,
+		markAgentConversationChangeReverted,
+		onKeepAllEdits,
+		onRevertAllEdits,
+		onKeepFileEdit,
+		onRevertFileEdit,
+	} = useAgentPatchActions({
+		shell,
+		currentId,
+		currentIdRef,
+		composerMode,
+		t,
+		messagesRef,
+		agentReviewPendingByThreadRef,
+		agentGitPackRef,
+		setAgentReviewBusy,
+		setAgentReviewPendingByThread,
+		setDismissedFiles,
+		setRevertedFiles,
+		setRevertedChangeKeys,
+		setFileChangesDismissed,
+		dismissedFilesRef,
+		revertedFilesRef,
+		revertedChangeKeysRef,
+		fileChangesDismissedRef,
+		clearAgentReviewForThread,
+		loadMessages,
+		refreshGit,
+	});
 
 	useEffect(() => {
 		if (!shell) {
@@ -2270,175 +1609,12 @@ function AppMainWorkspaceInner() {
 		[shell, applyWorkspacePath, workspace]
 	);
 
-	const writeClipboardText = useCallback(
-		async (text: string) => {
-			if (shell) {
-				const r = (await shell.invoke('clipboard:writeText', text)) as { ok?: boolean; error?: string };
-				if (!r?.ok) {
-					throw new Error(r?.error ?? t('explorer.errClipboard'));
-				}
-				return;
-			}
-			await navigator.clipboard.writeText(text);
-		},
-		[shell, t]
-	);
-
-	const readClipboardText = useCallback(async () => {
-		if (shell) {
-			const r = (await shell.invoke('clipboard:readText')) as { ok?: boolean; error?: string; text?: string };
-			if (!r?.ok) {
-				throw new Error(r?.error ?? t('explorer.errClipboard'));
-			}
-			return String(r.text ?? '');
-		}
-		return navigator.clipboard.readText();
-	}, [shell, t]);
-
-	const runMonacoEditCommand = useCallback(
-		async (kind: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => {
-			/* 主编辑区为只读预览器：仅允许复制与全选 */
-			if (kind === 'undo' || kind === 'redo' || kind === 'cut' || kind === 'paste') {
-				return false;
-			}
-			const ed = monacoEditorRef.current;
-			if (!ed || !(ed.hasTextFocus?.() || ed.hasWidgetFocus?.())) {
-				return false;
-			}
-			ed.focus();
-			if (kind === 'selectAll') {
-				ed.trigger('menu', kind, null);
-				return true;
-			}
-			const action = ed.getAction('editor.action.clipboardCopyAction');
-			if (action) {
-				await action.run();
-				return true;
-			}
-			return false;
-		},
-		[]
-	);
-
-	const runDomEditCommand = useCallback(
-		async (kind: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => {
-			const active = document.activeElement;
-			if (!(active instanceof HTMLElement) || !isEditableDomTarget(active)) {
-				return false;
-			}
-			active.focus();
-			if (kind === 'paste') {
-				const text = await readClipboardText();
-				if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
-					const start = active.selectionStart ?? active.value.length;
-					const end = active.selectionEnd ?? start;
-					active.setRangeText(text, start, end, 'end');
-					active.dispatchEvent(new Event('input', { bubbles: true }));
-					return true;
-				}
-				document.execCommand('insertText', false, text);
-				return true;
-			}
-			return document.execCommand(
-				kind === 'selectAll' ? 'selectAll' : kind === 'undo' ? 'undo' : kind === 'redo' ? 'redo' : kind
-			);
-		},
-		[readClipboardText]
-	);
-
-	const executeEditAction = useCallback(
-		async (kind: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => {
-			try {
-				if (await runMonacoEditCommand(kind)) {
-					return;
-				}
-				if (await runDomEditCommand(kind)) {
-					return;
-				}
-				if (kind === 'copy') {
-					const selected = window.getSelection?.()?.toString() ?? '';
-					if (selected.trim()) {
-						await writeClipboardText(selected);
-					}
-				}
-			} catch (e) {
-				flashComposerAttachErr(e instanceof Error ? e.message : String(e));
-			}
-		},
-		[flashComposerAttachErr, runDomEditCommand, runMonacoEditCommand, writeClipboardText]
-	);
-
-	const onNewThread = useCallback(async () => {
-		if (!shell) {
-			return;
-		}
-		const r = (await shell.invoke('threads:create')) as { id: string };
-		await refreshThreads();
-		setCurrentId(r.id);
-		setLastTurnUsage(null);
-		setAwaitingReply(false);
-		setStreaming('');
-		setStreamingThinking('');
-		clearStreamingToolPreviewNow();
-		resetLiveAgentBlocks();
-		streamStartedAtRef.current = null;
-		firstTokenAtRef.current = null;
-		setParsedPlan(null);
-		setPlanFilePath(null);
-		setPlanFileRelPath(null);
-		await loadMessages(r.id);
-		setComposerSegments([]);
-		setInlineResendSegments([]);
-		setResendFromUserIndex(null);
-		queueMicrotask(() => {
-			if (composerRichBottomRef.current) {
-				composerRichBottomRef.current.focus();
-			} else {
-				composerRichHeroRef.current?.focus();
-			}
-		});
-	}, [
+	const { executeEditAction } = useEditCommands({
 		shell,
-		refreshThreads,
-		setCurrentId,
-		setLastTurnUsage,
-		setAwaitingReply,
-		setStreaming,
-		setStreamingThinking,
-		clearStreamingToolPreviewNow,
-		resetLiveAgentBlocks,
-		setParsedPlan,
-		setPlanFilePath,
-		setPlanFileRelPath,
-		loadMessages,
-		setComposerSegments,
-		setInlineResendSegments,
-		setResendFromUserIndex,
-	]);
-
-	onNewThreadRef.current = onNewThread;
-
-	const composerInvokeNewThread = useCallback(() => {
-		void onNewThreadRef.current();
-	}, []);
-
-	const onNewThreadForWorkspace = useCallback(
-		async (workspacePath: string) => {
-			closeWorkspaceMenu();
-			if (!workspacePath) {
-				return;
-			}
-			if (workspacePath !== workspace) {
-				setHiddenAgentWorkspacePaths((prev) => prev.filter((item) => item !== workspacePath));
-				const opened = await openWorkspaceByPath(workspacePath);
-				if (!opened) {
-					return;
-				}
-			}
-			await onNewThreadRef.current();
-		},
-		[workspace, openWorkspaceByPath, closeWorkspaceMenu, setHiddenAgentWorkspacePaths]
-	);
+		t,
+		monacoEditorRef,
+		flashComposerAttachErr,
+	});
 
 	// 优化的回调函数,避免 JSX 中创建内联函数
 	const handleCloseWorkspacePicker = useCallback(() => setWorkspacePickerOpen(false), []);
@@ -2454,197 +1630,9 @@ function AppMainWorkspaceInner() {
 	const handleCloseEditorChatMore = useCallback(() => setEditorChatMoreOpen(false), []);
 	const handleOpenSettingsGeneral = useCallback(() => openSettingsPage('general'), [openSettingsPage]);
 	const handleOpenSettingsModels = useCallback(() => openSettingsPage('models'), [openSettingsPage]);
+	const handleOpenSettingsRules = useCallback(() => openSettingsPage('rules'), [openSettingsPage]);
+	const handleOpenSettingsTools = useCallback(() => openSettingsPage('tools'), [openSettingsPage]);
 	const handleOpenAutoUpdate = useCallback(() => openSettingsPage('autoUpdate'), [openSettingsPage]);
-
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
-				e.preventDefault();
-				void onNewThreadRef.current();
-			}
-		};
-		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
-	}, []);
-
-	const onSelectThread = useCallback(
-		async (id: string, threadWorkspaceRoot?: string | null) => {
-			const dev = import.meta.env.DEV;
-			const t0 = dev ? performance.now() : 0;
-			if (dev) {
-				console.log(`[perf] onSelectThread called: id=${id}`);
-			}
-			setEditorThreadHistoryOpen(false);
-			if (!shell) {
-				return;
-			}
-			const tw = threadWorkspaceRoot?.trim();
-			if (tw && (!workspace || normWorkspaceRootKey(tw) !== normWorkspaceRootKey(workspace))) {
-				const opened = await openWorkspaceByPath(tw);
-				if (!opened) {
-					return;
-				}
-			}
-			const tSelectIpcStart = dev ? performance.now() : 0;
-			if (dev) {
-				console.log(`[perf] onSelectThread: pre-select Δ=${(tSelectIpcStart - t0).toFixed(1)}ms`);
-			}
-			const alreadyCurrentThread = currentIdRef.current === id;
-			if (!alreadyCurrentThread) {
-				await shell.invoke('threads:select', id);
-			} else if (dev) {
-				console.log(`[perf] onSelectThread: skip threads:select (renderer already currentId=${id})`);
-			}
-			const tAfterSelectIpc = dev ? performance.now() : 0;
-			if (dev) {
-				if (alreadyCurrentThread) {
-					console.log(`[perf] onSelectThread: threads:select skipped`);
-				} else {
-					console.log(
-						`[perf] onSelectThread: threads:select ipc=${(tAfterSelectIpc - tSelectIpcStart).toFixed(1)}ms`
-					);
-				}
-			}
-
-			// 已展示该线程则跳过 IPC（须在 reset 之前读 ref，且勿用会被 reset 破坏的依赖）
-			const skipReloadSameThread =
-				messagesThreadIdRef.current === id ||
-				(currentIdRef.current === id && messagesRef.current.length > 0);
-
-			if (dev) {
-				console.log(`[perf] onSelectThread: setting states for ${id}`);
-			}
-			setCurrentId(id);
-
-			if (skipReloadSameThread) {
-				// 消息已在内存：流式/plan/预览等非紧急状态用 transition，避免与已有 Markdown 长任务叠成单帧巨型 commit
-				startTransition(() => {
-					setAwaitingReply(false);
-					setStreaming('');
-					setStreamingThinking('');
-					clearStreamingToolPreviewNow();
-					resetLiveAgentBlocks();
-					streamStartedAtRef.current = null;
-					firstTokenAtRef.current = null;
-					setParsedPlan(null);
-					setPlanFilePath(null);
-					setPlanFileRelPath(null);
-					setAgentFilePreview(null);
-				});
-				setResendFromUserIndex(null);
-				setComposerSegments([]);
-				setInlineResendSegments([]);
-			} else {
-				setAwaitingReply(false);
-				setStreaming('');
-				setStreamingThinking('');
-				clearStreamingToolPreviewNow();
-				resetLiveAgentBlocks();
-				streamStartedAtRef.current = null;
-				firstTokenAtRef.current = null;
-				setParsedPlan(null);
-				setPlanFilePath(null);
-				setPlanFileRelPath(null);
-				setResendFromUserIndex(null);
-				setComposerSegments([]);
-				setInlineResendSegments([]);
-				setAgentFilePreview(null);
-			}
-			const tAfterResetStates = dev ? performance.now() : 0;
-			if (dev) {
-				console.log(
-					`[perf] onSelectThread: resetStates sync=${(tAfterResetStates - tAfterSelectIpc).toFixed(1)}ms after select-ipc`
-				);
-			}
-
-			if (skipReloadSameThread) {
-				if (dev) {
-					console.log(`[perf] onSelectThread: skip loadMessages (already showing thread ${id})`);
-				}
-			} else {
-				if (dev) {
-					console.log(`[perf] onSelectThread: calling loadMessages for ${id}`);
-				}
-				await loadMessages(id, onMessagesLoaded);
-			}
-			restoreInFlightThreadUiIfNeeded(id);
-
-			if (dev) {
-				const tAfterLoad = performance.now();
-				console.log(
-					`[perf] onSelectThread: after loadMessages await Δ=${(tAfterLoad - tAfterResetStates).toFixed(1)}ms (from post-reset)`
-				);
-				console.log(`[perf] onSelectThread: completed for ${id} in ${(tAfterLoad - t0).toFixed(1)}ms total`);
-				requestAnimationFrame(() => {
-					requestAnimationFrame(() => {
-						console.log(
-							`[perf] onSelectThread: toPaint Δ=${(performance.now() - t0).toFixed(1)}ms from handler start (≈after frame)`
-						);
-					});
-				});
-			}
-		},
-		[
-			shell,
-			workspace,
-			openWorkspaceByPath,
-			loadMessages,
-			onMessagesLoaded,
-			clearStreamingToolPreviewNow,
-			resetLiveAgentBlocks,
-			setAgentFilePreview,
-			restoreInFlightThreadUiIfNeeded,
-		]
-	);
-
-	const selectThreadByHistoryIndex = useCallback(
-		async (index: number) => {
-			const id = threadNavigation.history[index];
-			if (!id || id === currentId) {
-				return;
-			}
-			skipThreadNavigationRecordRef.current = true;
-			setThreadNavigation((prev) => ({ ...prev, index }));
-			await onSelectThread(id);
-		},
-		[threadNavigation.history, currentId, onSelectThread]
-	);
-
-	const goToPreviousThread = useCallback(async () => {
-		if (!currentId) {
-			return;
-		}
-		const index = threadsChrono.findIndex((thread) => thread.id === currentId);
-		if (index < 0 || index >= threadsChrono.length - 1) {
-			return;
-		}
-		await onSelectThread(threadsChrono[index + 1]!.id);
-	}, [currentId, threadsChrono, onSelectThread]);
-
-	const goToNextThread = useCallback(async () => {
-		if (!currentId) {
-			return;
-		}
-		const index = threadsChrono.findIndex((thread) => thread.id === currentId);
-		if (index <= 0) {
-			return;
-		}
-		await onSelectThread(threadsChrono[index - 1]!.id);
-	}, [currentId, threadsChrono, onSelectThread]);
-
-	const goThreadBack = useCallback(async () => {
-		if (threadNavigation.index <= 0) {
-			return;
-		}
-		await selectThreadByHistoryIndex(threadNavigation.index - 1);
-	}, [threadNavigation.index, selectThreadByHistoryIndex]);
-
-	const goThreadForward = useCallback(async () => {
-		if (threadNavigation.index < 0 || threadNavigation.index >= threadNavigation.history.length - 1) {
-			return;
-		}
-		await selectThreadByHistoryIndex(threadNavigation.index + 1);
-	}, [threadNavigation.index, threadNavigation.history.length, selectThreadByHistoryIndex]);
 
 	const toggleSidebarVisibility = useCallback(() => {
 		setLeftSidebarOpen((open) => !open);
@@ -2715,177 +1703,76 @@ function AppMainWorkspaceInner() {
 		[shell, workspace, flashComposerAttachErr, t]
 	);
 
-	const zoomInUi = useCallback(() => {
-		setUiZoom((value) => Math.min(1.6, Math.round((value + 0.1) * 10) / 10));
-	}, []);
-
-	const zoomOutUi = useCallback(() => {
-		setUiZoom((value) => Math.max(0.8, Math.round((value - 0.1) * 10) / 10));
-	}, []);
-
-	const resetUiZoom = useCallback(() => {
-		setUiZoom(1);
-	}, []);
-
-	const toggleFullscreen = useCallback(async () => {
-		try {
-			if (document.fullscreenElement) {
-				await document.exitFullscreen();
-			} else {
-				await document.documentElement.requestFullscreen();
-			}
-		} catch {
-			/* ignore */
-		}
-	}, []);
-
-	const commitThreadTitleEdit = useCallback(async () => {
-		if (!editingThreadId) {
-			return;
-		}
-		if (!shell) {
-			setEditingThreadId(null);
-			setEditingThreadWorkspacePath(null);
-			setEditingThreadTitleDraft('');
-			return;
-		}
-		const id = editingThreadId;
-		const scopePath = editingThreadWorkspacePath;
-		const draft = threadTitleDraftRef.current.trim();
-		const scopeKey = normWorkspaceRootKey(scopePath ?? workspace ?? '');
-		const sameBucketAsPrimary =
-			!!workspace && !!scopePath && normWorkspaceRootKey(workspace) === normWorkspaceRootKey(scopePath);
-		const prev = sameBucketAsPrimary
-			? threads.find((x) => x.id === id)?.title ?? ''
-			: (sidebarThreadsByPathKey[scopeKey] ?? []).find((x) => x.id === id)?.title ?? '';
-		setEditingThreadId(null);
-		setEditingThreadWorkspacePath(null);
-		setEditingThreadTitleDraft('');
-		if (!draft || draft === prev) {
-			return;
-		}
-		const r = (await shell.invoke('threads:rename', id, draft, scopePath ?? undefined)) as { ok?: boolean };
-		if (r?.ok) {
-			await refreshThreads();
-		}
-	}, [
+	const {
+		onNewThread,
+		composerInvokeNewThread,
+		onNewThreadForWorkspace,
+		onSelectThread,
+		goToPreviousThread,
+		goToNextThread,
+		goThreadBack,
+		goThreadForward,
+		commitThreadTitleEdit,
+		cancelThreadTitleEdit,
+		beginThreadTitleEdit,
+		onDeleteThread,
+	} = useThreadActions({
 		shell,
-		editingThreadId,
-		editingThreadWorkspacePath,
 		workspace,
+		currentId,
+		currentIdRef,
+		awaitingReply,
 		threads,
+		threadsChrono,
 		sidebarThreadsByPathKey,
+		threadNavigation,
+		setThreadNavigation,
+		skipThreadNavigationRecordRef,
+		messagesRef,
+		messagesThreadIdRef,
+		setCurrentId,
+		setMessages,
+		setMessagesThreadId,
+		loadMessages,
 		refreshThreads,
-	]);
-
-	const cancelThreadTitleEdit = useCallback(() => {
-		setEditingThreadId(null);
-		setEditingThreadWorkspacePath(null);
-		setEditingThreadTitleDraft('');
-	}, []);
-
-	const beginThreadTitleEdit = useCallback((t: ThreadInfo, threadListWorkspace?: string | null) => {
-		setEditingThreadId(t.id);
-		setEditingThreadWorkspacePath(threadListWorkspace ?? workspace);
-		setEditingThreadTitleDraft(t.title);
-		threadTitleDraftRef.current = t.title;
-	}, [workspace]);
-
-	const performThreadDelete = useCallback(
-		async (id: string, threadWorkspaceRoot?: string | null) => {
-			if (!shell) {
-				return;
-			}
-			voidShellDebugLog('thread-delete:perform', { threadId: id });
-			const wasCurrent =
-				id === currentId &&
-				(!threadWorkspaceRoot ||
-					!workspace ||
-					normWorkspaceRootKey(threadWorkspaceRoot) === normWorkspaceRootKey(workspace));
-			if (wasCurrent && awaitingReply) {
-				await shell.invoke('chat:abort', id);
-				setAwaitingReply(false);
-				setStreaming('');
-				setStreamingThinking('');
-				clearStreamingToolPreviewNow();
-				resetLiveAgentBlocks();
-				streamStartedAtRef.current = null;
-				firstTokenAtRef.current = null;
-			}
-			const wasEditingTitle = editingThreadId === id;
-			setEditingThreadId((ed) => (ed === id ? null : ed));
-			if (wasEditingTitle) {
-				setEditingThreadWorkspacePath(null);
-			}
-			if (wasCurrent) {
-				setMessages([]);
-				setMessagesThreadId(null);
-				setStreaming('');
-				resetLiveAgentBlocks();
-				setComposerSegments([]);
-				setInlineResendSegments([]);
-				setResendFromUserIndex(null);
-			}
-			await shell.invoke('threads:delete', id, threadWorkspaceRoot ?? undefined);
-			clearPersistedAgentFileChanges(id);
-			clearTeamSession(id);
-			clearAgentSession(id);
-			planQuestionDismissedByThreadRef.current.delete(id);
-			await refreshThreads();
-		},
-		[
-			shell,
-			currentId,
-			editingThreadId,
-			awaitingReply,
-			refreshThreads,
-			workspace,
-			clearTeamSession,
-			clearAgentSession,
-			clearStreamingToolPreviewNow,
-			resetLiveAgentBlocks,
-		]
-	);
-
-	const onDeleteThread = useCallback(
-		async (e: React.MouseEvent, id: string, threadWorkspaceRoot?: string | null) => {
-			e.preventDefault();
-			e.stopPropagation();
-			voidShellDebugLog('thread-delete:left-list-click', { threadId: id, step: confirmDeleteId === id ? 'confirm' : 'arm' });
-			if (!shell) {
-				return;
-			}
-			if (confirmDeleteId !== id) {
-				setConfirmDeleteId(id);
-				if (confirmDeleteTimerRef.current) {
-					clearTimeout(confirmDeleteTimerRef.current);
-				}
-				confirmDeleteTimerRef.current = setTimeout(() => {
-					setConfirmDeleteId(null);
-					confirmDeleteTimerRef.current = null;
-				}, 2500);
-				return;
-			}
-			setConfirmDeleteId(null);
-			if (confirmDeleteTimerRef.current) {
-				clearTimeout(confirmDeleteTimerRef.current);
-				confirmDeleteTimerRef.current = null;
-			}
-			await performThreadDelete(id, threadWorkspaceRoot);
-		},
-		[shell, confirmDeleteId, performThreadDelete]
-	);
-
-	useLayoutEffect(() => {
-		if (!editingThreadId) {
-			return;
-		}
-		const el = threadTitleInputRef.current;
-		if (el) {
-			el.focus();
-			el.select();
-		}
-	}, [editingThreadId]);
+		onMessagesLoaded,
+		restoreInFlightThreadUiIfNeeded,
+		openWorkspaceByPath,
+		closeWorkspaceMenu,
+		setHiddenAgentWorkspacePaths,
+		setLastTurnUsage,
+		setAwaitingReply,
+		setStreaming,
+		setStreamingThinking,
+		clearStreamingToolPreviewNow,
+		resetLiveAgentBlocks,
+		streamStartedAtRef,
+		firstTokenAtRef,
+		setComposerSegments,
+		setInlineResendSegments,
+		setResendFromUserIndex,
+		composerRichBottomRef,
+		composerRichHeroRef,
+		setParsedPlan,
+		setPlanFilePath,
+		setPlanFileRelPath,
+		planQuestionDismissedByThreadRef,
+		setAgentFilePreview,
+		editingThreadId,
+		setEditingThreadId,
+		editingThreadWorkspacePath,
+		setEditingThreadWorkspacePath,
+		setEditingThreadTitleDraft,
+		threadTitleDraftRef,
+		threadTitleInputRef,
+		confirmDeleteId,
+		setConfirmDeleteId,
+		confirmDeleteTimerRef,
+		clearTeamSession,
+		clearAgentSession,
+		setEditorThreadHistoryOpen,
+		onNewThreadRef,
+	});
 
 	const onSendRef = useRef<(textOverride?: string, opts?: OnSendOptions) => Promise<void>>(async () => {});
 
@@ -2954,278 +1841,7 @@ function AppMainWorkspaceInner() {
 		return onAbortRef.current();
 	}, [currentId, abortTeamSession]);
 
-	const getCurrentPlanQuestionState = useCallback(() => {
-		if (composerMode === 'team') {
-			const liveTeamSession = getTeamSession(currentIdRef.current);
-			return {
-				question: liveTeamSession?.pendingQuestion ?? planQuestion,
-				requestId: liveTeamSession?.pendingQuestionRequestId ?? planQuestionRequestId,
-			};
-		}
-		return {
-			question: planQuestion,
-			requestId: planQuestionRequestId,
-		};
-	}, [composerMode, getTeamSession, planQuestion, planQuestionRequestId, currentIdRef]);
-
-	const formatPlanQuestionReply = useCallback(
-		(answer: string) => {
-			const questionText = getCurrentPlanQuestionState().question?.text?.trim();
-			const normalizedAnswer = answer.trim();
-			if (!questionText) {
-				return `我选择：${normalizedAnswer}`;
-			}
-			return [
-				'[PLAN QUESTION]',
-				questionText,
-				'',
-				'[USER ANSWER]',
-				normalizedAnswer,
-			].join('\n');
-		},
-		[getCurrentPlanQuestionState]
-	);
-
-	const onPlanQuestionSubmit = useCallback(
-		(answer: string) => {
-			const { requestId: rid } = getCurrentPlanQuestionState();
-			const threadId = currentIdRef.current;
-			const reply = formatPlanQuestionReply(answer);
-			if (composerMode === 'team' && threadId) {
-				clearTeamPendingQuestion(threadId);
-			}
-			if (rid && shell) {
-				setPlanQuestion(null);
-				setPlanQuestionRequestId(null);
-				void shell
-					.invoke('plan:toolQuestionRespond', { requestId: rid, answerText: reply })
-					.catch((e) => console.error('[plan:toolQuestionRespond]', e));
-				return;
-			}
-			setPlanQuestion(null);
-			setPlanQuestionRequestId(null);
-			void onSend(reply);
-		},
-		[
-			clearTeamPendingQuestion,
-			composerMode,
-			currentIdRef,
-			formatPlanQuestionReply,
-			getCurrentPlanQuestionState,
-			shell,
-			setPlanQuestion,
-			setPlanQuestionRequestId,
-			onSend,
-		]
-	);
-
-	const onPlanQuestionSkip = useCallback(() => {
-		recordPlanQuestionDismissed();
-		const { requestId: rid } = getCurrentPlanQuestionState();
-		const threadId = currentIdRef.current;
-		const skipText = t('plan.q.skipUserMessage');
-		if (composerMode === 'team' && threadId) {
-			clearTeamPendingQuestion(threadId);
-		}
-		if (rid && shell) {
-			setPlanQuestion(null);
-			setPlanQuestionRequestId(null);
-			void shell
-				.invoke('plan:toolQuestionRespond', { requestId: rid, skipped: true, answerText: skipText })
-				.catch((e) => console.error('[plan:toolQuestionRespond]', e));
-			return;
-		}
-		setPlanQuestion(null);
-		setPlanQuestionRequestId(null);
-		void onSend(skipText);
-	}, [
-		t,
-		onSend,
-		shell,
-		composerMode,
-		currentIdRef,
-		clearTeamPendingQuestion,
-		getCurrentPlanQuestionState,
-		recordPlanQuestionDismissed,
-	]);
-
-	const getCurrentUserInputRequest = useCallback(() => {
-		const threadId = currentIdRef.current;
-		if (!threadId) {
-			return null;
-		}
-		if (composerMode === 'team') {
-			return getTeamSession(threadId)?.pendingUserInput ?? null;
-		}
-		return rootUserInputRequestsByThread[threadId] ?? null;
-	}, [composerMode, currentIdRef, getTeamSession, rootUserInputRequestsByThread]);
-
-	const onUserInputSubmit = useCallback(
-		async (answers: Record<string, string>) => {
-			const threadId = currentIdRef.current;
-			const request = getCurrentUserInputRequest();
-			if (!threadId || !request?.requestId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:userInputRespond', {
-				requestId: request.requestId,
-				answers,
-			})) as { ok?: boolean; error?: string };
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('app.chatSendFailed'));
-				return;
-			}
-			if (composerMode === 'team') {
-				clearTeamPendingUserInput(threadId);
-			}
-			clearRootUserInputRequest(threadId);
-			showTransientToast(true, t('agent.userInput.submittedToast'));
-		},
-		[
-			clearRootUserInputRequest,
-			clearTeamPendingUserInput,
-			composerMode,
-			currentIdRef,
-			getCurrentUserInputRequest,
-			shell,
-			showTransientToast,
-			t,
-		]
-	);
-
-
-	const onPlanBuild = useCallback(
-		(modelId: string) => {
-			if (awaitingReply) {
-				return;
-			}
-			const planToBuild = getLatestAgentPlan();
-			if (!planToBuild || !shell || !modelId.trim()) {
-				return;
-			}
-			const threadId = currentIdRef.current;
-			if (!threadId) {
-				return;
-			}
-			const pbKeyEarly = planExecutedKey(workspace, planFileRelPath, planFilePath);
-			if (pbKeyEarly && executedPlanKeys.includes(pbKeyEarly)) {
-				return;
-			}
-			const planExecute: ChatPlanExecutePayload = {
-				fromAbsPath: planFilePath ?? undefined,
-				inlineMarkdown: toPlanMd(planToBuild),
-				planTitle: planToBuild.name,
-			};
-			setPlanQuestion(null);
-			setPlanQuestionRequestId(null);
-			setAgentRightSidebarView('plan');
-			setAgentRightSidebarOpen(true);
-			setComposerModePersist('agent');
-			setComposerSegments([{ id: newSegmentId(), kind: 'text', text: '' }]);
-			void onSend(t('plan.review.executeUserBubble'), {
-				modeOverride: 'agent',
-				modelIdOverride: modelId,
-				planExecute,
-				planBuildPathKey: pbKeyEarly || undefined,
-			});
-		},
-		[
-			getLatestAgentPlan,
-			planFilePath,
-			planFileRelPath,
-			workspace,
-			executedPlanKeys,
-			shell,
-			awaitingReply,
-			setComposerModePersist,
-			t,
-		]
-	);
-
-	const onExecutePlanFromEditor = useCallback(
-		(modelId: string) => {
-			if (!shell || awaitingReply || !modelId.trim()) {
-				return;
-			}
-			const threadId = currentIdRef.current;
-			if (!threadId || !hasConversation) {
-				return;
-			}
-			const fp = filePath.trim().replace(/\\/g, '/');
-			if (!isPlanMdPath(fp)) {
-				return;
-			}
-			const pbKey = planExecutedKey(workspace, fp, null);
-			if (pbKey && executedPlanKeys.includes(pbKey)) {
-				return;
-			}
-			const body = stripLeadingYamlFrontmatter(editorValue);
-			const parsed = parsePlanDocument(body);
-			const baseName = fp.split('/').pop() ?? 'plan.plan.md';
-			const planTitle = parsed?.name ?? baseName.replace(/\.plan\.md$/i, '');
-			const planExecute: ChatPlanExecutePayload = {
-				inlineMarkdown: parsed ? toPlanMd(parsed) : editorValue,
-				planTitle,
-			};
-			setComposerModePersist('agent');
-			setComposerSegments([{ id: newSegmentId(), kind: 'text', text: '' }]);
-			void onSend(t('plan.review.executeUserBubble'), {
-				modeOverride: 'agent',
-				modelIdOverride: modelId,
-				planExecute,
-				planBuildPathKey: pbKey || undefined,
-			});
-		},
-		[
-			shell,
-			awaitingReply,
-			hasConversation,
-			filePath,
-			editorValue,
-			workspace,
-			executedPlanKeys,
-			setComposerModePersist,
-			t,
-		]
-	);
-
-	const onPlanReviewClose = useCallback(() => {
-		if (layoutMode === 'agent' && agentRightSidebarView === 'plan') {
-			setParsedPlan(null);
-			setPlanFilePath(null);
-			setPlanFileRelPath(null);
-			setAgentRightSidebarOpen(false);
-			setAgentRightSidebarView('git');
-			return;
-		}
-		setEditorPlanReviewDismissed(true);
-	}, [layoutMode, agentRightSidebarView]);
-
-	const onPersistLanguage = useCallback(
-		async (loc: AppLocale) => {
-			if (!shell) {
-				return;
-			}
-			await shell.invoke('settings:set', { language: loc });
-		},
-		[shell]
-	);
-
-	const onChangeColorMode = useCallback(
-		async (next: AppColorMode, origin?: ThemeTransitionOrigin) => {
-			setTransitionOrigin(origin);
-			setColorMode(next);
-			writeStoredColorMode(next);
-			if (shell) {
-				try {
-					await shell.invoke('settings:set', { ui: { colorMode: next } });
-				} catch (e) {
-					console.error('Failed to persist color mode:', e);
-				}
-			}
-		},
-		[shell, setTransitionOrigin]
-	);
+	// usePlanWizardActions 实际调用挪到下方 closeSettingsPage 解构之后
 
 	useEffect(() => {
 		if (!layoutSwitchPending) {
@@ -3233,189 +1849,98 @@ function AppMainWorkspaceInner() {
 		}
 	}, [layoutSwitchPending]);
 
-	const refreshLayoutWindowAvailability = useCallback(async () => {
-		if (!shell) {
-			setLayoutWindowAvailability({ agent: false, editor: false });
-			return;
-		}
-		try {
-			const [agentResult, editorResult] = await Promise.all([
-				shell.invoke('app:windowSurfaceStatus', 'agent'),
-				shell.invoke('app:windowSurfaceStatus', 'editor'),
-			]);
-			const parseExists = (value: unknown) => {
-				if (!value || typeof value !== 'object') {
-					return false;
-				}
-				const result = value as { ok?: boolean; exists?: boolean };
-				return !!(result.ok && result.exists);
-			};
-			setLayoutWindowAvailability({
-				agent: parseExists(agentResult),
-				editor: parseExists(editorResult),
-			});
-		} catch {
-			setLayoutWindowAvailability({ agent: false, editor: false });
-		}
-	}, [shell]);
-
-	useEffect(() => {
-		void refreshLayoutWindowAvailability();
-	}, [refreshLayoutWindowAvailability, workspace]);
-
-	useEffect(() => {
-		const handleFocus = () => {
-			void refreshLayoutWindowAvailability();
-		};
-		const handleVisibilityChange = () => {
-			if (!document.hidden) {
-				void refreshLayoutWindowAvailability();
-			}
-		};
-		window.addEventListener('focus', handleFocus);
-		document.addEventListener('visibilitychange', handleVisibilityChange);
-		return () => {
-			window.removeEventListener('focus', handleFocus);
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
-		};
-	}, [refreshLayoutWindowAvailability]);
-
-	const persistSettings = useCallback(async () => {
-		if (!shell) {
-			return;
-		}
-		await shell.invoke('settings:set', {
-			language: locale,
-			openAI: { apiKey: undefined, baseURL: undefined, proxyUrl: undefined },
-			anthropic: { apiKey: undefined, baseURL: undefined },
-			gemini: { apiKey: undefined },
-			providerIdentity,
-			defaultModel,
-			models: {
-				providers: modelProviders,
-				entries: modelEntries,
-				enabledIds: enabledModelIds,
-				thinkingByModelId,
-			},
-			agent: {
-				importThirdPartyConfigs: true,
-				rules: agentCustomization.rules ?? [],
-				skills: agentCustomization.skills ?? [],
-				subagents: agentCustomization.subagents ?? [],
-				commands: agentCustomization.commands ?? [],
-				shellPermissionMode: agentCustomization.shellPermissionMode,
-				confirmShellCommands: agentCustomization.confirmShellCommands,
-				skipSafeShellCommandsConfirm: agentCustomization.skipSafeShellCommandsConfirm,
-				confirmWritesBeforeExecute: agentCustomization.confirmWritesBeforeExecute,
-				maxConsecutiveMistakes: agentCustomization.maxConsecutiveMistakes,
-				mistakeLimitEnabled: agentCustomization.mistakeLimitEnabled,
-				backgroundForkAgent: agentCustomization.backgroundForkAgent,
-				toolPermissionRules: agentCustomization.toolPermissionRules ?? [],
-				shouldAvoidPermissionPrompts: agentCustomization.shouldAvoidPermissionPrompts,
-				memoryExtraction: agentCustomization.memoryExtraction,
-			},
-			editor: editorSettings,
-			team: teamSettings,
-			bots: { integrations: botIntegrations },
-			mcp: { servers: mcpServers },
-			ui: {
-				colorMode,
-				fontPreset: appearanceSettings.uiFontPreset,
-				uiFontPreset: appearanceSettings.uiFontPreset,
-				codeFontPreset: appearanceSettings.codeFontPreset,
-				themePresetId: appearanceSettings.themePresetId,
-				accentColor: appearanceSettings.accentColor,
-				backgroundColor: appearanceSettings.backgroundColor,
-				foregroundColor: appearanceSettings.foregroundColor,
-				translucentSidebar: appearanceSettings.translucentSidebar,
-				contrast: appearanceSettings.contrast,
-				usePointerCursors: appearanceSettings.usePointerCursors,
-				uiFontSize: appearanceSettings.uiFontSize,
-				codeFontSize: appearanceSettings.codeFontSize,
-				...(layoutPinnedBySurface ? {} : { layoutMode }),
-			},
-		});
-	}, [
+	const {
+		onPersistLanguage,
+		onChangeColorMode,
+		refreshLayoutWindowAvailability,
+		onChangeBotIntegrations,
+		closeSettingsPage,
+	} = useSettingsPersistence({
 		shell,
-		modelProviders,
+		setTransitionOrigin,
+		setColorMode,
+		setLayoutWindowAvailability,
+		workspace,
+		setSettingsPageOpen,
+		locale,
+		providerIdentity,
 		defaultModel,
+		modelProviders,
 		modelEntries,
 		enabledModelIds,
 		thinkingByModelId,
-		providerIdentity,
 		agentCustomization,
 		editorSettings,
-		locale,
-		mcpServers,
 		teamSettings,
 		botIntegrations,
+		setBotIntegrations,
+		mcpServers,
 		colorMode,
 		appearanceSettings,
 		layoutMode,
 		layoutPinnedBySurface,
-	]);
+	});
 
-	const onChangeBotIntegrations = useCallback(
-		(next: BotIntegrationConfig[]) => {
-			setBotIntegrations(next);
-			if (!shell) {
-				return;
-			}
-			void shell.invoke('settings:set', {
-				bots: { integrations: next },
-			});
-		},
-		[shell, setBotIntegrations]
-	);
-
-	/** 离开设置页时写入磁盘（返回、点遮罩、Esc 等） */
-	const closeSettingsPage = useCallback(async () => {
-		try {
-			await persistSettings();
-		} catch (e) {
-			console.error('Failed to persist settings:', e);
-		} finally {
-			setSettingsPageOpen(false);
-		}
-	}, [persistSettings]);
-
-	const startSkillCreatorFlow = useCallback(async () => {
-		await closeSettingsPage();
-		if (!shell) {
-			return;
-		}
-		const r = (await shell.invoke('threads:create')) as { id: string };
-		const threadId = r.id;
-		await refreshThreads();
-		await shell.invoke('threads:select', threadId);
-		setCurrentId(threadId);
-		setLastTurnUsage(null);
-		setAwaitingReply(false);
-		setStreaming('');
-		setStreamingThinking('');
-		clearStreamingToolPreviewNow();
-		streamStartedAtRef.current = null;
-		firstTokenAtRef.current = null;
-		await loadMessages(threadId);
-		setComposerSegments([
-			{ id: newSegmentId(), kind: 'command', command: CREATE_SKILL_SLUG },
-			{ id: newSegmentId(), kind: 'text', text: '' },
-		]);
-		setInlineResendSegments([]);
-		setResendFromUserIndex(null);
-		const title = t('agentSettings.skillCreatorThreadTitle');
-		const rr = (await shell.invoke('threads:rename', threadId, title)) as { ok?: boolean };
-		if (rr?.ok) {
-			await refreshThreads();
-		}
-		queueMicrotask(() => {
-			if (composerRichBottomRef.current) {
-				composerRichBottomRef.current.focus();
-			} else {
-				composerRichHeroRef.current?.focus();
-			}
-		});
-	}, [closeSettingsPage, shell, t, refreshThreads, loadMessages, clearStreamingToolPreviewNow]);
+	const {
+		onPlanQuestionSubmit,
+		onPlanQuestionSkip,
+		onUserInputSubmit,
+		onPlanBuild,
+		onExecutePlanFromEditor,
+		onPlanReviewClose,
+		startSkillCreatorFlow,
+	} = usePlanWizardActions({
+		shell,
+		t,
+		workspace,
+		currentIdRef,
+		composerMode,
+		awaitingReply,
+		hasConversation,
+		layoutMode,
+		agentRightSidebarView,
+		planQuestion,
+		planQuestionRequestId,
+		setPlanQuestion,
+		setPlanQuestionRequestId,
+		recordPlanQuestionDismissed,
+		planFilePath,
+		planFileRelPath,
+		executedPlanKeys,
+		setParsedPlan,
+		setPlanFilePath,
+		setPlanFileRelPath,
+		setEditorPlanReviewDismissed,
+		getLatestAgentPlan,
+		filePath,
+		editorValue,
+		getTeamSession,
+		clearTeamPendingQuestion,
+		clearTeamPendingUserInput,
+		rootUserInputRequestsByThread,
+		clearRootUserInputRequest,
+		setAgentRightSidebarView,
+		setAgentRightSidebarOpen,
+		setComposerModePersist,
+		setComposerSegments,
+		setInlineResendSegments,
+		setResendFromUserIndex,
+		closeSettingsPage,
+		refreshThreads,
+		loadMessages,
+		setCurrentId,
+		setLastTurnUsage,
+		setAwaitingReply,
+		setStreaming,
+		setStreamingThinking,
+		clearStreamingToolPreviewNow,
+		streamStartedAtRef,
+		firstTokenAtRef,
+		composerRichBottomRef,
+		composerRichHeroRef,
+		showTransientToast,
+		onSend,
+	});
 
 
 	const {
@@ -3473,337 +1998,18 @@ function AppMainWorkspaceInner() {
 		setTerminalMenuOpen,
 	});
 
-	const openAgentSidebarFilePreview = useCallback(
-		async (
-			rel: string,
-			revealLine?: number,
-			revealEndLine?: number,
-			options?: AgentConversationFileOpenOptions
-		) => {
-			if (!shell || layoutMode !== 'agent') {
-				await openFileInTab(rel, revealLine, revealEndLine, options);
-				return;
-			}
+	const openAgentSidebarFilePreview = useAgentSidebarFilePreview({
+		shell,
+		layoutMode,
+		currentId,
+		openFileInTab,
+		agentGitPackRef,
+		setAgentRightSidebarView,
+		setAgentRightSidebarOpen,
+		setAgentFilePreview,
+		agentFilePreviewRequestRef,
+	});
 
-			const { gitStatusOk, gitChangedPaths, diffPreviews } = agentGitPackRef.current;
-			const normalizedRel = normalizeWorkspaceRelPath(rel);
-			const safeRevealLine =
-				typeof revealLine === 'number' && Number.isFinite(revealLine) && revealLine > 0
-					? Math.floor(revealLine)
-					: undefined;
-			const safeRevealEndLine =
-				typeof revealEndLine === 'number' && Number.isFinite(revealEndLine) && revealEndLine > 0
-					? Math.floor(revealEndLine)
-					: undefined;
-			const sourceDiff = typeof options?.diff === 'string' ? options.diff.trim() : '';
-			const sourceAllowsReviewActions = options?.allowReviewActions === true;
-			const useSourceReadonlyFallback = !gitStatusOk && sourceDiff.length > 0;
-			voidShellDebugLog('agent-file-preview:open:start', {
-				relPath: normalizedRel,
-				revealLine: safeRevealLine ?? null,
-				revealEndLine: safeRevealEndLine ?? null,
-				sourceDiffLength: sourceDiff.length,
-				sourceDiffHead: sourceDiff ? debugDiffHead(sourceDiff) : '',
-				allowReviewActions: sourceAllowsReviewActions,
-				useSourceReadonlyFallback,
-				layoutMode,
-				currentId: currentId ?? '',
-			});
-
-			setAgentRightSidebarView('file');
-			setAgentRightSidebarOpen(true);
-			setAgentFilePreview((prev) => ({
-				relPath: normalizedRel,
-				revealLine: safeRevealLine,
-				revealEndLine: safeRevealEndLine,
-				loading: true,
-				content: prev?.relPath === normalizedRel ? prev.content : '',
-				diff: sourceAllowsReviewActions || useSourceReadonlyFallback ? sourceDiff : '',
-				isBinary: false,
-				readError: null,
-				additions: 0,
-				deletions: 0,
-				reviewMode:
-					prev?.relPath === normalizedRel && sourceAllowsReviewActions
-						? prev.reviewMode
-						: 'readonly',
-			}));
-
-			const requestId = ++agentFilePreviewRequestRef.current;
-			let content = '';
-			let readError: string | null = null;
-			try {
-				const fileResult = (await shell.invoke('fs:readFile', normalizedRel)) as { ok?: boolean; content?: string };
-				if (fileResult.ok && typeof fileResult.content === 'string') {
-					content = fileResult.content;
-				}
-			} catch (err) {
-				readError = err instanceof Error ? err.message : String(err);
-			}
-
-			let previewDiff = sourceAllowsReviewActions || useSourceReadonlyFallback ? sourceDiff : '';
-			let isBinary = false;
-			let additions = 0;
-			let deletions = 0;
-			let reviewMode: AgentFilePreviewState['reviewMode'] = 'readonly';
-			const isGitChanged = gitChangedPaths.some((path) => workspaceRelPathsEqual(path, normalizedRel));
-			voidShellDebugLog('agent-file-preview:open:path-match', {
-				relPath: normalizedRel,
-				isGitChanged,
-				gitChangedCount: gitChangedPaths.length,
-				gitChangedHead: gitChangedPaths.slice(0, 12).join(' | '),
-			});
-
-			if (currentId && sourceAllowsReviewActions) {
-				try {
-					const snapshotResult = (await shell.invoke('agent:getFileSnapshot', currentId, normalizedRel)) as
-						| { ok: true; hasSnapshot: false }
-						| { ok: true; hasSnapshot: true; previousContent: string | null }
-						| { ok?: false };
-					if (snapshotResult?.ok && snapshotResult.hasSnapshot) {
-						const previousContent = snapshotResult.previousContent ?? '';
-						const { createTwoFilesPatch } = await import('diff');
-						previewDiff = createTwoFilesPatch(
-							`a/${normalizedRel}`,
-							`b/${normalizedRel}`,
-							previousContent,
-							content,
-							'',
-							'',
-							{ context: 3 }
-						).trim();
-						reviewMode = 'snapshot';
-						readError = null;
-						voidShellDebugLog('agent-file-preview:open:snapshot', {
-							relPath: normalizedRel,
-							previousLength: previousContent.length,
-							contentLength: content.length,
-							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				} catch {
-					/* snapshot lookup failed; fall back to git preview */
-				}
-			}
-
-			let authoritativeGitPreviewLoaded = false;
-			if (gitStatusOk) {
-				try {
-					const fullDiffResult = (await shell.invoke('git:diffPreview', {
-						relPath: normalizedRel,
-						full: true,
-					})) as
-						| { ok: true; preview: DiffPreview }
-						| { ok: false; error?: string };
-					if (fullDiffResult.ok && fullDiffResult.preview) {
-						authoritativeGitPreviewLoaded = true;
-						const gitPreviewDiff = String(fullDiffResult.preview.diff ?? '');
-						const gitPreviewIsBinary = fullDiffResult.preview.isBinary === true;
-						const gitPreviewAdditions = fullDiffResult.preview.additions ?? 0;
-						const gitPreviewDeletions = fullDiffResult.preview.deletions ?? 0;
-						const gitPreviewHead = debugDiffHead(gitPreviewDiff);
-						if (!sourceAllowsReviewActions || reviewMode !== 'snapshot') {
-							previewDiff = gitPreviewDiff;
-							isBinary = gitPreviewIsBinary;
-							additions = gitPreviewAdditions;
-							deletions = gitPreviewDeletions;
-							reviewMode = 'readonly';
-						} else if (!gitPreviewDiff.trim()) {
-							// Snapshot exists but git shows clean: trust git and hide stale inline diff.
-							previewDiff = '';
-							isBinary = gitPreviewIsBinary;
-							additions = gitPreviewAdditions;
-							deletions = gitPreviewDeletions;
-							reviewMode = 'readonly';
-						}
-						voidShellDebugLog('agent-file-preview:open:git-authoritative', {
-							relPath: normalizedRel,
-							diffLength: gitPreviewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(gitPreviewDiff)).length,
-							isBinary: gitPreviewIsBinary,
-							additions: gitPreviewAdditions,
-							deletions: gitPreviewDeletions,
-							reviewMode,
-							diffHead: gitPreviewHead,
-						});
-					}
-				} catch {
-					/* fall back to cached preview/status heuristics below */
-				}
-			}
-
-			if (!authoritativeGitPreviewLoaded && !previewDiff && gitStatusOk && isGitChanged) {
-				const cachedPreview = Object.entries(diffPreviews).find(
-					([path]) => workspaceRelPathsEqual(path, normalizedRel)
-				)?.[1];
-				voidShellDebugLog('agent-file-preview:open:git-start', {
-					relPath: normalizedRel,
-					hasCachedPreview: Boolean(cachedPreview),
-					cachedDiffLength: String(cachedPreview?.diff ?? '').length,
-					gitStatusOk,
-					isGitChanged,
-				});
-				if (cachedPreview) {
-					isBinary = cachedPreview.isBinary === true;
-					additions = cachedPreview.additions ?? 0;
-					deletions = cachedPreview.deletions ?? 0;
-				}
-				try {
-					const fullDiffResult = (await shell.invoke('git:diffPreview', {
-						relPath: normalizedRel,
-						full: true,
-					})) as
-						| { ok: true; preview: DiffPreview }
-						| { ok: false; error?: string };
-					if (fullDiffResult.ok && fullDiffResult.preview) {
-						previewDiff = String(fullDiffResult.preview.diff ?? '');
-						isBinary = fullDiffResult.preview.isBinary === true;
-						additions = fullDiffResult.preview.additions ?? additions;
-						deletions = fullDiffResult.preview.deletions ?? deletions;
-						reviewMode = 'readonly';
-						voidShellDebugLog('agent-file-preview:open:git-full', {
-							relPath: normalizedRel,
-							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
-							isBinary,
-							additions,
-							deletions,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				} catch {
-					if (cachedPreview) {
-						previewDiff = String(cachedPreview.diff ?? '');
-						isBinary = cachedPreview.isBinary === true;
-						additions = cachedPreview.additions ?? 0;
-						deletions = cachedPreview.deletions ?? 0;
-						reviewMode = 'readonly';
-						voidShellDebugLog('agent-file-preview:open:git-cached-fallback', {
-							relPath: normalizedRel,
-							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
-							isBinary,
-							additions,
-							deletions,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				}
-			}
-
-			if (
-				!authoritativeGitPreviewLoaded &&
-				previewDiff &&
-				!isBinary &&
-				reviewMode === 'readonly' &&
-				(await buildAgentFilePreviewHunks(previewDiff)).length === 0
-			) {
-				try {
-					const fullDiffResult = (await shell.invoke('git:diffPreview', {
-						relPath: normalizedRel,
-						full: true,
-					})) as
-						| { ok: true; preview: DiffPreview }
-						| { ok: false; error?: string };
-					if (fullDiffResult.ok && fullDiffResult.preview) {
-						previewDiff = String(fullDiffResult.preview.diff ?? '');
-						isBinary = fullDiffResult.preview.isBinary === true;
-						additions = fullDiffResult.preview.additions ?? additions;
-						deletions = fullDiffResult.preview.deletions ?? deletions;
-						voidShellDebugLog('agent-file-preview:open:git-retry-full', {
-							relPath: normalizedRel,
-							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
-							isBinary,
-							additions,
-							deletions,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				} catch {
-					/* keep the existing preview fallback */
-				}
-			}
-
-			if (previewDiff) {
-				const stats = countDiffAddDel(previewDiff);
-				additions = additions || stats.additions;
-				deletions = deletions || stats.deletions;
-				readError = null;
-			}
-
-			const previewHunks = !isBinary ? await buildAgentFilePreviewHunks(previewDiff) : [];
-			if (
-				currentId &&
-				sourceAllowsReviewActions &&
-				previewDiff &&
-				!isBinary &&
-				reviewMode === 'readonly' &&
-				previewHunks.length > 0
-			) {
-				try {
-					const seedResult = (await shell.invoke('agent:seedFileSnapshot', {
-						threadId: currentId,
-						relPath: normalizedRel,
-						content,
-						diff: previewDiff,
-					})) as { ok?: boolean; seeded?: boolean; previousLength?: number; error?: string };
-					if (seedResult?.ok && seedResult.seeded) {
-						reviewMode = 'snapshot';
-						voidShellDebugLog('agent-file-preview:open:seeded-snapshot', {
-							relPath: normalizedRel,
-							contentLength: content.length,
-							previousLength: seedResult.previousLength ?? 0,
-							diffLength: previewDiff.length,
-							hunkCount: previewHunks.length,
-							diffHead: debugDiffHead(previewDiff),
-						});
-					}
-				} catch {
-					/* derived snapshot seeding failed; keep readonly preview */
-				}
-			}
-
-			if (requestId !== agentFilePreviewRequestRef.current) {
-				voidShellDebugLog('agent-file-preview:open:stale', {
-					relPath: normalizedRel,
-					requestId,
-					activeRequestId: agentFilePreviewRequestRef.current,
-				});
-				return;
-			}
-
-			voidShellDebugLog('agent-file-preview:open:final', {
-				relPath: normalizedRel,
-				reviewMode,
-				contentLength: content.length,
-				diffLength: previewDiff.length,
-				hunkCount: previewHunks.length,
-				isBinary,
-				additions,
-				deletions,
-				readError: readError ?? '',
-				diffHead: previewDiff ? debugDiffHead(previewDiff) : '',
-			});
-
-			setAgentFilePreview({
-				relPath: normalizedRel,
-				revealLine: safeRevealLine,
-				revealEndLine: safeRevealEndLine,
-				loading: false,
-				content,
-				diff: previewDiff,
-				isBinary,
-				readError,
-				additions,
-				deletions,
-				reviewMode,
-			});
-		},
-		[currentId, layoutMode, openFileInTab, shell]
-	);
 
 	useEffect(() => {
 		if (isPlanMdPath(filePath.trim())) {
@@ -3854,50 +2060,17 @@ function AppMainWorkspaceInner() {
 		[openFileInTab]
 	);
 
-	const handleReturnToAgentLayout = useCallback(() => {
-		setLayoutMode('agent');
-		writeStoredShellLayoutMode('agent', shellLayoutStorageKey);
-		syncDesktopShellLayoutMode(shell, 'agent');
-		queueMicrotask(() => {
-			if (composerRichBottomRef.current) {
-				composerRichBottomRef.current.focus();
-			} else {
-				composerRichHeroRef.current?.focus();
-			}
-		});
-	}, [shell, shellLayoutStorageKey]);
-
-	const handleEnterEditorLayout = useCallback(() => {
-		setLayoutMode('editor');
-		writeStoredShellLayoutMode('editor', shellLayoutStorageKey);
-		syncDesktopShellLayoutMode(shell, 'editor');
-	}, [shell, shellLayoutStorageKey]);
-
-	const handleOpenAgentLayoutWindow = useCallback(async () => {
-		if (!shell) {
-			handleReturnToAgentLayout();
-			return;
-		}
-		try {
-			await shell.invoke('app:openOrFocusWindowSurface', 'agent');
-			await refreshLayoutWindowAvailability();
-		} catch {
-			/* ignore */
-		}
-	}, [handleReturnToAgentLayout, refreshLayoutWindowAvailability, shell]);
-
-	const handleOpenEditorLayoutWindow = useCallback(async () => {
-		if (!shell) {
-			handleEnterEditorLayout();
-			return;
-		}
-		try {
-			await shell.invoke('app:openOrFocusWindowSurface', 'editor');
-			await refreshLayoutWindowAvailability();
-		} catch {
-			/* ignore */
-		}
-	}, [handleEnterEditorLayout, refreshLayoutWindowAvailability, shell]);
+	const {
+		handleOpenAgentLayoutWindow,
+		handleOpenEditorLayoutWindow,
+	} = useLayoutWindows({
+		shell,
+		shellLayoutStorageKey,
+		setLayoutMode,
+		composerRichBottomRef,
+		composerRichHeroRef,
+		refreshLayoutWindowAvailability,
+	});
 
 	const handleDeleteWorkspaceSkillDisk = useCallback(async (skillMdRel: string): Promise<boolean> => {
 		if (!shell) return false;
@@ -3939,52 +2112,6 @@ function AppMainWorkspaceInner() {
 		},
 		[layoutMode, openAgentSidebarFilePreview, openFileInTab]
 	);
-
-	const dismissAgentChangedFile = useCallback((relPath: string) => {
-		if (!currentId) {
-			return;
-		}
-		setDismissedFiles((prev) => {
-			const next = new Set(prev).add(relPath);
-			const last = [...messagesRef.current].reverse().find((m) => m.role === 'assistant');
-			writePersistedAgentFileChanges(
-				currentId,
-				last?.content ?? '',
-				fileChangesDismissedRef.current,
-				next,
-				revertedFilesRef.current,
-				revertedChangeKeysRef.current
-			);
-			return next;
-		});
-	}, [currentId]);
-
-	const markAgentConversationChangeReverted = useCallback((changeKey: string | null, relPath?: string) => {
-		if (!currentId) {
-			return;
-		}
-		const normalizedPath = typeof relPath === 'string' ? normalizeWorkspaceRelPath(relPath) : '';
-		const normalizedKey = typeof changeKey === 'string' ? changeKey.trim() : '';
-		const last = [...messagesRef.current].reverse().find((m) => m.role === 'assistant');
-		let nextPaths = revertedFilesRef.current;
-		let nextKeys = revertedChangeKeysRef.current;
-		if (normalizedPath) {
-			nextPaths = new Set(revertedFilesRef.current).add(normalizedPath);
-			setRevertedFiles(nextPaths);
-		}
-		if (normalizedKey) {
-			nextKeys = new Set(revertedChangeKeysRef.current).add(normalizedKey);
-			setRevertedChangeKeys(nextKeys);
-		}
-		writePersistedAgentFileChanges(
-			currentId,
-			last?.content ?? '',
-			fileChangesDismissedRef.current,
-			dismissedFilesRef.current,
-			nextPaths,
-			nextKeys
-		);
-	}, [currentId]);
 
 	const onAcceptAgentFilePreviewHunk = useCallback(
 		async (patch: string) => {
@@ -4125,66 +2252,40 @@ function AppMainWorkspaceInner() {
 		}
 	}, []);
 
-	const monacoDocumentPath = useMemo(() => {
-		const fp = filePath.trim();
-		if (!fp) {
-			return '';
-		}
-		const u = workspaceRelativeFileUrl(workspace, fp);
-		return u ?? fp.replace(/\\/g, '/');
-	}, [workspace, filePath]);
-
-	const activeEditorTab = useMemo(
-		() => openTabs.find((t2) => t2.filePath === filePath.trim()),
-		[openTabs, filePath]
-	);
-	const activeEditorInlineDiff = useMemo(() => {
-		const fp = normalizeWorkspaceRelPath(filePath.trim());
-		return fp ? editorInlineDiffByPath[fp] ?? null : null;
-	}, [editorInlineDiffByPath, filePath]);
-	const markdownPaneMode = useMemo(() => {
-		const fp = filePath.trim();
-		if (!fp) {
-			return null;
-		}
-		return markdownViewForTab(fp, activeEditorTab?.markdownView);
-	}, [filePath, activeEditorTab?.markdownView]);
-
-	const setMarkdownPaneMode = useCallback((mode: MarkdownTabView) => {
-		const fp = filePath.trim();
-		if (!fp || !isMarkdownEditorPath(fp)) {
-			return;
-		}
-		setOpenTabs((prev) => prev.map((t) => (t.filePath === fp ? { ...t, markdownView: mode } : t)));
-	}, [filePath]);
-
-	const markdownPreviewContent = useMemo(() => {
-		const fp = filePath.trim();
-		if (!fp) {
-			return editorValue;
-		}
-		return stripPlanFrontmatterForPreview(fp, editorValue);
-	}, [filePath, editorValue]);
-	const monacoOriginalDocumentPath = useMemo(() => {
-		const fp = filePath.trim();
-		if (!fp) {
-			return '';
-		}
-		return `inline-diff-original:///${fp.replace(/\\/g, '/')}`;
-	}, [filePath]);
-
-	const editorActivePlanPathKey = useMemo(() => {
-		const fp = filePath.trim();
-		if (!isPlanMdPath(fp)) {
-			return '';
-		}
-		return planExecutedKey(workspace, fp, null);
-	}, [filePath, workspace]);
-
-	const editorPlanFileIsBuilt = useMemo(
-		() => Boolean(editorActivePlanPathKey && executedPlanKeys.includes(editorActivePlanPathKey)),
-		[editorActivePlanPathKey, executedPlanKeys]
-	);
+	const teamSelectedTaskIdForCenter = getTeamSession(currentId)?.selectedTaskId ?? null;
+	const {
+		monacoDocumentPath,
+		activeEditorInlineDiff,
+		markdownPaneMode,
+		setMarkdownPaneMode,
+		markdownPreviewContent,
+		monacoOriginalDocumentPath,
+		editorPlanFileIsBuilt,
+		showPlanFileEditorChrome,
+		editorCenterPlanMarkdown,
+		showEditorPlanDocumentInCenter,
+		showEditorTeamWorkflowInCenter,
+		editorCenterPlanCanBuild,
+	} = useEditorCenterDerived({
+		filePath,
+		workspace,
+		openTabs,
+		setOpenTabs,
+		editorInlineDiffByPath,
+		editorValue,
+		executedPlanKeys,
+		hasConversation,
+		currentId,
+		awaitingReply,
+		t,
+		composerMode,
+		layoutMode,
+		agentPlanPreviewMarkdown,
+		agentPlanEffectivePlan,
+		editorPlanBuildModelId,
+		modelPickerItems,
+		teamSelectedTaskId: teamSelectedTaskIdForCenter,
+	});
 
 	useEffect(() => {
 		if (!gitStatusOk) {
@@ -4207,8 +2308,6 @@ function AppMainWorkspaceInner() {
 		});
 	}, [gitChangedPaths, gitStatusOk]);
 
-	const showPlanFileEditorChrome =
-		hasConversation && !!currentId && isPlanMdPath(filePath.trim());
 	const teamSession = useMemo(() => getTeamSession(currentId), [getTeamSession, currentId]);
 	const agentSession = useMemo(() => getAgentSession(currentId), [getAgentSession, currentId]);
 	const activePlanQuestion = useMemo(
@@ -4236,27 +2335,6 @@ function AppMainWorkspaceInner() {
 		[composerMode, teamSession]
 	);
 
-	const editorCenterPlanMarkdown = useMemo(() => {
-		if (agentPlanPreviewMarkdown.trim()) {
-			return agentPlanPreviewMarkdown;
-		}
-		if (layoutMode === 'editor' && composerMode === 'plan' && hasConversation && awaitingReply) {
-			return `# ${t('plan.review.label')}\n\n${t('app.planSidebarStreaming')}…`;
-		}
-		return '';
-	}, [agentPlanPreviewMarkdown, layoutMode, composerMode, hasConversation, awaitingReply, t]);
-	const showEditorPlanDocumentInCenter =
-		layoutMode === 'editor' &&
-		composerMode === 'plan' &&
-		hasConversation &&
-		(awaitingReply || !!editorCenterPlanMarkdown.trim());
-	const showEditorTeamWorkflowInCenter =
-		layoutMode === 'editor' &&
-		composerMode === 'team' &&
-		hasConversation &&
-		!!teamSession?.selectedTaskId;
-	const editorCenterPlanCanBuild =
-		!awaitingReply && !!agentPlanEffectivePlan && !!editorPlanBuildModelId.trim() && modelPickerItems.length > 0;
 	const agentPlanSidebarAutopenRef = useRef(false);
 
 	useEffect(() => {
@@ -4346,214 +2424,24 @@ function AppMainWorkspaceInner() {
 		setQuickOpenOpen(true);
 	}, []);
 
-	const workspaceExplorerActions = useMemo((): WorkspaceExplorerActions | null => {
-		if (!shell || !workspace) {
-			return null;
-		}
-		const joinAbs = (rel: string) => {
-			const root = workspace.replace(/\\/g, '/').replace(/\/$/, '');
-			const sub = rel.replace(/\\/g, '/').replace(/^\//, '');
-			return `${root}/${sub}`;
-		};
-		const normPath = (p: string) => p.replace(/\\/g, '/');
-		return {
-			openToSide: (rel) => void openFileInTab(rel, undefined, undefined, { background: true }),
-			openInBrowser: async (rel) => {
-				const r = (await shell.invoke('shell:openInBrowser', rel)) as { ok?: boolean; error?: string };
-				if (!r?.ok) {
-					flashComposerAttachErr(r?.error ?? t('explorer.errOpenBrowser'));
-				}
-			},
-			openWithDefault: async (rel) => {
-				const r = (await shell.invoke('shell:openDefault', rel)) as { ok?: boolean; error?: string };
-				if (!r?.ok) {
-					flashComposerAttachErr(r?.error ?? t('explorer.errOpenDefault'));
-				}
-			},
-			revealInOs: async (rel) => {
-				const r = (await shell.invoke('shell:revealInFolder', rel)) as { ok?: boolean; error?: string };
-				if (!r?.ok) {
-					flashComposerAttachErr(r?.error ?? t('explorer.errReveal'));
-				}
-			},
-			openInTerminal: async (cwdRel) => {
-				setLayoutMode('editor');
-				setEditorTerminalVisible(true);
-				await appendEditorTerminal(cwdRel !== '' ? { cwdRel } : undefined);
-			},
-			copyAbsolutePath: async (rel) => {
-				const r = (await shell.invoke('clipboard:writeText', joinAbs(rel))) as { ok?: boolean; error?: string };
-				if (!r?.ok) {
-					flashComposerAttachErr(r?.error ?? t('explorer.errClipboard'));
-				}
-			},
-			copyRelativePath: async (rel) => {
-				const r = (await shell.invoke('clipboard:writeText', rel.replace(/\\/g, '/'))) as {
-					ok?: boolean;
-					error?: string;
-				};
-				if (!r?.ok) {
-					flashComposerAttachErr(r?.error ?? t('explorer.errClipboard'));
-				}
-			},
-			copyFileName: async (rel) => {
-				const base = normPath(rel).split('/').pop() ?? rel;
-				const r = (await shell.invoke('clipboard:writeText', base)) as { ok?: boolean; error?: string };
-				if (!r?.ok) {
-					flashComposerAttachErr(r?.error ?? t('explorer.errClipboard'));
-				}
-			},
-			addToChat: (rel) => {
-				setComposerSegments((prev) => {
-					const next = [...prev];
-					const last = next[next.length - 1];
-					if (last?.kind === 'text' && last.text.length > 0 && !/\s$/.test(last.text)) {
-						next[next.length - 1] = { ...last, text: `${last.text} ` };
-					}
-					next.push({ id: newSegmentId(), kind: 'file', path: rel });
-					next.push({ id: newSegmentId(), kind: 'text', text: '' });
-					return next;
-				});
-				setLayoutMode('agent');
-				queueMicrotask(() => {
-					if (composerRichBottomRef.current) {
-						composerRichBottomRef.current.focus();
-					} else {
-						composerRichHeroRef.current?.focus();
-					}
-				});
-			},
-			addToNewChat: async (rel) => {
-				const r = (await shell.invoke('threads:create')) as { id: string };
-				await refreshThreads();
-				await shell.invoke('threads:select', r.id);
-				setCurrentId(r.id);
-				setLastTurnUsage(null);
-				setAwaitingReply(false);
-				setStreaming('');
-				setStreamingThinking('');
-				clearStreamingToolPreviewNow();
-				resetLiveAgentBlocks();
-				streamStartedAtRef.current = null;
-				firstTokenAtRef.current = null;
-				setParsedPlan(null);
-				setPlanFilePath(null);
-				setPlanFileRelPath(null);
-				await loadMessages(r.id);
-				setComposerSegments([
-					{ id: newSegmentId(), kind: 'file', path: rel },
-					{ id: newSegmentId(), kind: 'text', text: '' },
-				]);
-				setInlineResendSegments([]);
-				setResendFromUserIndex(null);
-				setLayoutMode('agent');
-				queueMicrotask(() => {
-					if (composerRichBottomRef.current) {
-						composerRichBottomRef.current.focus();
-					} else {
-						composerRichHeroRef.current?.focus();
-					}
-				});
-			},
-			rename: async (rel) => {
-				const parts = normPath(rel).split('/').filter(Boolean);
-				const base = parts[parts.length - 1] ?? rel;
-				const next = window.prompt(t('explorer.renamePrompt'), base);
-				if (next == null || next.trim() === '' || next.trim() === base) {
-					return;
-				}
-				const r = (await shell.invoke('fs:renameEntry', rel, next.trim())) as {
-					ok?: boolean;
-					newRel?: string;
-					error?: string;
-				};
-				if (!r?.ok) {
-					flashComposerAttachErr(r?.error ?? t('explorer.errRename'));
-					return;
-				}
-				const nr = r.newRel ?? rel;
-				const oldTid = tabIdFromPath(rel);
-				const newTid = tabIdFromPath(nr);
-				setOpenTabs((prev) =>
-					prev.map((tab) =>
-						normPath(tab.filePath) === normPath(rel)
-							? { ...tab, filePath: nr, id: newTid, dirty: tab.dirty }
-							: tab
-					)
-				);
-				if (activeTabId === oldTid) {
-					setActiveTabId(newTid);
-				}
-				if (normPath(filePath.trim()) === normPath(rel)) {
-					setFilePath(nr);
-				}
-				await refreshGit();
-			},
-			delete: async (rel, isDir) => {
-				const ok = isDir
-					? window.confirm(t('explorer.deleteConfirmDir'))
-					: window.confirm(t('explorer.deleteConfirmFile'));
-				if (!ok) {
-					return;
-				}
-				const r = (await shell.invoke('fs:removeEntry', rel, isDir)) as { ok?: boolean; error?: string };
-				if (!r?.ok) {
-					flashComposerAttachErr(r?.error ?? t('explorer.errDelete'));
-					return;
-				}
-				const norm = normPath(rel);
-				const curActive = activeTabId;
-				setOpenTabs((prev) => {
-					const next = prev.filter((t) => {
-						const p = normPath(t.filePath);
-						if (isDir) {
-							const pref = norm.endsWith('/') ? norm : `${norm}/`;
-							return p !== norm && !p.startsWith(pref);
-						}
-						return p !== norm;
-					});
-					const activeGone = curActive != null && !next.some((t) => t.id === curActive);
-					if (activeGone) {
-						const oldIdx = prev.findIndex((t) => t.id === curActive);
-						const pick = next[Math.min(oldIdx, Math.max(0, next.length - 1))] ?? null;
-						queueMicrotask(() => {
-							setActiveTabId(pick?.id ?? null);
-							if (pick) {
-								setFilePath(pick.filePath);
-								void (async () => {
-									try {
-										const rr = (await shell.invoke('fs:readFile', pick.filePath)) as {
-											ok?: boolean;
-											content?: string;
-										};
-										if (rr.ok && rr.content !== undefined) {
-											setEditorValue(rr.content);
-										}
-									} catch {
-										setEditorValue('');
-									}
-								})();
-							} else {
-								setFilePath('');
-								setEditorValue('');
-							}
-						});
-					}
-					return next;
-				});
-				await refreshGit();
-			},
-		};
-	}, [
+	const workspaceExplorerActions = useWorkspaceExplorerActions({
 		shell,
 		workspace,
 		t,
+		flashComposerAttachErr,
 		openFileInTab,
+		setOpenTabs,
+		activeTabId,
+		setActiveTabId,
+		filePath,
+		setFilePath,
+		setEditorValue,
 		appendEditorTerminal,
 		setEditorTerminalVisible,
 		setLayoutMode,
 		setComposerSegments,
-		flashComposerAttachErr,
+		composerRichBottomRef,
+		composerRichHeroRef,
 		refreshThreads,
 		loadMessages,
 		setCurrentId,
@@ -4563,19 +2451,15 @@ function AppMainWorkspaceInner() {
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
 		resetLiveAgentBlocks,
+		streamStartedAtRef,
+		firstTokenAtRef,
 		setParsedPlan,
 		setPlanFilePath,
 		setPlanFileRelPath,
 		setInlineResendSegments,
 		setResendFromUserIndex,
-		activeTabId,
-		setOpenTabs,
-		setActiveTabId,
-		setFilePath,
-		setEditorValue,
 		refreshGit,
-		filePath,
-	]);
+	});
 
 	useEffect(() => {
 		if (!editorTerminalVisible || !workspace || layoutMode !== 'editor') {
@@ -4597,30 +2481,15 @@ function AppMainWorkspaceInner() {
 		);
 	}, [editorTerminalSessions]);
 
-	const windowMenuMinimize = useCallback(async () => {
-		if (!shell) {
-			return;
-		}
-		await shell.invoke('app:windowMinimize');
-	}, [shell]);
-
-	const windowMenuToggleMaximize = useCallback(async () => {
-		if (!shell) {
-			return;
-		}
-		await shell.invoke('app:windowToggleMaximize');
-		const r = (await shell.invoke('app:windowGetState')) as { ok?: boolean; maximized?: boolean };
-		if (r?.ok && typeof r.maximized === 'boolean') {
-			setWindowMaximized(r.maximized);
-		}
-	}, [shell]);
-
-	const windowMenuCloseWindow = useCallback(async () => {
-		if (!shell) {
-			return;
-		}
-		await shell.invoke('app:windowClose');
-	}, [shell]);
+	const {
+		zoomInUi,
+		zoomOutUi,
+		resetUiZoom,
+		toggleFullscreen,
+		windowMenuMinimize,
+		windowMenuToggleMaximize,
+		windowMenuCloseWindow,
+	} = useUiZoom({ shell, setUiZoom, setWindowMaximized });
 
 	const onEditorTerminalSessionExit = useCallback((id: string) => {
 		setEditorTerminalSessions((prev) => {
@@ -4895,7 +2764,7 @@ function AppMainWorkspaceInner() {
 			if (inlineResendRootRef.current?.contains(t)) {
 				return;
 			}
-			if (t instanceof Element && t.closest('.ref-at-menu, .ref-slash-menu, .ref-model-dd, .ref-plus-menu')) {
+			if (t instanceof Element && t.closest('.ref-at-menu, .ref-slash-menu, .ref-model-dd, .ref-plus-menu, .ref-plus-submenu')) {
 				return;
 			}
 			closeAtMenuLatestRef.current();
@@ -5021,291 +2890,23 @@ function AppMainWorkspaceInner() {
 		planQuestionRequestId,
 	]);
 
-	const onKeepAllEdits = useCallback(async () => {
-		if (!currentId) {
-			return;
-		}
-		if (shell) {
-			try {
-				await shell.invoke('agent:keepLastTurn', currentId);
-			} catch {
-				/* ignore */
-			}
-		}
-		setDismissedFiles(new Set());
-		setFileChangesDismissed(true);
-		const last = [...messagesRef.current].reverse().find((m) => m.role === 'assistant');
-		writePersistedAgentFileChanges(
-			currentId,
-			last?.content ?? '',
-			true,
-			new Set(),
-			revertedFilesRef.current,
-			revertedChangeKeysRef.current
-		);
-	}, [shell, currentId]);
-
-	const onRevertAllEdits = useCallback(async () => {
-		if (!shell || composerMode !== 'agent' || !currentId) return;
-		const gp = agentGitPackRef.current;
-		const revertedPaths = new Set(
-			computeMergedAgentFileChanges(
-				messagesRef.current,
-				composerMode,
-				t,
-				dismissedFilesRef.current,
-				{ gitStatusOk: gp.gitStatusOk, gitChangedPaths: gp.gitChangedPaths, diffPreviews: gp.diffPreviews },
-				null
-			).map((file) => file.path)
-		);
-		try {
-			const result = (await shell.invoke('agent:revertLastTurn', currentId)) as { ok?: boolean; reverted?: number };
-			if ((result.reverted ?? 0) > 0) {
-				void refreshGit();
-			}
-		} catch {
-			/* IPC error — still dismiss panel to unblock the user */
-		}
-		setRevertedFiles(revertedPaths);
-		setRevertedChangeKeys(new Set());
-		setDismissedFiles(new Set());
-		setFileChangesDismissed(true);
-		const last = [...messagesRef.current].reverse().find((m) => m.role === 'assistant');
-		writePersistedAgentFileChanges(
-			currentId,
-			last?.content ?? '',
-			true,
-			new Set(),
-			revertedPaths,
-			new Set()
-		);
-	}, [shell, composerMode, currentId, refreshGit, t]);
-
-	const onKeepFileEdit = useCallback(async (relPath: string) => {
-		if (!shell || !currentId) return;
-		try {
-			await shell.invoke('agent:keepFile', currentId, relPath);
-		} catch { /* ignore */ }
-		dismissAgentChangedFile(relPath);
-	}, [dismissAgentChangedFile, shell, currentId]);
-
-	const onRevertFileEdit = useCallback(async (relPath: string) => {
-		if (!shell || !currentId) return;
-		try {
-			await shell.invoke('agent:revertFile', currentId, relPath);
-			void refreshGit();
-		} catch { /* ignore */ }
-		markAgentConversationChangeReverted(null, relPath);
-		dismissAgentChangedFile(relPath);
-	}, [dismissAgentChangedFile, markAgentConversationChangeReverted, shell, currentId, refreshGit]);
-
-	const syncMessagesScrollIndicators = useCallback(() => {
-		const el = messagesViewportRef.current;
-		if (!el) {
-			return;
-		}
-		const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-		const clampedTop = Math.max(0, Math.min(el.scrollTop, maxScroll));
-		const dist = Math.max(0, maxScroll - clampedTop);
-		pinMessagesToBottomRef.current = dist < 120;
-		const activeThreadId = messagesThreadIdRef.current ?? currentIdRef.current;
-		if (activeThreadId) {
-			messagesScrollSnapshotByThreadRef.current.set(activeThreadId, {
-				scrollTop: clampedTop,
-				distanceFromBottom: dist,
-				pinned: pinMessagesToBottomRef.current,
-			});
-		}
-		if (suppressScrollToBottomButtonRef.current) {
-			if (dist <= 16 || el.scrollHeight <= el.clientHeight + 120) {
-				suppressScrollToBottomButtonRef.current = false;
-				if (suppressScrollToBottomButtonTimerRef.current !== null) {
-					window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
-					suppressScrollToBottomButtonTimerRef.current = null;
-				}
-			}
-			setShowScrollToBottomButton(false);
-			return;
-		}
-		const canJumpToBottom = el.scrollHeight > el.clientHeight + 120;
-		const shouldShowJumpButton = canJumpToBottom && dist > 180;
-		setShowScrollToBottomButton((prev) => (prev === shouldShowJumpButton ? prev : shouldShowJumpButton));
-	}, []);
-
-	const onMessagesScroll = useCallback(() => {
-		syncMessagesScrollIndicators();
-	}, [syncMessagesScrollIndicators]);
-
-	const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-		const el = messagesViewportRef.current;
-		if (!el) {
-			return;
-		}
-		pinMessagesToBottomRef.current = true;
-		suppressScrollToBottomButtonRef.current = behavior === 'smooth';
-		if (suppressScrollToBottomButtonTimerRef.current !== null) {
-			window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
-			suppressScrollToBottomButtonTimerRef.current = null;
-		}
-		if (behavior === 'smooth') {
-			suppressScrollToBottomButtonTimerRef.current = window.setTimeout(() => {
-				suppressScrollToBottomButtonRef.current = false;
-				suppressScrollToBottomButtonTimerRef.current = null;
-				syncMessagesScrollIndicators();
-			}, 1400);
-		}
-		setShowScrollToBottomButton(false);
-		el.scrollTo({ top: el.scrollHeight, behavior });
-	}, [syncMessagesScrollIndicators]);
-
-	const scheduleMessagesScrollToBottom = useCallback(() => {
-		if (!pinMessagesToBottomRef.current) {
-			return;
-		}
-		if (messagesScrollToBottomRafRef.current !== null) {
-			return;
-		}
-		messagesScrollToBottomRafRef.current = requestAnimationFrame(() => {
-			messagesScrollToBottomRafRef.current = null;
-			const el = messagesViewportRef.current;
-			if (!el || !pinMessagesToBottomRef.current) {
-				return;
-			}
-			el.scrollTop = el.scrollHeight;
-			syncMessagesScrollIndicators();
-		});
-	}, [syncMessagesScrollIndicators]);
-
-	/** 切换线程：始终从底部开始，等 messages / 流式更新后再滚（避免旧列表闪滚） */
-	useLayoutEffect(() => {
-		pendingMessagesScrollRestoreRef.current = currentId;
-		pinMessagesToBottomRef.current = true;
-		suppressScrollToBottomButtonRef.current = false;
-		setShowScrollToBottomButton(false);
-		if (suppressScrollToBottomButtonTimerRef.current !== null) {
-			window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
-			suppressScrollToBottomButtonTimerRef.current = null;
-		}
-		messagesTrackScrollHeightRef.current = 0;
-		if (messagesShrinkScrollTimerRef.current !== null) {
-			window.clearTimeout(messagesShrinkScrollTimerRef.current);
-			messagesShrinkScrollTimerRef.current = null;
-		}
-	}, [currentId]);
-
-	/** 线程 / 工作区切回后始终滚到消息列表最底部（与渐进渲染窗口配合） */
-	useLayoutEffect(() => {
-		if (!hasConversation || !currentId || messagesThreadId !== currentId) {
-			return;
-		}
-		if (pendingMessagesScrollRestoreRef.current !== currentId) {
-			return;
-		}
-		const rafId = requestAnimationFrame(() => {
-			if (pendingMessagesScrollRestoreRef.current !== currentId) {
-				return;
-			}
-			const el = messagesViewportRef.current;
-			if (!el) {
-				return;
-			}
-			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-			pinMessagesToBottomRef.current = true;
-			el.scrollTop = maxScroll;
-			pendingMessagesScrollRestoreRef.current = null;
-			syncMessagesScrollIndicators();
-		});
-		return () => cancelAnimationFrame(rafId);
-	}, [hasConversation, currentId, messagesThreadId, messages.length, syncMessagesScrollIndicators]);
-
-	/** 用户发出新消息：强制跟到底部 */
-	useLayoutEffect(() => {
-		const len = messages.length;
-		const prev = prevMessagesLenForScrollRef.current;
-		prevMessagesLenForScrollRef.current = len;
-		if (
-			len > prev &&
-			currentId != null &&
-			messagesThreadId === currentId &&
-			messages[len - 1]?.role === 'user'
-		) {
-			pinMessagesToBottomRef.current = true;
-			scrollMessagesToBottom('auto');
-		}
-	}, [messages, currentId, messagesThreadId, scrollMessagesToBottom]);
-
-	/**
-	 * 流式 / 思考计时 / 展示列表变化：粘底跟随。streaming 由 MessagesScrollSync 子组件订阅，
-	 * 每个 token 只让该组件重渲染，不再传播到 App。
-	 */
-	useLayoutEffect(() => {
-		if (!hasConversation || !pinMessagesToBottomRef.current) {
-			return;
-		}
-		scheduleMessagesScrollToBottom();
-	}, [hasConversation, messages.length, currentId, scheduleMessagesScrollToBottom]);
-
-	useLayoutEffect(() => {
-		if (!hasConversation) {
-			setShowScrollToBottomButton(false);
-			return;
-		}
-		const rafId = requestAnimationFrame(() => {
-			syncMessagesScrollIndicators();
-		});
-		return () => cancelAnimationFrame(rafId);
-	}, [hasConversation, messages.length, currentId, syncMessagesScrollIndicators]);
-
-	/** 内容高度异步变化（Markdown、diff 卡片等）时仍保持粘底 */
-	useEffect(() => {
-		if (!hasConversation) {
-			return;
-		}
-		const outer = messagesViewportRef.current;
-		const track = messagesTrackRef.current;
-		if (!outer || !track) {
-			return;
-		}
-		const ro = new ResizeObserver(() => {
-			const h = track.scrollHeight;
-			const prev = messagesTrackScrollHeightRef.current;
-			messagesTrackScrollHeightRef.current = h;
-			syncMessagesScrollIndicators();
-			// 变高：新内容 / 展开，立即粘底（仍由 schedule 合并到单帧）
-			if (h >= prev - 2) {
-				if (messagesShrinkScrollTimerRef.current !== null) {
-					window.clearTimeout(messagesShrinkScrollTimerRef.current);
-					messagesShrinkScrollTimerRef.current = null;
-				}
-				scheduleMessagesScrollToBottom();
-				return;
-			}
-			// 变矮：多为折叠动画中间帧，避免每帧 scrollTo 造成整区闪烁；结束后补一次即可贴底
-			if (messagesShrinkScrollTimerRef.current !== null) {
-				window.clearTimeout(messagesShrinkScrollTimerRef.current);
-			}
-			messagesShrinkScrollTimerRef.current = window.setTimeout(() => {
-				messagesShrinkScrollTimerRef.current = null;
-				scheduleMessagesScrollToBottom();
-			}, 340);
-		});
-		ro.observe(track);
-		return () => {
-			ro.disconnect();
-			if (messagesShrinkScrollTimerRef.current !== null) {
-				window.clearTimeout(messagesShrinkScrollTimerRef.current);
-				messagesShrinkScrollTimerRef.current = null;
-			}
-			if (messagesScrollToBottomRafRef.current !== null) {
-				cancelAnimationFrame(messagesScrollToBottomRafRef.current);
-				messagesScrollToBottomRafRef.current = null;
-			}
-			if (suppressScrollToBottomButtonTimerRef.current !== null) {
-				window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
-				suppressScrollToBottomButtonTimerRef.current = null;
-			}
-		};
-	}, [hasConversation, currentId, scheduleMessagesScrollToBottom, syncMessagesScrollIndicators]);
+	const {
+		messagesViewportRef,
+		messagesTrackRef,
+		pinMessagesToBottomRef,
+		showScrollToBottomButton,
+		onMessagesScroll,
+		scrollMessagesToBottom,
+		scheduleMessagesScrollToBottom,
+		syncMessagesScrollIndicators,
+	} = useMessagesScroll({
+		hasConversation,
+		currentId,
+		currentIdRef,
+		messages,
+		messagesThreadId,
+		messagesThreadIdRef,
+	});
 
 	useEffect(() => {
 		if (composerRichAutoHeightRafRef.current !== null) {
@@ -5399,184 +3000,39 @@ function AppMainWorkspaceInner() {
 		}
 	};
 
-	const onSelectTeamTask = useCallback(
-		(taskId: string) => {
-			if (!currentId) {
-				return;
-			}
-			setSelectedTask(currentId, taskId);
-			setAgentRightSidebarView('team');
-			if (layoutMode === 'agent') {
-				setAgentRightSidebarOpen(true);
-			}
-		},
-		[currentId, setSelectedTask, layoutMode]
-	);
+	const { onSelectTeamTask, onTeamPlanApprove, onTeamPlanReject } = useTeamSessionActions({
+		shell,
+		currentId,
+		layoutMode,
+		setSelectedTask,
+		markTeamPlanProposalDecided,
+		setAgentRightSidebarView,
+		setAgentRightSidebarOpen,
+	});
 
-	const onTeamPlanApprove = useCallback(
-		(proposalId: string, feedback?: string) => {
-			if (!currentId || !shell) return;
-			markTeamPlanProposalDecided(currentId, proposalId, true);
-			void shell.invoke('team:planApprovalRespond', {
-				proposalId,
-				approved: true,
-				feedbackText: feedback,
-			});
-		},
-		[currentId, markTeamPlanProposalDecided, shell]
-	);
-
-	const onTeamPlanReject = useCallback(
-		(proposalId: string, feedback?: string) => {
-			if (!currentId || !shell) return;
-			markTeamPlanProposalDecided(currentId, proposalId, false);
-			void shell.invoke('team:planApprovalRespond', {
-				proposalId,
-				approved: false,
-				feedbackText: feedback,
-			});
-		},
-		[currentId, markTeamPlanProposalDecided, shell]
-	);
-
-	const onSelectAgentSession = useCallback(
-		(agentId: string | null) => {
-			if (!currentId) {
-				return;
-			}
-			setSelectedAgent(currentId, agentId);
-			setAgentRightSidebarView('agents');
-			if (layoutMode === 'agent') {
-				setAgentRightSidebarOpen(true);
-			}
-		},
-		[currentId, setSelectedAgent, layoutMode]
-	);
-
-	const onSendAgentInput = useCallback(
-		async (agentId: string, message: string, interrupt: boolean) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:sendInput', {
-				threadId: currentId,
-				agentId,
-				message,
-				interrupt,
-			})) as { ok?: boolean; error?: string };
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('app.chatSendFailed'));
-				return;
-			}
-			setSelectedAgent(currentId, agentId);
-			showTransientToast(true, t('agent.session.sentToast'));
-		},
-		[currentId, shell, showTransientToast, t, setSelectedAgent]
-	);
-
-	const onSubmitAgentUserInput = useCallback(
-		async (requestId: string, answers: Record<string, string>) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:userInputRespond', {
-				requestId,
-				answers,
-			})) as { ok?: boolean; error?: string };
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('app.chatSendFailed'));
-				return;
-			}
-			showTransientToast(true, t('agent.userInput.submittedToast'));
-		},
-		[currentId, shell, showTransientToast, t]
-	);
-
-	const onWaitAgent = useCallback(
-		async (agentId: string) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:wait', {
-				threadId: currentId,
-				agentIds: [agentId],
-				timeoutMs: 30000,
-			})) as { ok?: boolean; timedOut?: boolean; statuses?: Record<string, { status: string }> };
-			if (!result?.ok) {
-				showTransientToast(false, t('agent.session.waitFailed'));
-				return;
-			}
-			const status = result.statuses?.[agentId]?.status ?? 'running';
-			showTransientToast(
-				true,
-				result.timedOut ? t('agent.session.waitTimedOut') : t('agent.session.waitDone', { status })
-			);
-		},
-		[currentId, shell, showTransientToast, t]
-	);
-
-	const onResumeAgent = useCallback(
-		async (agentId: string) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:resume', { threadId: currentId, agentId })) as {
-				ok?: boolean;
-				error?: string;
-			};
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('agent.session.resumeFailed'));
-				return;
-			}
-			showTransientToast(true, t('agent.session.resumeDone'));
-		},
-		[currentId, shell, showTransientToast, t]
-	);
-
-	const onCloseAgent = useCallback(
-		async (agentId: string) => {
-			if (!currentId || !shell) {
-				return;
-			}
-			const result = (await shell.invoke('agent:close', { threadId: currentId, agentId })) as {
-				ok?: boolean;
-				error?: string;
-			};
-			if (!result?.ok) {
-				showTransientToast(false, result?.error || t('agent.session.closeFailed'));
-				return;
-			}
-			showTransientToast(true, t('agent.session.closeDone'));
-		},
-		[currentId, shell, showTransientToast, t]
-	);
-
-	const onOpenAgentTranscript = useCallback(
-		(absPath: string) => {
-			if (!shell || !absPath.trim()) {
-				return;
-			}
-			void shell.invoke('shell:openDefault', absPath.trim());
-		},
-		[shell]
-	);
-
-	const onSubAgentToastClick = useCallback(
-		async (threadId: string, agentId: string) => {
-			if (!shell) {
-				return;
-			}
-			if (threadId !== currentIdRef.current) {
-				await shell.invoke('threads:select', threadId);
-				setCurrentId(threadId);
-				await loadMessages(threadId, onMessagesLoaded);
-			}
-			setSelectedAgent(threadId, agentId);
-			setAgentRightSidebarView('agents');
-			setAgentRightSidebarOpen(true);
-		},
-		[shell, loadMessages, onMessagesLoaded, setSelectedAgent]
-	);
+	const {
+		onSelectAgentSession,
+		onSendAgentInput,
+		onSubmitAgentUserInput,
+		onWaitAgent,
+		onResumeAgent,
+		onCloseAgent,
+		onOpenAgentTranscript,
+		onSubAgentToastClick,
+	} = useAgentSessionActions({
+		shell,
+		currentId,
+		currentIdRef,
+		layoutMode,
+		t,
+		setSelectedAgent,
+		setAgentRightSidebarView,
+		setAgentRightSidebarOpen,
+		setCurrentId,
+		loadMessages,
+		onMessagesLoaded,
+		showTransientToast,
+	});
 
 	useEffect(() => {
 		const onResize = () => {
@@ -5594,19 +3050,20 @@ function AppMainWorkspaceInner() {
 		};
 	}, []);
 
-	const persistRailWidths = useCallback(
-		(next: { left: number; right: number }) => {
-			const c = clampSidebarLayout(next.left, next.right);
-			setRailWidths(c);
-			try {
-				localStorage.setItem(sidebarLayoutStorageKey, JSON.stringify(c));
-			} catch {
-				/* ignore */
-			}
-			syncDesktopSidebarLayout(shell ?? undefined, c);
-		},
-		[shell, sidebarLayoutStorageKey]
-	);
+	const {
+		beginResizeLeft,
+		beginResizeRight,
+		beginResizeEditorTerminal,
+		resetRailWidths,
+	} = useResizeRails({
+		shell,
+		sidebarLayoutStorageKey,
+		railWidths,
+		setRailWidths,
+		editorTerminalHeightPx,
+		setEditorTerminalHeightPx,
+		editorTerminalHeightLsKey,
+	});
 
 	useEffect(() => {
 		if (!editorThreadHistoryOpen && !editorChatMoreOpen) {
@@ -5626,108 +3083,6 @@ function AppMainWorkspaceInner() {
 		document.addEventListener('mousedown', onDoc);
 		return () => document.removeEventListener('mousedown', onDoc);
 	}, [editorThreadHistoryOpen, editorChatMoreOpen]);
-
-	const beginResizeLeft = useCallback(
-		(e: React.MouseEvent) => {
-			e.preventDefault();
-			const startX = e.clientX;
-			const { left, right } = railWidths;
-			const onMove = (ev: MouseEvent) => {
-				const nl = left + (ev.clientX - startX);
-				setRailWidths(clampSidebarLayout(nl, right));
-			};
-			const onUp = () => {
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-				document.body.style.cursor = '';
-				document.body.style.userSelect = '';
-				setRailWidths((prev) => {
-					const c = clampSidebarLayout(prev.left, prev.right);
-					try {
-						localStorage.setItem(sidebarLayoutStorageKey, JSON.stringify(c));
-					} catch {
-						/* ignore */
-					}
-					syncDesktopSidebarLayout(shell ?? undefined, c);
-					return c;
-				});
-			};
-			document.body.style.cursor = 'col-resize';
-			document.body.style.userSelect = 'none';
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
-		[railWidths.left, railWidths.right, shell, sidebarLayoutStorageKey]
-	);
-
-	const beginResizeRight = useCallback(
-		(e: React.MouseEvent) => {
-			e.preventDefault();
-			const startX = e.clientX;
-			const { left, right } = railWidths;
-			const onMove = (ev: MouseEvent) => {
-				const nr = right - (ev.clientX - startX);
-				setRailWidths(clampSidebarLayout(left, nr));
-			};
-			const onUp = () => {
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-				document.body.style.cursor = '';
-				document.body.style.userSelect = '';
-				setRailWidths((prev) => {
-					const c = clampSidebarLayout(prev.left, prev.right);
-					try {
-						localStorage.setItem(sidebarLayoutStorageKey, JSON.stringify(c));
-					} catch {
-						/* ignore */
-					}
-					syncDesktopSidebarLayout(shell ?? undefined, c);
-					return c;
-				});
-			};
-			document.body.style.cursor = 'col-resize';
-			document.body.style.userSelect = 'none';
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
-		[railWidths.left, railWidths.right, shell, sidebarLayoutStorageKey]
-	);
-
-	const beginResizeEditorTerminal = useCallback(
-		(e: React.MouseEvent) => {
-			e.preventDefault();
-			const startY = e.clientY;
-			const startH = editorTerminalHeightPx;
-			const onMove = (ev: MouseEvent) => {
-				const next = clampEditorTerminalHeight(startH - (ev.clientY - startY));
-				setEditorTerminalHeightPx(next);
-			};
-			const onUp = () => {
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-				document.body.style.cursor = '';
-				document.body.style.userSelect = '';
-				setEditorTerminalHeightPx((h) => {
-					const c = clampEditorTerminalHeight(h);
-					try {
-						localStorage.setItem(editorTerminalHeightLsKey, String(c));
-					} catch {
-						/* ignore */
-					}
-					return c;
-				});
-			};
-			document.body.style.cursor = 'row-resize';
-			document.body.style.userSelect = 'none';
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
-		[editorTerminalHeightPx, editorTerminalHeightLsKey]
-	);
-
-	const resetRailWidths = useCallback(() => {
-		persistRailWidths(defaultQuarterRailWidths());
-	}, [persistRailWidths]);
 
 	const onBeforeToggleGitBranchPicker = useCallback(() => {
 		setPlusMenuOpen(false);
@@ -5860,148 +3215,27 @@ function AppMainWorkspaceInner() {
 				: modelPillInlineRef;
 
 	const renderThreadItem = useCallback(
-		(th: ThreadInfo, threadListWorkspace?: string | null) => {
-			const owningWs = threadListWorkspace ?? workspace;
-			const isActive =
-				th.id === currentId &&
-				(!workspace || !owningWs || normWorkspaceRootKey(owningWs) === normWorkspaceRootKey(workspace));
-			return (
-				<div
-					key={th.id}
-					className={`ref-thread-item ${isActive ? 'is-active' : ''} ${
-						editingThreadId === th.id ? 'is-editing-title' : ''
-					}`}
-				>
-					{editingThreadId === th.id ? (
-						<input
-							ref={threadTitleInputRef}
-							type="text"
-							className="ref-thread-title-input"
-							value={editingThreadTitleDraft}
-							aria-label={t('common.threadTitle')}
-							onChange={(e) => {
-								const v = e.target.value;
-								setEditingThreadTitleDraft(v);
-								threadTitleDraftRef.current = v;
-							}}
-							onClick={(e) => e.stopPropagation()}
-							onKeyDown={(e) => {
-								if (e.key === 'Enter') {
-									e.preventDefault();
-									void commitThreadTitleEdit();
-								}
-								if (e.key === 'Escape') {
-									e.preventDefault();
-									cancelThreadTitleEdit();
-								}
-							}}
-							onBlur={() => void commitThreadTitleEdit()}
-						/>
-					) : (
-						<button
-							type="button"
-							className="ref-thread-row ref-thread-row--rich"
-							onClick={() => void onSelectThread(th.id, threadListWorkspace)}
-							onDoubleClick={(e) => {
-								e.preventDefault();
-								beginThreadTitleEdit(th, threadListWorkspace);
-							}}
-						>
-							<span className="ref-thread-row-lead" aria-hidden>
-								{th.isAwaitingReply ? (
-									<IconPencil className="ref-thread-row-lead-svg" />
-								) : (
-									<IconCheckCircle className="ref-thread-row-lead-svg" />
-								)}
-							</span>
-							<span className="ref-thread-row-stack">
-								<span className="ref-thread-row-title">{threadRowTitle(t, th)}</span>
-								<span className={`ref-thread-row-meta ${isActive ? 'is-active-meta' : ''}`}>
-									{formatThreadRowSubtitle(t, th, isActive)}
-								</span>
-								{(th.fileStateCount && th.fileStateCount > 0) || th.tokenUsage ? (
-									<span className="ref-thread-row-stats">
-										{th.fileStateCount && th.fileStateCount > 0 ? (
-											<span
-												className="ref-thread-stat ref-thread-stat--files"
-												title={t('agent.files.count', { count: th.fileStateCount })}
-											>
-												<svg
-													width="10"
-													height="10"
-													viewBox="0 0 24 24"
-													fill="none"
-													stroke="currentColor"
-													strokeWidth="2"
-													strokeLinecap="round"
-													strokeLinejoin="round"
-													aria-hidden
-												>
-													<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-													<polyline points="14 2 14 8 20 8" />
-												</svg>
-												{th.fileStateCount}
-											</span>
-										) : null}
-										{th.tokenUsage ? (
-											<span
-												className="ref-thread-stat ref-thread-stat--tokens"
-												title={t('usage.totalTokens', {
-													input: th.tokenUsage.totalInput.toLocaleString(),
-													output: th.tokenUsage.totalOutput.toLocaleString(),
-												})}
-											>
-												{t('usage.tokensShort', {
-													input:
-														th.tokenUsage.totalInput > 999
-															? `${Math.round(th.tokenUsage.totalInput / 1000)}k`
-															: String(th.tokenUsage.totalInput),
-													output:
-														th.tokenUsage.totalOutput > 999
-															? `${Math.round(th.tokenUsage.totalOutput / 1000)}k`
-															: String(th.tokenUsage.totalOutput),
-												})}
-											</span>
-										) : null}
-									</span>
-								) : null}
-							</span>
-						</button>
-					)}
-					<div className="ref-thread-row-actions">
-						<button
-							type="button"
-							className="ref-thread-action"
-							title={t('common.rename')}
-							aria-label={t('common.renameThread')}
-							onMouseDown={(e) => e.preventDefault()}
-							onClick={(e) => {
-								e.stopPropagation();
-								beginThreadTitleEdit(th, threadListWorkspace);
-							}}
-						>
-							<IconPencil className="ref-thread-action-svg" />
-						</button>
-						<button
-							type="button"
-							className={`ref-thread-action ${
-								confirmDeleteId === th.id ? 'ref-thread-action--confirm' : ''
-							}`}
-							title={confirmDeleteId === th.id ? t('common.confirmDelete') : t('common.delete')}
-							aria-label={confirmDeleteId === th.id ? t('common.confirmDelete') : t('common.deleteThread')}
-							onMouseDown={(e) => e.preventDefault()}
-							onClick={(e) => void onDeleteThread(e, th.id, threadListWorkspace)}
-						>
-							{confirmDeleteId === th.id ? (
-								<span className="ref-thread-action-confirm-label">{t('common.confirm')}</span>
-							) : (
-								<IconTrash className="ref-thread-action-svg" />
-							)}
-						</button>
-					</div>
-				</div>
-			);
-		},
+		(th: ThreadInfo, threadListWorkspace?: string | null) => (
+			<ThreadItem
+				key={th.id}
+				th={th}
+				threadListWorkspace={threadListWorkspace}
+				workspace={workspace}
+				currentId={currentId}
+				editingThreadId={editingThreadId}
+				editingThreadTitleDraft={editingThreadTitleDraft}
+				setEditingThreadTitleDraft={setEditingThreadTitleDraft}
+				threadTitleDraftRef={threadTitleDraftRef}
+				threadTitleInputRef={threadTitleInputRef}
+				commitThreadTitleEdit={commitThreadTitleEdit}
+				cancelThreadTitleEdit={cancelThreadTitleEdit}
+				beginThreadTitleEdit={beginThreadTitleEdit}
+				onSelectThread={onSelectThread}
+				confirmDeleteId={confirmDeleteId}
+				onDeleteThread={onDeleteThread}
+				t={t}
+			/>
+		),
 		[
 			currentId,
 			editingThreadId,
@@ -6626,6 +3860,36 @@ function AppMainWorkspaceInner() {
 		]
 	);
 
+	const composerPlusSkills = useMemo(
+		() =>
+			(mergedAgentCustomization.skills ?? [])
+				.filter((skill) => skill.enabled !== false && skill.slug.trim().length > 0)
+				.map((skill) => ({
+					id: skill.id,
+					name: skill.name,
+					slug: skill.slug.trim(),
+					description: skill.description.trim() || skill.content.trim().slice(0, 140),
+				}))
+				.sort((a, b) => a.name.localeCompare(b.name)),
+		[mergedAgentCustomization.skills]
+	);
+
+	const composerPlusMcpServers = useMemo(() => {
+		const statusById = new Map(mcpStatuses.map((status) => [status.id, status]));
+		return mcpServers.map((server) => {
+			const status = statusById.get(server.id);
+			return {
+				id: server.id,
+				name: server.name,
+				enabled: server.enabled,
+				transport: server.transport,
+				status: status?.status ?? (server.enabled ? 'not_started' : 'disabled'),
+				error: status?.error,
+				toolsCount: status?.tools.length ?? 0,
+			};
+		});
+	}, [mcpServers, mcpStatuses]);
+
 	return (
 		<AppProvider shell={shell} workspace={workspace} t={t}>
 		<ComposerActionsProvider value={composerActions}>
@@ -6767,6 +4031,13 @@ function AppMainWorkspaceInner() {
 				plusMenuAnchorRefForDropdown={plusMenuAnchorRefForDropdown}
 				composerMode={composerMode}
 				setComposerModePersist={setComposerModePersist}
+				onComposerPickImages={pickComposerImagesFromDialog}
+				composerPlusSkills={composerPlusSkills}
+				onComposerInsertSkill={insertComposerSkillInvocation}
+				handleOpenSettingsRules={handleOpenSettingsRules}
+				composerPlusMcpServers={composerPlusMcpServers}
+				onComposerToggleMcpServer={toggleComposerMcpServerEnabled}
+				handleOpenSettingsTools={handleOpenSettingsTools}
 				composerGitBranchAnchorRef={composerGitBranchAnchorRef}
 				showTransientToast={showTransientToast}
 				modelPickerOpen={modelPickerOpen}

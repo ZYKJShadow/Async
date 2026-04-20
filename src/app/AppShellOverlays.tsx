@@ -11,7 +11,12 @@ import {
 } from 'react';
 import { BrandLogo } from '../BrandLogo';
 import { ComposerAtMenu } from '../ComposerAtMenu';
-import { ComposerPlusMenu, type ComposerMode } from '../ComposerPlusMenu';
+import {
+	ComposerPlusMenu,
+	type ComposerMode,
+	type ComposerPlusMcpItem,
+	type ComposerPlusSkillItem,
+} from '../ComposerPlusMenu';
 import { ComposerSlashMenu } from '../ComposerSlashMenu';
 import { GitBranchPickerDropdown } from '../GitBranchPickerDropdown';
 import { ModelPickerDropdown, type ModelPickerItem } from '../ModelPickerDropdown';
@@ -122,6 +127,13 @@ export type AppShellOverlaysProps = {
 	plusMenuAnchorRefForDropdown: RefObject<HTMLElement | null>;
 	composerMode: ComposerMode;
 	setComposerModePersist: (mode: ComposerMode) => void;
+	onComposerPickImages: () => Promise<void> | void;
+	composerPlusSkills: ComposerPlusSkillItem[];
+	onComposerInsertSkill: (slug: string, name: string) => Promise<void> | void;
+	handleOpenSettingsRules: () => void;
+	composerPlusMcpServers: ComposerPlusMcpItem[];
+	onComposerToggleMcpServer: (id: string, nextEnabled: boolean) => Promise<void> | void;
+	handleOpenSettingsTools: () => void;
 	composerGitBranchAnchorRef: RefObject<HTMLElement | null>;
 	showTransientToast: (ok: boolean, text: string, durationMs?: number) => void;
 	modelPickerOpen: boolean;
@@ -200,10 +212,17 @@ export const AppShellOverlays = memo(function AppShellOverlays({
 	plusMenuOpen,
 	handleClosePlusMenu,
 	plusMenuAnchorRefForDropdown,
-		composerMode,
-		setComposerModePersist,
-		composerGitBranchAnchorRef,
-		showTransientToast,
+	composerMode,
+	setComposerModePersist,
+	onComposerPickImages,
+	composerPlusSkills,
+	onComposerInsertSkill,
+	handleOpenSettingsRules,
+	composerPlusMcpServers,
+	onComposerToggleMcpServer,
+	handleOpenSettingsTools,
+	composerGitBranchAnchorRef,
+	showTransientToast,
 	modelPickerOpen,
 	handleCloseModelPicker,
 	modelPickerAnchorRefForDropdown,
@@ -369,6 +388,13 @@ export const AppShellOverlays = memo(function AppShellOverlays({
 				anchorRef={plusMenuAnchorRefForDropdown}
 				mode={composerMode}
 				onSelectMode={setComposerModePersist}
+				onPickImages={onComposerPickImages}
+				skills={composerPlusSkills}
+				onInsertSkill={onComposerInsertSkill}
+				onOpenSkillSettings={handleOpenSettingsRules}
+				mcpServers={composerPlusMcpServers}
+				onToggleMcpServer={onComposerToggleMcpServer}
+				onOpenMcpSettings={handleOpenSettingsTools}
 			/>
 
 			<GitBranchPickerOverlaySection

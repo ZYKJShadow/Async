@@ -4,6 +4,7 @@ import {
 	computeLatestTurnFocusSpacerPx,
 	findLatestTurnFocusUserIndex,
 	findStickyUserIndexForViewport,
+	resolveStickyUserIndex,
 } from './agentTurnFocus';
 import type { ChatMessage } from './threadTypes';
 
@@ -131,5 +132,19 @@ describe('agentTurnFocus', () => {
 				stickyTopPx: 0,
 			})
 		).toBeNull();
+	});
+
+	it('drops sticky candidate when it would overlap with latest-turn focus user', () => {
+		expect(resolveStickyUserIndex(2, 2)).toBeNull();
+	});
+
+	it('keeps sticky candidate when it differs from latest-turn focus user', () => {
+		expect(resolveStickyUserIndex(0, 2)).toBe(0);
+	});
+
+	it('passes through nulls', () => {
+		expect(resolveStickyUserIndex(null, 2)).toBeNull();
+		expect(resolveStickyUserIndex(null, null)).toBeNull();
+		expect(resolveStickyUserIndex(1, null)).toBe(1);
 	});
 });

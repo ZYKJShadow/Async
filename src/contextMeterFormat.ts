@@ -1,5 +1,5 @@
 import type { ComposerImageMeta, ComposerSegment } from './composerSegments';
-import { slashCommandWire } from './composerSegments';
+import { skillInvocationWire, slashCommandWire } from './composerSegments';
 import { isImagePath, type UserMessagePart } from './messageParts';
 
 /** 与主进程 `modelContext.ts` 中 `MODEL_CONTEXT_WINDOW_DEFAULT` 一致，用于 UI 未填写时的展示上限 */
@@ -79,6 +79,8 @@ export function estimateComposerSegmentsCharLength(segments: ReadonlyArray<Compo
 			if (!isComposerImageSegment(s)) {
 				n += s.path.length;
 			}
+		} else if (s.kind === 'skill') {
+			n += s.slug.length + 3;
 		} else {
 			n += slashCommandWire(s.command).length;
 		}
@@ -108,6 +110,8 @@ function estimateUserPartsTextCharLength(parts: ReadonlyArray<UserMessagePart>):
 			n += part.text.length;
 		} else if (part.kind === 'command') {
 			n += slashCommandWire(part.command).length;
+		} else if (part.kind === 'skill_invoke') {
+			n += skillInvocationWire(part.slug).length;
 		} else if (part.kind === 'file_ref') {
 			n += part.relPath.length + 1;
 		}

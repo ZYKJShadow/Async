@@ -1,4 +1,4 @@
-import { newSegmentId, type ComposerSegment, type SlashCommandToken } from './composerSegments';
+import { newSegmentId, skillInvocationWire, type ComposerSegment, type SlashCommandToken } from './composerSegments';
 
 export const THREAD_SCHEMA_VERSION_LEGACY = 1 as const;
 export const THREAD_SCHEMA_VERSION_CURRENT = 2 as const;
@@ -31,7 +31,14 @@ export type CommandPart = {
 	command: SlashCommandToken;
 };
 
-export type UserMessagePart = TextPart | FileRefPart | ImageRefPart | CommandPart;
+/** 用户显式调用的 Skill；发送 wire 仍为 `./slug`，`name` 仅用于气泡 chip 展示 */
+export type SkillInvokePart = {
+	kind: 'skill_invoke';
+	slug: string;
+	name: string;
+};
+
+export type UserMessagePart = TextPart | FileRefPart | ImageRefPart | CommandPart | SkillInvokePart;
 
 const IMAGE_EXT_TO_MIME: Record<string, string> = {
 	png: 'image/png',
@@ -63,7 +70,8 @@ export function hasAnyImagePart(parts: UserMessagePart[] | undefined): boolean {
  *
  * Keep in sync with `ChatComposer` wire format: `file_ref` -> `@<relPath>`,
  * `image_ref` -> `@<relPath>` (same form — renderer distinguishes by lookup).
- * Commands prepend as-is. `content` is a display/fallback cache only; the
+ * Commands prepend as-is. `skill_invoke` 序列化为 `./slug`（与后端一致）。
+ * `content` is a display/fallback cache only; the
  * structured `parts` remain the single source of truth for send/estimate.
  */
 /**
@@ -84,6 +92,14 @@ export function segmentsToParts(segments: ComposerSegment[]): UserMessagePart[] 
 		}
 		if (s.kind === 'command') {
 			out.push({ kind: 'command', command: s.command });
+			continue;
+		}
+		if (s.kind === 'skill') {
+			const slug = String(s.slug ?? '').trim().replace(/^\.\//, '');
+			const name = String(s.name ?? '').trim();
+			if (slug.length > 0) {
+				out.push({ kind: 'skill_invoke', slug, name: name.length > 0 ? name : slug });
+			}
 			continue;
 		}
 		if (s.imageMeta) {
@@ -146,6 +162,20 @@ export function partsToSegments(parts: UserMessagePart[]): ComposerSegment[] {
 			out.push({ id: newSegmentId(), kind: 'command', command: p.command });
 			continue;
 		}
+		if (p.kind === 'skill_invoke') {
+			const slug = String(p.slug ?? '').trim().replace(/^\.\//, '');
+			const name = String(p.name ?? '').trim();
+			if (slug.length === 0) {
+				continue;
+			}
+			out.push({
+				id: newSegmentId(),
+				kind: 'skill',
+				slug,
+				name: name.length > 0 ? name : slug,
+			});
+			continue;
+		}
 		if (p.kind === 'image_ref') {
 			out.push({
 				id: newSegmentId(),
@@ -180,7 +210,26 @@ export function deriveContentFromParts(parts: UserMessagePart[]): string {
 			const next = parts[i + 1];
 			if (next && next.kind === 'text' && next.text.length > 0 && !/^\s/.test(next.text)) {
 				out += ' ';
-			} else if (next && (next.kind === 'file_ref' || next.kind === 'image_ref')) {
+			} else if (
+				next &&
+				(next.kind === 'file_ref' || next.kind === 'image_ref' || next.kind === 'skill_invoke')
+			) {
+				out += ' ';
+			}
+			continue;
+		}
+		if (p.kind === 'skill_invoke') {
+			out += skillInvocationWire(p.slug);
+			const next = parts[i + 1];
+			if (next && next.kind === 'text' && next.text.length > 0 && !/^\s/.test(next.text)) {
+				out += ' ';
+			} else if (
+				next &&
+				(next.kind === 'file_ref' ||
+					next.kind === 'image_ref' ||
+					next.kind === 'command' ||
+					next.kind === 'skill_invoke')
+			) {
 				out += ' ';
 			}
 			continue;
@@ -188,6 +237,8 @@ export function deriveContentFromParts(parts: UserMessagePart[]): string {
 		out += `@${p.relPath}`;
 		const next = parts[i + 1];
 		if (next && next.kind === 'text' && next.text.length > 0 && !/^\s/.test(next.text)) {
+			out += ' ';
+		} else if (next && (next.kind === 'command' || next.kind === 'skill_invoke')) {
 			out += ' ';
 		}
 	}

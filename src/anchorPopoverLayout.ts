@@ -27,6 +27,11 @@ export type ClampPopoverOptions = {
 	menuWidth: number;
 	/** 内容自然高度：测量 scrollHeight 或合理估算 */
 	contentHeight: number;
+	/**
+	 * 锚点靠近视口底部（如底栏 Composer）时，若上方空间更宽裕则优先向上展开，
+	 * 减轻「向下弹出却被窗口裁切」的观感（尤其存在 body zoom / 缩放时）。
+	 */
+	preferAboveNearViewportBottom?: boolean;
 };
 
 /**
@@ -53,8 +58,16 @@ export function computeClampedPopoverLayout(
 	const desired = Math.min(Math.max(contentHeight, 1), hardCap);
 
 	const needMoreThanBelow = desired > availBelow;
-	const aboveIsRoomier = availAbove > availBelow;
-	const useAbove = needMoreThanBelow && aboveIsRoomier;
+	const aboveIsRoomier = availAbove >= availBelow;
+	let useAbove = needMoreThanBelow && aboveIsRoomier;
+
+	if (opts.preferAboveNearViewportBottom && !useAbove) {
+		const nearBottom = r.bottom > vh - 320;
+		const couldOpenAbove = availAbove >= Math.min(desired, POPOVER_MENU_MIN_HEIGHT);
+		if (nearBottom && couldOpenAbove && availAbove >= availBelow) {
+			useAbove = true;
+		}
+	}
 
 	let maxH: number;
 	if (useAbove) {

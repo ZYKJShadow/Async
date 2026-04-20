@@ -1,4 +1,4 @@
-import { slashCommandWire, type ComposerSegment } from './composerSegments';
+import { skillInvocationWire, slashCommandWire, type ComposerSegment } from './composerSegments';
 import { FileTypeIcon, isRasterImageRelPath } from './fileTypeIcons';
 
 function fileBasename(path: string): string {
@@ -30,6 +30,15 @@ export function UserMessageRich({ segments, onFileClick }: Props) {
 						aria-hidden
 					>
 						<span className="ref-inline-slash-chip-label">{slashCommandWire(s.command)}</span>
+					</span>
+				) : s.kind === 'skill' ? (
+					<span
+						key={s.id}
+						className="ref-inline-skill-chip ref-inline-skill-chip--readonly"
+						title={s.name ? `${s.name} · ${skillInvocationWire(s.slug)}` : skillInvocationWire(s.slug)}
+						aria-hidden
+					>
+						<span className="ref-inline-skill-chip-label">{s.name || skillInvocationWire(s.slug)}</span>
 					</span>
 				) : s.kind === 'file' ? (
 					<span

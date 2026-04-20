@@ -815,6 +815,16 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 		},
 	},
 	{
+		name: 'begin_outcome',
+		description:
+			'Mark the boundary between the preflight phase (thinking, exploration, tool calls) and the outcome phase (your final answer / summary / file edits / commands). Call this tool exactly once, immediately before you start producing the final answer for the user. After calling this tool you may proceed to write the summary markdown, perform Edit / Write, or output command fences — all of those will be rendered outside the preflight shell. Do NOT call this tool while you are still exploring or thinking; the very first call wins and cannot be reversed in the same turn. Skip this tool entirely if your reply has no exploration phase (e.g. a one-shot answer with no tools).',
+		parameters: {
+			type: 'object',
+			properties: {},
+			required: [],
+		},
+	},
+	{
 		name: 'TodoWrite',
 		description:
 			'Update the todo list for the current session. Use proactively to track progress on complex multi-step tasks. Always provide the COMPLETE updated todo list (not just changes). Maintain exactly one task as in_progress at all times. Provide both content (imperative form) and activeForm (present continuous form) for each task.',

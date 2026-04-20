@@ -22,6 +22,7 @@ const INVOKE_CHANNELS = new Set([
 	'browser:windowReady',
 	'browser:openWindow',
 	'workspace:saveComposerAttachment',
+	'workspace:pickComposerImages',
 	'workspace:resolveDroppedFilePath',
 	'workspace:searchSymbols',
 	'lsp:ts:start',
