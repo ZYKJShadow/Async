@@ -26,6 +26,10 @@ type Props = {
 	customProfiles: TerminalProfile[];
 	displayBuiltinProfiles: TerminalProfile[];
 	defaultProfileId: string | undefined;
+	/** 最近使用条数上限；0 表示不展示最近分组。 */
+	profileSelectorRecentMax: number;
+	/** 是否在列表中展示内置配置（最近分组仍可解析已记录的内置 id）。 */
+	profileSelectorShowBuiltin: boolean;
 	describeTarget(profile: TerminalProfile): string;
 };
 
@@ -83,6 +87,8 @@ export function TerminalProfileSelectorModal({
 	customProfiles,
 	displayBuiltinProfiles,
 	defaultProfileId,
+	profileSelectorRecentMax,
+	profileSelectorShowBuiltin,
 	describeTarget,
 }: Props) {
 	const [filter, setFilter] = useState('');
@@ -90,16 +96,22 @@ export function TerminalProfileSelectorModal({
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-	const merged = useMemo(
+	const mergedForResolve = useMemo(
 		() => mergeProfiles(customProfiles, displayBuiltinProfiles),
 		[customProfiles, displayBuiltinProfiles]
+	);
+	const mergedForList = useMemo(
+		() => mergeProfiles(customProfiles, profileSelectorShowBuiltin ? displayBuiltinProfiles : []),
+		[customProfiles, displayBuiltinProfiles, profileSelectorShowBuiltin]
 	);
 
 	const baseRows = useMemo((): Row[] => {
 		const recentLabel = t('app.universalTerminalProfileSelector.groupRecent');
 		const recentIds = readRecentTerminalProfileIds();
-		const recentProfiles = recentIds
-			.map((id) => merged.find((p) => p.id === id))
+		const cappedIds =
+			profileSelectorRecentMax <= 0 ? [] : recentIds.slice(0, Math.max(0, profileSelectorRecentMax));
+		const recentProfiles = cappedIds
+			.map((id) => mergedForResolve.find((p) => p.id === id))
 			.filter((p): p is TerminalProfile => Boolean(p));
 
 		const rows: Row[] = [];
@@ -117,7 +129,7 @@ export function TerminalProfileSelectorModal({
 
 		const ungrouped = t('app.universalTerminalProfileSelector.groupUngrouped');
 		const builtinGroup = t('app.universalTerminalSettings.profiles.group.builtin');
-		for (const profile of merged) {
+		for (const profile of mergedForList) {
 			const group = isBuiltinTerminalProfileId(profile.id)
 				? builtinGroup
 				: profile.group?.trim() || ungrouped;
@@ -135,7 +147,7 @@ export function TerminalProfileSelectorModal({
 			group: '',
 		});
 		return rows;
-	}, [merged, t]);
+	}, [mergedForList, mergedForResolve, profileSelectorRecentMax, t]);
 
 	const terms = useMemo(() => filter.trim().toLowerCase().split(/\s+/).filter(Boolean), [filter]);
 

@@ -1813,18 +1813,49 @@
 	align-self: stretch;
 }
 
+.ref-uterm-hotkeys-toolbar {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	min-width: 0;
+	margin-bottom: -0.5rem;
+}
+
 .ref-uterm-hotkeys-search-wrap {
 	display: flex;
 	align-items: stretch;
+	flex: 0 0 33.333%;
 	width: 33.333%;
-	max-width: 100%;
+	max-width: 33.333%;
 	min-width: 0;
 	box-sizing: border-box;
-	margin-bottom: 1.5rem;
 	border: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
 	border-radius: 4px;
 	overflow: hidden;
 	background: var(--void-bg-1);
+}
+
+.ref-uterm-hotkeys-reset-btn {
+	flex: 0 0 auto;
+	margin: 0;
+	white-space: nowrap;
+	padding: 0.5rem 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 65%, transparent);
+	border-radius: 4px;
+	background: var(--void-bg-1);
+	color: var(--void-fg-1);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.ref-uterm-hotkeys-reset-btn:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 35%, var(--void-bg-1));
+	color: var(--void-fg-0);
+	border-color: color-mix(in srgb, var(--void-border) 90%, transparent);
 }
 
 .ref-uterm-hotkeys-search-ico {
@@ -1863,10 +1894,8 @@
 	justify-items: stretch;
 	width: 100%;
 	min-width: 0;
-	margin-bottom: 1rem;
-	max-height: min(70vh, 720px);
-	overflow-x: auto;
-	overflow-y: auto;
+	margin-bottom: 0;
+	overflow: visible;
 	border: none;
 	border-radius: 0;
 	background: transparent;
@@ -2029,25 +2058,6 @@
 
 .ref-uterm-multi-hotkey-add:first-child {
 	display: inline-flex;
-}
-
-.ref-uterm-hotkeys-footer {
-	margin-top: 0.75rem;
-}
-
-.ref-uterm-hotkeys-footer .ref-uterm-btn-secondary {
-	padding: 6px 12px;
-	border-radius: 4px;
-	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
-	background: color-mix(in srgb, var(--void-bg-2) 35%, transparent);
-	color: var(--void-fg-1);
-	font-size: 13px;
-	cursor: pointer;
-}
-
-.ref-uterm-hotkeys-footer .ref-uterm-btn-secondary:hover {
-	background: color-mix(in srgb, var(--void-bg-2) 55%, transparent);
-	color: var(--void-fg-0);
 }
 
 .ref-uterm-hotkey-modal-backdrop {
@@ -2412,6 +2422,216 @@
 	border-bottom-color: var(--void-fg-0);
 }
 
+/*
+ * 配置 / 高级设置：对齐 Tabby settings（profilesSettingsTab + global .form-line）
+ * — nav-tabs：无整条底栏线，仅活动项 2px 下划线；form-line：无行间分割线；右侧控件列 width 33%；
+ * — .content-box：max-width 600px；说明文案 13px + opacity（见 .form-line .description）
+ */
+.ref-uterm-settings-subtabs.ref-uterm-settings-subtabs--profiles {
+	gap: 0;
+	border-bottom: none;
+	margin-bottom: 10px;
+}
+
+.ref-uterm-settings-subtabs--profiles .ref-uterm-settings-subtab {
+	text-transform: none;
+	letter-spacing: normal;
+	font-size: 13px;
+	font-weight: 700;
+	padding: 5px 0;
+	margin-right: 20px;
+	border-bottom-width: 2px;
+}
+
+.ref-uterm-settings-subtabs--profiles .ref-uterm-settings-subtab:last-of-type {
+	margin-right: 0;
+}
+
+.ref-uterm-settings-advanced-page {
+	width: 100%;
+	min-width: 0;
+	align-self: stretch;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+}
+
+/* Tabby .content-box */
+.ref-uterm-settings-advanced-page-inner {
+	width: 100%;
+	max-width: 600px;
+	min-width: 0;
+	box-sizing: border-box;
+}
+
+/* Tabby .form-line */
+.ref-uterm-settings-form-line {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	width: 100%;
+	min-width: 0;
+	margin: 0;
+	padding: 10px 0;
+	min-height: 64px;
+	box-sizing: border-box;
+}
+
+.ref-uterm-settings-form-line--footer {
+	min-height: 0;
+	margin-top: 10px;
+	padding-top: 10px;
+}
+
+.ref-uterm-settings-form-line-header {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: calc(100% - 33%);
+	margin-right: auto;
+	box-sizing: border-box;
+}
+
+.ref-uterm-settings-form-line-header--block {
+	max-width: 100%;
+	margin-right: 0;
+	padding-right: 0;
+	margin-bottom: 10px;
+}
+
+.ref-uterm-settings-form-line-title {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--void-fg-0);
+	line-height: 1.3;
+}
+
+.ref-uterm-settings-form-line-desc {
+	margin: 4px 0 0;
+	padding: 0;
+	font-size: 13px;
+	line-height: 1.45;
+	color: var(--void-fg-0);
+	opacity: 0.5;
+	max-width: 100%;
+}
+
+.ref-uterm-settings-form-line-control {
+	flex: 0 0 33%;
+	width: 33%;
+	max-width: 33%;
+	min-width: 0;
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	align-self: stretch;
+	box-sizing: border-box;
+}
+
+.ref-uterm-settings-form-line-control--toggle {
+	justify-content: flex-end;
+}
+
+/* Tabby：控件列内 form-control 拉满 33% 列宽 */
+.ref-uterm-settings-advanced-page .ref-uterm-settings-form-line-control .ref-uterm-settings-input--form-line {
+	width: 100%;
+	max-width: 100%;
+	text-align: left;
+	border-radius: 4px;
+	padding: 6px 10px;
+	box-shadow: none;
+}
+
+.ref-uterm-settings-advanced-page .ref-uterm-settings-form-line-control .ref-uterm-settings-input--form-line:focus {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--void-accent-cool) 55%, transparent);
+}
+
+.ref-uterm-settings-advanced-defaults-block {
+	margin-top: 16px;
+	margin-bottom: 0;
+}
+
+.ref-uterm-settings-advanced-page-inner > .ref-uterm-settings-advanced-defaults-block:first-child {
+	margin-top: 0;
+}
+
+.ref-uterm-settings-advanced-defaults-list {
+	border-radius: 4px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 55%, transparent);
+	background: color-mix(in srgb, var(--void-bg-1) 92%, var(--void-bg-0));
+	overflow: hidden;
+}
+
+.ref-uterm-settings-advanced-defaults-row {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	min-height: 40px;
+	padding: 0 12px;
+	border: none;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 38%, transparent);
+	background: transparent;
+	color: var(--void-fg-0);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	text-align: left;
+	transition: background 0.12s ease;
+}
+
+.ref-uterm-settings-advanced-defaults-row:last-child {
+	border-bottom: none;
+}
+
+.ref-uterm-settings-advanced-defaults-row:hover {
+	background: color-mix(in srgb, var(--void-bg-2) 32%, transparent);
+}
+
+.ref-uterm-settings-advanced-defaults-row-label {
+	flex: 1 1 auto;
+}
+
+.ref-uterm-settings-advanced-defaults-row-chevron {
+	flex: 0 0 auto;
+	opacity: 0.45;
+	font-size: 16px;
+	line-height: 1;
+}
+
+.ref-uterm-settings-advanced-page .ref-uterm-settings-danger-btn--form-line {
+	display: inline-flex;
+	width: 100%;
+	max-width: 100%;
+	box-sizing: border-box;
+	justify-content: center;
+	border-radius: 4px;
+	padding: 7px 10px;
+}
+
+@media (max-width: 720px) {
+	.ref-uterm-settings-form-line {
+		flex-direction: column;
+		align-items: stretch;
+		min-height: 0;
+		padding: 12px 0;
+	}
+
+	.ref-uterm-settings-form-line-header {
+		max-width: 100%;
+		margin-right: 0;
+		padding-right: 0;
+		padding-bottom: 10px;
+	}
+
+	.ref-uterm-settings-form-line-control {
+		flex: 1 1 auto;
+		width: 100%;
+		max-width: 100%;
+		justify-content: flex-start;
+		align-self: auto;
+	}
+}
+
 .ref-uterm-settings-default-stack {
 	display: flex;
 	flex-direction: column;
@@ -2433,7 +2653,35 @@
 }
 
 .ref-uterm-settings-default-picker {
-	width: min(240px, 100%);
+	width: 100%;
+	max-width: min(520px, 100%);
+}
+
+.ref-uterm-settings-default-picker .ref-void-select {
+	width: 100%;
+}
+
+.ref-uterm-settings-default-optgroup {
+	display: block;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-settings-default-picker .ref-void-select-option:disabled {
+	opacity: 1;
+	cursor: default;
+	padding-top: 12px;
+	padding-bottom: 6px;
+	margin-top: 2px;
+	background: transparent;
+}
+
+.ref-uterm-settings-default-picker .ref-void-select-option:disabled:hover {
+	background: transparent;
+	color: var(--void-fg-2);
 }
 
 .ref-uterm-settings-toolbar {

@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from './i18n';
 import { Terminal as XTerm } from '@xterm/xterm';
@@ -121,6 +121,12 @@ type TerminalRuntimeControls = {
 };
 
 type TerminalContextMenuState = {
+	sessionId: string;
+	x: number;
+	y: number;
+};
+
+type TabHeaderContextMenuState = {
 	sessionId: string;
 	x: number;
 	y: number;
@@ -668,6 +674,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	const [profileSelectorOpen, setProfileSelectorOpen] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [contextMenu, setContextMenu] = useState<TerminalContextMenuState | null>(null);
+	const [tabHeaderContextMenu, setTabHeaderContextMenu] = useState<TabHeaderContextMenuState | null>(null);
 	const [windowMaximized, setWindowMaximized] = useState(false);
 	const [authPromptModal, setAuthPromptModal] = useState<ActiveTerminalAuthPrompt | null>(null);
 	const [settingsOpenProfileRequest, setSettingsOpenProfileRequest] =
@@ -733,6 +740,10 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		setContextMenu(null);
 	}, []);
 
+	const closeTabHeaderContextMenu = useCallback(() => {
+		setTabHeaderContextMenu(null);
+	}, []);
+
 	const registerRuntime = useCallback((sessionId: string, runtime: TerminalRuntimeControls | null) => {
 		if (runtime) {
 			runtimeControlsRef.current[sessionId] = runtime;
@@ -743,6 +754,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 
 	const handleRequestContextMenu = useCallback((payload: TerminalContextMenuState) => {
 		setMenuOpen(false);
+		setTabHeaderContextMenu(null);
 		setContextMenu(payload);
 	}, []);
 
@@ -850,6 +862,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 					setProfileSelectorOpen(false);
 					setMenuOpen(false);
 					setContextMenu(null);
+					setTabHeaderContextMenu(null);
 				}
 			} finally {
 				creatingRef.current = false;
@@ -885,6 +898,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 				return next;
 			});
 			setContextMenu((prev) => (prev?.sessionId === id ? null : prev));
+			setTabHeaderContextMenu((prev) => (prev?.sessionId === id ? null : prev));
 			setSessions((prev) => {
 				const next = prev.filter((session) => session.id !== id);
 				requestAnimationFrame(() => {
@@ -990,7 +1004,36 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	}, [contextMenu, closeTerminalContextMenu]);
 
 	useEffect(() => {
+		if (!tabHeaderContextMenu) {
+			return;
+		}
+		const onPointerDown = (event: globalThis.MouseEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest('.ref-uterm-tabstrip-context-menu')) {
+				return;
+			}
+			setTabHeaderContextMenu(null);
+		};
+		const onEscape = (event: globalThis.KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setTabHeaderContextMenu(null);
+			}
+		};
+		document.addEventListener('mousedown', onPointerDown);
+		document.addEventListener('keydown', onEscape);
+		window.addEventListener('blur', closeTabHeaderContextMenu);
+		window.addEventListener('resize', closeTabHeaderContextMenu);
+		return () => {
+			document.removeEventListener('mousedown', onPointerDown);
+			document.removeEventListener('keydown', onEscape);
+			window.removeEventListener('blur', closeTabHeaderContextMenu);
+			window.removeEventListener('resize', closeTabHeaderContextMenu);
+		};
+	}, [tabHeaderContextMenu, closeTabHeaderContextMenu]);
+
+	useEffect(() => {
 		setContextMenu(null);
+		setTabHeaderContextMenu(null);
 		setProfileSelectorOpen(false);
 	}, [activeId, menuOpen, settingsOpen]);
 
@@ -1181,6 +1224,30 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		};
 	}, [contextMenu]);
 
+	const tabHeaderContextMenuStyle = useMemo((): CSSProperties | undefined => {
+		if (!tabHeaderContextMenu || typeof window === 'undefined') {
+			return undefined;
+		}
+		const padding = 8;
+		const estimatedWidth = 240;
+		const estimatedHeight = 52;
+		return {
+			position: 'fixed',
+			zIndex: 170,
+			left: Math.max(padding, Math.min(tabHeaderContextMenu.x, window.innerWidth - estimatedWidth - padding)),
+			top: Math.max(padding, Math.min(tabHeaderContextMenu.y, window.innerHeight - estimatedHeight - padding)),
+			right: 'auto',
+		};
+	}, [tabHeaderContextMenu]);
+
+	const onTabStripContextMenu = useCallback((sessionId: string, event: ReactMouseEvent<HTMLDivElement>) => {
+		event.preventDefault();
+		setMenuOpen(false);
+		setContextMenu(null);
+		setProfileSelectorOpen(false);
+		setTabHeaderContextMenu({ sessionId, x: event.clientX, y: event.clientY });
+	}, []);
+
 	const onContextCopy = useCallback(async () => {
 		if (!contextRuntime) {
 			return;
@@ -1214,6 +1281,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		setSettingsOpen(true);
 		setMenuOpen(false);
 		setContextMenu(null);
+		setTabHeaderContextMenu(null);
 	}, []);
 
 	const openSftpPanel = useCallback(
@@ -1327,6 +1395,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 								setSettingsOpen(false);
 							}}
 							onClose={() => void closeSession(session.id)}
+							onContextMenu={(event) => onTabStripContextMenu(session.id, event)}
 						/>
 					))}
 					<div className="ref-uterm-tabstrip-tail">
@@ -1346,6 +1415,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 							aria-haspopup="dialog"
 							onClick={() => {
 								setMenuOpen(false);
+								setTabHeaderContextMenu(null);
 								setProfileSelectorOpen(true);
 							}}
 							title={t('app.universalTerminalSettings.nav.profilesConnections')}
@@ -1484,6 +1554,29 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 				</div>
 			</div>
 
+			{tabHeaderContextMenu ? (
+				<div
+					className="ref-uterm-dropdown ref-uterm-context-menu ref-uterm-tabstrip-context-menu"
+					role="menu"
+					aria-label={t('app.universalTerminalTabHeader.contextMenuLabel')}
+					style={tabHeaderContextMenuStyle}
+				>
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const pid =
+								sessionProfiles[tabHeaderContextMenu.sessionId] ?? terminalSettings.defaultProfileId;
+							closeTabHeaderContextMenu();
+							void createSession(pid);
+						}}
+					>
+						{t('app.universalTerminalTabHeader.newTerminal')}
+					</button>
+				</div>
+			) : null}
+
 			<div className={`ref-uterm-stage ref-uterm-stage--settings ${settingsOpen ? '' : 'is-hidden'}`}>
 				<TerminalSettingsPanel
 					t={t}
@@ -1619,6 +1712,8 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 					customProfiles={terminalSettings.profiles.map((p) => withTerminalWindowProfileLabel(p, t))}
 					displayBuiltinProfiles={displayBuiltinProfiles}
 					defaultProfileId={terminalSettings.defaultProfileId}
+					profileSelectorRecentMax={terminalSettings.profileSelectorRecentMax}
+					profileSelectorShowBuiltin={terminalSettings.profileSelectorShowBuiltin}
 					describeTarget={(p) => describeTerminalProfileTarget(p, t)}
 				/>
 			) : null}
@@ -1645,6 +1740,7 @@ function TerminalTabButton({
 	exited,
 	onSelect,
 	onClose,
+	onContextMenu,
 }: {
 	active: boolean;
 	icon: React.ReactNode;
@@ -1653,9 +1749,22 @@ function TerminalTabButton({
 	exited?: boolean;
 	onSelect(): void;
 	onClose(): void;
+	onContextMenu?(event: ReactMouseEvent<HTMLDivElement>): void;
 }) {
 	return (
-		<div className={`ref-uterm-tab ${active ? 'is-active' : ''} ${exited ? 'is-exited' : ''}`} role="tab" aria-selected={active}>
+		<div
+			className={`ref-uterm-tab ${active ? 'is-active' : ''} ${exited ? 'is-exited' : ''}`}
+			role="tab"
+			aria-selected={active}
+			onContextMenu={
+				onContextMenu
+					? (event) => {
+							event.preventDefault();
+							onContextMenu(event);
+						}
+					: undefined
+			}
+		>
 			<button type="button" className="ref-uterm-tab-select" onClick={onSelect} title={meta || label}>
 				{icon}
 				<span className="ref-uterm-tab-label">{label}</span>

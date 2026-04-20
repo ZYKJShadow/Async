@@ -144,18 +144,23 @@ export const TerminalHotkeysSettingsStage = memo(function TerminalHotkeysSetting
 				</div>
 			</div>
 
-			<div className="ref-uterm-hotkeys-search-wrap">
-				<span className="ref-uterm-hotkeys-search-ico" aria-hidden>
-					<IconSearchHotkeys />
-				</span>
-				<input
-					type="search"
-					className="ref-uterm-hotkeys-search-input"
-					placeholder={t('app.universalTerminalSettings.hotkeys.searchPlaceholder')}
-					value={hotkeyFilter}
-					onChange={(e) => setHotkeyFilter(e.target.value)}
-					aria-label={t('app.universalTerminalSettings.hotkeys.searchPlaceholder')}
-				/>
+			<div className="ref-uterm-hotkeys-toolbar">
+				<div className="ref-uterm-hotkeys-search-wrap">
+					<span className="ref-uterm-hotkeys-search-ico" aria-hidden>
+						<IconSearchHotkeys />
+					</span>
+					<input
+						type="search"
+						className="ref-uterm-hotkeys-search-input"
+						placeholder={t('app.universalTerminalSettings.hotkeys.searchPlaceholder')}
+						value={hotkeyFilter}
+						onChange={(e) => setHotkeyFilter(e.target.value)}
+						aria-label={t('app.universalTerminalSettings.hotkeys.searchPlaceholder')}
+					/>
+				</div>
+				<button type="button" className="ref-uterm-hotkeys-reset-btn" onClick={resetAll}>
+					{t('app.universalTerminalSettings.hotkeys.resetAll')}
+				</button>
 			</div>
 
 			<div className="ref-uterm-hotkeys-table">
@@ -211,12 +216,6 @@ export const TerminalHotkeysSettingsStage = memo(function TerminalHotkeysSetting
 						</div>
 					);
 				})}
-			</div>
-
-			<div className="ref-uterm-hotkeys-footer">
-				<button type="button" className="ref-uterm-btn-secondary" onClick={resetAll}>
-					{t('app.universalTerminalSettings.hotkeys.resetAll')}
-				</button>
 			</div>
 
 			<TerminalHotkeyInputModal open={capture !== null} onClose={onModalClose} t={t} />

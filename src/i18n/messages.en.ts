@@ -139,6 +139,8 @@ export const messagesEn: Record<string, string> = {
 	'app.universalTerminal': 'Universal Terminal',
 	'app.universalTerminalWindowTitle': 'Universal Terminal',
 	'app.universalTerminalNewTab': 'New tab',
+	'app.universalTerminalTabHeader.newTerminal': 'New terminal',
+	'app.universalTerminalTabHeader.contextMenuLabel': 'Tab actions',
 	'app.universalTerminalCloseTab': 'Close tab',
 	'app.universalTerminalEmpty': 'No terminal sessions yet. Click + above to create one.',
 	'app.universalTerminalSessionExited': '(process exited {{code}})',
@@ -323,7 +325,23 @@ export const messagesEn: Record<string, string> = {
 	'app.universalTerminalSettings.systemDefaultShell': 'System default shell',
 	'app.universalTerminalSettings.profilesPageTitle': 'Profiles',
 	'app.universalTerminalSettings.profilesSubtab.profiles': 'Profiles',
-	'app.universalTerminalSettings.profilesSubtab.advanced': 'Advanced',
+	'app.universalTerminalSettings.profilesSubtab.advanced': 'Advanced settings',
+	'app.universalTerminalSettings.profiles.advancedLead':
+		'Global options and profile picker behavior. This is separate from editing individual profiles.',
+	'app.universalTerminalSettings.profiles.advancedRecentTitle': 'Show recent profiles in selector',
+	'app.universalTerminalSettings.profiles.advancedRecentDesc': 'Set to 0 to disable recent profiles.',
+	'app.universalTerminalSettings.profiles.advancedBuiltinTitle': 'Show built-in profiles in selector',
+	'app.universalTerminalSettings.profiles.advancedBuiltinDesc':
+		'When off, only custom saved profiles appear in the list (recent entries can still resolve built-in ids).',
+	'app.universalTerminalSettings.profiles.advancedDefaultsTitle': 'Default profile settings',
+	'app.universalTerminalSettings.profiles.advancedDefaultsDesc':
+		'Edit defaults merged when you create a new profile from a template (same idea as Tabby’s Default profile settings). Saving updates global settings and does not add a new custom profile by itself.',
+	'app.universalTerminalSettings.profiles.advancedDefaultRowLocal': 'Local terminal',
+	'app.universalTerminalSettings.profiles.advancedDefaultRowSsh': 'SSH',
+	'app.universalTerminalSettings.profiles.defaultsEditorTitleLocal': 'Default settings — Local terminal',
+	'app.universalTerminalSettings.profiles.defaultsEditorTitleSsh': 'Default settings — SSH',
+	'app.universalTerminalSettings.profiles.advancedResetDesc':
+		'Reset terminal appearance, behavior, hotkeys, and profiles to factory defaults. This cannot be undone.',
 	'app.universalTerminalSettings.groups.local': 'Local shells',
 	'app.universalTerminalSettings.groups.ssh': 'SSH connections',
 	'app.universalTerminalSettings.profiles.lead':
