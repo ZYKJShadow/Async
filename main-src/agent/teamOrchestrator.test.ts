@@ -69,6 +69,7 @@ async function runSession(params: {
 	userRequest: string;
 	experts: Array<ReturnType<typeof makeExpertConfig>>;
 	teamOverrides?: Record<string, unknown>;
+	agentSystemAppend?: string;
 }) {
 	const events: Array<{ type: string; [key: string]: unknown }> = [];
 	const doneCalls: Array<{ text: string; snapshot: unknown }> = [];
@@ -87,6 +88,7 @@ async function runSession(params: {
 			proxyUrl: undefined,
 			maxOutputTokens: 2048,
 		},
+		...(params.agentSystemAppend ? { agentSystemAppend: params.agentSystemAppend } : {}),
 		signal: new AbortController().signal,
 		emit: (evt) => events.push(evt as never),
 		onDone: (text, _usage, snapshot) => doneCalls.push({ text, snapshot }),
@@ -627,6 +629,202 @@ describe('runTeamSession clarification gates', () => {
 		);
 		expect(doneCalls).toHaveLength(1);
 		expect(doneCalls[0]?.text).toContain('已完成修订后的前端链路审查。');
+	});
+
+	it('unwraps structured specialist output before storing task results and delivery text', async () => {
+		runAgentLoopMock
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				await submitTeamPlanDecision(
+					handlers,
+					{
+						mode: 'PLAN',
+						tasks: [
+							{
+								expert: 'frontend',
+								task: 'Audit why structured payload leaks into team results',
+								acceptanceCriteria: ['Return a plain-language summary'],
+							},
+						],
+					},
+					'我先让前端同学检查 team 结果渲染链路。'
+				);
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone(
+					JSON.stringify({
+						_asyncAssistant: 1,
+						v: 1,
+						parts: [
+							{
+								type: 'text',
+								text: '前端检查结论：team specialist 的结构化 payload 被直接透传到了结果展示层。',
+							},
+						],
+					})
+				);
+			});
+
+		const experts = [
+			makeExpertConfig('team_lead', 'Team Lead', 'team_lead'),
+			makeExpertConfig('frontend', 'Frontend', 'frontend'),
+		];
+		const { events, doneCalls, errorCalls } = await runSession({
+			userRequest: '请排查 team 模式为什么会把 structured payload 直接显示出来',
+			experts,
+		});
+
+		expect(errorCalls).toEqual([]);
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: 'team_expert_done',
+				result: '前端检查结论：team specialist 的结构化 payload 被直接透传到了结果展示层。',
+			})
+		);
+		expect(doneCalls).toHaveLength(1);
+		expect(doneCalls[0]?.text).toContain('## Task Status');
+		expect(doneCalls[0]?.text).not.toContain('前端检查结论：team specialist 的结构化 payload 被直接透传到了结果展示层。');
+		expect(doneCalls[0]?.text).not.toContain('_asyncAssistant');
+		expect((doneCalls[0]?.snapshot as { tasks?: Array<{ result?: string }> } | undefined)?.tasks?.[0]?.result).toBe(
+			'前端检查结论：team specialist 的结构化 payload 被直接透传到了结果展示层。'
+		);
+	});
+
+	it('does not leak imported project rules from agentSystemAppend into team delivery', async () => {
+		runAgentLoopMock
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				await submitTeamPlanDecision(
+					handlers,
+					{
+						mode: 'PLAN',
+						tasks: [
+							{
+								expert: 'frontend',
+								task: 'Audit why team delivery is leaking system prompt content',
+								acceptanceCriteria: ['Summarize the renderer-side issue'],
+							},
+						],
+					},
+					'我先安排前端同学排查 team 最终回复。'
+				);
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone('已经确认：泄漏内容来自系统提示拼接，而不是模型主动复读。');
+			});
+
+		const leakedSystemAppend = [
+			'#### 从项目导入的规则（.async/rules、.cursor/rules、CLAUDE.md、.claude/rules）',
+			'.async/rules/chinese-response.mdc',
+			'Rule: 自动语言：默认使用英文回应',
+		].join('\n');
+
+		const experts = [
+			makeExpertConfig('team_lead', 'Team Lead', 'team_lead'),
+			makeExpertConfig('frontend', 'Frontend', 'frontend'),
+		];
+		const { doneCalls, errorCalls } = await runSession({
+			userRequest: '请排查 team 模式为什么会把导入规则原样回给用户',
+			experts,
+			agentSystemAppend: leakedSystemAppend,
+		});
+
+		expect(errorCalls).toEqual([]);
+		expect(doneCalls).toHaveLength(1);
+		expect(doneCalls[0]?.text).toContain('已经确认：泄漏内容来自系统提示拼接，而不是模型主动复读。');
+		expect(doneCalls[0]?.text).not.toContain('从项目导入的规则');
+		expect(doneCalls[0]?.text).not.toContain('自动语言：默认使用英文回应');
+		expect(doneCalls[0]?.text).not.toContain('.async/rules/chinese-response.mdc');
+	});
+
+	it('continues with a lead replan after reviewer requests revision and keeps raw role output out of the main chat', async () => {
+		let reviewReplanPrompt = '';
+		runAgentLoopMock
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				await submitTeamPlanDecision(
+					handlers,
+					{
+						mode: 'PLAN',
+						tasks: [
+							{
+								expert: 'frontend',
+								task: 'Audit the team delivery rendering path',
+								acceptanceCriteria: ['Identify the initial issue'],
+							},
+						],
+					},
+					'我先安排前端同学检查 team delivery 渲染链路。'
+				);
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone('第一轮前端原始输出：这里是一大段不该直接出现在主聊天区里的返工前结果。');
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone(`### Verdict: NEEDS_REVISION
+### Critical Issues
+- 当前只定位了现象，还没有修复主聊天区泄漏与返工停住的问题。
+### Suggestions
+- 让 Team Lead 基于评审意见重新分派返工任务。
+### Summary
+需要继续返工，补上 review 后自动重分派的链路。`);
+			})
+			.mockImplementationOnce(async (_settings, messagesArg, _options, handlers) => {
+				reviewReplanPrompt = messagesArg.map((message) => String(message.content ?? '')).join('\n');
+				await submitTeamPlanDecision(
+					handlers,
+					{
+						mode: 'PLAN',
+						tasks: [
+							{
+								expert: 'frontend',
+								task: 'Implement the review-driven replan flow and shrink final delivery to a concise summary',
+								acceptanceCriteria: ['Reviewer-triggered revisions continue automatically', 'Main chat only shows summary text'],
+							},
+						],
+					},
+					'我会根据评审意见安排一轮返工。'
+				);
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone('返工后的前端原始输出：修好了 reviewer 要求返工后流程停住的问题，也避免把角色完整结果透传到主聊天区。');
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone(`### Verdict: APPROVED
+### Critical Issues
+- (none)
+### Suggestions
+- (none)
+### Summary
+返工完成，Team 模式现在会继续执行修订任务，并且主聊天区只展示摘要。`);
+			});
+
+		const experts = [
+			makeExpertConfig('team_lead', 'Team Lead', 'team_lead'),
+			makeExpertConfig('frontend', 'Frontend', 'frontend'),
+			makeExpertConfig('reviewer', 'Reviewer', 'reviewer'),
+		];
+		const { events, doneCalls, errorCalls } = await runSession({
+			userRequest: '请修复 team 模式里 reviewer 说需要返工后就停住，而且把角色完整结果带到主聊天区的问题',
+			experts,
+		});
+
+		expect(errorCalls).toEqual([]);
+		expect(reviewReplanPrompt).toContain('[TEAM REVIEW REVISION]');
+		expect(reviewReplanPrompt).toContain('需要继续返工');
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: 'team_plan_revised',
+				reason: expect.stringContaining('需要继续返工'),
+			})
+		);
+		expect(events.filter((evt) => evt.type === 'team_review')).toEqual([
+			expect.objectContaining({ type: 'team_review', verdict: 'revision_needed' }),
+			expect.objectContaining({ type: 'team_review', verdict: 'approved' }),
+		]);
+		expect(doneCalls).toHaveLength(1);
+		expect(doneCalls[0]?.text).toContain('## Task Status');
+		expect(doneCalls[0]?.text).toContain('status=completed');
+		expect(doneCalls[0]?.text).not.toContain('第一轮前端原始输出');
+		expect(doneCalls[0]?.text).not.toContain('返工后的前端原始输出');
+		expect((doneCalls[0]?.snapshot as { reviewVerdict?: string } | undefined)?.reviewVerdict).toBe('approved');
 	});
 
 	it('lets a running specialist reply to peer requests before finishing', async () => {

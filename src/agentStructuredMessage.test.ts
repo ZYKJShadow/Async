@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	budgetStructuredAssistantToolResults,
 	dedupeStructuredAssistantToolUseIds,
+	extractAssistantTextForDisplay,
 	extractBotReplyImagePaths,
 	extractBotReplyText,
 	flattenAssistantTextPartsForSearch,
@@ -140,6 +141,46 @@ describe('agentStructuredMessage', () => {
 		if (p.parts[0]!.type === 'tool') {
 			expect(p.parts[0].result.length).toBeLessThan(long.length);
 		}
+	});
+
+	it('extractAssistantTextForDisplay unwraps structured text parts', () => {
+		const raw = stringifyAgentAssistantPayload({
+			_asyncAssistant: 1,
+			v: 1,
+			parts: [
+				{ type: 'text', text: '第一段。' },
+				{
+					type: 'tool',
+					toolUseId: 'tool_1',
+					name: 'Read',
+					args: { file_path: 'a.ts' },
+					result: '1|ok',
+					success: true,
+				},
+				{ type: 'text', text: '\n第二段。' },
+			],
+		});
+
+		expect(extractAssistantTextForDisplay(raw)).toBe('第一段。\n第二段。');
+	});
+
+	it('extractAssistantTextForDisplay returns fallback for tool-only structured payloads', () => {
+		const raw = stringifyAgentAssistantPayload({
+			_asyncAssistant: 1,
+			v: 1,
+			parts: [
+				{
+					type: 'tool',
+					toolUseId: 'tool_1',
+					name: 'Read',
+					args: { file_path: 'a.ts' },
+					result: '1|ok',
+					success: true,
+				},
+			],
+		});
+
+		expect(extractAssistantTextForDisplay(raw, 'fallback text')).toBe('fallback text');
 	});
 });
 

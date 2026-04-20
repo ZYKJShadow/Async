@@ -14,7 +14,10 @@ import { resolveTeamExpertProfiles, type TeamExpertRuntimeProfile } from './team
 import { resolveModelRequest, type ResolvedModelRequest } from '../llm/modelResolve.js';
 import { getTeamPreset, getTeamPresetDefaults } from '../../src/teamPresetCatalog.js';
 import { buildAutoReplyLanguageRuleBlock } from '../../src/autoReplyLanguageRule.js';
-import { flattenAssistantTextPartsForSearch } from '../../src/agentStructuredMessage.js';
+import {
+	extractAssistantTextForDisplay,
+	flattenAssistantTextPartsForSearch,
+} from '../../src/agentStructuredMessage.js';
 import {
 	buildTeamPlanProposalId,
 	registerTeamPlanApprovalWaiter,
@@ -290,16 +293,7 @@ function buildReviewerWorkflowTask(
 }
 
 function normalizeTeamAgentSummary(raw: string, fallback: string): string {
-	const flattened = flattenAssistantTextPartsForSearch(raw)
-		.replace(/\n[ \t]+\n/g, '\n\n')
-		.trim();
-	if (flattened) {
-		return flattened;
-	}
-	const trimmed = String(raw ?? '')
-		.replace(/\n[ \t]+\n/g, '\n\n')
-		.trim();
-	return trimmed || fallback;
+	return extractAssistantTextForDisplay(raw, fallback);
 }
 
 function appendTeamLanguageRule(settings: ShellSettings, prompt?: string): string {
@@ -1637,7 +1631,7 @@ async function runOneSpecialist(params: {
 			});
 		},
 		onDone: (text, usage) => {
-			finalText = text;
+			finalText = normalizeTeamAgentSummary(text, finalText);
 			emit({ threadId, type: 'done', text, usage, teamRoleScope });
 		},
 		onError: (message) => {
@@ -1775,6 +1769,36 @@ function buildCompletedTaskContext(completedTasks: TeamTask[]): string {
 	].join('\n')).join('\n\n');
 }
 
+function appendPlannerReviewRevisionMessage(
+	messages: ChatMessage[],
+	params: {
+		reviewSummary: string;
+		completedTasks: TeamTask[];
+	}
+): ChatMessage[] {
+	const { reviewSummary, completedTasks } = params;
+	return [
+		...messages,
+		{
+			role: 'user',
+			content: [
+				'[TEAM REVIEW REVISION]',
+				'The reviewer reported that the current delivery still needs revision.',
+				'',
+				'## Reviewer Feedback',
+				reviewSummary.trim() || '(none provided)',
+				'',
+				'## Work Completed So Far',
+				buildCompletedTaskContext(completedTasks),
+				'',
+				'Replan only the work needed to address the review issues.',
+				'Preserve already-acceptable work.',
+				'If an already completed task must be redone, assign a concrete revision task for it instead of asking for a full restart.',
+			].join('\n'),
+		},
+	];
+}
+
 function appendPlannerEscalationMessage(
 	messages: ChatMessage[],
 	params: {
@@ -1813,12 +1837,54 @@ function appendPlannerEscalationMessage(
 	];
 }
 
+function buildTaskDeliveryLine(task: TeamTask): string {
+	const statusIcon = task.status === 'completed' ? '✅' : '⚠️';
+	const parts = [
+		`- ${statusIcon} ${task.expertName}: ${task.description}`,
+		`status=${task.status}`,
+	];
+	return parts.join(' | ');
+}
+
+function buildTeamDeliveryText(params: {
+	teamLeadName: string;
+	planSummary: string;
+	completedTasks: TeamTask[];
+	review: { verdict: 'approved' | 'revision_needed'; summary: string };
+	hasCjkRequest: boolean;
+}): string {
+	const { teamLeadName, planSummary, completedTasks, review, hasCjkRequest } = params;
+	const taskLines = completedTasks.length > 0
+		? completedTasks.map((task) => buildTaskDeliveryLine(task))
+		: [`- ${hasCjkRequest ? '无角色任务。' : 'No specialist tasks ran.'}`];
+	const detailNote = hasCjkRequest
+		? '详细角色输出保留在 Team 面板中。'
+		: 'Detailed role outputs remain in the Team panel.';
+	return [
+		'# Team Delivery',
+		'',
+		`**Lead:** ${teamLeadName}`,
+		`**Review:** ${review.verdict === 'approved' ? '✅ Approved' : '⚠️ Revision Needed'}`,
+		'',
+		'## Planning Summary',
+		planSummary.trim() || (hasCjkRequest ? '(无)' : '(none)'),
+		'',
+		'## Task Status',
+		...taskLines,
+		'',
+		'## Review',
+		clampTeamPacketText(review.summary, 1600),
+		'',
+		detailNote,
+	].join('\n');
+}
+
 // ── Main orchestrator ────────────────────────────────────────────────────
 
 export async function runTeamSession(input: TeamOrchestratorInput): Promise<void> {
 	const {
 		settings, threadId, messages, modelSelection, resolvedModel,
-		agentSystemAppend, signal, thinkingLevel, workspaceRoot, workspaceLspManager,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager,
 		hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit, onDone, onError,
 	} = input;
 
@@ -2097,6 +2163,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		const maxConsecutiveFailedBatches = 2;
 		let consecutiveFailedBatches = 0;
 		let replanBudget = 2;
+		let reviewReplanBudget = 2;
 		const peerResponseTimeoutMs = 15000;
 
 		const clearPeerRequest = (targetTaskId: string, requestId: string): PeerMailboxRequest | null => {
@@ -2189,261 +2256,317 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			});
 		};
 
-		while (pending.length > 0) {
-			checkAbort();
-			const ready = getReadyTasks(pending, completedIds);
-			if (ready.length === 0) {
-				for (const task of pending) {
-					completed.push({ ...task, status: 'failed', result: 'Stuck: unresolvable dependency.' });
-				}
-				pending.length = 0;
-				break;
-			}
+		let review: { verdict: 'approved' | 'revision_needed'; summary: string } = {
+			verdict: 'approved',
+			summary: '',
+		};
 
-			const batch = ready.slice(0, maxParallelExperts);
-			for (const bt of batch) {
-				const idx = pending.indexOf(bt);
-				if (idx !== -1) pending.splice(idx, 1);
-			}
-
-			// 用 Promise.race 确保 abort 信号能立即中断 Promise.all，
-			// 避免 agent loop 因 AbortSignal 事件监听器竞态而不停止
-			const abortPromise = new Promise<never>((_, reject) => {
-				if (signal.aborted) {
-					reject(new Error('Team session aborted by user.'));
-					return;
-				}
-				signal.addEventListener('abort', () => {
-					reject(new Error('Team session aborted by user.'));
-				}, { once: true });
-			});
-
-			const results = await Promise.race([
-				Promise.all(
-					batch.map(async (task) => {
-						if (signal.aborted) throw new Error('Team session aborted by user.');
-						const expert = specialists.find((s) => s.id === task.expertId) ?? specialists[0]!;
-						activeTaskIds.add(task.id);
-						emit({ threadId, type: 'team_expert_started', taskId: task.id, expertId: task.expertId });
-						const result = await runOneSpecialist({
-							settings, task, expert, userRequest: effectiveUserText, planSummary, completedTasksById,
-							allTasks: plannedTasks,
-							modelSelection, resolvedModel,
-							signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
-							baseTools: baseTeamTools,
-							threadId,
-							deferredToolState,
-							onDeferredToolStateChange,
-							toolResultReplacementState,
-							onToolResultReplacementStateChange,
-							pullPeerMailboxMessages: () => pullPeerMailboxMessages(task),
-							handlePeerRequest: (request) => waitForRunningPeerReply(task, request),
-							handlePeerReply: (reply) => {
-								const resolved = clearPeerRequest(task.id, reply.requestId);
-								resolved?.resolve(reply.answer);
-							},
-							emit,
-						});
-						activeTaskIds.delete(task.id);
-						return { task, result };
-					})
-				),
-				abortPromise,
-			]);
-
-			const escalatedItems = results.filter((item) => item.result.escalation);
-			const settledItems = results.filter((item) => !item.result.escalation);
-
-			for (const item of settledItems) {
-				emit({
-					threadId,
-					type: 'team_expert_done',
-					taskId: item.task.id,
-					expertId: item.task.expertId,
-					success: item.result.success,
-					result: item.result.text,
-				});
-				resolveOutstandingPeerRequestsForTask(item.task, item.result.text);
-				const finishedTask = {
-					...item.task,
-					status: (item.result.success ? 'completed' : 'failed') as TeamTaskStatus,
-					result: item.result.text,
-				};
-				completed.push(finishedTask);
-				completedTasksById.set(finishedTask.id, finishedTask);
-				if (item.result.success) {
-					completedIds.add(item.task.id);
-				}
-			}
-
-			if (escalatedItems.length > 0) {
-				const primaryEscalation = escalatedItems[0]!;
-				const replanCandidates = [...escalatedItems.map((item) => item.task), ...pending];
-				if (replanBudget > 0) {
-					replanBudget -= 1;
-					planningMessages = appendPlannerEscalationMessage(planningMessages, {
-						task: primaryEscalation.task,
-						escalation: primaryEscalation.result.escalation!,
-						completedTasks: completed,
-					});
-					emit({ threadId, type: 'team_phase', phase: 'planning' });
-
-					try {
-						const revisedPlan = await llmPlanTasks({
-							settings, threadId, teamLead, specialists, plannerTools, messages: planningMessages, modelSelection,
-							resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
-						});
-						if (revisedPlan.clarificationAnswers.length > 0) {
-							const propagated = applyTeamClarificationAnswers(
-								effectiveUserText,
-								planningMessages,
-								revisedPlan.clarificationAnswers
-							);
-							effectiveUserText = propagated.userText;
-							planningMessages = propagated.messages;
-						}
-
-						if (revisedPlan.mode !== 'PLAN' || revisedPlan.tasks.length === 0) {
-							const deliveryText = revisedPlan.planSummary.trim() || buildClarificationNeededNarrative(hasCjkRequest);
-							emit({ threadId, type: 'team_plan_summary', summary: deliveryText });
-							emit({ threadId, type: 'team_phase', phase: 'delivering' });
-							onDone(deliveryText, undefined, {
-								phase: 'delivering',
-								tasks: completed.map((task) => ({
-									id: task.id,
-									expertId: task.expertId,
-									expertAssignmentKey: task.expertAssignmentKey,
-									expertName: task.expertName,
-									roleType: task.roleType,
-									description: task.description,
-									status: task.status,
-									dependencies: task.dependencies,
-									acceptanceCriteria: task.acceptanceCriteria,
-									result: task.result,
-								})),
-								planSummary: deliveryText,
-								leaderMessage: deliveryText,
-								reviewSummary: '',
-								reviewVerdict: null,
-							});
-							return;
-						}
-
-						const revisedPendingTasks = materializePlannedTasks(revisedPlan.tasks, specialists, replanCandidates);
-						const diff = applyPlanDiff(replanCandidates, revisedPendingTasks);
-						pending = [...diff.nextPendingTasks];
-						plannedTasks = [...completed, ...pending];
-						planSummary = revisedPlan.planSummary;
-						consecutiveFailedBatches = 0;
-
-						emit({ threadId, type: 'team_plan_summary', summary: planSummary });
-						emit({
-							threadId,
-							type: 'team_plan_revised',
-							revisionId: `team-plan-revision-${randomUUID()}`,
-							summary: planSummary,
-							reason: primaryEscalation.result.escalation!.reason,
-							tasks: serializeTeamPlanTasks(pending),
-							addedTaskIds: diff.addedTasks.map((task) => task.id),
-							removedTaskIds: diff.removedTasks.map((task) => task.id),
-							keptTaskIds: diff.keptTasks.map((task) => task.id),
-						});
-						emit({ threadId, type: 'team_phase', phase: 'executing' });
-						continue;
-					} catch {
-						// Fall through to mark the escalated task as needing revision.
+		while (true) {
+			while (pending.length > 0) {
+				checkAbort();
+				const ready = getReadyTasks(pending, completedIds);
+				if (ready.length === 0) {
+					for (const task of pending) {
+						completed.push({ ...task, status: 'failed', result: 'Stuck: unresolvable dependency.' });
 					}
+					pending.length = 0;
+					break;
 				}
 
-				for (const item of escalatedItems) {
-					const resultText =
-						replanBudget <= 0
-							? `${item.result.text}\n\nReplan budget exhausted; reviewer should inspect this escalation.`
-							: item.result.text;
-					resolveOutstandingPeerRequestsForTask(item.task, resultText);
+				const batch = ready.slice(0, maxParallelExperts);
+				for (const bt of batch) {
+					const idx = pending.indexOf(bt);
+					if (idx !== -1) pending.splice(idx, 1);
+				}
+
+				// 用 Promise.race 确保 abort 信号能立即中断 Promise.all，
+				// 避免 agent loop 因 AbortSignal 事件监听器竞态而不停止
+				const abortPromise = new Promise<never>((_, reject) => {
+					if (signal.aborted) {
+						reject(new Error('Team session aborted by user.'));
+						return;
+					}
+					signal.addEventListener('abort', () => {
+						reject(new Error('Team session aborted by user.'));
+					}, { once: true });
+				});
+
+				const results = await Promise.race([
+					Promise.all(
+						batch.map(async (task) => {
+							if (signal.aborted) throw new Error('Team session aborted by user.');
+							const expert = specialists.find((s) => s.id === task.expertId) ?? specialists[0]!;
+							activeTaskIds.add(task.id);
+							emit({ threadId, type: 'team_expert_started', taskId: task.id, expertId: task.expertId });
+							const result = await runOneSpecialist({
+								settings, task, expert, userRequest: effectiveUserText, planSummary, completedTasksById,
+								allTasks: plannedTasks,
+								modelSelection, resolvedModel,
+								signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
+								baseTools: baseTeamTools,
+								threadId,
+								deferredToolState,
+								onDeferredToolStateChange,
+								toolResultReplacementState,
+								onToolResultReplacementStateChange,
+								pullPeerMailboxMessages: () => pullPeerMailboxMessages(task),
+								handlePeerRequest: (request) => waitForRunningPeerReply(task, request),
+								handlePeerReply: (reply) => {
+									const resolved = clearPeerRequest(task.id, reply.requestId);
+									resolved?.resolve(reply.answer);
+								},
+								emit,
+							});
+							activeTaskIds.delete(task.id);
+							return { task, result };
+						})
+					),
+					abortPromise,
+				]);
+
+				const escalatedItems = results.filter((item) => item.result.escalation);
+				const settledItems = results.filter((item) => !item.result.escalation);
+
+				for (const item of settledItems) {
 					emit({
 						threadId,
 						type: 'team_expert_done',
 						taskId: item.task.id,
 						expertId: item.task.expertId,
-						success: false,
-						result: resultText,
+						success: item.result.success,
+						result: item.result.text,
 					});
-					const revisionTask: TeamTask = {
+					resolveOutstandingPeerRequestsForTask(item.task, item.result.text);
+					const finishedTask = {
 						...item.task,
-						status: 'revision',
-						result: resultText,
+						status: (item.result.success ? 'completed' : 'failed') as TeamTaskStatus,
+						result: item.result.text,
 					};
-					completed.push(revisionTask);
-					completedTasksById.set(revisionTask.id, revisionTask);
+					completed.push(finishedTask);
+					completedTasksById.set(finishedTask.id, finishedTask);
+					if (item.result.success) {
+						completedIds.add(item.task.id);
+					}
+				}
+
+				if (escalatedItems.length > 0) {
+					const primaryEscalation = escalatedItems[0]!;
+					const replanCandidates = [...escalatedItems.map((item) => item.task), ...pending];
+					if (replanBudget > 0) {
+						replanBudget -= 1;
+						planningMessages = appendPlannerEscalationMessage(planningMessages, {
+							task: primaryEscalation.task,
+							escalation: primaryEscalation.result.escalation!,
+							completedTasks: completed,
+						});
+						emit({ threadId, type: 'team_phase', phase: 'planning' });
+
+						try {
+							const revisedPlan = await llmPlanTasks({
+								settings, threadId, teamLead, specialists, plannerTools, messages: planningMessages, modelSelection,
+								resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
+							});
+							if (revisedPlan.clarificationAnswers.length > 0) {
+								const propagated = applyTeamClarificationAnswers(
+									effectiveUserText,
+									planningMessages,
+									revisedPlan.clarificationAnswers
+								);
+								effectiveUserText = propagated.userText;
+								planningMessages = propagated.messages;
+							}
+
+							if (revisedPlan.mode !== 'PLAN' || revisedPlan.tasks.length === 0) {
+								const deliveryText = revisedPlan.planSummary.trim() || buildClarificationNeededNarrative(hasCjkRequest);
+								emit({ threadId, type: 'team_plan_summary', summary: deliveryText });
+								emit({ threadId, type: 'team_phase', phase: 'delivering' });
+								onDone(deliveryText, undefined, {
+									phase: 'delivering',
+									tasks: completed.map((task) => ({
+										id: task.id,
+										expertId: task.expertId,
+										expertAssignmentKey: task.expertAssignmentKey,
+										expertName: task.expertName,
+										roleType: task.roleType,
+										description: task.description,
+										status: task.status,
+										dependencies: task.dependencies,
+										acceptanceCriteria: task.acceptanceCriteria,
+										result: task.result,
+									})),
+									planSummary: deliveryText,
+									leaderMessage: deliveryText,
+									reviewSummary: '',
+									reviewVerdict: null,
+								});
+								return;
+							}
+
+							const revisedPendingTasks = materializePlannedTasks(revisedPlan.tasks, specialists, replanCandidates);
+							const diff = applyPlanDiff(replanCandidates, revisedPendingTasks);
+							pending = [...diff.nextPendingTasks];
+							plannedTasks = [...completed, ...pending];
+							planSummary = revisedPlan.planSummary;
+							consecutiveFailedBatches = 0;
+
+							emit({ threadId, type: 'team_plan_summary', summary: planSummary });
+							emit({
+								threadId,
+								type: 'team_plan_revised',
+								revisionId: `team-plan-revision-${randomUUID()}`,
+								summary: planSummary,
+								reason: primaryEscalation.result.escalation!.reason,
+								tasks: serializeTeamPlanTasks(pending),
+								addedTaskIds: diff.addedTasks.map((task) => task.id),
+								removedTaskIds: diff.removedTasks.map((task) => task.id),
+								keptTaskIds: diff.keptTasks.map((task) => task.id),
+							});
+							emit({ threadId, type: 'team_phase', phase: 'executing' });
+							continue;
+						} catch {
+							// Fall through to mark the escalated task as needing revision.
+						}
+					}
+
+					for (const item of escalatedItems) {
+						const resultText =
+							replanBudget <= 0
+								? `${item.result.text}\n\nReplan budget exhausted; reviewer should inspect this escalation.`
+								: item.result.text;
+						resolveOutstandingPeerRequestsForTask(item.task, resultText);
+						emit({
+							threadId,
+							type: 'team_expert_done',
+							taskId: item.task.id,
+							expertId: item.task.expertId,
+							success: false,
+							result: resultText,
+						});
+						const revisionTask: TeamTask = {
+							...item.task,
+							status: 'revision',
+							result: resultText,
+						};
+						completed.push(revisionTask);
+						completedTasksById.set(revisionTask.id, revisionTask);
+					}
+				}
+
+				const failedInBatch = [...settledItems, ...escalatedItems].filter((item) => !item.result.success).length;
+				consecutiveFailedBatches = failedInBatch === results.length ? consecutiveFailedBatches + 1 : 0;
+
+				if (pending.length > 0 && consecutiveFailedBatches >= maxConsecutiveFailedBatches) {
+					const fallback = 'Skipped due to repeated specialist failures (team circuit breaker triggered).';
+					for (const task of pending.splice(0, pending.length)) {
+						emit({
+							threadId, type: 'team_expert_done',
+							taskId: task.id, expertId: task.expertId,
+							success: false, result: fallback,
+						});
+						completed.push({ ...task, status: 'failed', result: fallback });
+					}
+					break;
 				}
 			}
 
-			const failedInBatch = [...settledItems, ...escalatedItems].filter((item) => !item.result.success).length;
-			consecutiveFailedBatches = failedInBatch === results.length ? consecutiveFailedBatches + 1 : 0;
+			// ── Phase 3: LLM-based review ────────────────────────────────
 
-			if (pending.length > 0 && consecutiveFailedBatches >= maxConsecutiveFailedBatches) {
-				const fallback = 'Skipped due to repeated specialist failures (team circuit breaker triggered).';
-				for (const task of pending.splice(0, pending.length)) {
-					emit({
-						threadId, type: 'team_expert_done',
-						taskId: task.id, expertId: task.expertId,
-						success: false, result: fallback,
-					});
-					completed.push({ ...task, status: 'failed', result: fallback });
-				}
+			checkAbort();
+			emit({ threadId, type: 'team_phase', phase: 'reviewing' });
+
+			if (resolvedExperts.deliveryReviewer) {
+				checkAbort();
+				review = await runReviewerAgent({
+					settings, threadId, reviewer: resolvedExperts.deliveryReviewer, completedTasks: completed,
+					userRequest: effectiveUserText, planSummary, modelSelection, resolvedModel, signal, thinkingLevel,
+					workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools: baseTeamTools, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
+				});
+			} else {
+				const failed = completed.filter((t) => t.status === 'failed' || t.status === 'revision');
+				review = failed.length > 0
+					? { verdict: 'revision_needed', summary: `${failed.length} task(s) need revision.` }
+					: { verdict: 'approved', summary: `All ${completed.length} task(s) completed successfully.` };
+			}
+
+			emit({ threadId, type: 'team_review', verdict: review.verdict, summary: review.summary });
+
+			if (review.verdict !== 'revision_needed' || reviewReplanBudget <= 0) {
 				break;
 			}
-		}
 
-		// ── Phase 3: LLM-based review ────────────────────────────────
-
-		checkAbort();
-		emit({ threadId, type: 'team_phase', phase: 'reviewing' });
-
-		let review: { verdict: 'approved' | 'revision_needed'; summary: string };
-
-		if (resolvedExperts.deliveryReviewer) {
-			checkAbort();
-			review = await runReviewerAgent({
-				settings, threadId, reviewer: resolvedExperts.deliveryReviewer, completedTasks: completed,
-				userRequest: effectiveUserText, planSummary, modelSelection, resolvedModel, signal, thinkingLevel,
-				workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools: baseTeamTools, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
+			reviewReplanBudget -= 1;
+			planningMessages = appendPlannerReviewRevisionMessage(planningMessages, {
+				reviewSummary: review.summary,
+				completedTasks: completed,
 			});
-		} else {
-			const failed = completed.filter((t) => t.status === 'failed' || t.status === 'revision');
-			review = failed.length > 0
-				? { verdict: 'revision_needed', summary: `${failed.length} task(s) need revision.` }
-				: { verdict: 'approved', summary: `All ${completed.length} task(s) completed successfully.` };
-		}
+			emit({ threadId, type: 'team_phase', phase: 'planning' });
 
-		emit({ threadId, type: 'team_review', verdict: review.verdict, summary: review.summary });
+			try {
+				const revisedPlan = await llmPlanTasks({
+					settings, threadId, teamLead, specialists, plannerTools, messages: planningMessages, modelSelection,
+					resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
+				});
+				if (revisedPlan.clarificationAnswers.length > 0) {
+					const propagated = applyTeamClarificationAnswers(
+						effectiveUserText,
+						planningMessages,
+						revisedPlan.clarificationAnswers
+					);
+					effectiveUserText = propagated.userText;
+					planningMessages = propagated.messages;
+				}
+
+				if (revisedPlan.mode === 'PLAN' && revisedPlan.tasks.length > 0) {
+					const revisedPendingTasks = materializePlannedTasks(revisedPlan.tasks, specialists, completed);
+					const diff = applyPlanDiff([], revisedPendingTasks);
+					const revisedIds = new Set(revisedPendingTasks.map((task) => task.id));
+					for (let index = completed.length - 1; index >= 0; index -= 1) {
+						const task = completed[index]!;
+						if (task.status !== 'completed' || revisedIds.has(task.id)) {
+							completed.splice(index, 1);
+							completedTasksById.delete(task.id);
+							completedIds.delete(task.id);
+						}
+					}
+					pending = [...revisedPendingTasks];
+					plannedTasks = [...completed, ...pending];
+					planSummary = revisedPlan.planSummary;
+					consecutiveFailedBatches = 0;
+
+					emit({ threadId, type: 'team_plan_summary', summary: planSummary });
+					emit({
+						threadId,
+						type: 'team_plan_revised',
+						revisionId: `team-plan-revision-${randomUUID()}`,
+						summary: planSummary,
+						reason: review.summary,
+						tasks: serializeTeamPlanTasks(pending),
+						addedTaskIds: diff.addedTasks.map((task) => task.id),
+						removedTaskIds: diff.removedTasks.map((task) => task.id),
+						keptTaskIds: diff.keptTasks.map((task) => task.id),
+					});
+					emit({ threadId, type: 'team_phase', phase: 'executing' });
+					continue;
+				}
+			} catch {
+				// Fall through to final delivery with the current review result.
+			}
+
+			break;
+		}
 
 		// ── Phase 4: Delivery ────────────────────────────────────────
 
 		checkAbort();
 		emit({ threadId, type: 'team_phase', phase: 'delivering' });
 
-		const delivery = [
-			`# Team Delivery`,
-			``,
-			`**Lead:** ${teamLead.name}`,
-			`**Review:** ${review.verdict === 'approved' ? '✅ Approved' : '⚠️ Revision Needed'}`,
-			``,
-			`## Planning Summary`,
+		const delivery = buildTeamDeliveryText({
+			teamLeadName: teamLead.name,
 			planSummary,
-			``,
-			`## Specialist Outputs`,
-			...completed.map((task) => {
-				const body = (task.result ?? '').trim() || '(no output)';
-				const statusIcon = task.status === 'completed' ? '✅' : '❌';
-				return `### ${statusIcon} ${task.expertName}\n- **Task:** ${task.description}\n- **Status:** ${task.status}\n\n${body}`;
-			}),
-			``,
-			`## Review`,
-			review.summary,
-			...(agentSystemAppend?.trim() ? ['', '---', agentSystemAppend.trim()] : []),
-		].join('\n');
+			completedTasks: completed,
+			review,
+			hasCjkRequest,
+		});
 
 		onDone(delivery, undefined, {
 			phase: 'delivering',
