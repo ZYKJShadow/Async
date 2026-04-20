@@ -3103,6 +3103,59 @@
 	pointer-events: auto;
 }
 
+/* 配置编辑器内嵌套密码对话框（Electron 中 window.prompt 不可用） */
+.ref-uterm-settings-nested-password-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 36;
+	pointer-events: none;
+}
+
+.ref-uterm-settings-nested-password-layer .ref-uterm-settings-modal-backdrop {
+	pointer-events: auto;
+}
+
+.ref-uterm-settings-nested-password-dialog {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: min(400px, calc(100% - 40px));
+	transform: translate(-50%, -50%);
+	padding: 18px 20px 16px;
+	border-radius: 10px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	background: var(--void-bg-1);
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+	pointer-events: auto;
+	box-sizing: border-box;
+}
+
+.ref-uterm-settings-nested-password-title {
+	margin: 0 0 10px;
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-settings-nested-password-copy {
+	margin: 0 0 14px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-settings-nested-password-dialog .ref-uterm-settings-input {
+	width: 100%;
+	margin-bottom: 16px;
+}
+
+.ref-uterm-settings-nested-password-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 10px;
+}
+
 .ref-uterm-settings-drawer {
 	position: absolute;
 	top: 10px;

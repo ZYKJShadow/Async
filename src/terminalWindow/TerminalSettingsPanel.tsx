@@ -372,6 +372,10 @@ function ProfilesSettingsStage({
 	const [editorDraft, setEditorDraft] = useState<TerminalProfile | null>(null);
 	const [editorMode, setEditorMode] = useState<ProfileEditorMode>('edit');
 	const [defaultsKind, setDefaultsKind] = useState<ProfileDefaultsKind | null>(null);
+	type ProfilePasswordModalState = { open: false } | { open: true; mode: 'set' | 'clear' };
+	const [passwordModal, setPasswordModal] = useState<ProfilePasswordModalState>({ open: false });
+	const [passwordModalInput, setPasswordModalInput] = useState('');
+	const profilePasswordInputRef = useRef<HTMLInputElement | null>(null);
 	const [editorTab, setEditorTab] = useState<ProfileEditorTabId>('general');
 	const [editorSshConnectionMode, setEditorSshConnectionMode] = useState<TerminalSshConnectionMode>('direct');
 	const [editorHasSavedPassword, setEditorHasSavedPassword] = useState(false);
@@ -475,6 +479,54 @@ function ProfilesSettingsStage({
 		setEditorHasSavedPassword(Boolean(result?.ok && result.hasPassword));
 	}, []);
 
+	const closeProfilePasswordModal = useCallback(() => {
+		setPasswordModal({ open: false });
+		setPasswordModalInput('');
+	}, []);
+
+	const openProfilePasswordSetModal = useCallback(() => {
+		if (!editorDraft?.id) {
+			return;
+		}
+		setPasswordModalInput('');
+		setPasswordModal({ open: true, mode: 'set' });
+	}, [editorDraft?.id]);
+
+	const openProfilePasswordClearModal = useCallback(() => {
+		if (!editorDraft?.id) {
+			return;
+		}
+		setPasswordModal({ open: true, mode: 'clear' });
+	}, [editorDraft?.id]);
+
+	const confirmProfilePasswordModal = useCallback(async () => {
+		if (!passwordModal.open || !editorDraft?.id) {
+			return;
+		}
+		const shell = window.asyncShell;
+		if (!shell) {
+			closeProfilePasswordModal();
+			return;
+		}
+		if (passwordModal.mode === 'clear') {
+			const result = (await shell.invoke('term:profilePasswordClear', editorDraft.id)) as { ok?: boolean };
+			if (result?.ok) {
+				setEditorHasSavedPassword(false);
+			}
+			closeProfilePasswordModal();
+			return;
+		}
+		const value = passwordModalInput.trim();
+		if (!value) {
+			return;
+		}
+		const result = (await shell.invoke('term:profilePasswordSet', editorDraft.id, value)) as { ok?: boolean };
+		if (result?.ok) {
+			setEditorHasSavedPassword(true);
+		}
+		closeProfilePasswordModal();
+	}, [closeProfilePasswordModal, editorDraft?.id, passwordModal, passwordModalInput]);
+
 	const openProfileEditor = useCallback(
 		(id: string) => {
 			const source = settings.profiles.find((profile) => profile.id === id);
@@ -496,6 +548,7 @@ function ProfilesSettingsStage({
 	);
 
 	const closeProfileEditor = useCallback(() => {
+		closeProfilePasswordModal();
 		if (
 			(editorMode === 'create' || editorMode === 'defaults') &&
 			editorDraft &&
@@ -506,7 +559,7 @@ function ProfilesSettingsStage({
 		setEditorDraft(null);
 		setDefaultsKind(null);
 		setEditorHasSavedPassword(false);
-	}, [editorDraft, editorMode, settings.profiles]);
+	}, [closeProfilePasswordModal, editorDraft, editorMode, settings.profiles]);
 
 	const openTemplateEditor = useCallback((profileId?: string) => {
 		const source = profileId ? resolveTerminalProfile(settings.profiles, profileId, builtinProfiles) : null;
@@ -687,41 +740,6 @@ function ProfilesSettingsStage({
 		[]
 	);
 
-	const setEditorPassword = useCallback(async () => {
-		if (!editorDraft?.id) {
-			return;
-		}
-		const value = window.prompt(t('app.universalTerminalSettings.profiles.passwordPrompt'), '');
-		if (typeof value !== 'string' || !value) {
-			return;
-		}
-		const shell = window.asyncShell;
-		if (!shell) {
-			return;
-		}
-		const result = (await shell.invoke('term:profilePasswordSet', editorDraft.id, value)) as { ok?: boolean };
-		if (result?.ok) {
-			setEditorHasSavedPassword(true);
-		}
-	}, [editorDraft?.id, t]);
-
-	const clearEditorPassword = useCallback(async () => {
-		if (!editorDraft?.id) {
-			return;
-		}
-		if (!window.confirm(t('app.universalTerminalSettings.profiles.passwordClearConfirm'))) {
-			return;
-		}
-		const shell = window.asyncShell;
-		if (!shell) {
-			return;
-		}
-		const result = (await shell.invoke('term:profilePasswordClear', editorDraft.id)) as { ok?: boolean };
-		if (result?.ok) {
-			setEditorHasSavedPassword(false);
-		}
-	}, [editorDraft?.id, t]);
-
 	const pickPath = useCallback(
 		async (opts: {
 			kind: 'file' | 'directory';
@@ -878,18 +896,36 @@ function ProfilesSettingsStage({
 	}, [rowMenuProfileId]);
 
 	useEffect(() => {
-		if (!editorOpen && !createDialogOpen) {
+		if (!editorOpen && !createDialogOpen && !passwordModal.open) {
 			return;
 		}
 		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') {
-				setCreateDialogOpen(false);
-				setEditorDraft(null);
+			if (event.key !== 'Escape') {
+				return;
 			}
+			if (passwordModal.open) {
+				event.preventDefault();
+				event.stopPropagation();
+				closeProfilePasswordModal();
+				return;
+			}
+			setCreateDialogOpen(false);
+			setEditorDraft(null);
 		};
 		document.addEventListener('keydown', onKeyDown);
 		return () => document.removeEventListener('keydown', onKeyDown);
-	}, [createDialogOpen, editorOpen]);
+	}, [closeProfilePasswordModal, createDialogOpen, editorOpen, passwordModal.open]);
+
+	useEffect(() => {
+		if (!passwordModal.open || passwordModal.mode !== 'set') {
+			return;
+		}
+		const id = window.requestAnimationFrame(() => {
+			profilePasswordInputRef.current?.focus();
+			profilePasswordInputRef.current?.select();
+		});
+		return () => window.cancelAnimationFrame(id);
+	}, [passwordModal]);
 
 	useEffect(() => {
 		if (profilesSubtab !== 'profiles') {
@@ -1662,7 +1698,9 @@ function ProfilesSettingsStage({
 														<button
 															type="button"
 															className={editorHasSavedPassword ? 'ref-uterm-settings-danger-btn' : 'ref-uterm-settings-success-btn'}
-															onClick={() => void (editorHasSavedPassword ? clearEditorPassword() : setEditorPassword())}
+															onClick={() =>
+																void (editorHasSavedPassword ? openProfilePasswordClearModal() : openProfilePasswordSetModal())
+															}
 														>
 															{editorHasSavedPassword
 																? t('app.universalTerminalSettings.profiles.forgetPassword')
@@ -2093,6 +2131,67 @@ function ProfilesSettingsStage({
 							</div>
 						</div>
 					</div>
+					{passwordModal.open ? (
+						<div className="ref-uterm-settings-nested-password-layer" role="presentation">
+							<button
+								type="button"
+								className="ref-uterm-settings-modal-backdrop"
+								onClick={closeProfilePasswordModal}
+								aria-label={t('app.universalTerminalSettings.profiles.passwordModalDismiss')}
+							/>
+							<div
+								className="ref-uterm-settings-nested-password-dialog"
+								role="dialog"
+								aria-modal="true"
+								aria-labelledby="ref-uterm-profile-password-modal-title"
+							>
+								<h3 id="ref-uterm-profile-password-modal-title" className="ref-uterm-settings-nested-password-title">
+									{passwordModal.mode === 'set'
+										? t('app.universalTerminalSettings.profiles.setPassword')
+										: t('app.universalTerminalSettings.profiles.forgetPassword')}
+								</h3>
+								{passwordModal.mode === 'set' ? (
+									<>
+										<p className="ref-uterm-settings-nested-password-copy">
+											{t('app.universalTerminalSettings.profiles.passwordHint')}
+										</p>
+										<input
+											ref={profilePasswordInputRef}
+											type="password"
+											autoComplete="new-password"
+											className="ref-uterm-settings-input"
+											value={passwordModalInput}
+											onChange={(event) => setPasswordModalInput(event.target.value)}
+											onKeyDown={(event) => {
+												if (event.key === 'Enter') {
+													event.preventDefault();
+													void confirmProfilePasswordModal();
+												}
+											}}
+										/>
+									</>
+								) : (
+									<p className="ref-uterm-settings-nested-password-copy">
+										{t('app.universalTerminalSettings.profiles.passwordClearConfirm')}
+									</p>
+								)}
+								<div className="ref-uterm-settings-nested-password-actions">
+									<button type="button" className="ref-uterm-settings-secondary-btn" onClick={closeProfilePasswordModal}>
+										{t('app.universalTerminalSettings.profiles.editorCancel')}
+									</button>
+									<button
+										type="button"
+										className={passwordModal.mode === 'clear' ? 'ref-uterm-settings-danger-btn' : 'ref-uterm-settings-primary-btn'}
+										onClick={() => void confirmProfilePasswordModal()}
+									>
+										{passwordModal.mode === 'set'
+											? t('app.universalTerminalSettings.profiles.passwordModalSave')
+											: t('app.universalTerminalSettings.profiles.passwordModalConfirmForget')}
+									</button>
+								</div>
+							</div>
+						</div>
+					) : null}
 				</div>
 			) : null}
 		</div>
