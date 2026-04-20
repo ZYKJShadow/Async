@@ -1975,28 +1975,49 @@
 	border-color: color-mix(in srgb, var(--void-accent-cool) 55%, transparent);
 }
 
+/*
+ * Copied toast：对齐 Tabby toast-bottom-center 布局；字号与内边距略大于 toastr 默认以便阅读。
+ * 配色用 void 面板色，不用固定 #555 / #2f96b4。
+ */
 .ref-uterm-notice-toast {
 	position: fixed;
-	right: 20px;
-	bottom: 20px;
+	left: 50%;
+	right: auto;
+	bottom: 50px;
 	z-index: 130000;
-	max-width: min(320px, calc(100vw - 40px));
-	padding: 10px 14px;
-	border-radius: 6px;
-	font-size: 13px;
-	line-height: 1.35;
-	color: #fff;
-	background: #2f96b4;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+	width: max-content;
+	max-width: min(360px, calc(100vw - 24px));
+	min-width: 0;
+	padding: 10px 18px;
+	border-radius: 0.5rem;
+	font-size: 0.875rem;
+	line-height: 1.45;
+	text-align: center;
+	color: var(--void-fg-0);
+	background: color-mix(in srgb, var(--void-bg-2) 88%, var(--void-bg-1));
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	box-shadow:
+		0 1px 0 color-mix(in srgb, #000 22%, transparent),
+		0 6px 20px color-mix(in srgb, #000 18%, transparent);
 	opacity: 0;
-	transform: translateY(6px);
-	transition: opacity 160ms ease, transform 160ms ease;
+	transform: translate(-50%, 12px);
+	transition:
+		opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+		transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 	pointer-events: none;
+	box-sizing: border-box;
 }
 
 .ref-uterm-notice-toast.is-visible {
 	opacity: 1;
-	transform: translateY(0);
+	transform: translate(-50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-uterm-notice-toast {
+		transition-duration: 0.01ms;
+		transform: translate(-50%, 0);
+	}
 }
 
 .ref-uterm-settings-workspace {

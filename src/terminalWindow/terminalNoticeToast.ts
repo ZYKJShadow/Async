@@ -14,6 +14,6 @@ export function showTerminalCopiedNotice(message: string, durationMs = 1000): vo
 	});
 	window.setTimeout(() => {
 		el.classList.remove('is-visible');
-		window.setTimeout(() => el.remove(), 200);
+		window.setTimeout(() => el.remove(), 320);
 	}, durationMs);
 }
