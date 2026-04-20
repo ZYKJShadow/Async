@@ -161,6 +161,7 @@ describe('buildSpecialistTaskPacket', () => {
 			status: 'completed',
 			dependencies: [],
 			acceptanceCriteria: ['UI compiles'],
+			kind: 'deliver',
 			result: 'Updated the form fields and submit button states.',
 		};
 		const task: TeamTask = {
@@ -173,6 +174,7 @@ describe('buildSpecialistTaskPacket', () => {
 			status: 'pending',
 			dependencies: [dependency.id],
 			acceptanceCriteria: ['Request payload matches backend schema'],
+			kind: 'deliver',
 		};
 
 		const packet = buildSpecialistTaskPacket({
@@ -193,6 +195,37 @@ describe('buildSpecialistTaskPacket', () => {
 	});
 });
 
+describe('buildSpecialistTaskPacket — discuss kind', () => {
+	it('frames the packet as a no-code discussion assignment', () => {
+		const expert = makeExpert('game_designer', 'Game Designer', 'custom');
+		const task: TeamTask = {
+			id: 'task-discuss',
+			expertId: expert.id,
+			expertAssignmentKey: expert.assignmentKey,
+			expertName: expert.name,
+			roleType: expert.roleType,
+			description: 'Propose 3 core-loop directions for the game and compare trade-offs.',
+			status: 'pending',
+			dependencies: [],
+			acceptanceCriteria: ['List 3 distinct directions', 'Explain pros and cons'],
+			kind: 'discuss',
+		};
+
+		const packet = buildSpecialistTaskPacket({
+			task,
+			expert,
+			userRequest: '我想做一个某某游戏，给我一点思路。',
+			planSummary: 'Gather perspectives before committing to an implementation direction.',
+			completedTasksById: new Map(),
+		});
+
+		expect(packet).toContain('DISCUSSION task');
+		expect(packet).toContain('Do NOT modify files');
+		expect(packet).toContain('## Assigned Task (discussion — no file changes)');
+		expect(packet).not.toContain('produce a concrete deliverable');
+	});
+});
+
 describe('buildReviewerTaskPacket', () => {
 	it('summarizes specialist outputs for review', () => {
 		const reviewer = makeExpert('reviewer', 'Reviewer', 'reviewer');
@@ -207,6 +240,7 @@ describe('buildReviewerTaskPacket', () => {
 				status: 'completed',
 				dependencies: [],
 				acceptanceCriteria: ['Docs mention failure recovery'],
+				kind: 'deliver',
 				result: 'Added docs for autosave retries and offline recovery.',
 			},
 		];
@@ -224,6 +258,70 @@ describe('buildReviewerTaskPacket', () => {
 		expect(packet).toContain('Added docs for autosave retries and offline recovery.');
 		expect(packet).toContain('### Verdict: APPROVED');
 		expect(packet).toContain('### Verdict: NEEDS_REVISION');
+	});
+});
+
+describe('runTeamSession discuss-kind plans', () => {
+	it('filters specialist tool pool to read-only and skips the delivery reviewer', async () => {
+		assembleAgentToolPoolMock.mockReturnValue([
+			{ name: 'Read', description: '', parameters: {} },
+			{ name: 'Glob', description: '', parameters: {} },
+			{ name: 'Grep', description: '', parameters: {} },
+			{ name: 'Write', description: '', parameters: {} },
+			{ name: 'Edit', description: '', parameters: {} },
+			{ name: 'Bash', description: '', parameters: {} },
+		]);
+
+		runAgentLoopMock
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				await submitTeamPlanDecision(
+					handlers,
+					{
+						mode: 'PLAN',
+						tasks: [
+							{
+								expert: 'game_designer',
+								task: '给出 3 种玩法方向并比较优劣',
+								kind: 'discuss',
+								acceptanceCriteria: ['3 个方向各有一段说明'],
+							},
+						],
+					},
+					'我会让策划先给你 3 个方向做对比。'
+				);
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone('方向 A / 方向 B / 方向 C …（纯文字）');
+			});
+
+		const experts = [
+			makeExpertConfig('team_lead', 'Team Lead', 'team_lead'),
+			makeExpertConfig('game_designer', 'Game Designer', 'custom'),
+			makeExpertConfig('reviewer', 'Reviewer', 'reviewer'),
+		];
+		const { events, doneCalls, errorCalls } = await runSession({
+			userRequest: '我想做一个某某游戏，给我一点思路',
+			experts,
+		});
+
+		expect(errorCalls).toEqual([]);
+		expect(doneCalls).toHaveLength(1);
+
+		const specialistOptions = runAgentLoopMock.mock.calls[1]?.[2] as
+			| { toolPoolOverride?: Array<{ name: string }> }
+			| undefined;
+		const toolNames = specialistOptions?.toolPoolOverride?.map((tool) => tool.name) ?? [];
+		expect(toolNames).toEqual(expect.arrayContaining(['Read', 'Glob', 'Grep']));
+		expect(toolNames).not.toContain('Write');
+		expect(toolNames).not.toContain('Edit');
+		expect(toolNames).not.toContain('Bash');
+
+		expect(runAgentLoopMock.mock.calls).toHaveLength(2);
+		expect(events.some((evt) => evt.type === 'team_review')).toBe(true);
+		const reviewEvent = events.find((evt) => evt.type === 'team_review') as
+			| { verdict: 'approved' | 'revision_needed'; summary: string }
+			| undefined;
+		expect(reviewEvent?.verdict).toBe('approved');
 	});
 });
 

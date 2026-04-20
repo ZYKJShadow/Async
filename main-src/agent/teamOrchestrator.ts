@@ -29,6 +29,7 @@ import {
 	teamPlanDecideTool,
 	type TeamPlanDecision,
 	type TeamPlanDecideTask,
+	type TeamPlanTaskKind,
 	setTeamPlanDecideRuntime,
 } from './teamPlanDecideTool.js';
 import {
@@ -86,6 +87,7 @@ export type TeamTask = {
 	status: TeamTaskStatus;
 	dependencies: string[];
 	acceptanceCriteria: string[];
+	kind: TeamPlanTaskKind;
 	result?: string;
 };
 
@@ -289,6 +291,7 @@ function buildReviewerWorkflowTask(
 		status: 'in_progress',
 		dependencies,
 		acceptanceCriteria,
+		kind: 'deliver',
 	};
 }
 
@@ -332,6 +335,7 @@ export type TeamOrchestratorInput = {
 type LLMPlannedTask = {
 	expert: string;
 	task: string;
+	kind: TeamPlanTaskKind;
 	dependencies?: string[];
 	acceptanceCriteria?: string[];
 };
@@ -342,6 +346,7 @@ function toLlmPlannedTasks(tasks: TeamPlanDecideTask[]): LLMPlannedTask[] {
 	return tasks.map((task) => ({
 		expert: task.expert,
 		task: task.task,
+		kind: task.kind ?? 'deliver',
 		dependencies: task.dependencies ?? [],
 		acceptanceCriteria: task.acceptanceCriteria ?? [],
 	}));
@@ -505,6 +510,7 @@ function materializePlannedTasks(
 			.map((value) => dependencyIdByKey.get(normalizeTeamTaskKey(value)) ?? '')
 			.filter(Boolean),
 		acceptanceCriteria: item.plannedTask.acceptanceCriteria ?? [],
+		kind: item.plannedTask.kind,
 	}));
 }
 
@@ -696,11 +702,26 @@ export function buildSpecialistTaskPacket(params: {
 	allTasks?: TeamTask[];
 }): string {
 	const { task, expert, userRequest, planSummary, completedTasksById, allTasks } = params;
+	const isDiscuss = task.kind === 'discuss';
+	const introLines = isDiscuss
+		? [
+			'You are a specialist working under a Team Lead.',
+			'This is a DISCUSSION task (kind: discuss). The user wants your perspective, ideas, or analysis — NOT code changes.',
+			'You are receiving a focused assignment packet instead of the full chat transcript.',
+			'Rules for discussion tasks:',
+			'- Do NOT modify files. Do NOT propose diffs. Do NOT write implementation code blocks.',
+			'- You may inspect the repository with read-only tools (Read, Glob, Grep, LSP) to ground your opinions, but your output is text only.',
+			'- Produce a concise, structured textual deliverable from your specialty lens: options, trade-offs, risks, recommendations, questions for the Lead, etc.',
+			'- If the user later wants to implement, the Lead will dispatch a separate deliver-kind task.',
+		]
+		: [
+			'You are a specialist working under a Team Lead.',
+			'You are receiving a focused assignment packet instead of the full chat transcript.',
+			'Use the dependency handoffs below as the authoritative outputs from your teammates.',
+			'Stay within your assigned scope and produce a concrete deliverable.',
+		];
 	return [
-		'You are a specialist working under a Team Lead.',
-		'You are receiving a focused assignment packet instead of the full chat transcript.',
-		'Use the dependency handoffs below as the authoritative outputs from your teammates.',
-		'Stay within your assigned scope and produce a concrete deliverable.',
+		...introLines,
 		'',
 		'## Original User Request',
 		clampTeamPacketText(userRequest),
@@ -714,7 +735,7 @@ export function buildSpecialistTaskPacket(params: {
 		'## Your Role',
 		`${expert.name} (${expert.roleType})`,
 		'',
-		'## Assigned Task',
+		`## Assigned Task (${isDiscuss ? 'discussion — no file changes' : 'deliverable'})`,
 		task.description,
 		'',
 		'## Acceptance Criteria',
@@ -804,12 +825,20 @@ async function llmPlanTasks(params: {
 				'You MUST call `team_plan_decide` exactly once before the turn ends.',
 				'Do NOT put control markers, raw JSON plans, or tool protocol text in your plain-text reply.',
 				'',
-				'Decision rules:',
-				'- Use mode ANSWER only for generic, repo-agnostic questions that do not need the team workflow.',
-				'- Use mode CLARIFY when the request is about this project but still too ambiguous to route safely.',
-				'- Use mode PLAN when you can assign concrete specialist work without guessing.',
+				'Decision rules (pick the mode that matches the USER INTENT, not just the topic):',
+				'- Use mode ANSWER when the user wants a quick, single-voice reply from you (the Lead) — simple questions, chit-chat, or quick clarifications that do NOT benefit from multi-specialist input.',
+				'- Use mode CLARIFY when you genuinely cannot tell whether the user wants ideas/discussion or actual implementation, or when a critical routing decision is missing. A good CLARIFY reply asks ONE focused question, for example: "你是想先听几位专家给出不同思路和方案对比，还是希望我们直接开始实现？"',
+				'- Use mode PLAN to dispatch specialists. Each task MUST carry a `kind`:',
+				'    * `kind: "discuss"` — the specialist shares perspective, analysis, risks, options, or recommendations in text only. They MUST NOT modify files. Use this when the user asked for ideas / 思路 / 想法 / 建议 / 方向 / brainstorm / options / 方案对比 / 讨论, or when they want to hear multiple angles from the team before committing.',
+				'    * `kind: "deliver"` — the specialist produces a concrete implementation deliverable (code edits, config, scripts, docs). Use this only when the user explicitly asked to build/implement/ship/write, or when they already accepted a previous discussion round and now want execution.',
+				'- NEVER mix discussion intent with deliver-kind tasks. If the user only wants ideas, ALL tasks in this PLAN must be `kind: "discuss"`. Jumping straight to deliver-kind coding on a brainstorming request is the single biggest failure mode — do not do it.',
 				'- When mode is ANSWER or CLARIFY, include the final user-visible reply in `replyToUser`.',
 				'- When mode is PLAN, include structured tasks in `team_plan_decide.tasks` and keep any plain-text reply as short narrative only.',
+				'',
+				'Intent signals to watch for:',
+				'- Discussion signals (→ PLAN with discuss-kind, or ANSWER): "给我一点思路", "有什么想法", "你觉得", "帮我想想", "方向", "ideas", "brainstorm", "what do you think", "options", "pros and cons", "方案对比".',
+				'- Delivery signals (→ PLAN with deliver-kind): "帮我实现", "写一下", "加上", "修一下", "跑一下", "build", "implement", "ship", "fix", "refactor", "add", or a follow-up turn after the user accepted a previous proposal.',
+				'- Mixed / ambiguous: prefer CLARIFY or discuss-kind PLAN. Err on the side of NOT writing code.',
 				'',
 				'Available specialist assignment keys:',
 				availableRoles,
@@ -817,7 +846,7 @@ async function llmPlanTasks(params: {
 				'If you call `ask_plan_question`, do not repeat the raw options or tool protocol in markdown.',
 				'If the user answers an `ask_plan_question`, absorb that answer and continue planning in the same turn whenever possible.',
 				'Never invent a generic frontend/backend/qa split just to keep the workflow moving.',
-				'For PLAN tasks, include concrete acceptance criteria whenever possible and keep dependencies explicit.',
+				'For PLAN tasks, include concrete acceptance criteria whenever possible and keep dependencies explicit. For discuss-kind tasks, acceptance criteria should describe what the specialist is expected to OPINE on (e.g., "列出 3 种可行玩法方向并比较优劣"), not what to ship.',
 				'Respond in the same language as the user.',
 			].join('\n'),
 		},
@@ -836,6 +865,7 @@ async function llmPlanTasks(params: {
 			status: 'in_progress',
 			dependencies: [],
 			acceptanceCriteria: [],
+			kind: 'deliver',
 		},
 		'lead'
 	);
@@ -1487,12 +1517,19 @@ async function runReviewerAgent(params: {
 
 // ── Specialist execution ─────────────────────────────────────────────────
 
-function buildSpecialistToolPool(base: AgentToolDef[], expert: TeamExpertRuntimeProfile): AgentToolDef[] {
+function buildSpecialistToolPool(
+	base: AgentToolDef[],
+	expert: TeamExpertRuntimeProfile,
+	taskKind: TeamPlanTaskKind = 'deliver'
+): AgentToolDef[] {
 	const allow = expert.allowedTools && expert.allowedTools.length > 0 ? new Set(expert.allowedTools) : null;
-	const filtered =
+	let filtered =
 		!allow
 			? [...base]
 			: base.filter((tool) => allow.has(tool.name));
+	if (taskKind === 'discuss') {
+		filtered = filtered.filter((tool) => isReadOnlyAgentTool(tool.name));
+	}
 	for (const tool of [teamEscalateToLeadTool, teamRequestFromPeerTool, teamReplyToPeerTool]) {
 		if (!filtered.some((item) => item.name === tool.name)) {
 			filtered.push(tool);
@@ -1550,7 +1587,7 @@ async function runOneSpecialist(params: {
 			}),
 		},
 	];
-	const specializedToolPool = buildSpecialistToolPool(baseTools, expert);
+	const specializedToolPool = buildSpecialistToolPool(baseTools, expert, task.kind);
 	let finalText = '';
 	let success = true;
 	let escalation: TeamEscalation | undefined;
@@ -2019,10 +2056,12 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 			emit({ threadId, type: 'team_plan_summary', summary: planSummary });
 
+			const isPureDiscussPlan = plannedTasks.length > 0 && plannedTasks.every((task) => task.kind === 'discuss');
+
 			// ── Phase 1.25: Preflight requirement/plan review ────────────
 
 			const enablePreflightReview = settings.team?.enablePreflightReview ?? teamDefaults.enablePreflightReview;
-			if (enablePreflightReview && resolvedExperts.planReviewer) {
+			if (enablePreflightReview && resolvedExperts.planReviewer && !isPureDiscussPlan) {
 				checkAbort();
 				emit({ threadId, type: 'team_phase', phase: 'preflight' });
 				try {
@@ -2477,7 +2516,9 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			checkAbort();
 			emit({ threadId, type: 'team_phase', phase: 'reviewing' });
 
-			if (resolvedExperts.deliveryReviewer) {
+			const reviewingPureDiscuss = completed.length > 0 && completed.every((task) => task.kind === 'discuss');
+
+			if (resolvedExperts.deliveryReviewer && !reviewingPureDiscuss) {
 				checkAbort();
 				review = await runReviewerAgent({
 					settings, threadId, reviewer: resolvedExperts.deliveryReviewer, completedTasks: completed,

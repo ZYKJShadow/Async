@@ -2,9 +2,12 @@ import type { AgentToolDef, ToolCall, ToolResult } from './agentTools.js';
 
 export type TeamPlanDecideMode = 'ANSWER' | 'CLARIFY' | 'PLAN';
 
+export type TeamPlanTaskKind = 'discuss' | 'deliver';
+
 export type TeamPlanDecideTask = {
 	expert: string;
 	task: string;
+	kind?: TeamPlanTaskKind;
 	dependencies?: string[];
 	acceptanceCriteria?: string[];
 };
@@ -46,6 +49,12 @@ export const teamPlanDecideTool: AgentToolDef = {
 							type: 'string',
 							description: 'Concrete task description for the specialist.',
 						},
+						kind: {
+							type: 'string',
+							enum: ['discuss', 'deliver'],
+							description:
+								'Task intent. Use "discuss" when the user wants ideas / perspectives / analysis and NO file changes. Use "deliver" when the user wants concrete implementation output.',
+						},
 						dependencies: {
 							type: 'array',
 							items: { type: 'string' },
@@ -80,6 +89,11 @@ export function setTeamPlanDecideRuntime(taskId: string, next: TeamPlanDecideRun
 	}
 }
 
+function normalizeTaskKind(raw: unknown): TeamPlanTaskKind {
+	const value = String(raw ?? '').trim().toLowerCase();
+	return value === 'discuss' ? 'discuss' : 'deliver';
+}
+
 function normalizeTask(item: unknown): TeamPlanDecideTask | null {
 	if (!item || typeof item !== 'object' || Array.isArray(item)) {
 		return null;
@@ -93,6 +107,7 @@ function normalizeTask(item: unknown): TeamPlanDecideTask | null {
 	return {
 		expert,
 		task,
+		kind: normalizeTaskKind(raw.kind),
 		dependencies: Array.isArray(raw.dependencies)
 			? raw.dependencies.map((value) => String(value ?? '').trim()).filter(Boolean)
 			: [],
