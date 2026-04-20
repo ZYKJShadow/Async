@@ -31,7 +31,7 @@ import type { BotIntegrationConfig } from '../botSettingsTypes';
 import { coerceThinkingByModelId, type ThinkingLevel } from '../ipcTypes';
 import type { ModelPickerItem } from '../ModelPickerDropdown';
 import type { TFunction } from '../i18n';
-import { getTeamPresetDefaults } from '../teamPresetCatalog';
+import { normalizeTeamSettings } from '../teamPresetCatalog';
 import { EMPTY_PLUGIN_RUNTIME_STATE, type PluginRuntimeState } from '../pluginRuntimeTypes';
 
 /* ── Project agent slice ── */
@@ -93,10 +93,7 @@ export function useSettings(
 	const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
 	const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([]);
 	const [teamSettings, setTeamSettings] = useState<TeamSettings>({
-		useDefaults: true,
-		presetId: 'engineering',
-		experts: [],
-		...getTeamPresetDefaults('engineering'),
+		...normalizeTeamSettings(undefined),
 	});
 	const [botIntegrations, setBotIntegrations] = useState<BotIntegrationConfig[]>([]);
 
@@ -282,21 +279,7 @@ export function useSettings(
 		if (st?.editor) {
 			setEditorSettings({ ...defaultEditorSettings(), ...st.editor });
 		}
-		const presetId = st?.team?.presetId ?? 'engineering';
-		const presetDefaults = getTeamPresetDefaults(presetId);
-		setTeamSettings({
-			useDefaults: st?.team?.useDefaults ?? true,
-			presetId,
-			experts: Array.isArray(st?.team?.experts) ? st!.team!.experts : [],
-			presetExpertSnapshots:
-				st?.team?.presetExpertSnapshots && typeof st.team.presetExpertSnapshots === 'object'
-					? st.team.presetExpertSnapshots
-					: undefined,
-			requirePlanApproval: st?.team?.requirePlanApproval ?? presetDefaults.requirePlanApproval,
-			enablePreflightReview: st?.team?.enablePreflightReview ?? presetDefaults.enablePreflightReview,
-			planReviewer: st?.team?.planReviewer ?? null,
-			deliveryReviewer: st?.team?.deliveryReviewer ?? null,
-		});
+		setTeamSettings(normalizeTeamSettings(st?.team));
 		setBotIntegrations(Array.isArray(st?.bots?.integrations) ? st!.bots!.integrations : []);
 	}, []);
 

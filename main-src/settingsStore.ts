@@ -110,6 +110,7 @@ export type ShellLspSettings = {
 };
 
 export type TeamRoleType = 'team_lead' | 'frontend' | 'backend' | 'qa' | 'reviewer' | 'custom';
+export type TeamSource = 'builtin' | 'custom';
 export type TeamPresetId = 'engineering' | 'planning' | 'design';
 
 export type TeamExpertConfig = {
@@ -124,12 +125,17 @@ export type TeamExpertConfig = {
 };
 
 export type TeamSettings = {
+	source?: TeamSource;
 	experts?: TeamExpertConfig[];
 	useDefaults?: boolean;
 	/** @deprecated 保留仅兼容旧 settings.json */
 	maxParallelExperts?: number;
 	presetId?: TeamPresetId;
 	presetExpertSnapshots?: Partial<Record<TeamPresetId, TeamExpertConfig[]>>;
+	/** 内置团队的全局模型；未设置时回退到当前会话所选模型 */
+	builtinGlobalModelId?: string;
+	/** 内置团队按角色覆盖模型；未命中时回退到 builtinGlobalModelId */
+	builtinExpertModelOverrides?: Record<string, string>;
 	/** Lead 出方案后先等用户确认再派发专家；默认 true */
 	requirePlanApproval?: boolean;
 	/** 执行前先让评审专家评估需求/方案；默认值随 preset 决定（engineering 默认 false） */
@@ -237,9 +243,12 @@ const defaultSettings: ShellSettings = {
 	lastOpenedWorkspace: null,
 	providerIdentity: defaultProviderIdentitySettings(),
 	team: {
+		source: 'builtin',
 		useDefaults: true,
 		presetId: 'engineering',
 		experts: [],
+		builtinGlobalModelId: undefined,
+		builtinExpertModelOverrides: {},
 		requirePlanApproval: true,
 		enablePreflightReview: false,
 		planReviewer: null,

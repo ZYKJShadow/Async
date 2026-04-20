@@ -12,7 +12,7 @@ import {
 } from './requestUserInputTool.js';
 import { resolveTeamExpertProfiles, type TeamExpertRuntimeProfile } from './teamExpertProfiles.js';
 import { resolveModelRequest, type ResolvedModelRequest } from '../llm/modelResolve.js';
-import { getTeamPreset, getTeamPresetDefaults } from '../../src/teamPresetCatalog.js';
+import { getTeamSourceDefaults } from '../../src/teamPresetCatalog.js';
 import { buildAutoReplyLanguageRuleBlock } from '../../src/autoReplyLanguageRule.js';
 import {
 	extractAssistantTextForDisplay,
@@ -786,7 +786,11 @@ async function llmPlanTasks(params: {
 		signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 	} = params;
 	const hasCjk = messages.some((message) => /[\u3400-\u9fff]/.test(String(message.content ?? '')));
-	const availableRoles = specialists.map((s) => `- ${s.assignmentKey}: ${s.name}`).join('\n');
+	const availableRoles = specialists
+		.map((specialist) =>
+			`- ${specialist.assignmentKey}: ${specialist.name}${specialist.summary ? ` - ${specialist.summary}` : ''}`
+		)
+		.join('\n');
 	const planMessages: ChatMessage[] = [
 		...messages,
 		{
@@ -1898,12 +1902,11 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		const resolvedExperts = resolveTeamExpertProfiles(settings.team, baseTeamTools);
 		const { teamLead, specialists } = resolvedExperts;
 		const plannerTools = buildPlannerToolPool(baseTeamTools);
-		const presetMaxParallel = getTeamPreset(settings.team?.presetId).maxParallelExperts;
 		const rawConfiguredMaxParallel = Number(settings.team?.maxParallelExperts);
 		const maxParallelExperts =
 			Number.isFinite(rawConfiguredMaxParallel) && rawConfiguredMaxParallel > 0
 				? Math.max(1, Math.floor(rawConfiguredMaxParallel))
-				: Math.max(1, Math.floor(presetMaxParallel || 2));
+				: 3;
 
 		if (!teamLead || specialists.length === 0) {
 			onError('Team mode requires at least one Team Lead and one enabled specialist.');
@@ -1917,7 +1920,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		};
 
 		const hasCjkRequest = /[\u3400-\u9fff]/.test(effectiveUserText);
-		const presetDefaults = getTeamPresetDefaults(settings.team?.presetId);
+		const teamDefaults = getTeamSourceDefaults(settings.team?.source);
 		let planningMessages = messages;
 
 		// ── Phase 1: Planning ────────────────────────────────────────
@@ -2018,7 +2021,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 			// ── Phase 1.25: Preflight requirement/plan review ────────────
 
-			const enablePreflightReview = settings.team?.enablePreflightReview ?? presetDefaults.enablePreflightReview;
+			const enablePreflightReview = settings.team?.enablePreflightReview ?? teamDefaults.enablePreflightReview;
 			if (enablePreflightReview && resolvedExperts.planReviewer) {
 				checkAbort();
 				emit({ threadId, type: 'team_phase', phase: 'preflight' });
@@ -2061,7 +2064,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 		// ── Phase 1.5: Plan proposal — await user approval ───────────
 
-		const requirePlanApproval = settings.team?.requirePlanApproval ?? presetDefaults.requirePlanApproval;
+		const requirePlanApproval = settings.team?.requirePlanApproval ?? teamDefaults.requirePlanApproval;
 		if (requirePlanApproval) {
 			checkAbort();
 			emit({ threadId, type: 'team_phase', phase: 'proposing' });

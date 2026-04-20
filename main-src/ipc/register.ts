@@ -131,6 +131,7 @@ import { countLineChangesBetweenTexts, countDiffLinesInChunk } from '../diffLine
 import { recordAgentLineDelta, recordTokenUsageEvent, getUsageStatsForDataDir } from '../workspaceUsageStats.js';
 import { runAgentLoop } from '../agent/agentLoop.js';
 import { runTeamSession } from '../agent/teamOrchestrator.js';
+import { getBuiltinTeamCatalogPayload } from '../agent/builtinTeamCatalog.js';
 import {
 	createMistakeLimitReachedHandler,
 	resolveMistakeLimitRecovery,
@@ -1842,6 +1843,8 @@ export function registerIpc(): void {
 		}
 		return next;
 	});
+
+	ipcMain.handle('team:getBuiltinCatalog', () => getBuiltinTeamCatalogPayload());
 
 	ipcMain.handle('settings:discoverProviderModels', async (_e, rawProvider: unknown) => {
 		const provider = rawProvider as Partial<UserLlmProvider> | null | undefined;

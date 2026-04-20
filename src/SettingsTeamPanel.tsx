@@ -1,15 +1,10 @@
-import { useMemo, useState } from 'react';
-import type { TeamExpertConfig, TeamPresetId, TeamRoleType, TeamSettings } from './agentSettingsTypes';
+import { useEffect, useMemo, useState } from 'react';
+import type { TeamExpertConfig, TeamRoleType, TeamSettings, TeamSource } from './agentSettingsTypes';
+import type { BuiltinTeamCatalogPayload, BuiltinTeamExpertSummary } from './teamBuiltinCatalogTypes';
 import type { UserModelEntry, UserLlmProvider } from './modelCatalog';
 import { providerDisplayLabel } from './modelCatalog';
 import { useI18n } from './i18n';
-import {
-	TEAM_PRESET_LIBRARY,
-	buildTeamPresetExperts,
-	getTeamPreset,
-	getTeamPresetDefaults,
-	mergeTeamPresetSavedRows,
-} from './teamPresetCatalog';
+import { buildDefaultCustomTeamExperts, getTeamSourceDefaults, inferTeamSource } from './teamPresetCatalog';
 import { VoidSelect } from './VoidSelect';
 
 type Props = {
@@ -20,6 +15,7 @@ type Props = {
 };
 
 const ROLE_IDS: TeamRoleType[] = ['team_lead', 'frontend', 'backend', 'qa', 'reviewer', 'custom'];
+const FALLBACK_BUILTIN_REPO_PATH = 'D:\\WebstormProjects\\agency-agents';
 
 function newRole(): TeamExpertConfig {
 	const id =
@@ -66,52 +62,123 @@ function newReviewer(kind: 'plan' | 'delivery'): TeamExpertConfig {
 	};
 }
 
+function builtinRoleLabel(role: BuiltinTeamExpertSummary, t: ReturnType<typeof useI18n>['t']): string {
+	return t(`settings.team.role.${role.roleType}`) || role.roleType;
+}
+
+function modelDisplayText(
+	modelId: string | undefined,
+	modelEntries: UserModelEntry[],
+	modelProviders: UserLlmProvider[]
+): string | undefined {
+	const normalizedModelId = String(modelId ?? '').trim();
+	if (!normalizedModelId) {
+		return undefined;
+	}
+	const model = modelEntries.find((entry) => entry.id === normalizedModelId);
+	if (!model) {
+		return normalizedModelId;
+	}
+	const providerName = providerDisplayLabel(model.providerId, modelProviders);
+	const modelName = model.displayName.trim() || model.requestName || model.id;
+	return providerName ? `${modelName} (${providerName})` : modelName;
+}
+
+function builtinModelSourceText(params: {
+	overrideModelId?: string;
+	globalModelLabel?: string;
+	t: ReturnType<typeof useI18n>['t'];
+}): string {
+	if (params.overrideModelId?.trim()) {
+		return params.t('settings.team.builtinModelSource.override');
+	}
+	if (params.globalModelLabel?.trim()) {
+		return params.t('settings.team.builtinModelSource.global');
+	}
+	return params.t('settings.team.builtinModelSource.session');
+}
+
 export function SettingsTeamPanel({ value, onChange, modelEntries, modelProviders = [] }: Props) {
 	const { t } = useI18n();
-	const experts = value.experts ?? [];
-	const roleList = experts.length > 0 ? experts : buildTeamPresetExperts(value.presetId);
-	const currentPreset = getTeamPreset(value.presetId);
-
+	const teamSource = inferTeamSource(value);
+	const experts = Array.isArray(value.experts) ? value.experts : [];
+	const customRoleList = experts;
 	const [editingRole, setEditingRole] = useState<TeamExpertConfig | null>(null);
+	const [builtinCatalog, setBuiltinCatalog] = useState<BuiltinTeamCatalogPayload | null>(null);
 
-	const applyPreset = (nextPresetId: TeamPresetId) => {
-		const currentPresetId = (value.presetId ?? 'engineering') as TeamPresetId;
-		if (nextPresetId === currentPresetId) {
-			return;
+	useEffect(() => {
+		let cancelled = false;
+		const shell = window.asyncShell;
+		if (!shell) {
+			setBuiltinCatalog({
+				ok: false,
+				repoPath: FALLBACK_BUILTIN_REPO_PATH,
+				experts: [],
+				error: 'Async shell is unavailable.',
+				loadedAt: Date.now(),
+			});
+			return () => {
+				cancelled = true;
+			};
 		}
-		const snapshots: Partial<Record<TeamPresetId, TeamExpertConfig[]>> = {
-			...(value.presetExpertSnapshots ?? {}),
+		void shell
+			.invoke('team:getBuiltinCatalog')
+			.then((payload) => {
+				if (cancelled) {
+					return;
+				}
+				if (
+					payload &&
+					typeof payload === 'object' &&
+					Array.isArray((payload as BuiltinTeamCatalogPayload).experts)
+				) {
+					setBuiltinCatalog(payload as BuiltinTeamCatalogPayload);
+					return;
+				}
+				setBuiltinCatalog({
+					ok: false,
+					repoPath: FALLBACK_BUILTIN_REPO_PATH,
+					experts: [],
+					error: 'Unexpected built-in team response.',
+					loadedAt: Date.now(),
+				});
+			})
+			.catch((error) => {
+				if (cancelled) {
+					return;
+				}
+				setBuiltinCatalog({
+					ok: false,
+					repoPath: FALLBACK_BUILTIN_REPO_PATH,
+					experts: [],
+					error: error instanceof Error ? error.message : String(error),
+					loadedAt: Date.now(),
+				});
+			});
+		return () => {
+			cancelled = true;
 		};
-		const currentList =
-			experts.length > 0 ? experts.map((e) => ({ ...e })) : buildTeamPresetExperts(currentPresetId);
-		snapshots[currentPresetId] = currentList;
+	}, []);
 
-		const savedNext = snapshots[nextPresetId];
-		const fresh = buildTeamPresetExperts(nextPresetId);
-		const nextExperts = mergeTeamPresetSavedRows(fresh, savedNext);
+	const builtinExperts = builtinCatalog?.experts ?? [];
+	const builtinLeader = builtinExperts.find((expert) => expert.roleType === 'team_lead') ?? null;
+	const builtinGlobalModelId = value.builtinGlobalModelId?.trim() ?? '';
+	const builtinExpertModelOverrides = value.builtinExpertModelOverrides ?? {};
+	const activeRoles = teamSource === 'builtin' ? builtinExperts : customRoleList;
 
-		onChange({
-			...value,
-			presetId: nextPresetId,
-			useDefaults: true,
-			presetExpertSnapshots: snapshots,
-			experts: nextExperts,
-			...getTeamPresetDefaults(nextPresetId),
-		});
-	};
 	const modelOptions = useMemo(
 		() =>
-			modelEntries.map((m) => ({
-				id: m.id,
-				label: m.displayName.trim() || m.requestName || m.id,
+			modelEntries.map((model) => ({
+				id: model.id,
+				label: model.displayName.trim() || model.requestName || model.id,
 			})),
 		[modelEntries]
 	);
 	const roleOptions = useMemo(
 		() =>
-			ROLE_IDS.map((item) => ({
-				value: item,
-				label: t(`settings.team.role.${item}`),
+			ROLE_IDS.map((roleId) => ({
+				value: roleId,
+				label: t(`settings.team.role.${roleId}`),
 			})),
 		[t]
 	);
@@ -119,12 +186,84 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 		() => [{ value: '', label: '—' }, ...modelOptions.map((item) => ({ value: item.id, label: item.label }))],
 		[modelOptions]
 	);
-	const customCount = experts.length;
+	const builtinGlobalModelLabel = useMemo(
+		() => modelDisplayText(builtinGlobalModelId, modelEntries, modelProviders),
+		[builtinGlobalModelId, modelEntries, modelProviders]
+	);
+	const builtinGlobalModelOptions = useMemo(
+		() => [
+			{ value: '', label: t('settings.team.builtinModelInheritSession') },
+			...modelOptions.map((item) => ({ value: item.id, label: item.label })),
+		],
+		[modelOptions, t]
+	);
+	const builtinRoleFallbackLabel = useMemo(
+		() =>
+			builtinGlobalModelLabel
+				? builtinGlobalModelLabel
+				: t('settings.team.builtinModelInheritSession'),
+		[builtinGlobalModelLabel, t]
+	);
+	const builtinRoleModelOptions = useMemo(
+		() => [{ value: '', label: builtinRoleFallbackLabel }, ...modelOptions.map((item) => ({ value: item.id, label: item.label }))],
+		[builtinRoleFallbackLabel, modelOptions]
+	);
+	const builtinOverrideCount = useMemo(
+		() => builtinExperts.filter((role) => String(builtinExpertModelOverrides[role.id] ?? '').trim()).length,
+		[builtinExpertModelOverrides, builtinExperts]
+	);
+	const builtinInheritedCount = Math.max(0, builtinExperts.length - builtinOverrideCount);
+	const reviewerModelOptions = useMemo(
+		() =>
+			teamSource === 'builtin'
+				? builtinRoleModelOptions
+				: teamModelOptions,
+		[teamSource, builtinRoleModelOptions, teamModelOptions]
+	);
+
+	const switchTeamSource = (nextSource: TeamSource) => {
+		if (nextSource === teamSource) {
+			return;
+		}
+		setEditingRole(null);
+		onChange({
+			...value,
+			source: nextSource,
+			useDefaults: nextSource === 'builtin',
+			experts:
+				nextSource === 'custom'
+					? experts.length > 0
+						? experts.map((expert) => ({ ...expert }))
+						: buildDefaultCustomTeamExperts()
+					: experts.map((expert) => ({ ...expert })),
+			...getTeamSourceDefaults(nextSource),
+		});
+	};
 
 	const setNamedReviewer = (key: 'planReviewer' | 'deliveryReviewer', next: TeamExpertConfig | null) => {
 		onChange({
 			...value,
 			[key]: next,
+		});
+	};
+
+	const setBuiltinGlobalModel = (nextModelId: string) => {
+		onChange({
+			...value,
+			builtinGlobalModelId: nextModelId || undefined,
+		});
+	};
+
+	const setBuiltinRoleModel = (expertId: string, nextModelId: string) => {
+		const nextOverrides = { ...(value.builtinExpertModelOverrides ?? {}) };
+		if (nextModelId) {
+			nextOverrides[expertId] = nextModelId;
+		} else {
+			delete nextOverrides[expertId];
+		}
+		onChange({
+			...value,
+			builtinExpertModelOverrides: Object.keys(nextOverrides).length > 0 ? nextOverrides : undefined,
 		});
 	};
 
@@ -144,16 +283,17 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 	};
 
 	const saveEditingRole = () => {
-		if (!editingRole) return;
-		const isExisting = roleList.some((r) => r.id === editingRole.id);
-		let nextExperts = roleList;
-		if (isExisting) {
-			nextExperts = roleList.map((r) => (r.id === editingRole.id ? editingRole : r));
-		} else {
-			nextExperts = [...roleList, editingRole];
+		if (!editingRole) {
+			return;
 		}
+		const isExisting = customRoleList.some((role) => role.id === editingRole.id);
+		const nextExperts = isExisting
+			? customRoleList.map((role) => (role.id === editingRole.id ? editingRole : role))
+			: [...customRoleList, editingRole];
 		onChange({
 			...value,
+			source: 'custom',
+			useDefaults: false,
 			experts: nextExperts,
 		});
 		setEditingRole(null);
@@ -162,7 +302,9 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 	const removeRole = (id: string) => {
 		onChange({
 			...value,
-			experts: roleList.filter((role) => role.id !== id),
+			source: 'custom',
+			useDefaults: false,
+			experts: customRoleList.filter((role) => role.id !== id),
 		});
 		if (editingRole?.id === id) {
 			setEditingRole(null);
@@ -170,52 +312,240 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 	};
 
 	return (
-		<div className="ref-settings-panel">
+		<div className="ref-settings-panel ref-settings-panel--team">
 			<p className="ref-settings-lead">{t('settings.team.lead')}</p>
 			<div className="ref-settings-team-shell">
 				<section className="ref-settings-team-hero">
 					<div>
 						<div className="ref-settings-team-kicker">{t('settings.title.team')}</div>
-						<h3 className="ref-settings-team-title">{t('settings.team.templatesTitle')}</h3>
-						<p className="ref-settings-team-subtitle">{t('settings.team.templatesLead')}</p>
+						<h3 className="ref-settings-team-title">{t('settings.team.sourcesTitle')}</h3>
+						<p className="ref-settings-team-subtitle">{t('settings.team.sourcesLead')}</p>
 					</div>
 					<div className="ref-settings-team-stats">
 						<div className="ref-settings-team-stat">
-							<span className="ref-settings-team-stat-label">{t('settings.team.activePreset')}</span>
-							<strong>{t(currentPreset.titleKey)}</strong>
+							<span className="ref-settings-team-stat-label">{t('settings.team.activeSource')}</span>
+							<strong>{t(`settings.team.source.${teamSource}`)}</strong>
 						</div>
 						<div className="ref-settings-team-stat">
-							<span className="ref-settings-team-stat-label">{t('settings.team.customRoles')}</span>
-							<strong>{String(customCount)}</strong>
+							<span className="ref-settings-team-stat-label">{t('settings.team.availableRoles')}</span>
+							<strong>{String(activeRoles.length)}</strong>
 						</div>
 					</div>
 				</section>
 
 				<section className="ref-settings-team-presets">
-					{TEAM_PRESET_LIBRARY.map((preset) => {
-						const selected = (value.presetId ?? 'engineering') === preset.id;
+					{(['builtin', 'custom'] as TeamSource[]).map((source) => {
+						const selected = teamSource === source;
+						const roleCount = source === 'builtin' ? builtinExperts.length : customRoleList.length;
 						return (
 							<button
-								key={preset.id}
+								key={source}
 								type="button"
 								className={`ref-settings-team-preset-card ${selected ? 'is-active' : ''}`}
-								onClick={() => applyPreset(preset.id)}
+								onClick={() => switchTeamSource(source)}
 							>
 								<div className="ref-settings-team-preset-head">
-									<strong>{t(preset.titleKey)}</strong>
-									<span>{preset.experts.length} roles</span>
+									<strong>{t(`settings.team.source.${source}`)}</strong>
+									<span>{roleCount} roles</span>
 								</div>
-								<p>{t(preset.descriptionKey)}</p>
+								<p>{t(`settings.team.source.${source}.description`)}</p>
 							</button>
 						);
 					})}
 				</section>
-
-				{roleList.length === 0 ? <p className="ref-settings-proxy-hint">{t('settings.team.empty')}</p> : null}
 			</div>
 
-			<section className="ref-settings-panel" style={{ marginTop: 18 }}>
-				<h3 style={{ margin: '0 0 12px' }}>{t('settings.team.reviewersTitle')}</h3>
+			{teamSource === 'builtin' ? (
+				<section className="ref-settings-team-section">
+					<div className="ref-settings-team-shell ref-settings-team-shell--builtin">
+						<div className="ref-settings-team-section-head">
+							<div>
+								<h3 className="ref-settings-team-section-title">{t('settings.team.builtinRosterTitle')}</h3>
+								<p className="ref-settings-proxy-hint" style={{ margin: '6px 0 0' }}>
+									{builtinLeader
+										? t('settings.team.builtinLeaderHint', { leader: builtinLeader.name })
+										: t('settings.team.builtinLeaderFallback')}
+								</p>
+							</div>
+							<div className="ref-settings-team-stat ref-settings-team-stat--repo">
+								<span className="ref-settings-team-stat-label">{t('settings.team.builtinPath')}</span>
+								<strong style={{ fontSize: 12, lineHeight: 1.5, wordBreak: 'break-all' }}>
+									{builtinCatalog?.repoPath ?? FALLBACK_BUILTIN_REPO_PATH}
+								</strong>
+							</div>
+						</div>
+
+						{builtinCatalog == null ? (
+							<p className="ref-settings-proxy-hint">{t('settings.team.builtinLoading')}</p>
+						) : null}
+
+						{builtinCatalog?.ok === false ? (
+							<p className="ref-settings-proxy-hint">
+								{t('settings.team.builtinLoadError', { error: builtinCatalog.error })}
+							</p>
+						) : null}
+
+						<div className="ref-settings-team-policy">
+							<div className="ref-settings-team-policy-main">
+								<div className="ref-settings-team-kicker">{t('settings.team.builtinModelsTitle')}</div>
+								<h4 className="ref-settings-team-policy-title">{t('settings.team.builtinPolicyTitle')}</h4>
+								<p className="ref-settings-team-policy-copy">{t('settings.team.builtinPolicyLead')}</p>
+								<label className="ref-settings-field ref-settings-field--compact">
+									<span>{t('settings.team.builtinGlobalModel')}</span>
+									<VoidSelect
+										variant="compact"
+										ariaLabel={t('settings.team.builtinGlobalModel')}
+										value={builtinGlobalModelId}
+										onChange={(selected) => setBuiltinGlobalModel(selected || '')}
+										options={builtinGlobalModelOptions}
+									/>
+								</label>
+								<p className="ref-settings-team-policy-hint">{t('settings.team.builtinGlobalModelHint')}</p>
+							</div>
+							<div className="ref-settings-team-policy-side">
+								<div className="ref-settings-team-policy-fact">
+									<span>{t('settings.team.builtinGlobalModel')}</span>
+									<strong>{builtinGlobalModelLabel ?? t('settings.team.builtinModelInheritSession')}</strong>
+								</div>
+								<div className="ref-settings-team-policy-pills">
+									<span className="ref-settings-team-info-pill">
+										{t('settings.team.builtinOverrideCount', { count: String(builtinOverrideCount) })}
+									</span>
+									<span className="ref-settings-team-info-pill">
+										{t('settings.team.builtinInheritCount', { count: String(builtinInheritedCount) })}
+									</span>
+								</div>
+								<p className="ref-settings-team-policy-hint">{t('settings.team.builtinRoleModelHint')}</p>
+							</div>
+						</div>
+
+						<div className="ref-settings-team-section-head ref-settings-team-section-head--tight">
+							<div>
+								<h4 className="ref-settings-team-section-subtitle">{t('settings.team.builtinRoleOverridesTitle')}</h4>
+								<p className="ref-settings-proxy-hint" style={{ margin: '4px 0 0' }}>
+									{t('settings.team.builtinRoleOverridesLead')}
+								</p>
+							</div>
+						</div>
+
+						<div className="ref-settings-team-badges ref-settings-team-badges--builtin">
+							{builtinExperts.map((role) => {
+								const overrideModelId = builtinExpertModelOverrides[role.id] ?? '';
+								const overrideModelLabel = modelDisplayText(overrideModelId, modelEntries, modelProviders);
+								const effectiveModelText = overrideModelLabel ?? builtinGlobalModelLabel ?? t('settings.team.builtinModelInheritSession');
+								const modelSourceText = builtinModelSourceText({
+									overrideModelId,
+									globalModelLabel: builtinGlobalModelLabel,
+									t,
+								});
+								return (
+									<article key={role.id} className="ref-settings-team-badge ref-settings-team-badge--builtin">
+										<div className="ref-settings-team-badge-header">
+											<h4 className="ref-settings-team-badge-name">{role.name}</h4>
+											<span className="ref-settings-team-badge-role">{builtinRoleLabel(role, t)}</span>
+										</div>
+										<p className="ref-settings-team-badge-summary">{role.summary || role.assignmentKey}</p>
+										<div className="ref-settings-team-badge-meta">
+											<code className="ref-settings-team-badge-key">{role.assignmentKey}</code>
+											<span className="ref-settings-team-badge-path">{role.sourceRelPath}</span>
+										</div>
+										<div className="ref-settings-team-model-card">
+											<div className="ref-settings-team-model-card-head">
+												<span className="ref-settings-team-model-card-label">
+													{t('settings.team.builtinEffectiveModelLabel')}
+												</span>
+												<span className="ref-settings-team-model-source">{modelSourceText}</span>
+											</div>
+											<div className="ref-settings-team-model-card-value">{effectiveModelText}</div>
+											<label className="ref-settings-field ref-settings-field--compact">
+												<span>{t('settings.team.builtinRoleModel')}</span>
+												<VoidSelect
+													variant="compact"
+													ariaLabel={`${role.name} ${t('settings.team.builtinRoleModel')}`}
+													value={overrideModelId}
+													onChange={(selected) => setBuiltinRoleModel(role.id, selected || '')}
+													options={builtinRoleModelOptions}
+												/>
+											</label>
+										</div>
+									</article>
+								);
+							})}
+						</div>
+					</div>
+				</section>
+			) : (
+				<>
+					{customRoleList.length === 0 ? <p className="ref-settings-proxy-hint">{t('settings.team.empty')}</p> : null}
+					<div className="ref-settings-team-badges">
+						{customRoleList.map((role) => {
+							const modelText = modelDisplayText(role.preferredModelId, modelEntries, modelProviders) ?? '—';
+
+							return (
+								<button
+									key={role.id}
+									type="button"
+									className="ref-settings-team-badge"
+									onClick={() => setEditingRole(role)}
+								>
+									<div className="ref-settings-team-badge-header">
+										<h4 className="ref-settings-team-badge-name">{role.name || t('settings.team.untitledRole')}</h4>
+										<span className="ref-settings-team-badge-role">
+											{t(`settings.team.role.${role.roleType}`) || role.roleType}
+										</span>
+									</div>
+									<div className="ref-settings-team-badge-model">
+										<svg
+											width="14"
+											height="14"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="2"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+										>
+											<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+											<polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+											<line x1="12" y1="22.08" x2="12" y2="12"></line>
+										</svg>
+										<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{modelText}</span>
+									</div>
+									{!role.enabled && (
+										<div
+											style={{
+												position: 'absolute',
+												top: 0,
+												bottom: 0,
+												left: 0,
+												right: 0,
+												background: 'rgba(0,0,0,0.5)',
+												display: 'flex',
+												alignItems: 'center',
+												justifyContent: 'center',
+												borderRadius: 'inherit',
+												fontWeight: 'bold',
+											}}
+										>
+											Disabled
+										</div>
+									)}
+								</button>
+							);
+						})}
+						<button
+							type="button"
+							className="ref-settings-team-badge is-add"
+							onClick={() => setEditingRole(newRole())}
+						>
+							+ {t('settings.team.addRole')}
+						</button>
+					</div>
+				</>
+			)}
+
+			<section className="ref-settings-team-section">
+				<h3 className="ref-settings-team-section-title" style={{ marginBottom: 12 }}>{t('settings.team.reviewersTitle')}</h3>
 				<div style={{ display: 'grid', gap: 16 }}>
 					{([
 						{
@@ -253,10 +583,10 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 									<input
 										type="checkbox"
 										checked={Boolean(reviewerConfig.value)}
-										onChange={(e) =>
+										onChange={(event) =>
 											setNamedReviewer(
 												reviewerConfig.key,
-												e.target.checked ? reviewerConfig.value ?? newReviewer(reviewerConfig.kind) : null
+												event.target.checked ? reviewerConfig.value ?? newReviewer(reviewerConfig.kind) : null
 											)
 										}
 									/>
@@ -270,9 +600,9 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 											<span>{t('settings.team.roleName')}</span>
 											<input
 												value={reviewerConfig.value.name}
-												onChange={(e) =>
+												onChange={(event) =>
 													patchNamedReviewer(reviewerConfig.key, reviewerConfig.kind, {
-														name: e.target.value,
+														name: event.target.value,
 													})
 												}
 											/>
@@ -288,16 +618,16 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 														preferredModelId: selected || undefined,
 													})
 												}
-												options={teamModelOptions}
+												options={reviewerModelOptions}
 											/>
 										</label>
 										<label className="ref-settings-field ref-settings-field--compact" style={{ gridColumn: '1 / -1' }}>
 											<span>{t('settings.team.toolsCsv')}</span>
 											<input
 												value={(reviewerConfig.value.allowedTools ?? []).join(', ')}
-												onChange={(e) =>
+												onChange={(event) =>
 													patchNamedReviewer(reviewerConfig.key, reviewerConfig.kind, {
-														allowedTools: e.target.value
+														allowedTools: event.target.value
 															.split(',')
 															.map((item) => item.trim())
 															.filter(Boolean),
@@ -312,9 +642,9 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 											className="ref-settings-models-search"
 											style={{ minHeight: 120, resize: 'vertical' }}
 											value={reviewerConfig.value.systemPrompt}
-											onChange={(e) =>
+											onChange={(event) =>
 												patchNamedReviewer(reviewerConfig.key, reviewerConfig.kind, {
-													systemPrompt: e.target.value,
+													systemPrompt: event.target.value,
 												})
 											}
 										/>
@@ -326,63 +656,11 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 				</div>
 			</section>
 
-			<div className="ref-settings-team-badges">
-				{roleList.map((role) => {
-					let modelText = '—';
-					if (role.preferredModelId) {
-						const m = modelEntries.find((e) => e.id === role.preferredModelId);
-						if (m) {
-							const pName = providerDisplayLabel(m.providerId, modelProviders);
-							const mName = m.displayName.trim() || m.requestName;
-							modelText = pName ? `${mName} (${pName})` : mName;
-						} else {
-							modelText = role.preferredModelId;
-						}
-					}
-					
-					return (
-						<button
-							key={role.id}
-							type="button"
-							className="ref-settings-team-badge"
-							onClick={() => setEditingRole(role)}
-						>
-							<div className="ref-settings-team-badge-header">
-								<h4 className="ref-settings-team-badge-name">{role.name || t('settings.team.untitledRole')}</h4>
-								<span className="ref-settings-team-badge-role">
-									{t(`settings.team.role.${role.roleType}`) || role.roleType}
-								</span>
-							</div>
-							<div className="ref-settings-team-badge-model">
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-									<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-									<polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-									<line x1="12" y1="22.08" x2="12" y2="12"></line>
-								</svg>
-								<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{modelText}</span>
-							</div>
-							{!role.enabled && (
-								<div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 'inherit', fontWeight: 'bold' }}>
-									Disabled
-								</div>
-							)}
-						</button>
-					);
-				})}
-				<button
-					type="button"
-					className="ref-settings-team-badge is-add"
-					onClick={() => setEditingRole(newRole())}
-				>
-					+ {t('settings.team.addRole')}
-				</button>
-			</div>
-
-			{editingRole && (
+			{teamSource === 'custom' && editingRole ? (
 				<div className="modal-backdrop" onClick={() => setEditingRole(null)}>
-					<div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 500, maxWidth: '90vw' }}>
+					<div className="modal" onClick={(event) => event.stopPropagation()} style={{ width: 500, maxWidth: '90vw' }}>
 						<h2 style={{ marginBottom: 24, fontSize: 18 }}>{editingRole.name || t('settings.team.untitledRole')}</h2>
-						
+
 						<div className="ref-settings-team-role-head" style={{ marginBottom: 20 }}>
 							<div>
 								<p>{editingRole.assignmentKey || editingRole.roleType}</p>
@@ -391,7 +669,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 								<input
 									type="checkbox"
 									checked={editingRole.enabled !== false}
-									onChange={(e) => patchEditingRole({ enabled: e.target.checked })}
+									onChange={(event) => patchEditingRole({ enabled: event.target.checked })}
 								/>
 								<span>{t('settings.team.enabled')}</span>
 							</label>
@@ -403,7 +681,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 								<input
 									value={editingRole.name}
 									placeholder={t('settings.team.untitledRole')}
-									onChange={(e) => patchEditingRole({ name: e.target.value })}
+									onChange={(event) => patchEditingRole({ name: event.target.value })}
 								/>
 							</label>
 							<label className="ref-settings-field ref-settings-field--compact">
@@ -412,7 +690,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 									variant="compact"
 									ariaLabel={t('settings.team.roleType')}
 									value={editingRole.roleType}
-									onChange={(value) => patchEditingRole({ roleType: value as TeamRoleType })}
+									onChange={(nextValue) => patchEditingRole({ roleType: nextValue as TeamRoleType })}
 									options={roleOptions}
 								/>
 							</label>
@@ -420,7 +698,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 								<span>{t('settings.team.assignmentKey')}</span>
 								<input
 									value={editingRole.assignmentKey ?? ''}
-									onChange={(e) => patchEditingRole({ assignmentKey: e.target.value })}
+									onChange={(event) => patchEditingRole({ assignmentKey: event.target.value })}
 								/>
 							</label>
 							<label className="ref-settings-field ref-settings-field--compact">
@@ -429,7 +707,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 									variant="compact"
 									ariaLabel={t('settings.team.model')}
 									value={editingRole.preferredModelId ?? ''}
-									onChange={(value) => patchEditingRole({ preferredModelId: value || undefined })}
+									onChange={(nextValue) => patchEditingRole({ preferredModelId: nextValue || undefined })}
 									options={teamModelOptions}
 								/>
 							</label>
@@ -437,11 +715,11 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 								<span>{t('settings.team.toolsCsv')}</span>
 								<input
 									value={(editingRole.allowedTools ?? []).join(', ')}
-									onChange={(e) =>
+									onChange={(event) =>
 										patchEditingRole({
-											allowedTools: e.target.value
+											allowedTools: event.target.value
 												.split(',')
-												.map((x) => x.trim())
+												.map((item) => item.trim())
 												.filter(Boolean),
 										})
 									}
@@ -455,7 +733,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 								className="ref-settings-models-search"
 								style={{ minHeight: 120, resize: 'vertical' }}
 								value={editingRole.systemPrompt}
-								onChange={(e) => patchEditingRole({ systemPrompt: e.target.value })}
+								onChange={(event) => patchEditingRole({ systemPrompt: event.target.value })}
 							/>
 						</label>
 
@@ -486,7 +764,7 @@ export function SettingsTeamPanel({ value, onChange, modelEntries, modelProvider
 						</div>
 					</div>
 				</div>
-			)}
+			) : null}
 		</div>
 	);
 }

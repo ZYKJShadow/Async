@@ -82,6 +82,7 @@ export type AgentMemoryExtractionSettings = {
 };
 
 export type TeamRoleType = 'team_lead' | 'frontend' | 'backend' | 'qa' | 'reviewer' | 'custom';
+export type TeamSource = 'builtin' | 'custom';
 export type TeamPresetId = 'engineering' | 'planning' | 'design';
 
 export type TeamExpertConfig = {
@@ -96,6 +97,7 @@ export type TeamExpertConfig = {
 };
 
 export type TeamSettings = {
+	source?: TeamSource;
 	experts?: TeamExpertConfig[];
 	useDefaults?: boolean;
 	/** @deprecated 并行度由 Team Lead 的任务依赖与就绪队列决定，保留仅兼容旧配置 */
@@ -103,6 +105,10 @@ export type TeamSettings = {
 	presetId?: TeamPresetId;
 	/** 切换团队模板时按 preset 缓存角色列表（含模型等），切回时可恢复 */
 	presetExpertSnapshots?: Partial<Record<TeamPresetId, TeamExpertConfig[]>>;
+	/** 内置团队的全局模型；未设置时回退到当前会话所选模型 */
+	builtinGlobalModelId?: string;
+	/** 内置团队按角色覆盖模型；未命中时回退到 builtinGlobalModelId */
+	builtinExpertModelOverrides?: Record<string, string>;
 	/** Lead 出方案后先等用户确认再派发专家；默认值随 preset 决定 */
 	requirePlanApproval?: boolean;
 	/** 执行前先让评审专家评估需求/方案；默认值随 preset 决定（engineering 默认 false） */

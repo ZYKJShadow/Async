@@ -628,7 +628,12 @@ describe('runTeamSession clarification gates', () => {
 			})
 		);
 		expect(doneCalls).toHaveLength(1);
-		expect(doneCalls[0]?.text).toContain('已完成修订后的前端链路审查。');
+		expect(doneCalls[0]?.text).toContain('## Task Status');
+		expect(doneCalls[0]?.text).toContain('Inspect the renderer workflow that actually owns this behavior');
+		expect(doneCalls[0]?.text).not.toContain('已完成修订后的前端链路审查。');
+		expect((doneCalls[0]?.snapshot as { tasks?: Array<{ result?: string }> } | undefined)?.tasks?.[0]?.result).toBe(
+			'已完成修订后的前端链路审查。'
+		);
 	});
 
 	it('unwraps structured specialist output before storing task results and delivery text', async () => {
@@ -729,10 +734,15 @@ describe('runTeamSession clarification gates', () => {
 
 		expect(errorCalls).toEqual([]);
 		expect(doneCalls).toHaveLength(1);
-		expect(doneCalls[0]?.text).toContain('已经确认：泄漏内容来自系统提示拼接，而不是模型主动复读。');
+		expect(doneCalls[0]?.text).toContain('## Task Status');
+		expect(doneCalls[0]?.text).toContain('Audit why team delivery is leaking system prompt content');
+		expect(doneCalls[0]?.text).not.toContain('已经确认：泄漏内容来自系统提示拼接，而不是模型主动复读。');
 		expect(doneCalls[0]?.text).not.toContain('从项目导入的规则');
 		expect(doneCalls[0]?.text).not.toContain('自动语言：默认使用英文回应');
 		expect(doneCalls[0]?.text).not.toContain('.async/rules/chinese-response.mdc');
+		expect((doneCalls[0]?.snapshot as { tasks?: Array<{ result?: string }> } | undefined)?.tasks?.[0]?.result).toBe(
+			'已经确认：泄漏内容来自系统提示拼接，而不是模型主动复读。'
+		);
 	});
 
 	it('continues with a lead replan after reviewer requests revision and keeps raw role output out of the main chat', async () => {
@@ -916,6 +926,13 @@ describe('runTeamSession clarification gates', () => {
 		expect(errorCalls).toEqual([]);
 		expect(backendResultText).toContain('renderer-side workflow owns it');
 		expect(doneCalls).toHaveLength(1);
-		expect(doneCalls[0]?.text).toContain('后端拿到 peer 回复');
+		expect(doneCalls[0]?.text).toContain('## Task Status');
+		expect(doneCalls[0]?.text).toContain('Wire the follow-up fix after confirming the renderer contract');
+		expect(doneCalls[0]?.text).not.toContain('后端拿到 peer 回复');
+		expect(
+			(doneCalls[0]?.snapshot as { tasks?: Array<{ expertName?: string; result?: string }> } | undefined)?.tasks?.find(
+				(task) => task.expertName === 'Backend'
+			)?.result
+		).toContain('后端拿到 peer 回复');
 	});
 });

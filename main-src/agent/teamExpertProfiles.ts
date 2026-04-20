@@ -1,6 +1,10 @@
 import type { AgentToolDef } from './agentTools.js';
 import type { TeamExpertConfig, TeamRoleType, TeamPresetId, TeamSettings } from '../settingsStore.js';
-import { buildTeamPresetExperts, getTeamPreset, mergeBuiltinExpertsWithSaved } from '../../src/teamPresetCatalog.js';
+import {
+	buildDefaultCustomTeamExperts,
+	inferTeamSource,
+} from '../../src/teamPresetCatalog.js';
+import { listBuiltinTeamExperts } from './builtinTeamCatalog.js';
 
 export type TeamExpertRuntimeProfile = {
 	id: string;
@@ -22,6 +26,22 @@ export type ResolvedTeamExpertProfiles = {
 	deliveryReviewer: TeamExpertRuntimeProfile | null;
 };
 
+function resolveBuiltinPreferredModelId(
+	team: Pick<TeamSettings, 'builtinGlobalModelId' | 'builtinExpertModelOverrides'> | undefined,
+	expertId: string,
+	fallbackModelId?: string
+): string | undefined {
+	const overrideModelId = team?.builtinExpertModelOverrides?.[expertId]?.trim() || '';
+	if (overrideModelId) {
+		return overrideModelId;
+	}
+	const globalModelId = team?.builtinGlobalModelId?.trim() || '';
+	if (globalModelId) {
+		return globalModelId;
+	}
+	return fallbackModelId?.trim() || undefined;
+}
+
 function normalizeAllowedTools(allowed: string[] | undefined, baseTools: AgentToolDef[]): string[] | undefined {
 	if (!Array.isArray(allowed) || allowed.length === 0) {
 		return undefined;
@@ -33,7 +53,8 @@ function normalizeAllowedTools(allowed: string[] | undefined, baseTools: AgentTo
 }
 
 export function defaultTeamExperts(presetId: TeamPresetId | undefined = 'engineering'): TeamExpertConfig[] {
-	return buildTeamPresetExperts(presetId);
+	void presetId;
+	return buildDefaultCustomTeamExperts();
 }
 
 function toRuntimeProfile(
@@ -67,12 +88,20 @@ function toRuntimeProfile(
 
 function resolveOptionalReviewer(
 	reviewer: TeamExpertConfig | null | undefined,
-	baseTools: AgentToolDef[]
+	baseTools: AgentToolDef[],
+	fallbackModelId?: string
 ): TeamExpertRuntimeProfile | null {
 	if (!reviewer || reviewer.enabled === false) {
 		return null;
 	}
-	return toRuntimeProfile(reviewer, baseTools) ?? null;
+	const runtime = toRuntimeProfile(reviewer, baseTools);
+	if (!runtime) {
+		return null;
+	}
+	if (!runtime.preferredModelId && fallbackModelId?.trim()) {
+		runtime.preferredModelId = fallbackModelId.trim();
+	}
+	return runtime;
 }
 
 export function resolveTeamExpertProfiles(
@@ -80,19 +109,33 @@ export function resolveTeamExpertProfiles(
 		TeamSettings,
 		| 'useDefaults'
 		| 'experts'
+		| 'source'
 		| 'presetId'
+		| 'builtinGlobalModelId'
+		| 'builtinExpertModelOverrides'
 		| 'planReviewer'
 		| 'deliveryReviewer'
 	> | undefined,
 	baseTools: AgentToolDef[]
 ): ResolvedTeamExpertProfiles {
-	const preset = getTeamPreset(team?.presetId);
-	const merged = mergeBuiltinExpertsWithSaved(team?.presetId, team?.useDefaults, team?.experts).filter(
-		(x) => x && x.enabled !== false
-	);
+	const source = inferTeamSource(team);
+	const configuredExperts =
+		source === 'builtin'
+			? listBuiltinTeamExperts().map((expert) => ({
+					...expert,
+					preferredModelId: resolveBuiltinPreferredModelId(team, expert.id, expert.preferredModelId),
+				}))
+			: Array.isArray(team?.experts)
+				? team.experts.map((expert) => ({ ...expert }))
+				: buildDefaultCustomTeamExperts();
+	const merged = configuredExperts.filter((expert) => expert && expert.enabled !== false);
 	const out: TeamExpertRuntimeProfile[] = [];
 	for (const item of merged) {
-		const runtime = toRuntimeProfile(item, baseTools, preset.experts.find((expert) => expert.id === item.id)?.summary);
+		const runtime = toRuntimeProfile(
+			item,
+			baseTools,
+			'summary' in item && typeof item.summary === 'string' ? item.summary : undefined
+		);
 		if (runtime) {
 			out.push(runtime);
 		}
@@ -103,15 +146,27 @@ export function resolveTeamExpertProfiles(
 		null;
 	const reviewer =
 		out.find((expert) => expert.assignmentKey === 'reviewer') ??
+		out.find((expert) => expert.assignmentKey === 'code_reviewer') ??
+		out.find((expert) => expert.assignmentKey === 'reality_checker') ??
 		out.find((expert) => expert.roleType === 'reviewer') ??
 		null;
+	const defaultPlanReviewer =
+		out.find((expert) => expert.assignmentKey === 'code_reviewer') ??
+		reviewer;
+	const defaultDeliveryReviewer =
+		out.find((expert) => expert.assignmentKey === 'reality_checker') ??
+		defaultPlanReviewer ??
+		reviewer;
+	const builtinFallbackModelId = source === 'builtin' ? team?.builtinGlobalModelId?.trim() || undefined : undefined;
 	const specialists = out.filter((expert) => expert.id !== teamLead?.id && expert.id !== reviewer?.id);
 	return {
 		experts: out,
 		teamLead,
 		reviewer,
 		specialists,
-		planReviewer: resolveOptionalReviewer(team?.planReviewer, baseTools) ?? reviewer,
-		deliveryReviewer: resolveOptionalReviewer(team?.deliveryReviewer, baseTools) ?? reviewer,
+		planReviewer:
+			resolveOptionalReviewer(team?.planReviewer, baseTools, builtinFallbackModelId) ?? defaultPlanReviewer,
+		deliveryReviewer:
+			resolveOptionalReviewer(team?.deliveryReviewer, baseTools, builtinFallbackModelId) ?? defaultDeliveryReviewer,
 	};
 }

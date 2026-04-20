@@ -1,4 +1,4 @@
-import type { TeamExpertConfig, TeamPresetId, TeamSettings } from './agentSettingsTypes';
+import type { TeamExpertConfig, TeamPresetId, TeamSettings, TeamSource } from './agentSettingsTypes';
 
 export type TeamPresetCatalogId = 'engineering' | 'planning' | 'design';
 export type TeamPresetCatalogRoleType = 'team_lead' | 'frontend' | 'backend' | 'qa' | 'reviewer' | 'custom';
@@ -531,6 +531,82 @@ export function getTeamPresetDefaults(
 				enablePreflightReview: true,
 			};
 	}
+}
+
+export function inferTeamSource(team: Partial<TeamSettings> | null | undefined): TeamSource {
+	if (team?.source === 'builtin' || team?.source === 'custom') {
+		return team.source;
+	}
+	if (team?.useDefaults === false) {
+		return 'custom';
+	}
+	if ('experts' in (team ?? {}) && Array.isArray(team?.experts)) {
+		return 'custom';
+	}
+	if (team?.presetId || team?.presetExpertSnapshots) {
+		return 'custom';
+	}
+	return 'builtin';
+}
+
+export function buildDefaultCustomTeamExperts(): TeamExpertConfig[] {
+	return buildTeamPresetExperts('engineering');
+}
+
+export function getTeamSourceDefaults(
+	source: TeamSource | undefined
+): Pick<TeamSettings, 'requirePlanApproval' | 'enablePreflightReview'> {
+	if (source === 'builtin') {
+		return {
+			requirePlanApproval: true,
+			enablePreflightReview: false,
+		};
+	}
+	return getTeamPresetDefaults('engineering');
+}
+
+function normalizeBuiltinExpertModelOverrides(
+	overrides: Record<string, string> | undefined | null
+): Record<string, string> | undefined {
+	if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+		return undefined;
+	}
+	const next: Record<string, string> = {};
+	for (const [expertId, modelId] of Object.entries(overrides)) {
+		const normalizedExpertId = String(expertId ?? '').trim();
+		const normalizedModelId = String(modelId ?? '').trim();
+		if (!normalizedExpertId || !normalizedModelId) {
+			continue;
+		}
+		next[normalizedExpertId] = normalizedModelId;
+	}
+	return Object.keys(next).length > 0 ? next : undefined;
+}
+
+export function normalizeTeamSettings(team: TeamSettings | null | undefined): TeamSettings {
+	const source = inferTeamSource(team);
+	const defaults = getTeamSourceDefaults(source);
+	const hasExpertsArray = Array.isArray(team?.experts);
+	const builtinGlobalModelId = team?.builtinGlobalModelId?.trim() || undefined;
+	const builtinExpertModelOverrides = normalizeBuiltinExpertModelOverrides(team?.builtinExpertModelOverrides);
+	return {
+		source,
+		experts: hasExpertsArray
+			? team!.experts!.map((expert) => ({ ...expert }))
+			: source === 'custom'
+				? buildDefaultCustomTeamExperts()
+				: [],
+		useDefaults: source === 'builtin' ? true : (team?.useDefaults ?? false),
+		maxParallelExperts: team?.maxParallelExperts,
+		presetId: team?.presetId ?? 'engineering',
+		presetExpertSnapshots: team?.presetExpertSnapshots,
+		builtinGlobalModelId,
+		builtinExpertModelOverrides,
+		requirePlanApproval: team?.requirePlanApproval ?? defaults.requirePlanApproval,
+		enablePreflightReview: team?.enablePreflightReview ?? defaults.enablePreflightReview,
+		planReviewer: team?.planReviewer ? { ...team.planReviewer } : null,
+		deliveryReviewer: team?.deliveryReviewer ? { ...team.deliveryReviewer } : null,
+	};
 }
 
 export function buildTeamPresetExperts(presetId?: string) {
