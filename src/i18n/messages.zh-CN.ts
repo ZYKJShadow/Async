@@ -1847,6 +1847,7 @@ export const messagesZhCN: Record<string, string> = {
 	'team.phase.proposing': '等待确认中',
 	'team.phase.executing': '执行中',
 	'team.phase.reviewing': '评审中',
+	'team.phase.synthesizing': '汇总中',
 	'team.phase.delivering': '交付中',
 	'team.phase.cancelled': '已取消',
 	'team.taskProgress': '已完成 {{done}} / {{total}} 个任务',

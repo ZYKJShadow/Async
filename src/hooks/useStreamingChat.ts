@@ -819,6 +819,7 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 				payload.type === 'team_expert_progress' ||
 				payload.type === 'team_expert_done' ||
 				payload.type === 'team_review' ||
+				payload.type === 'team_lead_final' ||
 				payload.type === 'team_plan_summary' ||
 				payload.type === 'team_preflight_review' ||
 				payload.type === 'team_plan_proposed' ||

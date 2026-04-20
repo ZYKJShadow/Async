@@ -55,6 +55,7 @@ type TeamPhase =
 	| 'proposing'
 	| 'executing'
 	| 'reviewing'
+	| 'synthesizing'
 	| 'delivering'
 	| 'cancelled';
 type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'revision';
@@ -218,6 +219,7 @@ type TeamEmit =
 	| { threadId: string; type: 'team_expert_progress'; taskId: string; expertId: string; message?: string; delta?: string }
 	| { threadId: string; type: 'team_expert_done'; taskId: string; expertId: string; success: boolean; result: string }
 	| { threadId: string; type: 'team_review'; verdict: 'approved' | 'revision_needed'; summary: string }
+	| { threadId: string; type: 'team_lead_final'; summary: string }
 	| { threadId: string; type: 'team_plan_summary'; summary: string }
 	| { threadId: string; type: 'team_preflight_review'; verdict: 'ok' | 'needs_clarification'; summary: string }
 	| {
@@ -1515,6 +1517,217 @@ async function runReviewerAgent(params: {
 	return { verdict, summary };
 }
 
+// ── LLM-based Lead final synthesis ───────────────────────────────────────
+
+function buildLeadFinalSynthesisPacket(params: {
+	teamLead: TeamExpertRuntimeProfile;
+	userRequest: string;
+	planSummary: string;
+	completedTasks: TeamTask[];
+	review: { verdict: 'approved' | 'revision_needed'; summary: string };
+	hasCjk: boolean;
+}): string {
+	const { teamLead, userRequest, planSummary, completedTasks, review, hasCjk } = params;
+	const taskBlocks = completedTasks
+		.map((task) =>
+			[
+				`### ${task.expertName} (${task.roleType}) — ${task.status}`,
+				`Task: ${task.description}`,
+				'Output:',
+				clampTeamPacketText(task.result, TEAM_HANDOFF_TEXT_LIMIT),
+			].join('\n')
+		)
+		.join('\n\n');
+	const isPureDiscuss = completedTasks.length > 0 && completedTasks.every((task) => task.kind === 'discuss');
+	const guidance = hasCjk
+		? [
+			`你是 ${teamLead.name}，本次协作的 Team Lead。所有专家已完成各自的任务。`,
+			'请基于用户的原始诉求和每位专家的输出，给用户写一段收尾陈述。',
+			'要求：',
+			'- 直接面向用户说话，不要复述任务分派过程。',
+			'- 将各专家的核心观点/产出整合成连贯的整体回答，不是简单的逐条罗列。',
+			'- 指出关键权衡、可选路径，以及你作为 Lead 的倾向性建议（如果有）。',
+			'- 给出下一步用户可采取的动作。',
+			isPureDiscuss
+				? '- 这是一次讨论（非交付），不要写任何代码或建议"我们已经修改了文件"之类的话术。'
+				: '- 如果有失败或需要返工的任务，诚实指出并说明影响。',
+			'- 不要以 "## " 或 "# " 标题开头，直接写正文即可；必要时可使用简短的小标题或项目符号。',
+			'- 用中文回答，语气专业而友好。',
+			'- 控制在 250 字以内的紧凑总结，避免冗长。',
+		].join('\n')
+		: [
+			`You are ${teamLead.name}, the Team Lead for this collaboration. All specialists have finished their tasks.`,
+			'Write a closing message to the user that integrates every specialists output.',
+			'Requirements:',
+			'- Speak directly to the user; do not restate the planning/dispatch process.',
+			'- Integrate the specialists outputs into a coherent answer, not a bulleted checklist.',
+			'- Highlight the key trade-offs, available paths, and your Lead-level recommendation.',
+			'- Tell the user what they can do next.',
+			isPureDiscuss
+				? '- This was a discussion, not a delivery — do not write code or claim any files were changed.'
+				: '- If any task failed or needs revision, be honest about it and its impact.',
+			'- Do not start with a "## " or "# " heading; write in prose with short sub-headings or bullets only when helpful.',
+			'- Keep it tight, under about 250 words.',
+		].join('\n');
+	return [
+		guidance,
+		'',
+		'## Original User Request',
+		clampTeamPacketText(userRequest),
+		'',
+		'## Team Lead Plan Summary',
+		clampTeamPacketText(planSummary),
+		'',
+		'## Specialist Outputs',
+		taskBlocks || (hasCjk ? '(无)' : '(no specialist output)'),
+		'',
+		'## Review Verdict',
+		`${review.verdict === 'approved' ? (hasCjk ? '通过' : 'Approved') : hasCjk ? '需要修订' : 'Needs revision'} — ${clampTeamPacketText(review.summary, 600)}`,
+	].join('\n');
+}
+
+async function runTeamLeadFinalSynthesis(params: {
+	settings: ShellSettings;
+	threadId: string;
+	teamLead: TeamExpertRuntimeProfile;
+	userRequest: string;
+	planSummary: string;
+	completedTasks: TeamTask[];
+	review: { verdict: 'approved' | 'revision_needed'; summary: string };
+	hasCjk: boolean;
+	modelSelection: string;
+	resolvedModel: TeamOrchestratorInput['resolvedModel'];
+	signal: AbortSignal;
+	thinkingLevel?: TeamOrchestratorInput['thinkingLevel'];
+	workspaceRoot?: string | null;
+	workspaceLspManager?: WorkspaceLspManager | null;
+	hostWebContentsId?: number | null;
+	toolHooks?: ToolExecutionHooks;
+	deferredToolState?: DeferredToolState;
+	onDeferredToolStateChange?: (state: DeferredToolState) => void;
+	toolResultReplacementState?: import('./toolResultBudget.js').ToolResultReplacementState;
+	onToolResultReplacementStateChange?: (
+		state: import('./toolResultBudget.js').ToolResultReplacementState
+	) => void;
+	emit: (evt: TeamEmit) => void;
+}): Promise<string> {
+	const {
+		settings, threadId, teamLead, userRequest, planSummary, completedTasks, review, hasCjk,
+		modelSelection, resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager,
+		hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange,
+		toolResultReplacementState, onToolResultReplacementStateChange, emit,
+	} = params;
+
+	const teamLeadScope = createTeamRoleScope(
+		{
+			id: 'team-lead-final',
+			expertId: teamLead.id,
+			expertAssignmentKey: teamLead.assignmentKey,
+			expertName: teamLead.name,
+			roleType: teamLead.roleType,
+			description: 'Synthesize the specialists outputs into a final user-facing reply.',
+			status: 'in_progress',
+			dependencies: completedTasks.map((task) => task.id),
+			acceptanceCriteria: [],
+			kind: 'deliver',
+		},
+		'lead'
+	);
+
+	const synthesisMessages: ChatMessage[] = [
+		{
+			role: 'user',
+			content: buildLeadFinalSynthesisPacket({
+				teamLead,
+				userRequest,
+				planSummary,
+				completedTasks,
+				review,
+				hasCjk,
+			}),
+		},
+	];
+
+	const options: AgentLoopOptions = {
+		modelSelection: teamLead.preferredModelId?.trim() || modelSelection,
+		requestModelId: resolvedModel.requestModelId,
+		paradigm: resolvedModel.paradigm,
+		requestApiKey: resolvedModel.apiKey,
+		requestBaseURL: resolvedModel.baseURL,
+		requestProxyUrl: resolvedModel.proxyUrl,
+		maxOutputTokens: resolvedModel.maxOutputTokens,
+		...(resolvedModel.contextWindowTokens != null
+			? { contextWindowTokens: resolvedModel.contextWindowTokens }
+			: {}),
+		signal,
+		composerMode: 'agent',
+		toolPoolOverride: [],
+		agentSystemAppend: appendTeamLanguageRule(settings, teamLead.systemPrompt),
+		thinkingLevel,
+		workspaceRoot,
+		workspaceLspManager,
+		hostWebContentsId: hostWebContentsId ?? null,
+		threadId,
+		toolHooks,
+		deferredToolState,
+		onDeferredToolStateChange,
+		toolResultReplacementState,
+		onToolResultReplacementStateChange,
+		teamToolRoleScope: teamLeadScope,
+	};
+
+	if (teamLead.preferredModelId?.trim() && teamLead.preferredModelId.trim() !== modelSelection) {
+		const resolved = resolveModelRequest(settings, teamLead.preferredModelId.trim());
+		if (resolved.ok) {
+			options.modelSelection = teamLead.preferredModelId.trim();
+			options.requestModelId = resolved.requestModelId;
+			options.paradigm = resolved.paradigm;
+			options.requestApiKey = resolved.apiKey;
+			options.requestBaseURL = resolved.baseURL;
+			options.requestProxyUrl = resolved.proxyUrl;
+			options.maxOutputTokens = resolved.maxOutputTokens;
+			options.contextWindowTokens = resolved.contextWindowTokens;
+		}
+	}
+
+	let collectedText = '';
+	const handlers: AgentLoopHandlers = {
+		onTextDelta: (text) => {
+			collectedText += text;
+			emit({ threadId, type: 'delta', text, teamRoleScope: teamLeadScope });
+		},
+		onThinkingDelta: (text) => {
+			emit({ threadId, type: 'thinking_delta', text, teamRoleScope: teamLeadScope });
+		},
+		onToolInputDelta: ({ name, partialJson, index }) => {
+			emit({ threadId, type: 'tool_input_delta', name, partialJson, index, teamRoleScope: teamLeadScope });
+		},
+		onToolProgress: ({ name, phase, detail }) => {
+			emit({ threadId, type: 'tool_progress', name, phase, detail, teamRoleScope: teamLeadScope });
+		},
+		onToolCall: (name, args, toolCallId) => {
+			emit({ threadId, type: 'tool_call', name, args: JSON.stringify(args), toolCallId, teamRoleScope: teamLeadScope });
+		},
+		onToolResult: (name, result, success, toolCallId) => {
+			emit({ threadId, type: 'tool_result', name, result, success, toolCallId, teamRoleScope: teamLeadScope });
+		},
+		onDone: (text, usage) => {
+			collectedText = text;
+			emit({ threadId, type: 'done', text, usage, teamRoleScope: teamLeadScope });
+		},
+		onError: () => {},
+	};
+
+	try {
+		await runAgentLoop(settings, synthesisMessages, options, handlers);
+	} catch {
+		// fall through to deterministic fallback
+	}
+
+	const narrative = extractTeamLeadNarrative(collectedText) || normalizeTeamAgentSummary(collectedText, '');
+	return narrative.trim();
+}
+
 // ── Specialist execution ─────────────────────────────────────────────────
 
 function buildSpecialistToolPool(
@@ -1890,25 +2103,48 @@ function buildTaskDeliveryLine(task: TeamTask): string {
 function buildTeamDeliveryText(params: {
 	teamLeadName: string;
 	planSummary: string;
+	finalSummary: string;
 	completedTasks: TeamTask[];
 	review: { verdict: 'approved' | 'revision_needed'; summary: string };
 	hasCjkRequest: boolean;
 }): string {
-	const { teamLeadName, planSummary, completedTasks, review, hasCjkRequest } = params;
+	const { teamLeadName, planSummary, finalSummary, completedTasks, review, hasCjkRequest } = params;
 	const taskLines = completedTasks.length > 0
 		? completedTasks.map((task) => buildTaskDeliveryLine(task))
 		: [`- ${hasCjkRequest ? '无角色任务。' : 'No specialist tasks ran.'}`];
 	const detailNote = hasCjkRequest
 		? '详细角色输出保留在 Team 面板中。'
 		: 'Detailed role outputs remain in the Team panel.';
-	return [
+	const trimmedFinal = finalSummary.trim();
+	const trimmedPlan = planSummary.trim();
+	const leadBody = trimmedFinal || trimmedPlan || (hasCjkRequest ? '(无)' : '(none)');
+	const leadHeading = hasCjkRequest
+		? trimmedFinal
+			? `## ${teamLeadName} 总结`
+			: '## Planning Summary'
+		: trimmedFinal
+			? `## ${teamLeadName}'s Closing`
+			: '## Planning Summary';
+	const sections = [
 		'# Team Delivery',
 		'',
 		`**Lead:** ${teamLeadName}`,
 		`**Review:** ${review.verdict === 'approved' ? '✅ Approved' : '⚠️ Revision Needed'}`,
 		'',
-		'## Planning Summary',
-		planSummary.trim() || (hasCjkRequest ? '(无)' : '(none)'),
+		leadHeading,
+		leadBody,
+	];
+	if (trimmedFinal && trimmedPlan && trimmedPlan !== trimmedFinal) {
+		sections.push(
+			'',
+			hasCjkRequest ? '<details><summary>初始分派说明</summary>' : '<details><summary>Initial plan</summary>',
+			'',
+			trimmedPlan,
+			'',
+			'</details>'
+		);
+	}
+	sections.push(
 		'',
 		'## Task Status',
 		...taskLines,
@@ -1916,8 +2152,9 @@ function buildTeamDeliveryText(params: {
 		'## Review',
 		clampTeamPacketText(review.summary, 1600),
 		'',
-		detailNote,
-	].join('\n');
+		detailNote
+	);
+	return sections.join('\n');
 }
 
 // ── Main orchestrator ────────────────────────────────────────────────────
@@ -2599,6 +2836,32 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			break;
 		}
 
+		// ── Phase 3.5: Team Lead final synthesis ─────────────────────
+
+		checkAbort();
+		let finalSummary = '';
+		if (completed.length > 0) {
+			emit({ threadId, type: 'team_phase', phase: 'synthesizing' });
+			try {
+				finalSummary = await runTeamLeadFinalSynthesis({
+					settings, threadId, teamLead,
+					userRequest: effectiveUserText, planSummary,
+					completedTasks: completed, review,
+					hasCjk: hasCjkRequest,
+					modelSelection, resolvedModel, signal, thinkingLevel,
+					workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
+					deferredToolState, onDeferredToolStateChange,
+					toolResultReplacementState, onToolResultReplacementStateChange, emit,
+				});
+			} catch (err) {
+				if (signal.aborted) throw err;
+				// Non-fatal — fall back to the planning summary.
+			}
+			if (finalSummary) {
+				emit({ threadId, type: 'team_lead_final', summary: finalSummary });
+			}
+		}
+
 		// ── Phase 4: Delivery ────────────────────────────────────────
 
 		checkAbort();
@@ -2607,6 +2870,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		const delivery = buildTeamDeliveryText({
 			teamLeadName: teamLead.name,
 			planSummary,
+			finalSummary,
 			completedTasks: completed,
 			review,
 			hasCjkRequest,
@@ -2627,9 +2891,10 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 				result: t.result,
 			})),
 			planSummary,
-			leaderMessage: planSummary,
+			leaderMessage: finalSummary || planSummary,
 			reviewSummary: review.summary,
 			reviewVerdict: review.verdict,
+			...(finalSummary ? { finalSummary } : {}),
 		});
 	} catch (error) {
 		if (signal.aborted) {

@@ -18,6 +18,7 @@ export type TeamSessionPhase =
 	| 'proposing'
 	| 'executing'
 	| 'reviewing'
+	| 'synthesizing'
 	| 'delivering'
 	| 'cancelled';
 
@@ -99,6 +100,7 @@ export type TeamSessionSnapshot = {
 	leaderMessage: string;
 	reviewSummary: string;
 	reviewVerdict: 'approved' | 'revision_needed' | null;
+	finalSummary?: string;
 	timelineEntries?: TeamTimelineEntry[];
 };
 
@@ -138,6 +140,7 @@ export type TeamSessionState = {
 	leaderMessage: string;
 	leaderWorkflow: TeamRoleWorkflowState | null;
 	planSummary: string;
+	finalSummary: string;
 	reviewSummary: string;
 	reviewVerdict: 'approved' | 'revision_needed' | null;
 	preflightSummary: string;
@@ -162,6 +165,7 @@ function emptySession(): TeamSessionState {
 		leaderMessage: '',
 		leaderWorkflow: null,
 		planSummary: '',
+		finalSummary: '',
 		reviewSummary: '',
 		reviewVerdict: null,
 		preflightSummary: '',
@@ -730,6 +734,15 @@ export function useTeamSession() {
 						ensureTaskTimelineEntry(session, session.reviewerTaskId);
 					}
 					break;
+				case 'team_lead_final': {
+					const normalizedFinal = normalizeLeaderTimelineText(payload.summary) || normalizeTeamSummary(payload.summary);
+					if (normalizedFinal) {
+						session.finalSummary = normalizedFinal;
+						session.leaderMessage = normalizedFinal;
+						appendLeaderTimelineEntry(session, normalizedFinal);
+					}
+					break;
+				}
 				case 'team_preflight_review':
 					session.preflightVerdict = payload.verdict;
 					session.preflightSummary = normalizeTeamSummary(payload.summary);
@@ -1007,6 +1020,7 @@ export function useTeamSession() {
 				leaderMessage: snapshot.leaderMessage,
 				leaderWorkflow: null,
 				planSummary: snapshot.planSummary,
+				finalSummary: snapshot.finalSummary ?? '',
 				reviewSummary: normalizeTeamSummary(snapshot.reviewSummary),
 				reviewVerdict: snapshot.reviewVerdict,
 				preflightSummary: '',

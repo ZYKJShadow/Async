@@ -136,7 +136,7 @@ type ChatStreamPayloadCore =
 	| {
 			threadId: string;
 			type: 'team_phase';
-			phase: 'researching' | 'planning' | 'preflight' | 'proposing' | 'executing' | 'reviewing' | 'delivering' | 'cancelled';
+			phase: 'researching' | 'planning' | 'preflight' | 'proposing' | 'executing' | 'reviewing' | 'synthesizing' | 'delivering' | 'cancelled';
 	  }
 	| {
 			threadId: string;
@@ -179,6 +179,11 @@ type ChatStreamPayloadCore =
 			threadId: string;
 			type: 'team_review';
 			verdict: 'approved' | 'revision_needed';
+			summary: string;
+	  }
+	| {
+			threadId: string;
+			type: 'team_lead_final';
 			summary: string;
 	  }
 	| {

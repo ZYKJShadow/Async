@@ -1869,6 +1869,7 @@ export const messagesEn: Record<string, string> = {
 	'team.phase.proposing': 'Awaiting approval',
 	'team.phase.executing': 'Executing',
 	'team.phase.reviewing': 'Reviewing',
+	'team.phase.synthesizing': 'Synthesizing',
 	'team.phase.delivering': 'Delivering',
 	'team.phase.cancelled': 'Cancelled',
 	'team.taskProgress': '{{done}} / {{total}} tasks completed',
