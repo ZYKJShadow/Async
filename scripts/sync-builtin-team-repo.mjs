@@ -4,10 +4,15 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
+const configuredSource = process.env.ASYNC_BUILTIN_TEAM_SOURCE;
+const fallbackSourceRoots = [
+	path.resolve(projectRoot, '..', 'agency-agents'),
+	path.resolve('D:\\WebstormProjects\\agency-agents'),
+];
+const sourceCandidates = configuredSource
+	? [path.resolve(configuredSource)]
+	: fallbackSourceRoots;
 
-const sourceRoot = path.resolve(
-	process.env.ASYNC_BUILTIN_TEAM_SOURCE || 'D:\\WebstormProjects\\agency-agents'
-);
 const targetRoot = path.join(projectRoot, 'resources', 'builtin-team', 'agency-agents');
 
 const SKIP_DIRS = new Set([
@@ -54,8 +59,16 @@ function copyDocs(sourceDir, destDir) {
 	}
 }
 
-if (!fs.existsSync(sourceRoot) || !fs.statSync(sourceRoot).isDirectory()) {
-	console.error(`[builtin-team] source repo not found: ${sourceRoot}`);
+const sourceRoot = sourceCandidates.find((candidate) => {
+	if (!fs.existsSync(candidate)) {
+		return false;
+	}
+	return fs.statSync(candidate).isDirectory();
+});
+
+if (!sourceRoot) {
+	const triedPaths = sourceCandidates.join(', ');
+	console.error(`[builtin-team] source repo not found. tried: ${triedPaths}`);
 	process.exit(1);
 }
 

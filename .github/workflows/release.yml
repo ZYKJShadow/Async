@@ -18,10 +18,19 @@ env:
 jobs:
   windows-release:
     runs-on: windows-latest
+    env:
+      ASYNC_BUILTIN_TEAM_SOURCE: ${{ github.workspace }}/agency-agents
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Check out builtin team repository
+        uses: actions/checkout@v4
+        with:
+          repository: msitarzewski/agency-agents
+          path: agency-agents
+          fetch-depth: 1
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -53,10 +62,18 @@ jobs:
     runs-on: macos-latest
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      ASYNC_BUILTIN_TEAM_SOURCE: ${{ github.workspace }}/agency-agents
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Check out builtin team repository
+        uses: actions/checkout@v4
+        with:
+          repository: msitarzewski/agency-agents
+          path: agency-agents
+          fetch-depth: 1
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
