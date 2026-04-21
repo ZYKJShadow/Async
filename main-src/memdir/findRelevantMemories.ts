@@ -12,6 +12,10 @@ import {
 	buildAnthropicProviderIdentityMetadata,
 	prependProviderIdentitySystemPrompt,
 } from '../llm/providerIdentity.js';
+import {
+	openAICompatibleEffectiveTemperature,
+	resolveRequestedTemperature,
+} from '../llm/thinkingLevel.js';
 import { formatMemoryManifest, scanMemoryFiles, type MemoryHeader } from './memoryScan.js';
 import { getAutoMemPath } from './paths.js';
 import type { ModelRequestParadigm, ThinkingLevel } from '../settingsStore.js';
@@ -28,6 +32,8 @@ export type RuntimeMemoryModel = {
 	requestApiKey: string;
 	requestBaseURL?: string;
 	requestProxyUrl?: string;
+	temperatureMode?: 'auto' | 'custom';
+	temperature?: number;
 	thinkingLevel?: ThinkingLevel;
 	providerIdentity?: ProviderIdentitySettings;
 };
@@ -164,7 +170,10 @@ async function selectRelevantMemoriesWithRuntimeModel(
 			);
 			const resp = await client.chat.completions.create({
 				model: runtime.requestModelId,
-				temperature: 0,
+				temperature:
+					runtime.temperatureMode === 'custom' && runtime.temperature != null
+						? resolveRequestedTemperature(0, runtime.temperatureMode, runtime.temperature)
+						: openAICompatibleEffectiveTemperature(runtime.requestModelId, 0),
 				max_tokens: 256,
 				messages: [
 					{
@@ -236,6 +245,8 @@ async function selectRelevantMemoriesWithModel(
 			requestApiKey: resolved.apiKey,
 			requestBaseURL: resolved.baseURL,
 			requestProxyUrl: resolved.proxyUrl,
+			temperatureMode: resolved.temperatureMode,
+			temperature: resolved.temperature,
 		},
 		query,
 		memories
@@ -280,13 +291,15 @@ export async function findRelevantMemories(
 	const resolved = resolveModelRequest(settings, modelSelection);
 	const runtime = resolved.ok
 		? {
-				requestModelId: resolved.requestModelId,
-				paradigm: resolved.paradigm,
-				requestApiKey: resolved.apiKey,
-				requestBaseURL: resolved.baseURL,
-				requestProxyUrl: resolved.proxyUrl,
-				providerIdentity: settings.providerIdentity,
-			}
+			requestModelId: resolved.requestModelId,
+			paradigm: resolved.paradigm,
+			requestApiKey: resolved.apiKey,
+			requestBaseURL: resolved.baseURL,
+			requestProxyUrl: resolved.proxyUrl,
+			temperatureMode: resolved.temperatureMode,
+			temperature: resolved.temperature,
+			providerIdentity: settings.providerIdentity,
+		}
 		: null;
 	return findRelevantMemoriesInDir(query, memoryDir, runtime, alreadySurfaced);
 }
@@ -333,13 +346,15 @@ export async function buildRelevantMemoryContextBlock(params: {
 	const resolved = resolveModelRequest(params.settings, params.modelSelection);
 	const runtime = resolved.ok
 		? {
-				requestModelId: resolved.requestModelId,
-				paradigm: resolved.paradigm,
-				requestApiKey: resolved.apiKey,
-				requestBaseURL: resolved.baseURL,
-				requestProxyUrl: resolved.proxyUrl,
-				providerIdentity: params.settings.providerIdentity,
-			}
+			requestModelId: resolved.requestModelId,
+			paradigm: resolved.paradigm,
+			requestApiKey: resolved.apiKey,
+			requestBaseURL: resolved.baseURL,
+			requestProxyUrl: resolved.proxyUrl,
+			temperatureMode: resolved.temperatureMode,
+			temperature: resolved.temperature,
+			providerIdentity: params.settings.providerIdentity,
+		}
 		: null;
 	const memoryDir = params.memoryDirOverride ?? getAutoMemPath(params.workspaceRoot);
 	if (!memoryDir) {

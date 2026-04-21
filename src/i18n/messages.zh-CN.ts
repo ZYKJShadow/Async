@@ -1243,6 +1243,12 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.modelsGlobalCredsLead':
 		'各模型未开启「独立 Base URL 与 API 密钥」时，将按范式使用此处的密钥与地址。HTTP 代理仅作用于 OpenAI 兼容请求。',
 	'settings.modelAdvanced': '高级选项',
+	'settings.temperatureMode': 'Temperature',
+	'settings.temperatureModeAuto': '自动',
+	'settings.temperatureModeCustom': '自定义',
+	'settings.temperatureModeHint': '自动模式会沿用应用默认策略与兼容修正；自定义模式会固定发送你填写的值。',
+	'settings.temperature': 'Temperature 数值',
+	'settings.temperatureCustomHint': '取值通常为 0 到 2。若某些模型或网关只接受 1，请把这里固定为 1。',
 	'settings.maxOutputTokens': '最大输出 token',
 	'settings.maxOutputTokensHint': '单次回复长度上限；默认 16384，若网关仅支持更低（如 8192）请按服务商说明改小。',
 	'settings.contextWindowTokens': '上下文窗口（输入 token）',

@@ -1,5 +1,9 @@
 import type { ModelRequestParadigm, ShellSettings, UserLlmProvider, UserModelEntry } from '../settingsStore.js';
-import { normalizeThinkingLevel, type ThinkingLevel } from './thinkingLevel.js';
+import {
+	normalizeThinkingLevel,
+	normalizeUserModelTemperature,
+	type ThinkingLevel,
+} from './thinkingLevel.js';
 
 export type ResolvedChatModel = {
 	requestModelId: string;
@@ -20,6 +24,8 @@ export type ResolvedModelRequest =
 			maxOutputTokens: number;
 /** 未配置时在 `modelContext` 中解析 */
 			contextWindowTokens?: number;
+			temperatureMode: 'auto' | 'custom';
+			temperature?: number;
 			apiKey: string;
 			baseURL?: string;
 			/** 仅 OpenAI 兼容：来自提供商的 HTTP 代理 */
@@ -133,6 +139,8 @@ export function resolveModelRequest(settings: ShellSettings, selectionId: string
 	const ctx = entry.contextWindowTokens;
 	const contextWindowTokens =
 		ctx != null && Number.isFinite(ctx) && ctx > 0 ? Math.floor(ctx) : undefined;
+	const temperatureMode = entry.temperatureMode === 'custom' ? 'custom' : 'auto';
+	const temperature = normalizeUserModelTemperature(entry.temperature);
 
 	return {
 		ok: true,
@@ -141,6 +149,8 @@ export function resolveModelRequest(settings: ShellSettings, selectionId: string
 		paradigm: prov.paradigm,
 		maxOutputTokens: clampMaxOutputTokens(entry.maxOutputTokens),
 		...(contextWindowTokens != null ? { contextWindowTokens } : {}),
+		temperatureMode,
+		...(temperature != null ? { temperature } : {}),
 		apiKey: creds.apiKey,
 		baseURL: creds.baseURL,
 		proxyUrl: creds.proxyUrl,

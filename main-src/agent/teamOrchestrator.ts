@@ -1127,6 +1127,8 @@ async function llmPlanTasks(params: {
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
 			: {}),
+		temperatureMode: resolvedModel.temperatureMode,
+		...(resolvedModel.temperature != null ? { temperature: resolvedModel.temperature } : {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: plannerTools,
@@ -1519,6 +1521,8 @@ async function runPreflightReviewerAgent(params: {
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
 			: {}),
+		temperatureMode: resolvedModel.temperatureMode,
+		...(resolvedModel.temperature != null ? { temperature: resolvedModel.temperature } : {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: specializedTools,
@@ -1686,6 +1690,8 @@ async function runReviewerAgent(params: {
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
 			: {}),
+		temperatureMode: resolvedModel.temperatureMode,
+		...(resolvedModel.temperature != null ? { temperature: resolvedModel.temperature } : {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: specializedTools,
@@ -1933,6 +1939,8 @@ async function runTeamLeadFinalSynthesis(params: {
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
 			: {}),
+		temperatureMode: resolvedModel.temperatureMode,
+		...(resolvedModel.temperature != null ? { temperature: resolvedModel.temperature } : {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: [],
@@ -2091,6 +2099,8 @@ async function runOneSpecialist(params: {
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
 			: {}),
+		temperatureMode: resolvedModel.temperatureMode,
+		...(resolvedModel.temperature != null ? { temperature: resolvedModel.temperature } : {}),
 		signal,
 		composerMode: 'agent',
 		toolPoolOverride: specializedToolPool,
@@ -2181,6 +2191,8 @@ async function runOneSpecialist(params: {
 				options.requestProxyUrl = resolvedOverride.proxyUrl;
 				options.maxOutputTokens = resolvedOverride.maxOutputTokens;
 				options.contextWindowTokens = resolvedOverride.contextWindowTokens;
+				options.temperatureMode = resolvedOverride.temperatureMode;
+				options.temperature = resolvedOverride.temperature;
 			}
 		}
 		setTeamEscalationRuntime(teamRoleScope.teamTaskId, {

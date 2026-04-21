@@ -3,6 +3,7 @@ import type { Content, Part } from '@google/generative-ai';
 import type { ShellSettings } from '../settingsStore.js';
 import { composeSystem, temperatureForMode } from './modePrompts.js';
 import type { StreamHandlers, TurnTokenUsage, UnifiedChatOptions } from './types.js';
+import { resolveRequestedTemperature } from './thinkingLevel.js';
 import { llmSdkResponseHeadTimeoutMs } from './sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from './llmTransportRetry.js';
 import { formatLlmSdkError } from './formatLlmSdkError.js';
@@ -68,7 +69,11 @@ export async function streamGemini(
 		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
 		return;
 	}
-	const temperature = temperatureForMode(options.mode);
+	const temperature = resolveRequestedTemperature(
+		temperatureForMode(options.mode),
+		options.temperatureMode,
+		options.temperature
+	);
 
 	const genAI = new GoogleGenerativeAI(key);
 	const model = genAI.getGenerativeModel({

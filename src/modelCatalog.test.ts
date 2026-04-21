@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+	createEmptyUserModel,
 	DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
 	mergeDiscoveredProviderModels,
 	type UserModelEntry,
 } from './modelCatalog';
+
+describe('createEmptyUserModel', () => {
+	it('defaults temperature mode to auto', () => {
+		expect(createEmptyUserModel('prov-a')).toMatchObject({
+			providerId: 'prov-a',
+			temperatureMode: 'auto',
+		});
+	});
+});
 
 describe('mergeDiscoveredProviderModels', () => {
 	it('adds newly discovered models for a provider', () => {

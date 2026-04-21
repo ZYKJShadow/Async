@@ -1,5 +1,7 @@
 import type { ModelRequestParadigm } from './llmProvider';
 
+export type UserModelTemperatureMode = 'auto' | 'custom';
+
 /** 与主进程 `UserLlmProvider` 对齐 */
 export type UserLlmProvider = {
 	id: string;
@@ -21,6 +23,8 @@ export type UserModelEntry = {
 	maxOutputTokens?: number;
 	/** 上下文窗口 tokens；用于主进程压缩阈值，可选 */
 	contextWindowTokens?: number;
+	temperatureMode?: UserModelTemperatureMode;
+	temperature?: number;
 };
 
 export type DiscoveredProviderModel = {
@@ -57,6 +61,7 @@ export function createEmptyUserModel(providerId: string): UserModelEntry {
 		displayName: '',
 		requestName: '',
 		maxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+		temperatureMode: 'auto',
 	};
 }
 

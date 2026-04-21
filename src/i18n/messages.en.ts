@@ -1261,6 +1261,12 @@ export const messagesEn: Record<string, string> = {
 	'settings.modelsGlobalCredsLead':
 		'Used when a model does not enable “Custom base URL & API key”. HTTP proxy applies to OpenAI-compatible calls only.',
 	'settings.modelAdvanced': 'Advanced',
+	'settings.temperatureMode': 'Temperature',
+	'settings.temperatureModeAuto': 'Auto',
+	'settings.temperatureModeCustom': 'Custom',
+	'settings.temperatureModeHint': 'Auto uses the built-in defaults and compatibility rules. Custom always sends the value you enter.',
+	'settings.temperature': 'Temperature value',
+	'settings.temperatureCustomHint': 'Usually 0 to 2. If a model or gateway only accepts 1, set this field to 1.',
 	'settings.maxOutputTokens': 'Max output tokens',
 	'settings.maxOutputTokensHint': 'Cap per completion; default is 16384—lower if your gateway enforces a smaller max (e.g. 8192).',
 	'settings.contextWindowTokens': 'Context window (input tokens)',

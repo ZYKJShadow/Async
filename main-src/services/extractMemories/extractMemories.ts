@@ -13,6 +13,10 @@ import {
 	prependProviderIdentitySystemPrompt,
 } from '../../llm/providerIdentity.js';
 import {
+	openAICompatibleEffectiveTemperature,
+	resolveRequestedTemperature,
+} from '../../llm/thinkingLevel.js';
+import {
 	getAgentToolCallsSinceMemoryBaseline,
 	getMemoryExtractedMessageCount,
 	getThread,
@@ -274,7 +278,10 @@ async function extractWithRuntimeModel(
 			);
 			const resp = await client.chat.completions.create({
 				model: runtime.requestModelId,
-				temperature: 0,
+				temperature:
+					runtime.temperatureMode === 'custom' && runtime.temperature != null
+						? resolveRequestedTemperature(0, runtime.temperatureMode, runtime.temperature)
+						: openAICompatibleEffectiveTemperature(runtime.requestModelId, 0),
 				max_tokens: 700,
 				messages: [
 					{
@@ -341,6 +348,8 @@ async function extractWithModel(
 			requestApiKey: resolved.apiKey,
 			requestBaseURL: resolved.baseURL,
 			requestProxyUrl: resolved.proxyUrl,
+			temperatureMode: resolved.temperatureMode,
+			temperature: resolved.temperature,
 			providerIdentity: settings.providerIdentity,
 		},
 		userPrompt
