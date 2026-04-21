@@ -131,7 +131,7 @@ export function createAppWindow(opts?: {
 		minWidth: 800,
 		minHeight: 600,
 		backgroundColor: initialBackgroundColor,
-		...(appIconPath ? { icon: appIconPath } : {}),
+		...(appIconPath && process.platform !== 'darwin' ? { icon: appIconPath } : {}),
 		...titleBarOptions,
 		webPreferences: {
 			preload: preloadPath,

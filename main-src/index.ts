@@ -11,17 +11,26 @@ import { disposeBotController, initBotController, syncBotControllerFromSettings 
 import { flushBotSessionStore, initBotSessionStore } from './bots/botSessionStore.js';
 
 function resolveAppIconPath(): string | undefined {
-	const iconsDir = path.join(app.getAppPath(), 'resources', 'icons');
+	const iconSearchRoots =
+		process.platform === 'darwin'
+			? [
+					process.resourcesPath,
+					path.join(process.resourcesPath, 'resources', 'icons'),
+					path.join(app.getAppPath(), 'resources', 'icons'),
+				]
+			: [path.join(app.getAppPath(), 'resources', 'icons')];
 	const names =
 		process.platform === 'win32'
 			? ['icon.ico', 'icon.png']
 			: process.platform === 'darwin'
 				? ['icon.icns', 'icon.png']
 				: ['icon.png'];
-	for (const name of names) {
-		const full = path.join(iconsDir, name);
-		if (existsSync(full)) {
-			return full;
+	for (const root of iconSearchRoots) {
+		for (const name of names) {
+			const full = path.join(root, name);
+			if (existsSync(full)) {
+				return full;
+			}
 		}
 	}
 	return undefined;
