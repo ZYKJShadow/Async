@@ -2391,6 +2391,7 @@ function buildTeamDeliveryText(params: {
 		: 'Detailed role outputs and planning history remain in the Team panel.';
 	const trimmedFinal = finalSummary.trim();
 	const trimmedPlan = planSummary.trim();
+	const trimmedReview = review.summary.trim();
 	const leadBody = trimmedFinal || trimmedPlan || (hasCjkRequest ? '(无)' : '(none)');
 	const leadHeading = hasCjkRequest
 		? trimmedFinal
@@ -2411,10 +2412,16 @@ function buildTeamDeliveryText(params: {
 	sections.push(
 		'',
 		'## Task Status',
-		...taskLines,
-		'',
-		'## Review',
-		clampTeamPacketText(review.summary, 1600),
+		...taskLines
+	);
+	if (!trimmedFinal && trimmedReview) {
+		sections.push(
+			'',
+			'## Review',
+			clampTeamPacketText(trimmedReview, 1600)
+		);
+	}
+	sections.push(
 		'',
 		detailNote
 	);

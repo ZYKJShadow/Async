@@ -68,8 +68,8 @@ export function buildTeamWorkflowItems(session: TeamSessionState | null): TeamWo
 	const preflightVerdict = session.planProposal?.preflightVerdict ?? session.preflightVerdict;
 	const reviewerWorkflow =
 		session.reviewerTaskId != null ? session.roleWorkflowByTaskId[session.reviewerTaskId] ?? null : null;
-	const hasReviewerSignals = Boolean(reviewerWorkflow || session.reviewSummary.trim() || preflightSummary || preflightVerdict);
-	if (!hasReviewerSignals) {
+	const hasExplicitReviewer = Boolean(session.reviewerTaskId || reviewerWorkflow);
+	if (!hasExplicitReviewer) {
 		return specialistItems;
 	}
 	const reviewerInFinalReview =

@@ -880,6 +880,57 @@ describe('runTeamSession clarification gates', () => {
 		);
 	});
 
+	it('omits the detailed review section when the team lead already produced a final synthesis', async () => {
+		runAgentLoopMock
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				await submitTeamPlanDecision(
+					handlers,
+					{
+						mode: 'PLAN',
+						tasks: [
+							{
+								expert: 'frontend',
+								task: 'Summarize the final delivery layout issue',
+								acceptanceCriteria: ['Identify the duplicated review copy'],
+							},
+						],
+					},
+					'我先安排前端同学检查 Team Delivery 的重复内容。'
+				);
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone('问题定位完成：主消息里把 review 和 lead 总结都展开了。');
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone(`### Verdict: APPROVED
+### Critical Issues
+- (none)
+### Suggestions
+- 避免在最终交付里重复展开 review 正文。
+### Summary
+评审确认结果可交付，但 review 内容已经被 lead 总结吸收。`);
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone('最终建议已经整理好了，重点结论和下一步都在这里，评审也确认可以交付。');
+			});
+
+		const experts = [
+			makeExpertConfig('team_lead', 'Team Lead', 'team_lead'),
+			makeExpertConfig('frontend', 'Frontend', 'frontend'),
+			makeExpertConfig('reviewer', 'Reviewer', 'reviewer'),
+		];
+		const { doneCalls, errorCalls } = await runSession({
+			userRequest: '请修一下 Team Delivery 里 review 内容重复的问题',
+			experts,
+		});
+
+		expect(errorCalls).toEqual([]);
+		expect(doneCalls).toHaveLength(1);
+		expect(doneCalls[0]?.text).toContain('**Review:** ✅ Approved');
+		expect(doneCalls[0]?.text).not.toContain('## Review');
+		expect(doneCalls[0]?.text).toContain('最终建议已经整理好了');
+	});
+
 	it('continues with a lead replan after reviewer requests revision and keeps raw role output out of the main chat', async () => {
 		let reviewReplanPrompt = '';
 		runAgentLoopMock
