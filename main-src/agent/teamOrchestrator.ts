@@ -2872,27 +2872,41 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 							const expert = specialists.find((s) => s.id === task.expertId) ?? specialists[0]!;
 							activeTaskIds.add(task.id);
 							emit({ threadId, type: 'team_expert_started', taskId: task.id, expertId: task.expertId });
-							const result = await runOneSpecialist({
-								settings, task, expert, userRequest: effectiveUserText, planSummary, completedTasksById,
-								allTasks: plannedTasks,
-								modelSelection, resolvedModel,
-								signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
-								baseTools: baseTeamTools,
-								threadId,
-								deferredToolState,
-								onDeferredToolStateChange,
-								toolResultReplacementState,
-								onToolResultReplacementStateChange,
-								pullPeerMailboxMessages: () => pullPeerMailboxMessages(task),
-								handlePeerRequest: (request) => waitForRunningPeerReply(task, request),
-								handlePeerReply: (reply) => {
-									const resolved = clearPeerRequest(task.id, reply.requestId);
-									resolved?.resolve(reply.answer);
-								},
-								emit,
-							});
-							activeTaskIds.delete(task.id);
-							return { task, result };
+							try {
+								const result = await runOneSpecialist({
+									settings, task, expert, userRequest: effectiveUserText, planSummary, completedTasksById,
+									allTasks: plannedTasks,
+									modelSelection, resolvedModel,
+									signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
+									baseTools: baseTeamTools,
+									threadId,
+									deferredToolState,
+									onDeferredToolStateChange,
+									toolResultReplacementState,
+									onToolResultReplacementStateChange,
+									pullPeerMailboxMessages: () => pullPeerMailboxMessages(task),
+									handlePeerRequest: (request) => waitForRunningPeerReply(task, request),
+									handlePeerReply: (reply) => {
+										const resolved = clearPeerRequest(task.id, reply.requestId);
+										resolved?.resolve(reply.answer);
+									},
+									emit,
+								});
+								const emittedDone = !signal.aborted && !result.escalation;
+								if (emittedDone) {
+									emit({
+										threadId,
+										type: 'team_expert_done',
+										taskId: task.id,
+										expertId: task.expertId,
+										success: result.success,
+										result: result.text,
+									});
+								}
+								return { task, result, emittedDone };
+							} finally {
+								activeTaskIds.delete(task.id);
+							}
 						})
 					),
 					abortPromise,
@@ -2902,14 +2916,6 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 				const settledItems = results.filter((item) => !item.result.escalation);
 
 				for (const item of settledItems) {
-					emit({
-						threadId,
-						type: 'team_expert_done',
-						taskId: item.task.id,
-						expertId: item.task.expertId,
-						success: item.result.success,
-						result: item.result.text,
-					});
 					resolveOutstandingPeerRequestsForTask(item.task, item.result.text);
 					const finishedTask = {
 						...item.task,
@@ -3008,14 +3014,16 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 								? `${item.result.text}\n\nReplan budget exhausted; reviewer should inspect this escalation.`
 								: item.result.text;
 						resolveOutstandingPeerRequestsForTask(item.task, resultText);
-						emit({
-							threadId,
-							type: 'team_expert_done',
-							taskId: item.task.id,
-							expertId: item.task.expertId,
-							success: false,
-							result: resultText,
-						});
+						if (!item.emittedDone && !signal.aborted) {
+							emit({
+								threadId,
+								type: 'team_expert_done',
+								taskId: item.task.id,
+								expertId: item.task.expertId,
+								success: false,
+								result: resultText,
+							});
+						}
 						const revisionTask: TeamTask = {
 							...item.task,
 							status: 'revision',

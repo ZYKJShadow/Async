@@ -1121,4 +1121,103 @@ describe('runTeamSession clarification gates', () => {
 			)?.result
 		).toContain('后端拿到 peer 回复');
 	});
+
+	it('emits specialist completion before other parallel specialists finish', async () => {
+		let releaseBackend: (() => void) | null = null;
+		const backendGate = new Promise<void>((resolve) => {
+			releaseBackend = resolve;
+		});
+		const events: Array<{ type: string; [key: string]: unknown }> = [];
+		const doneCalls: Array<{ text: string; snapshot: unknown }> = [];
+		const errorCalls: string[] = [];
+
+		runAgentLoopMock
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				await submitTeamPlanDecision(
+					handlers,
+					{
+						mode: 'PLAN',
+						tasks: [
+							{
+								expert: 'frontend',
+								task: 'Finish the renderer update first',
+								acceptanceCriteria: ['Frontend handoff is complete'],
+							},
+							{
+								expert: 'backend',
+								task: 'Keep the backend task running a bit longer',
+								acceptanceCriteria: ['Backend handoff is complete'],
+							},
+						],
+					},
+					'我会让前后端并行推进。'
+				);
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone('前端已先完成。');
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				await backendGate;
+				handlers.onDone('后端稍后完成。');
+			})
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				handlers.onDone('');
+			});
+
+		const experts = [
+			makeExpertConfig('team_lead', 'Team Lead', 'team_lead'),
+			makeExpertConfig('frontend', 'Frontend', 'frontend'),
+			makeExpertConfig('backend', 'Backend', 'backend'),
+		];
+		const sessionPromise = runTeamSession({
+			settings: buildTeamSettings(experts, { maxParallelExperts: 2 }) as never,
+			threadId: 'thread-test',
+			messages: [{ role: 'user', content: '检查 team 并行角色的完成状态是否实时更新' }] as never,
+			modelSelection: 'test-model',
+			resolvedModel: {
+				ok: true,
+				requestModelId: 'test-model',
+				paradigm: 'openai-compatible',
+				apiKey: 'test-key',
+				baseURL: 'https://example.test',
+				proxyUrl: undefined,
+				maxOutputTokens: 2048,
+			},
+			signal: new AbortController().signal,
+			emit: (evt) => events.push(evt as never),
+			onDone: (text, _usage, snapshot) => doneCalls.push({ text, snapshot }),
+			onError: (message) => errorCalls.push(message),
+		});
+
+		await vi.waitFor(() => {
+			expect(events).toContainEqual(
+				expect.objectContaining({
+					type: 'team_expert_done',
+					expertId: 'frontend',
+					success: true,
+					result: '前端已先完成。',
+				})
+			);
+		});
+		expect(events).not.toContainEqual(
+			expect.objectContaining({
+				type: 'team_expert_done',
+				expertId: 'backend',
+			})
+		);
+
+		releaseBackend?.();
+		await sessionPromise;
+
+		expect(errorCalls).toEqual([]);
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: 'team_expert_done',
+				expertId: 'backend',
+				success: true,
+				result: '后端稍后完成。',
+			})
+		);
+		expect(doneCalls).toHaveLength(1);
+	});
 });
