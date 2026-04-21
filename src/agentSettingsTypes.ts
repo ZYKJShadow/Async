@@ -117,6 +117,10 @@ export type TeamSettings = {
 	planReviewer?: TeamExpertConfig | null;
 	/** 可选的交付评审专家；为空时复用 reviewer */
 	deliveryReviewer?: TeamExpertConfig | null;
+	/** 启用简单目标短路优化：当用户请求明显是单轮简单问题时，直接让 Team Lead 回答而不走完整 Planning */
+	enableSimpleGoalShortCircuit?: boolean;
+	/** 执行阶段任务调度策略：fifo | round-robin | least-busy | dependency-first | capability-match */
+	taskSchedulingStrategy?: 'fifo' | 'round-robin' | 'least-busy' | 'dependency-first' | 'capability-match';
 };
 
 /** Bash 执行权限三档（与 Composer 下拉、设置页一致） */
