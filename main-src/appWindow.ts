@@ -143,6 +143,15 @@ export function createAppWindow(opts?: {
 		show: false,
 	});
 	applyThemeChromeToWindow(win, initialThemeChrome.scheme, initialThemeChrome.override);
+	let shown = false;
+	const revealWindow = (reason: string) => {
+		if (shown || win.isDestroyed()) {
+			return;
+		}
+		shown = true;
+		console.log(`[window] showing main window via ${reason}`);
+		win.show();
+	};
 
 	const surface: AppWindowSurface = opts?.surface ?? 'agent';
 	const webContentsId = win.webContents.id;
@@ -169,7 +178,17 @@ export function createAppWindow(opts?: {
 	win.on('resize', notifyLayout);
 	win.on('move', notifyLayout);
 
-	win.once('ready-to-show', () => win.show());
+	win.once('ready-to-show', () => revealWindow('ready-to-show'));
+	win.webContents.once('did-finish-load', () => revealWindow('did-finish-load'));
+	win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+		console.error('[window] did-fail-load', { errorCode, errorDescription, validatedURL });
+		revealWindow('did-fail-load');
+	});
+	win.webContents.on('render-process-gone', (_event, details) => {
+		console.error('[window] render-process-gone', details);
+		revealWindow('render-process-gone');
+	});
+	setTimeout(() => revealWindow('show-timeout'), 3000);
 
 	const htmlPath = path.join(__dirname, '..', 'dist', 'index.html');
 	const useViteDevServer = isDev && !loadDistFlag;

@@ -84,7 +84,11 @@ app.whenReady().then(() => {
 	const appIconPath = resolveAppIconPath();
 	configureAppWindowIcon(appIconPath);
 	if (process.platform === 'darwin' && appIconPath) {
-		app.dock?.setIcon(appIconPath);
+		try {
+			app.dock?.setIcon(appIconPath);
+		} catch (error) {
+			console.warn('[startup] failed to set dock icon:', error);
+		}
 	}
 	lap('icon configured');
 
