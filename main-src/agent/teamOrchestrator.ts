@@ -47,6 +47,9 @@ import {
 	type TeamPeerReply,
 	setTeamPeerReplyRuntime,
 } from './teamReplyToPeerTool.js';
+import { isSimpleGoal } from './simpleGoalDetector.js';
+import { rankReadyTasks, type TaskSchedulingStrategy } from './teamTaskScheduler.js';
+import { TeamTaskQueue } from './teamTaskQueue.js';
 
 type TeamPhase =
 	| 'researching'
@@ -2440,6 +2443,156 @@ function buildTeamDeliveryText(params: {
 	return sections.join('\n');
 }
 
+// ── Queue sync helper ────────────────────────────────────────────────────
+
+function syncQueueToPending(
+	queue: TeamTaskQueue,
+	pending: TeamTask[],
+	completed: TeamTask[],
+	completedIds: Set<string>,
+	completedTasksById: Map<string, TeamTask>,
+): void {
+	// Sync newly-completed tasks.
+	for (const task of queue.getByStatus('completed')) {
+		if (!completedTasksById.has(task.id)) {
+			completed.push(task);
+			completedTasksById.set(task.id, task);
+			completedIds.add(task.id);
+		}
+	}
+	// Sync newly-failed tasks (including cascaded failures).
+	for (const task of queue.getByStatus('failed')) {
+		if (!completedTasksById.has(task.id)) {
+			completed.push(task);
+			completedTasksById.set(task.id, task);
+		}
+	}
+	// Sync revision tasks (escalations awaiting replan).
+	for (const task of queue.getByStatus('revision')) {
+		if (!completedTasksById.has(task.id)) {
+			completed.push(task);
+			completedTasksById.set(task.id, task);
+		}
+	}
+	// Remove from pending any tasks that are no longer pending/blocked in the queue.
+	for (let i = pending.length - 1; i >= 0; i--) {
+		const qTask = queue.get(pending[i]!.id);
+		if (!qTask || (qTask.status !== 'pending' && qTask.status !== 'blocked')) {
+			pending.splice(i, 1);
+		}
+	}
+	// Add to pending any queue tasks that are pending/blocked but not yet in pending.
+	const pendingIds = new Set(pending.map((t) => t.id));
+	for (const task of queue.getPendingOrBlocked()) {
+		if (!pendingIds.has(task.id)) {
+			pending.push(task);
+		}
+	}
+}
+
+// ── Simple-goal short-circuit ────────────────────────────────────────────
+
+async function runTeamLeadQuickAnswer(params: {
+	settings: ShellSettings;
+	threadId: string;
+	teamLead: TeamExpertRuntimeProfile;
+	userRequest: string;
+	modelSelection: string;
+	resolvedModel: TeamOrchestratorInput['resolvedModel'];
+	signal: AbortSignal;
+	thinkingLevel?: TeamOrchestratorInput['thinkingLevel'];
+	workspaceRoot?: string | null;
+	workspaceLspManager?: WorkspaceLspManager | null;
+	hostWebContentsId?: number | null;
+	toolHooks?: ToolExecutionHooks;
+	emit: (evt: TeamEmit) => void;
+}): Promise<string> {
+	const {
+		settings, threadId, teamLead, userRequest, modelSelection, resolvedModel,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, emit,
+	} = params;
+
+	const quickRoleScope = {
+		teamTaskId: 'team-lead-quick',
+		teamExpertId: teamLead.id,
+		teamRoleKind: 'lead' as const,
+		teamExpertName: teamLead.name,
+		teamRoleType: teamLead.roleType,
+	};
+
+	const subMessages: ChatMessage[] = [
+		{ role: 'user', content: userRequest },
+	];
+
+	let finalText = '';
+
+	const options: AgentLoopOptions = {
+		modelSelection: teamLead.preferredModelId?.trim() || modelSelection,
+		requestModelId: resolvedModel.requestModelId,
+		paradigm: resolvedModel.paradigm,
+		requestApiKey: resolvedModel.apiKey,
+		requestBaseURL: resolvedModel.baseURL,
+		requestProxyUrl: resolvedModel.proxyUrl,
+		maxOutputTokens: resolvedModel.maxOutputTokens,
+		...(resolvedModel.contextWindowTokens != null
+			? { contextWindowTokens: resolvedModel.contextWindowTokens }
+			: {}),
+		temperatureMode: resolvedModel.temperatureMode,
+		...(resolvedModel.temperature != null ? { temperature: resolvedModel.temperature } : {}),
+		signal,
+		composerMode: 'agent',
+		agentSystemAppend: appendTeamLanguageRule(settings, teamLead.systemPrompt),
+		thinkingLevel,
+		workspaceRoot,
+		workspaceLspManager,
+		hostWebContentsId: hostWebContentsId ?? null,
+		threadId,
+		toolHooks,
+	};
+
+	const handlers: AgentLoopHandlers = {
+		onTextDelta: (text) => {
+			finalText += text;
+			emit({ threadId, type: 'delta', text, teamRoleScope: quickRoleScope });
+		},
+		onThinkingDelta: (text) => {
+			emit({ threadId, type: 'thinking_delta', text, teamRoleScope: quickRoleScope });
+		},
+		onToolCall: (name, args, toolCallId) => {
+			emit({
+				threadId,
+				type: 'tool_call',
+				name,
+				args: JSON.stringify(args),
+				toolCallId,
+				teamRoleScope: quickRoleScope,
+			});
+		},
+		onToolResult: (name, result, success, toolCallId) => {
+			emit({
+				threadId,
+				type: 'tool_result',
+				name,
+				result,
+				success,
+				toolCallId,
+				teamRoleScope: quickRoleScope,
+			});
+		},
+		onDone: (text, usage) => {
+			finalText = normalizeTeamAgentSummary(text, finalText);
+			emit({ threadId, type: 'done', text, usage, teamRoleScope: quickRoleScope });
+		},
+		onError: (message) => {
+			finalText = message;
+			emit({ threadId, type: 'error', message, teamRoleScope: quickRoleScope });
+		},
+	};
+
+	await runAgentLoop(settings, subMessages, options, handlers);
+	return finalText;
+}
+
 // ── Main orchestrator ────────────────────────────────────────────────────
 
 export async function runTeamSession(input: TeamOrchestratorInput): Promise<void> {
@@ -2479,6 +2632,41 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		const hasCjkRequest = /[\u3400-\u9fff]/.test(effectiveUserText);
 		const teamDefaults = getTeamSourceDefaults(settings.team?.source);
 		let planningMessages = messages;
+
+		// ── Phase 0: Simple-goal short-circuit ───────────────────────
+		if (settings.team?.enableSimpleGoalShortCircuit && isSimpleGoal(effectiveUserText)) {
+			checkAbort();
+			emit({ threadId, type: 'team_phase', phase: 'delivering' });
+			try {
+				const quickAnswer = await runTeamLeadQuickAnswer({
+					settings,
+					threadId,
+					teamLead,
+					userRequest: effectiveUserText,
+					modelSelection,
+					resolvedModel,
+					signal,
+					thinkingLevel,
+					workspaceRoot,
+					workspaceLspManager,
+					hostWebContentsId,
+					toolHooks,
+					emit,
+				});
+				onDone(quickAnswer, undefined, {
+					phase: 'delivering',
+					tasks: [],
+					planSummary: quickAnswer,
+					leaderMessage: quickAnswer,
+					reviewSummary: '',
+					reviewVerdict: null,
+				});
+				return;
+			} catch (err) {
+				if (signal.aborted) throw err;
+				// Fall through to normal team flow if quick answer fails.
+			}
+		}
 
 		// ── Phase 1: Planning ────────────────────────────────────────
 		let plannedTasks: TeamTask[] = [];
@@ -2740,6 +2928,8 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 		checkAbort();
 		emit({ threadId, type: 'team_phase', phase: 'executing' });
+		const queue = new TeamTaskQueue();
+		queue.addBatch(plannedTasks);
 		let pending = [...plannedTasks];
 		const completed: TeamTask[] = [];
 		const completedIds = new Set<string>();
@@ -2848,18 +3038,27 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		};
 
 		while (true) {
-			while (pending.length > 0) {
+			while (pending.length > 0 || queue.getPendingOrBlocked().length > 0) {
 				checkAbort();
+				syncQueueToPending(queue, pending, completed, completedIds, completedTasksById);
+
 				const ready = getReadyTasks(pending, completedIds);
 				if (ready.length === 0) {
-					for (const task of pending) {
-						completed.push({ ...task, status: 'failed', result: 'Stuck: unresolvable dependency.' });
+					if (activeTaskIds.size > 0) {
+						// Tasks still running; wait for next iteration.
+						break;
 					}
-					pending.length = 0;
+					// No ready tasks and nothing running: cascade fail remaining stuck tasks.
+					for (const task of pending) {
+						queue.fail(task.id, 'Stuck: unresolvable dependency.');
+					}
+					syncQueueToPending(queue, pending, completed, completedIds, completedTasksById);
 					break;
 				}
 
-				const batch = ready.slice(0, maxParallelExperts);
+				const strategy = (settings.team?.taskSchedulingStrategy as TaskSchedulingStrategy) ?? 'dependency-first';
+				const rankedReady = rankReadyTasks(ready, plannedTasks, specialists, activeTaskIds, strategy);
+				const batch = rankedReady.slice(0, maxParallelExperts);
 				for (const bt of batch) {
 					const idx = pending.indexOf(bt);
 					if (idx !== -1) pending.splice(idx, 1);
@@ -2929,17 +3128,13 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 				for (const item of settledItems) {
 					resolveOutstandingPeerRequestsForTask(item.task, item.result.text);
-					const finishedTask = {
-						...item.task,
-						status: (item.result.success ? 'completed' : 'failed') as TeamTaskStatus,
-						result: item.result.text,
-					};
-					completed.push(finishedTask);
-					completedTasksById.set(finishedTask.id, finishedTask);
 					if (item.result.success) {
-						completedIds.add(item.task.id);
+						queue.complete(item.task.id, item.result.text);
+					} else {
+						queue.fail(item.task.id, item.result.text);
 					}
 				}
+				syncQueueToPending(queue, pending, completed, completedIds, completedTasksById);
 
 				if (escalatedItems.length > 0) {
 					const primaryEscalation = escalatedItems[0]!;
@@ -2996,8 +3191,15 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 							const revisedPendingTasks = materializePlannedTasks(revisedPlan.tasks, specialists, replanCandidates);
 							const diff = applyPlanDiff(replanCandidates, revisedPendingTasks);
-							pending = [...diff.nextPendingTasks];
-							plannedTasks = [...completed, ...pending];
+							// Sync replan into queue.
+							for (const task of queue.list()) {
+								if (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'revision') {
+									queue.remove(task.id);
+								}
+							}
+							queue.addBatch(diff.nextPendingTasks);
+							syncQueueToPending(queue, pending, completed, completedIds, completedTasksById);
+							plannedTasks = [...queue.list()];
 							planSummary = revisedPlan.planSummary;
 							consecutiveFailedBatches = 0;
 
@@ -3043,6 +3245,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 						};
 						completed.push(revisionTask);
 						completedTasksById.set(revisionTask.id, revisionTask);
+						queue.update(item.task.id, { status: 'revision', result: resultText });
 					}
 				}
 
@@ -3057,8 +3260,9 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 							taskId: task.id, expertId: task.expertId,
 							success: false, result: fallback,
 						});
-						completed.push({ ...task, status: 'failed', result: fallback });
+						queue.fail(task.id, fallback);
 					}
+					syncQueueToPending(queue, pending, completed, completedIds, completedTasksById);
 					break;
 				}
 			}
@@ -3116,16 +3320,20 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 					const revisedPendingTasks = materializePlannedTasks(revisedPlan.tasks, specialists, completed);
 					const diff = applyPlanDiff([], revisedPendingTasks);
 					const revisedIds = new Set(revisedPendingTasks.map((task) => task.id));
-					for (let index = completed.length - 1; index >= 0; index -= 1) {
-						const task = completed[index]!;
-						if (task.status !== 'completed' || revisedIds.has(task.id)) {
-							completed.splice(index, 1);
-							completedTasksById.delete(task.id);
-							completedIds.delete(task.id);
+					// Sync into queue: keep only completed tasks that are still in the revised plan.
+					for (const task of queue.list()) {
+						if (task.status === 'completed' && revisedIds.has(task.id)) {
+							continue;
 						}
+						queue.remove(task.id);
 					}
-					pending = [...revisedPendingTasks];
-					plannedTasks = [...completed, ...pending];
+					queue.addBatch(revisedPendingTasks);
+					// Clear legacy arrays and resync.
+					completed.length = 0;
+					completedIds.clear();
+					completedTasksById.clear();
+					syncQueueToPending(queue, pending, completed, completedIds, completedTasksById);
+					plannedTasks = [...queue.list()];
 					planSummary = revisedPlan.planSummary;
 					consecutiveFailedBatches = 0;
 

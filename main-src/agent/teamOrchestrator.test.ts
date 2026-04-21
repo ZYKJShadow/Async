@@ -762,6 +762,7 @@ describe('runTeamSession clarification gates', () => {
 				reason: 'The planned foo service does not exist in the repository.',
 			})
 		);
+
 		expect(doneCalls).toHaveLength(1);
 		expect(doneCalls[0]?.text).toContain('## Task Status');
 		expect(doneCalls[0]?.text).toContain('Inspect the renderer workflow that actually owns this behavior');
