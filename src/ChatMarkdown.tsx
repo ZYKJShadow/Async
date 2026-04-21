@@ -1,4 +1,16 @@
-import { Fragment, memo, useCallback, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+	Children,
+	Fragment,
+	isValidElement,
+	memo,
+	useCallback,
+	useMemo,
+	useState,
+	type ComponentProps,
+	type KeyboardEvent,
+	type ReactElement,
+	type ReactNode,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AgentActivityGroup } from './AgentActivityGroup';
@@ -26,6 +38,57 @@ type ThinkingSegment = Extract<AssistantSegment, { type: 'thinking' }>;
 type RenderUnit =
 	| Exclude<AssistantSegment, { type: 'thinking' }>
 	| { type: 'thinking_group'; chunks: ThinkingSegment[] };
+type MarkdownComponents = ComponentProps<typeof ReactMarkdown>['components'];
+
+function hasVisibleMarkdownNode(node: ReactNode): boolean {
+	if (node == null || typeof node === 'boolean') {
+		return false;
+	}
+	if (typeof node === 'string') {
+		return node.trim().length > 0;
+	}
+	if (typeof node === 'number') {
+		return true;
+	}
+	if (Array.isArray(node)) {
+		return node.some((item) => hasVisibleMarkdownNode(item));
+	}
+	if (!isValidElement(node)) {
+		return false;
+	}
+	const element = node as ReactElement<{ children?: ReactNode }>;
+	if (typeof node.type === 'string' && ['img', 'video', 'audio', 'svg'].includes(node.type)) {
+		return true;
+	}
+	return hasVisibleMarkdownNode(element.props.children);
+}
+
+function visibleMarkdownChildren(children: ReactNode): ReactNode[] {
+	return Children.toArray(children).filter((child) => hasVisibleMarkdownNode(child));
+}
+
+const markdownComponents: MarkdownComponents = {
+	ul: ({ children, ...props }) => {
+		const items = visibleMarkdownChildren(children);
+		if (items.length === 0) {
+			return null;
+		}
+		return <ul {...props}>{items}</ul>;
+	},
+	ol: ({ children, ...props }) => {
+		const items = visibleMarkdownChildren(children);
+		if (items.length === 0) {
+			return null;
+		}
+		return <ol {...props}>{items}</ol>;
+	},
+	li: ({ children, ...props }) => {
+		if (!hasVisibleMarkdownNode(children)) {
+			return null;
+		}
+		return <li {...props}>{children}</li>;
+	},
+};
 
 function thinkingGroupRenderMeta(
 	chunks: ThinkingSegment[],
@@ -444,7 +507,9 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 				: 'ref-md-root';
 		return (
 			<div className={plainClass}>
-				<ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+				<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+					{content}
+				</ReactMarkdown>
 			</div>
 		);
 	}
@@ -456,7 +521,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		switch (seg.type) {
 			case 'markdown':
 				return (
-					<ReactMarkdown key={`u-${i}`} remarkPlugins={[remarkGfm]}>
+					<ReactMarkdown key={`u-${i}`} remarkPlugins={[remarkGfm]} components={markdownComponents}>
 						{seg.text}
 					</ReactMarkdown>
 				);
@@ -563,7 +628,9 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 					>
 						<div className="ref-sub-agent-md-label">{label}</div>
 						<div className="ref-md-root ref-md-root--agent-chat ref-sub-agent-md-body">
-							<ReactMarkdown remarkPlugins={[remarkGfm]}>{seg.text}</ReactMarkdown>
+							<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+								{seg.text}
+							</ReactMarkdown>
 						</div>
 					</div>
 				);
@@ -679,7 +746,9 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		if (outcome.length === 1 && outcome[0]!.type === 'markdown') {
 			return (
 				<div className={agentRootClass}>
-					<ReactMarkdown remarkPlugins={[remarkGfm]}>{outcome[0]!.text}</ReactMarkdown>
+					<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+						{outcome[0]!.text}
+					</ReactMarkdown>
 				</div>
 			);
 		}
@@ -694,7 +763,9 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		if (content.trim()) {
 			return (
 				<div className={agentRootClass}>
-					<ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+					<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+						{content}
+					</ReactMarkdown>
 				</div>
 			);
 		}
@@ -703,7 +774,9 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	if (renderUnits.length === 1 && renderUnits[0]!.type === 'markdown') {
 		return (
 			<div className={agentRootClass}>
-				<ReactMarkdown remarkPlugins={[remarkGfm]}>{renderUnits[0]!.text}</ReactMarkdown>
+				<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+					{renderUnits[0]!.text}
+				</ReactMarkdown>
 			</div>
 		);
 	}

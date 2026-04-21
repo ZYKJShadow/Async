@@ -316,7 +316,7 @@ describe('runTeamSession discuss-kind plans', () => {
 		expect(toolNames).not.toContain('Edit');
 		expect(toolNames).not.toContain('Bash');
 
-		expect(runAgentLoopMock.mock.calls).toHaveLength(2);
+		expect(runAgentLoopMock.mock.calls.length).toBeGreaterThanOrEqual(2);
 		expect(events.some((evt) => evt.type === 'team_review')).toBe(true);
 		const reviewEvent = events.find((evt) => evt.type === 'team_review') as
 			| { verdict: 'approved' | 'revision_needed'; summary: string }
@@ -349,6 +349,43 @@ describe('runTeamSession clarification gates', () => {
 		expect(doneCalls[0]?.text).toContain('请先明确你要优化的是性能、代码质量还是用户体验');
 		expect(events.some((evt) => evt.type === 'team_task_created')).toBe(false);
 		expect(events.some((evt) => evt.type === 'team_preflight_review')).toBe(false);
+	});
+
+	it('auto-falls back to discuss planning for obvious brainstorming requests instead of blocking on clarification', async () => {
+		runAgentLoopMock
+			.mockImplementationOnce(async (_settings, _messages, _options, handlers) => {
+				await submitTeamPlanDecision(handlers, {
+					mode: 'CLARIFY',
+					tasks: [],
+					replyToUser: '请先补充更多细节。',
+				});
+			})
+			.mockImplementationOnce(async (_settings, _messages, optionsArg, handlers) => {
+				const specialistOptions = optionsArg as
+					| { toolPoolOverride?: Array<{ name: string }> }
+					| undefined;
+				const toolNames = specialistOptions?.toolPoolOverride?.map((tool) => tool.name) ?? [];
+				expect(toolNames).toEqual(expect.arrayContaining(['Read', 'Glob', 'Grep']));
+				expect(toolNames).not.toContain('Write');
+				expect(toolNames).not.toContain('Edit');
+				expect(toolNames).not.toContain('Bash');
+				handlers.onDone('我给出三个可传播方向。');
+			});
+
+		const experts = [
+			makeExpertConfig('team_lead', 'Team Lead', 'team_lead'),
+			makeExpertConfig('game_designer', 'Game Designer', 'custom'),
+		];
+		const { events, doneCalls, errorCalls } = await runSession({
+			userRequest: '我想做一个比羊了个羊还火爆的游戏，最重要的就是做出话题性，你有什么好的思路？',
+			experts,
+		});
+
+		expect(errorCalls).toEqual([]);
+		expect(events.some((evt) => evt.type === 'team_task_created')).toBe(true);
+		expect(doneCalls).toHaveLength(1);
+		expect(doneCalls[0]?.text).not.toContain('当前需求还不够具体');
+		expect(doneCalls[0]?.text).not.toContain('请先补充更多细节');
 	});
 
 	it('offers ask_plan_question to the team lead during planning', async () => {

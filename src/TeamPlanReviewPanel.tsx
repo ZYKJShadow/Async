@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { ChatMarkdown } from './ChatMarkdown';
 import { useI18n } from './i18n';
 import type { TeamPlanProposalState } from './hooks/useTeamSession';
@@ -10,6 +10,7 @@ type Props = {
 	onApprove: (feedback?: string) => void;
 	onReject: (feedback?: string) => void;
 	hideSummary?: boolean;
+	onHeightMayChange?: () => void;
 };
 
 function sanitizeCriteria(criteria?: readonly string[]): string[] {
@@ -19,7 +20,13 @@ function sanitizeCriteria(criteria?: readonly string[]): string[] {
 	return criteria.map((item) => String(item ?? '').trim()).filter(Boolean);
 }
 
-export function TeamPlanReviewPanel({ proposal, onApprove, onReject, hideSummary = false }: Props) {
+export function TeamPlanReviewPanel({
+	proposal,
+	onApprove,
+	onReject,
+	hideSummary = false,
+	onHeightMayChange,
+}: Props) {
 	const { t } = useI18n();
 	const [showPreflight, setShowPreflight] = useState(true);
 	const [showTasks, setShowTasks] = useState(true);
@@ -33,6 +40,22 @@ export function TeamPlanReviewPanel({ proposal, onApprove, onReject, hideSummary
 			: proposal.decision === 'rejected'
 				? t('team.plan.decisionRejected')
 				: '';
+
+	useLayoutEffect(() => {
+		onHeightMayChange?.();
+	}, [
+		onHeightMayChange,
+		showPreflight,
+		showTasks,
+		hideSummary,
+		summary,
+		proposal.proposalId,
+		proposal.preflightVerdict,
+		proposal.awaitingApproval,
+		proposal.decision,
+		proposal.tasks.length,
+		Boolean(proposal.preflightSummary?.trim()),
+	]);
 
 	return (
 		<div className="ref-plan-review ref-team-plan-review" role="region" aria-label={t('team.plan.aria')}>

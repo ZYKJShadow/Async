@@ -411,8 +411,246 @@ function buildFallbackTeamLeadNarrative(hasCjk: boolean): string {
 
 function buildClarificationNeededNarrative(hasCjk: boolean): string {
 	return hasCjk
-		? '当前需求还不够具体，我先不分派专家。请补充优化目标（如性能、代码质量、用户体验）、范围（模块 / 页面 / 流程）、限制条件，以及你希望得到的产出。'
-		: 'The request is still too broad, so I am not dispatching specialists yet. Please clarify the goal (for example performance, code quality, or UX), the scope (module/page/workflow), any constraints, and the outcome you want.';
+		? '当前需求还不够具体，我先不分派专家。请补充你最想解决的问题、希望聚焦的方向、限制条件，以及你希望得到的产出。'
+		: 'The request is still too broad, so I am not dispatching specialists yet. Please clarify the main problem to solve, the direction to focus on, any constraints, and the outcome you want.';
+}
+
+const DISCUSS_INTENT_PATTERNS = [
+	/思路/,
+	/想法/,
+	/建议/,
+	/方向/,
+	/点子/,
+	/创意/,
+	/头脑风暴/,
+	/脑暴/,
+	/brainstorm/i,
+	/\bideas?\b/i,
+	/\boptions?\b/i,
+	/\bpros?\s+and\s+cons\b/i,
+	/方案对比/,
+	/帮我想想/,
+	/你觉得/,
+	/有什么好的/,
+];
+
+const DELIVERY_INTENT_PATTERNS = [
+	/帮我实现/,
+	/实现一下/,
+	/写一下/,
+	/加上/,
+	/修一下/,
+	/开发/,
+	/落地/,
+	/原型/,
+	/\bbuild\b/i,
+	/\bimplement\b/i,
+	/\bship\b/i,
+	/\bfix\b/i,
+	/\brefactor\b/i,
+	/\badd\b/i,
+];
+
+function hasDiscussionIntent(text: string): boolean {
+	const normalized = String(text ?? '').trim();
+	return DISCUSS_INTENT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function hasDeliveryIntent(text: string): boolean {
+	const normalized = String(text ?? '').trim();
+	return DELIVERY_INTENT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function classifyDiscussFallbackAngle(
+	expert: Pick<TeamExpertRuntimeProfile, 'assignmentKey' | 'name' | 'summary' | 'roleType'>
+): 'design' | 'psychology' | 'marketing' | 'technical' | 'general' {
+	const haystack = [
+		expert.assignmentKey,
+		expert.name,
+		expert.summary,
+		expert.roleType,
+	]
+		.filter(Boolean)
+		.join(' ')
+		.toLowerCase();
+	if (
+		/game|design|designer|玩法|机制|策划|product|ux|interaction|creative/.test(haystack)
+	) {
+		return 'design';
+	}
+	if (/psych|behavior|research|mind|emotion|心理|行为|认知|research/.test(haystack)) {
+		return 'psychology';
+	}
+	if (
+		/market|growth|content|brand|social|viral|xiaohongshu|douyin|传播|营销|增长|社交|内容/.test(
+			haystack
+		)
+	) {
+		return 'marketing';
+	}
+	if (/frontend|backend|qa|engineer|developer|test|risk|可靠|技术|工程|测试/.test(haystack)) {
+		return 'technical';
+	}
+	return 'general';
+}
+
+function buildDiscussFallbackTask(
+	expert: TeamExpertRuntimeProfile,
+	hasCjk: boolean
+): LLMPlannedTask {
+	const angle = classifyDiscussFallbackAngle(expert);
+	if (hasCjk) {
+		if (angle === 'design') {
+			return {
+				expert: expert.assignmentKey,
+				task: '从核心机制与体验设计角度，提出 3 个最容易形成话题传播的方向，并比较优缺点。',
+				kind: 'discuss',
+				dependencies: [],
+				acceptanceCriteria: [
+					'至少提出 3 个具体方向或机制',
+					'说明每个方向为什么容易引发讨论、分享或吐槽',
+					'比较主要优缺点与风险',
+				],
+			};
+		}
+		if (angle === 'psychology') {
+			return {
+				expert: expert.assignmentKey,
+				task: '从用户心理、情绪触发与行为动机角度，分析什么样的设计最容易驱动分享、复玩和社交扩散。',
+				kind: 'discuss',
+				dependencies: [],
+				acceptanceCriteria: [
+					'总结至少 3 种有效的心理或情绪触发机制',
+					'解释这些机制为什么会促发讨论、分享或复玩',
+					'指出潜在反噬风险或用户厌恶点',
+				],
+			};
+		}
+		if (angle === 'marketing') {
+			return {
+				expert: expert.assignmentKey,
+				task: '从传播裂变、社交平台话题与内容包装角度，提出最容易形成扩散的传播钩子与玩法包装方式。',
+				kind: 'discuss',
+				dependencies: [],
+				acceptanceCriteria: [
+					'提出至少 5 个可传播的话题钩子或挑战方向',
+					'说明这些钩子适合在哪类社交场景扩散',
+					'指出最大的执行风险或平台限制',
+				],
+			};
+		}
+		if (angle === 'technical') {
+			return {
+				expert: expert.assignmentKey,
+				task: '从可实现性、节奏控制、作弊风险与长期新鲜感角度，指出哪些思路更稳妥，哪些坑需要避免。',
+				kind: 'discuss',
+				dependencies: [],
+				acceptanceCriteria: [
+					'指出最值得保留的 3 个方向或机制',
+					'说明每个方向的主要实现或运营风险',
+					'提醒最容易翻车的设计点',
+				],
+			};
+		}
+		return {
+			expert: expert.assignmentKey,
+			task: '从你的专业视角给出 3 个能够显著提升话题性的具体方向，并说明为什么值得优先考虑。',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'至少提出 3 个具体方向',
+				'说明每个方向为何有传播或讨论潜力',
+				'指出最大的风险或副作用',
+			],
+		};
+	}
+	if (angle === 'design') {
+		return {
+			expert: expert.assignmentKey,
+			task: 'From the mechanism and experience-design angle, propose 3 distinct directions that could naturally generate discussion and sharing, then compare the trade-offs.',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'Propose at least 3 concrete directions or mechanics',
+				'Explain why each direction could trigger discussion or sharing',
+				'Compare the main trade-offs and risks',
+			],
+		};
+	}
+	if (angle === 'psychology') {
+		return {
+			expert: expert.assignmentKey,
+			task: 'From the user-psychology and emotional-trigger angle, analyze which designs are most likely to drive sharing, replay, and social spread.',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'Name at least 3 strong psychological or emotional triggers',
+				'Explain why each trigger drives sharing or replay',
+				'Call out backlash risks or fatigue risks',
+			],
+		};
+	}
+	if (angle === 'marketing') {
+		return {
+			expert: expert.assignmentKey,
+			task: 'From the distribution, social-spread, and packaging angle, propose the strongest hooks or framing devices for organic discussion.',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'Propose at least 5 discussion hooks or challenge formats',
+				'Explain where each hook spreads best',
+				'Call out the main execution risk or platform constraint',
+			],
+		};
+	}
+	if (angle === 'technical') {
+		return {
+			expert: expert.assignmentKey,
+			task: 'From the feasibility, pacing, anti-abuse, and longevity angle, identify which directions are safest to pursue and which traps to avoid.',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'Highlight 3 directions or mechanics worth keeping',
+				'Explain the main execution or operational risk for each',
+				'Flag the easiest ways the concept could fail',
+			],
+		};
+	}
+	return {
+		expert: expert.assignmentKey,
+		task: 'From your specialty, propose 3 concrete directions that could materially increase discussion value, and explain why they are worth prioritizing.',
+		kind: 'discuss',
+		dependencies: [],
+		acceptanceCriteria: [
+			'Propose at least 3 concrete directions',
+			'Explain why each one has discussion or sharing potential',
+			'Call out the biggest downside or risk',
+		],
+	};
+}
+
+function buildDiscussionFallbackPlan(
+	userRequest: string,
+	specialists: TeamExpertRuntimeProfile[],
+	hasCjk: boolean
+): { tasks: LLMPlannedTask[]; planSummary: string } | null {
+	const normalized = String(userRequest ?? '').trim();
+	if (!normalized || specialists.length === 0) {
+		return null;
+	}
+	if (!hasDiscussionIntent(normalized) || hasDeliveryIntent(normalized)) {
+		return null;
+	}
+	const picked = specialists.slice(0, Math.min(3, specialists.length));
+	if (picked.length === 0) {
+		return null;
+	}
+	return {
+		tasks: picked.map((expert) => buildDiscussFallbackTask(expert, hasCjk)),
+		planSummary: hasCjk
+			? '这个请求明显是在要思路和方向，适合先做一轮多专家头脑风暴，而不是先卡在补充细节上。我会让几位专家分别从各自视角提出具体方向、传播机制和主要风险。'
+			: 'This request is clearly asking for ideas and directions, so it is better to start with a multi-expert brainstorm instead of blocking on clarification. I will have a few specialists contribute concrete angles, spread mechanisms, and key risks.',
+	};
 }
 
 function buildPlannerToolPool(baseTools: AgentToolDef[]): AgentToolDef[] {
@@ -809,6 +1047,8 @@ async function llmPlanTasks(params: {
 		signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 	} = params;
 	const hasCjk = messages.some((message) => /[\u3400-\u9fff]/.test(String(message.content ?? '')));
+	const effectiveUserRequest =
+		[...messages].reverse().find((message) => message.role === 'user')?.content?.trim() ?? '';
 	const availableRoles = specialists
 		.map((specialist) =>
 			`- ${specialist.assignmentKey}: ${specialist.name}${specialist.summary ? ` - ${specialist.summary}` : ''}`
@@ -1015,6 +1255,19 @@ async function llmPlanTasks(params: {
 
 		if (!decision) {
 			const fallbackSummary = extractedNarrative || buildClarificationNeededNarrative(hasCjk);
+			const fallbackDiscussPlan = buildDiscussionFallbackPlan(
+				effectiveUserRequest,
+				specialists,
+				hasCjk
+			);
+			if (fallbackDiscussPlan && !usedClarificationTool) {
+				return {
+					tasks: fallbackDiscussPlan.tasks,
+					planSummary: fallbackDiscussPlan.planSummary,
+					mode: 'PLAN',
+					clarificationAnswers,
+				};
+			}
 			if (plannerTools.some((tool) => tool.name === 'ask_plan_question') && !usedClarificationTool && !signal.aborted) {
 				const fallbackToolCallId = `team-fallback-clarify-${randomUUID()}`;
 				const fallbackArgs = {
@@ -1068,6 +1321,22 @@ async function llmPlanTasks(params: {
 			decision.replyToUser?.trim() ||
 			extractedNarrative ||
 			(decision.mode === 'PLAN' ? buildFallbackTeamLeadNarrative(hasCjk) : buildClarificationNeededNarrative(hasCjk));
+
+		if (decision.mode === 'CLARIFY') {
+			const fallbackDiscussPlan = buildDiscussionFallbackPlan(
+				effectiveUserRequest,
+				specialists,
+				hasCjk
+			);
+			if (fallbackDiscussPlan && !usedClarificationTool) {
+				return {
+					tasks: fallbackDiscussPlan.tasks,
+					planSummary: fallbackDiscussPlan.planSummary,
+					mode: 'PLAN',
+					clarificationAnswers,
+				};
+			}
+		}
 
 		if (decision.mode === 'CLARIFY' && plannerTools.some((tool) => tool.name === 'ask_plan_question') && !usedClarificationTool && !signal.aborted) {
 			const fallbackToolCallId = `team-fallback-clarify-${randomUUID()}`;
@@ -2262,6 +2531,18 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 					plannedTasks = materializePlannedTasks(planResult.tasks, specialists);
 				}
 			} catch {
+				const fallbackDiscussPlan = buildDiscussionFallbackPlan(
+					effectiveUserText,
+					specialists,
+					hasCjkRequest
+				);
+				if (fallbackDiscussPlan) {
+					planSummary = fallbackDiscussPlan.planSummary;
+					plannedTasks = materializePlannedTasks(fallbackDiscussPlan.tasks, specialists);
+				}
+				if (plannedTasks.length > 0) {
+					break;
+				}
 				const clarificationText = buildClarificationNeededNarrative(hasCjkRequest);
 				emit({ threadId, type: 'team_plan_summary', summary: clarificationText });
 				emit({ threadId, type: 'team_phase', phase: 'delivering' });
@@ -2274,6 +2555,18 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 					reviewVerdict: null,
 				});
 				return;
+			}
+
+			if (plannedTasks.length === 0) {
+				const fallbackDiscussPlan = buildDiscussionFallbackPlan(
+					effectiveUserText,
+					specialists,
+					hasCjkRequest
+				);
+				if (fallbackDiscussPlan) {
+					planSummary = fallbackDiscussPlan.planSummary;
+					plannedTasks = materializePlannedTasks(fallbackDiscussPlan.tasks, specialists);
+				}
 			}
 
 			if (plannedTasks.length === 0) {

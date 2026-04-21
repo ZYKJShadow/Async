@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react';
 import { ChatMarkdown } from './ChatMarkdown';
 import type { TeamPlanRevisionState } from './hooks/useTeamSession';
 import { useI18n } from './i18n';
@@ -5,10 +6,16 @@ import { TeamRoleAvatar } from './TeamRoleAvatar';
 
 type Props = {
 	revision: TeamPlanRevisionState;
+	onHeightMayChange?: () => void;
 };
 
-export function TeamPlanRevisionCard({ revision }: Props) {
+export function TeamPlanRevisionCard({ revision, onHeightMayChange }: Props) {
 	const { t } = useI18n();
+
+	useLayoutEffect(() => {
+		onHeightMayChange?.();
+	}, [onHeightMayChange, revision.revisionId, revision.tasks.length, revision.summary, revision.reason]);
+
 	return (
 		<div className="ref-plan-review ref-team-plan-review" role="region" aria-label={t('team.plan.aria')}>
 			<div className="ref-plan-review-head">

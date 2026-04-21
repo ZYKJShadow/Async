@@ -9,11 +9,25 @@ import {
 } from 'react';
 import type { ChatMessage } from '../threadTypes';
 
+export const MESSAGES_FOLLOW_BOTTOM_BUFFER_PX = 120;
+const MESSAGES_MIN_SCROLLABLE_OVERFLOW_PX = 120;
+export const MESSAGES_SCROLL_TO_BOTTOM_BUTTON_DISTANCE_PX = 180;
+
 export type MessagesScrollSnapshot = {
 	scrollTop: number;
 	distanceFromBottom: number;
 	pinned: boolean;
 };
+
+export type MessagesScrollMetrics = {
+	maxScroll: number;
+	clampedTop: number;
+	distanceFromBottom: number;
+	nearBottom: boolean;
+	canJumpToBottom: boolean;
+};
+
+export type MessagesScrollSyncSource = 'user' | 'layout' | 'programmatic';
 
 export type UseMessagesScrollParams = {
 	hasConversation: boolean;
@@ -36,17 +50,63 @@ export type UseMessagesScrollResult = {
 	syncMessagesScrollIndicators: () => void;
 };
 
+export function measureMessagesScroll(
+	viewport: Pick<HTMLElement, 'scrollHeight' | 'clientHeight' | 'scrollTop'>
+): MessagesScrollMetrics {
+	const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+	const clampedTop = Math.max(0, Math.min(viewport.scrollTop, maxScroll));
+	const distanceFromBottom = Math.max(0, maxScroll - clampedTop);
+	return {
+		maxScroll,
+		clampedTop,
+		distanceFromBottom,
+		nearBottom: distanceFromBottom < MESSAGES_FOLLOW_BOTTOM_BUFFER_PX,
+		canJumpToBottom: maxScroll > MESSAGES_MIN_SCROLLABLE_OVERFLOW_PX,
+	};
+}
+
+/**
+ * “贴底跟随”表示用户是否仍希望继续跟随最新消息，而不是当前几何上是否正好在底部。
+ *
+ * 只在用户滚动时根据位置改变该意图；布局增长 / team 卡片插入 / 视口缩放这些异步变化
+ * 如果发生在用户原本贴底时，不应把贴底意图误判成 false。
+ */
+export function derivePinnedBottomIntent(
+	previousPinned: boolean,
+	metrics: Pick<MessagesScrollMetrics, 'nearBottom'>,
+	source: MessagesScrollSyncSource
+): boolean {
+	if (source === 'user') {
+		return metrics.nearBottom;
+	}
+	if (metrics.nearBottom) {
+		return true;
+	}
+	return previousPinned;
+}
+
+export function deriveShowScrollToBottomButton(params: {
+	metrics: Pick<MessagesScrollMetrics, 'canJumpToBottom' | 'distanceFromBottom'>;
+	pinnedBottomIntent: boolean;
+	suppress: boolean;
+}): boolean {
+	const { metrics, pinnedBottomIntent, suppress } = params;
+	if (suppress || pinnedBottomIntent) {
+		return false;
+	}
+	return (
+		metrics.canJumpToBottom &&
+		metrics.distanceFromBottom > MESSAGES_SCROLL_TO_BOTTOM_BUTTON_DISTANCE_PX
+	);
+}
+
 /**
  * 对话消息滚动控制：粘底跟随、滚动指示器、跳转按钮、线程切换时的位置恢复。
  *
- * 行为与原 App.tsx 完全一致，集中管理：
- *  - 11 个 scroll 相关 ref 与 `showScrollToBottomButton` state
- *  - 4 个公开回调：sync / onScroll / scrollToBottom / schedule
- *  - 4 个 layout/effect：线程切换归零、新线程恢复底部、用户新消息强制贴底、ResizeObserver 跟随
- *
- * 调用方应将返回的 `messagesViewportRef`、`messagesTrackRef` 绑到 JSX，
- * 并把 `pinMessagesToBottomRef` / `scheduleMessagesScrollToBottom` / `syncMessagesScrollIndicators`
- * 透传给 `MessagesScrollSync`。
+ * 当前实现遵循主流聊天列表的“follow output”思路：
+ *  - `pinMessagesToBottomRef` 表示“是否继续跟随底部”的用户意图
+ *  - 实际距离 / 是否接近底部是另一套几何状态
+ *  - 内容高度变化只触发补滚，不会把贴底意图意外打掉
  */
 export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesScrollResult {
 	const {
@@ -71,45 +131,62 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	const messagesScrollToBottomRafRef = useRef<number | null>(null);
 	const messagesTrackScrollHeightRef = useRef(0);
 	const messagesViewportClientHeightRef = useRef(0);
-	const messagesShrinkScrollTimerRef = useRef<number | null>(null);
 	const prevMessagesLenForScrollRef = useRef(0);
 
-	const syncMessagesScrollIndicators = useCallback(() => {
-		const el = messagesViewportRef.current;
-		if (!el) {
-			return;
+	const clearScrollToBottomButtonSuppression = useCallback(() => {
+		suppressScrollToBottomButtonRef.current = false;
+		if (suppressScrollToBottomButtonTimerRef.current !== null) {
+			window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
+			suppressScrollToBottomButtonTimerRef.current = null;
 		}
-		const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-		const clampedTop = Math.max(0, Math.min(el.scrollTop, maxScroll));
-		const dist = Math.max(0, maxScroll - clampedTop);
-		pinMessagesToBottomRef.current = dist < 120;
-		const activeThreadId = messagesThreadIdRef.current ?? currentIdRef.current;
-		if (activeThreadId) {
-			messagesScrollSnapshotByThreadRef.current.set(activeThreadId, {
-				scrollTop: clampedTop,
-				distanceFromBottom: dist,
-				pinned: pinMessagesToBottomRef.current,
-			});
-		}
-		if (suppressScrollToBottomButtonRef.current) {
-			if (dist <= 16 || el.scrollHeight <= el.clientHeight + 120) {
-				suppressScrollToBottomButtonRef.current = false;
-				if (suppressScrollToBottomButtonTimerRef.current !== null) {
-					window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
-					suppressScrollToBottomButtonTimerRef.current = null;
-				}
+	}, []);
+
+	const syncMessagesScrollState = useCallback(
+		(source: MessagesScrollSyncSource) => {
+			const el = messagesViewportRef.current;
+			if (!el) {
+				return;
 			}
-			setShowScrollToBottomButton(false);
-			return;
-		}
-		const canJumpToBottom = el.scrollHeight > el.clientHeight + 120;
-		const shouldShowJumpButton = canJumpToBottom && dist > 180;
-		setShowScrollToBottomButton((prev) => (prev === shouldShowJumpButton ? prev : shouldShowJumpButton));
-	}, [currentIdRef, messagesThreadIdRef]);
+			const metrics = measureMessagesScroll(el);
+			pinMessagesToBottomRef.current = derivePinnedBottomIntent(
+				pinMessagesToBottomRef.current,
+				metrics,
+				source
+			);
+			const activeThreadId = messagesThreadIdRef.current ?? currentIdRef.current;
+			if (activeThreadId) {
+				messagesScrollSnapshotByThreadRef.current.set(activeThreadId, {
+					scrollTop: metrics.clampedTop,
+					distanceFromBottom: metrics.distanceFromBottom,
+					pinned: pinMessagesToBottomRef.current,
+				});
+			}
+			if (suppressScrollToBottomButtonRef.current) {
+				if (metrics.nearBottom || !metrics.canJumpToBottom) {
+					clearScrollToBottomButtonSuppression();
+				}
+				setShowScrollToBottomButton(false);
+				return;
+			}
+			const shouldShowJumpButton = deriveShowScrollToBottomButton({
+				metrics,
+				pinnedBottomIntent: pinMessagesToBottomRef.current,
+				suppress: suppressScrollToBottomButtonRef.current,
+			});
+			setShowScrollToBottomButton((prev) =>
+				prev === shouldShowJumpButton ? prev : shouldShowJumpButton
+			);
+		},
+		[currentIdRef, messagesThreadIdRef, clearScrollToBottomButtonSuppression]
+	);
+
+	const syncMessagesScrollIndicators = useCallback(() => {
+		syncMessagesScrollState('layout');
+	}, [syncMessagesScrollState]);
 
 	const onMessagesScroll = useCallback(() => {
-		syncMessagesScrollIndicators();
-	}, [syncMessagesScrollIndicators]);
+		syncMessagesScrollState('user');
+	}, [syncMessagesScrollState]);
 
 	const scrollMessagesToBottom = useCallback(
 		(behavior: ScrollBehavior = 'auto') => {
@@ -118,22 +195,24 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				return;
 			}
 			pinMessagesToBottomRef.current = true;
-			suppressScrollToBottomButtonRef.current = behavior === 'smooth';
-			if (suppressScrollToBottomButtonTimerRef.current !== null) {
-				window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
-				suppressScrollToBottomButtonTimerRef.current = null;
-			}
 			if (behavior === 'smooth') {
+				suppressScrollToBottomButtonRef.current = true;
+				if (suppressScrollToBottomButtonTimerRef.current !== null) {
+					window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
+				}
 				suppressScrollToBottomButtonTimerRef.current = window.setTimeout(() => {
-					suppressScrollToBottomButtonRef.current = false;
-					suppressScrollToBottomButtonTimerRef.current = null;
-					syncMessagesScrollIndicators();
+					clearScrollToBottomButtonSuppression();
+					syncMessagesScrollState('layout');
 				}, 1400);
+			} else {
+				clearScrollToBottomButtonSuppression();
 			}
 			setShowScrollToBottomButton(false);
-			el.scrollTo({ top: el.scrollHeight, behavior });
+			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+			el.scrollTo({ top: maxScroll, behavior });
+			syncMessagesScrollState('programmatic');
 		},
-		[syncMessagesScrollIndicators]
+		[clearScrollToBottomButtonSuppression, syncMessagesScrollState]
 	);
 
 	const scheduleMessagesScrollToBottom = useCallback(() => {
@@ -149,29 +228,25 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			if (!el || !pinMessagesToBottomRef.current) {
 				return;
 			}
-			el.scrollTop = el.scrollHeight;
-			syncMessagesScrollIndicators();
+			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+			el.scrollTop = maxScroll;
+			syncMessagesScrollState('programmatic');
 		});
-	}, [syncMessagesScrollIndicators]);
+	}, [syncMessagesScrollState]);
 
-	/** 切换线程：始终从底部开始，等 messages / 流式更新后再滚（避免旧列表闪滚） */
 	useLayoutEffect(() => {
 		pendingMessagesScrollRestoreRef.current = currentId;
 		pinMessagesToBottomRef.current = true;
-		suppressScrollToBottomButtonRef.current = false;
+		clearScrollToBottomButtonSuppression();
 		setShowScrollToBottomButton(false);
-		if (suppressScrollToBottomButtonTimerRef.current !== null) {
-			window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
-			suppressScrollToBottomButtonTimerRef.current = null;
-		}
 		messagesTrackScrollHeightRef.current = 0;
-		if (messagesShrinkScrollTimerRef.current !== null) {
-			window.clearTimeout(messagesShrinkScrollTimerRef.current);
-			messagesShrinkScrollTimerRef.current = null;
+		messagesViewportClientHeightRef.current = 0;
+		if (messagesScrollToBottomRafRef.current !== null) {
+			cancelAnimationFrame(messagesScrollToBottomRafRef.current);
+			messagesScrollToBottomRafRef.current = null;
 		}
-	}, [currentId]);
+	}, [currentId, clearScrollToBottomButtonSuppression]);
 
-	/** 线程 / 工作区切回后始终滚到消息列表最底部（与渐进渲染窗口配合） */
 	useLayoutEffect(() => {
 		if (!hasConversation || !currentId || messagesThreadId !== currentId) {
 			return;
@@ -187,16 +262,15 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			if (!el) {
 				return;
 			}
-			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
 			pinMessagesToBottomRef.current = true;
+			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
 			el.scrollTop = maxScroll;
 			pendingMessagesScrollRestoreRef.current = null;
-			syncMessagesScrollIndicators();
+			syncMessagesScrollState('programmatic');
 		});
 		return () => cancelAnimationFrame(rafId);
-	}, [hasConversation, currentId, messagesThreadId, messages.length, syncMessagesScrollIndicators]);
+	}, [hasConversation, currentId, messagesThreadId, messages.length, syncMessagesScrollState]);
 
-	/** 用户发出新消息：强制跟到底部 */
 	useLayoutEffect(() => {
 		const len = messages.length;
 		const prev = prevMessagesLenForScrollRef.current;
@@ -212,10 +286,6 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		}
 	}, [messages, currentId, messagesThreadId, scrollMessagesToBottom]);
 
-	/**
-	 * 流式 / 思考计时 / 展示列表变化：粘底跟随。streaming 由 MessagesScrollSync 子组件订阅，
-	 * 每个 token 只让该组件重渲染，不再传播到 App。
-	 */
 	useLayoutEffect(() => {
 		if (!hasConversation || !pinMessagesToBottomRef.current) {
 			return;
@@ -229,12 +299,11 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			return;
 		}
 		const rafId = requestAnimationFrame(() => {
-			syncMessagesScrollIndicators();
+			syncMessagesScrollState('layout');
 		});
 		return () => cancelAnimationFrame(rafId);
-	}, [hasConversation, messages.length, currentId, syncMessagesScrollIndicators]);
+	}, [hasConversation, messages.length, currentId, syncMessagesScrollState]);
 
-	/** 内容高度异步变化（Markdown、diff 卡片等）时仍保持粘底 */
 	useEffect(() => {
 		if (!hasConversation) {
 			return;
@@ -247,63 +316,36 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		messagesTrackScrollHeightRef.current = track.scrollHeight;
 		messagesViewportClientHeightRef.current = outer.clientHeight;
 		const ro = new ResizeObserver(() => {
-			const h = track.scrollHeight;
-			const prev = messagesTrackScrollHeightRef.current;
-			messagesTrackScrollHeightRef.current = h;
-			const viewportHeight = outer.clientHeight;
-			const prevViewportHeight = messagesViewportClientHeightRef.current;
-			messagesViewportClientHeightRef.current = viewportHeight;
-			const wasPinned = pinMessagesToBottomRef.current;
-			syncMessagesScrollIndicators();
-			const trackGrew = h >= prev - 2;
-			const viewportShrank =
-				prevViewportHeight > 0 && viewportHeight < prevViewportHeight - 2;
-			// 变高：新内容 / 展开，立即粘底（仍由 schedule 合并到单帧）
-			if (trackGrew || viewportShrank) {
-				if (messagesShrinkScrollTimerRef.current !== null) {
-					window.clearTimeout(messagesShrinkScrollTimerRef.current);
-					messagesShrinkScrollTimerRef.current = null;
-				}
-				if (wasPinned) {
-					pinMessagesToBottomRef.current = true;
-				}
-				if (wasPinned || pinMessagesToBottomRef.current) {
-					scheduleMessagesScrollToBottom();
-				}
-				return;
+			const nextTrackHeight = track.scrollHeight;
+			const nextViewportHeight = outer.clientHeight;
+			const trackChanged =
+				Math.abs(nextTrackHeight - messagesTrackScrollHeightRef.current) > 1;
+			const viewportChanged =
+				Math.abs(nextViewportHeight - messagesViewportClientHeightRef.current) > 1;
+			messagesTrackScrollHeightRef.current = nextTrackHeight;
+			messagesViewportClientHeightRef.current = nextViewportHeight;
+			if ((trackChanged || viewportChanged) && pinMessagesToBottomRef.current) {
+				scheduleMessagesScrollToBottom();
 			}
-			// 变矮：多为折叠动画中间帧，避免每帧 scrollTo 造成整区闪烁；结束后补一次即可贴底
-			if (messagesShrinkScrollTimerRef.current !== null) {
-				window.clearTimeout(messagesShrinkScrollTimerRef.current);
-			}
-			messagesShrinkScrollTimerRef.current = window.setTimeout(() => {
-				messagesShrinkScrollTimerRef.current = null;
-				if (wasPinned) {
-					pinMessagesToBottomRef.current = true;
-				}
-				if (wasPinned || pinMessagesToBottomRef.current) {
-					scheduleMessagesScrollToBottom();
-				}
-			}, 340);
+			syncMessagesScrollState('layout');
 		});
 		ro.observe(outer);
 		ro.observe(track);
 		return () => {
 			ro.disconnect();
-			if (messagesShrinkScrollTimerRef.current !== null) {
-				window.clearTimeout(messagesShrinkScrollTimerRef.current);
-				messagesShrinkScrollTimerRef.current = null;
-			}
 			if (messagesScrollToBottomRafRef.current !== null) {
 				cancelAnimationFrame(messagesScrollToBottomRafRef.current);
 				messagesScrollToBottomRafRef.current = null;
 			}
-			if (suppressScrollToBottomButtonTimerRef.current !== null) {
-				window.clearTimeout(suppressScrollToBottomButtonTimerRef.current);
-				suppressScrollToBottomButtonTimerRef.current = null;
-			}
+			clearScrollToBottomButtonSuppression();
 		};
-	}, [hasConversation, currentId, scheduleMessagesScrollToBottom, syncMessagesScrollIndicators]);
+	}, [
+		hasConversation,
+		currentId,
+		scheduleMessagesScrollToBottom,
+		syncMessagesScrollState,
+		clearScrollToBottomButtonSuppression,
+	]);
 
 	return {
 		messagesViewportRef,

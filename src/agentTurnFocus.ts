@@ -3,6 +3,20 @@ import type { ChatMessage } from './threadTypes';
 
 export const STICKY_USER_SNAP_PX = 12;
 
+export type TurnFocusRow = {
+	rowId: string;
+	messageIndex: number | null;
+	turnOwnerUserIndex: number | null;
+	isTurnStart: boolean;
+	stickyUserIndex: number | null;
+};
+
+export type MeasuredTurnFocusRow = TurnFocusRow & {
+	top: number;
+	height: number;
+	offsetTop: number;
+};
+
 export function buildConversationRenderKey(
 	threadId: string | null,
 	composerMode: ComposerMode
@@ -10,11 +24,12 @@ export function buildConversationRenderKey(
 	return `${threadId ?? 'no-thread'}:${composerMode}`;
 }
 
-export function findLatestTurnFocusUserIndex(
+export function findLatestTurnStartUserIndex(
 	displayMessages: ChatMessage[],
-	composerMode: ComposerMode
+	composerMode: ComposerMode,
+	hasSupplementalContentAfterUser = false
 ): number | null {
-	if (composerMode === 'team' || displayMessages.length === 0) {
+	if (displayMessages.length === 0) {
 		return null;
 	}
 	let userIndex = -1;
@@ -27,95 +42,96 @@ export function findLatestTurnFocusUserIndex(
 	if (userIndex < 0) {
 		return null;
 	}
+	if (composerMode === 'team') {
+		return hasSupplementalContentAfterUser ? userIndex : null;
+	}
 	const hasEarlierAssistant = displayMessages
 		.slice(0, userIndex)
 		.some((message) => message.role === 'assistant');
 	return hasEarlierAssistant ? userIndex : null;
 }
 
-export function computeLatestTurnFocusSpacerPx(params: {
+export function computeTurnSectionSpacerPx(params: {
 	viewportHeight: number;
 	topPadding: number;
 	bottomPadding: number;
-	activeRowHeight: number;
-	belowContentHeight: number;
+	renderedRows: MeasuredTurnFocusRow[];
+	activeTurnStartUserIndex: number | null;
 }): number {
-	const { viewportHeight, topPadding, bottomPadding, activeRowHeight, belowContentHeight } = params;
-	if (viewportHeight <= 0) {
+	const {
+		viewportHeight,
+		topPadding,
+		bottomPadding,
+		renderedRows,
+		activeTurnStartUserIndex,
+	} = params;
+	if (viewportHeight <= 0 || activeTurnStartUserIndex == null || renderedRows.length === 0) {
 		return 0;
 	}
+	const activeRow =
+		renderedRows.find(
+			(row) => row.isTurnStart && row.stickyUserIndex === activeTurnStartUserIndex
+		) ?? null;
+	const lastRow = renderedRows[renderedRows.length - 1] ?? null;
+	if (!activeRow || !lastRow) {
+		return 0;
+	}
+	const activeRowHeight = Math.max(0, activeRow.height);
+	const activeBottom = activeRow.offsetTop + activeRowHeight;
+	const contentBottom = lastRow.offsetTop + Math.max(0, lastRow.height);
+	const belowContentHeight = Math.max(0, contentBottom - activeBottom);
 	return Math.max(
 		0,
 		Math.ceil(
 			viewportHeight -
 				Math.max(0, topPadding) -
 				Math.max(0, bottomPadding) -
-				Math.max(0, activeRowHeight) -
-				Math.max(0, belowContentHeight)
+				activeRowHeight -
+				belowContentHeight
 		)
 	);
 }
 
 export function findStickyUserIndexForViewport(params: {
-	displayMessages: ChatMessage[];
-	renderedRowTops: Array<{ index: number; top: number; height?: number }>;
+	renderedRows: MeasuredTurnFocusRow[];
 	stickyTopPx: number;
-	latestTurnFocusUserIndex: number | null;
-	latestTurnFocusSpacerPx: number;
+	latestTurnStartUserIndex: number | null;
+	latestTurnSpacerPx: number;
 }): number | null {
-	const {
-		displayMessages,
-		renderedRowTops,
-		stickyTopPx,
-		latestTurnFocusUserIndex,
-		latestTurnFocusSpacerPx,
-	} = params;
+	const { renderedRows, stickyTopPx, latestTurnStartUserIndex, latestTurnSpacerPx } = params;
 	const stickyBoundaryPx = stickyTopPx + STICKY_USER_SNAP_PX;
-	const latestRow =
-		latestTurnFocusUserIndex == null
+	const turnStartRows = renderedRows.filter(
+		(row) => row.isTurnStart && row.stickyUserIndex != null
+	);
+	const latestTurnRow =
+		latestTurnStartUserIndex == null
 			? null
-			: renderedRowTops.find((row) => row.index === latestTurnFocusUserIndex) ?? null;
+			: turnStartRows.find((row) => row.stickyUserIndex === latestTurnStartUserIndex) ?? null;
 
 	/**
-	 * 当 latest-turn-focus tail spacer 已经启用时，旧 user 气泡不应再来抢 sticky。
-	 * 否则像第一轮带图片的高气泡，会在最新一轮还没贴顶前先占住顶部。
+	 * 底部停留在“当前轮次”时，最新一轮的 user 气泡需要先获得 sticky 主导权。
+	 * 只有当它还没有自然到达顶部之前，才短暂抑制旧轮次接管。
 	 */
-	if (
-		latestTurnFocusSpacerPx > 0 &&
-		latestTurnFocusUserIndex != null &&
-		displayMessages[latestTurnFocusUserIndex]?.role === 'user'
-	) {
-		if (latestRow) {
-			if (latestRow.top <= stickyBoundaryPx) {
-				return latestTurnFocusUserIndex;
-			}
-			const latestRowHeight = Math.max(0, latestRow.height ?? 0);
-			if (latestRow.top < stickyBoundaryPx + latestRowHeight) {
-				return null;
-			}
+	if (latestTurnSpacerPx > 0 && latestTurnRow) {
+		if (latestTurnRow.top <= stickyBoundaryPx) {
+			return latestTurnRow.stickyUserIndex;
+		}
+		if (latestTurnRow.top < stickyBoundaryPx + Math.max(0, latestTurnRow.height)) {
+			return null;
 		}
 	}
 
-	let candidate: number | null = null;
-	for (const row of renderedRowTops) {
-		if (displayMessages[row.index]?.role !== 'user') {
-			continue;
-		}
+	let activeTurnRow: MeasuredTurnFocusRow | null = null;
+	for (const row of turnStartRows) {
 		if (row.top <= stickyBoundaryPx) {
-			candidate = row.index;
+			activeTurnRow = row;
 			continue;
 		}
-		if (candidate != null) {
-			break;
-		}
+		break;
 	}
-	return candidate;
+	return activeTurnRow?.stickyUserIndex ?? null;
 }
 
-/**
- * 保留一个统一出口，便于后续继续收敛 sticky 规则。
- * 当前策略下，经过候选筛选后的最近 user 应直接保留，不再做额外互斥过滤。
- */
 export function resolveStickyUserIndex(candidate: number | null): number | null {
 	return candidate;
 }
