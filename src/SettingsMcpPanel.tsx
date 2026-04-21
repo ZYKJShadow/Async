@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from './i18n';
+import { formatMcpCommandPreview, serializeMcpArgs, serializeMcpKeyValueEntries } from './mcpFormUtils';
 import { VoidSelect } from './VoidSelect';
 import type { McpServerConfig, McpServerStatus, McpServerTemplate } from './mcpTypes';
 import { MCP_SERVER_TEMPLATES } from './mcpTypes';
@@ -137,53 +138,145 @@ type McpServerEditFormProps = {
 	isNew: boolean;
 };
 
+type DraftArgEntry = {
+	id: string;
+	value: string;
+};
+
+type DraftKeyValueEntry = {
+	id: string;
+	key: string;
+	value: string;
+};
+
+const MCP_ARG_PLACEHOLDERS = ['-y', '@modelcontextprotocol/server-filesystem', 'D:\\workspace'];
+const MCP_STDIO_EXAMPLE = {
+	command: 'npx',
+	args: ['-y', '@modelcontextprotocol/server-filesystem', 'D:\\YourProject'],
+};
+
+function createDraftArgEntries(args: readonly string[] | undefined): DraftArgEntry[] {
+	return (args ?? []).map((value) => ({ id: newId(), value }));
+}
+
+function createDraftKeyValueEntries(entries: Record<string, string> | undefined): DraftKeyValueEntry[] {
+	return Object.entries(entries ?? {}).map(([key, value]) => ({ id: newId(), key, value }));
+}
+
 function McpServerEditForm({ config, onChange, onSave, onCancel, onDelete, isNew }: McpServerEditFormProps) {
 	const { t } = useI18n();
 	
 	const [showEnv, setShowEnv] = useState(false);
 	const [showHeaders, setShowHeaders] = useState(false);
-	
-	const envEntries = useMemo(() => {
-		return Object.entries(config.env ?? {}).map(([k, v]) => ({ key: k, value: v }));
-	}, [config.env]);
-	
-	const headerEntries = useMemo(() => {
-		return Object.entries(config.headers ?? {}).map(([k, v]) => ({ key: k, value: v }));
-	}, [config.headers]);
-	
-	const updateEnv = useCallback((idx: number, field: 'key' | 'value', val: string) => {
-		const entries = [...envEntries];
-		entries[idx] = { ...entries[idx], [field]: val };
-		onChange({ ...config, env: Object.fromEntries(entries.filter(e => e.key.trim()).map(e => [e.key, e.value] as const)) });
-	}, [config, onChange, envEntries]);
-	
+	const [argEntries, setArgEntries] = useState<DraftArgEntry[]>(() => createDraftArgEntries(config.args));
+	const [envEntries, setEnvEntries] = useState<DraftKeyValueEntry[]>(() => createDraftKeyValueEntries(config.env));
+	const [headerEntries, setHeaderEntries] = useState<DraftKeyValueEntry[]>(() => createDraftKeyValueEntries(config.headers));
+
+	useEffect(() => {
+		setArgEntries(createDraftArgEntries(config.args));
+		const nextEnvEntries = createDraftKeyValueEntries(config.env);
+		const nextHeaderEntries = createDraftKeyValueEntries(config.headers);
+		setEnvEntries(nextEnvEntries);
+		setHeaderEntries(nextHeaderEntries);
+		setShowEnv(nextEnvEntries.length > 0);
+		setShowHeaders(nextHeaderEntries.length > 0);
+	}, [config.id]);
+
+	const commitArgs = useCallback(
+		(nextEntries: DraftArgEntry[]) => {
+			setArgEntries(nextEntries);
+			onChange({ ...config, args: serializeMcpArgs(nextEntries.map((entry) => entry.value)) });
+		},
+		[config, onChange]
+	);
+
+	const commitEnvEntries = useCallback(
+		(nextEntries: DraftKeyValueEntry[]) => {
+			setEnvEntries(nextEntries);
+			onChange({
+				...config,
+				env: serializeMcpKeyValueEntries(nextEntries.map(({ key, value }) => ({ key, value }))),
+			});
+		},
+		[config, onChange]
+	);
+
+	const commitHeaderEntries = useCallback(
+		(nextEntries: DraftKeyValueEntry[]) => {
+			setHeaderEntries(nextEntries);
+			onChange({
+				...config,
+				headers: serializeMcpKeyValueEntries(nextEntries.map(({ key, value }) => ({ key, value }))),
+			});
+		},
+		[config, onChange]
+	);
+
+	const updateArg = useCallback(
+		(idx: number, value: string) => {
+			const nextEntries = [...argEntries];
+			nextEntries[idx] = { ...nextEntries[idx], value };
+			commitArgs(nextEntries);
+		},
+		[argEntries, commitArgs]
+	);
+
+	const addArgEntry = useCallback(() => {
+		commitArgs([...argEntries, { id: newId(), value: '' }]);
+	}, [argEntries, commitArgs]);
+
+	const removeArgEntry = useCallback(
+		(idx: number) => {
+			commitArgs(argEntries.filter((_, i) => i !== idx));
+		},
+		[argEntries, commitArgs]
+	);
+
+	const updateEnv = useCallback(
+		(idx: number, field: 'key' | 'value', val: string) => {
+			const nextEntries = [...envEntries];
+			nextEntries[idx] = { ...nextEntries[idx], [field]: val };
+			commitEnvEntries(nextEntries);
+		},
+		[commitEnvEntries, envEntries]
+	);
+
 	const addEnvEntry = useCallback(() => {
-		const entries = [...envEntries, { key: '', value: '' }];
-		onChange({ ...config, env: Object.fromEntries(entries.filter(e => e.key.trim()).map(e => [e.key, e.value] as const)) });
 		setShowEnv(true);
-	}, [config, onChange, envEntries]);
-	
-	const removeEnvEntry = useCallback((idx: number) => {
-		const entries = envEntries.filter((_, i) => i !== idx);
-		onChange({ ...config, env: Object.fromEntries(entries.filter(e => e.key.trim()).map(e => [e.key, e.value] as const)) });
-	}, [config, onChange, envEntries]);
-	
-	const updateHeader = useCallback((idx: number, field: 'key' | 'value', val: string) => {
-		const entries = [...headerEntries];
-		entries[idx] = { ...entries[idx], [field]: val };
-		onChange({ ...config, headers: Object.fromEntries(entries.filter(e => e.key.trim()).map(e => [e.key, e.value] as const)) });
-	}, [config, onChange, headerEntries]);
-	
+		commitEnvEntries([...envEntries, { id: newId(), key: '', value: '' }]);
+	}, [commitEnvEntries, envEntries]);
+
+	const removeEnvEntry = useCallback(
+		(idx: number) => {
+			commitEnvEntries(envEntries.filter((_, i) => i !== idx));
+		},
+		[commitEnvEntries, envEntries]
+	);
+
+	const updateHeader = useCallback(
+		(idx: number, field: 'key' | 'value', val: string) => {
+			const nextEntries = [...headerEntries];
+			nextEntries[idx] = { ...nextEntries[idx], [field]: val };
+			commitHeaderEntries(nextEntries);
+		},
+		[commitHeaderEntries, headerEntries]
+	);
+
 	const addHeaderEntry = useCallback(() => {
-		const entries = [...headerEntries, { key: '', value: '' }];
-		onChange({ ...config, headers: Object.fromEntries(entries.filter(e => e.key.trim()).map(e => [e.key, e.value] as const)) });
 		setShowHeaders(true);
-	}, [config, onChange, headerEntries]);
-	
-	const removeHeaderEntry = useCallback((idx: number) => {
-		const entries = headerEntries.filter((_, i) => i !== idx);
-		onChange({ ...config, headers: Object.fromEntries(entries.filter(e => e.key.trim()).map(e => [e.key, e.value] as const)) });
-	}, [config, onChange, headerEntries]);
+		commitHeaderEntries([...headerEntries, { id: newId(), key: '', value: '' }]);
+	}, [commitHeaderEntries, headerEntries]);
+
+	const removeHeaderEntry = useCallback(
+		(idx: number) => {
+			commitHeaderEntries(headerEntries.filter((_, i) => i !== idx));
+		},
+		[commitHeaderEntries, headerEntries]
+	);
+
+	const commandPreview = useMemo(() => {
+		return formatMcpCommandPreview(config.command, argEntries.map((entry) => entry.value));
+	}, [argEntries, config.command]);
 	
 	return (
 		<div className="ref-mcp-edit-form">
@@ -246,14 +339,62 @@ function McpServerEditForm({ config, onChange, onSave, onCancel, onDelete, isNew
 						</label>
 					</div>
 					<div className="ref-mcp-edit-row">
-						<label className="ref-mcp-edit-field">
-							<span>{t('mcp.form.args')}</span>
-							<input
-								value={(config.args ?? []).join(' ')}
-								onChange={(e) => onChange({ ...config, args: e.target.value.split(/\s+/).filter(Boolean) })}
-								placeholder="-y @modelcontextprotocol/server-filesystem"
-							/>
-						</label>
+						<div className="ref-mcp-edit-field">
+							<div className="ref-mcp-edit-list-head">
+								<span className="ref-mcp-edit-list-title">{t('mcp.form.args')}</span>
+								{argEntries.length > 0 ? <span className="ref-mcp-edit-expand-count">{argEntries.length}</span> : null}
+								<button
+									type="button"
+									className="ref-mcp-edit-add-small"
+									onClick={addArgEntry}
+									title={t('mcp.form.argsAdd')}
+									aria-label={t('mcp.form.argsAdd')}
+								>
+									<IconPlus />
+								</button>
+							</div>
+							<p className="ref-settings-field-hint ref-mcp-edit-help">{t('mcp.form.argsHint')}</p>
+							<div className="ref-mcp-edit-example" aria-label={t('mcp.form.exampleTitle')}>
+								<span className="ref-mcp-edit-example-title">{t('mcp.form.exampleTitle')}</span>
+								<div className="ref-mcp-edit-example-row">
+									<span className="ref-mcp-edit-example-label">{t('mcp.form.command')}</span>
+									<code>{MCP_STDIO_EXAMPLE.command}</code>
+								</div>
+								{MCP_STDIO_EXAMPLE.args.map((arg, idx) => (
+									<div key={`${arg}-${idx}`} className="ref-mcp-edit-example-row">
+										<span className="ref-mcp-edit-example-label">{t('mcp.form.exampleArg', { index: idx + 1 })}</span>
+										<code>{arg}</code>
+									</div>
+								))}
+							</div>
+							<div className="ref-mcp-edit-env-list">
+								{argEntries.map((entry, idx) => (
+									<div key={entry.id} className="ref-mcp-edit-env-row">
+										<input
+											value={entry.value}
+											onChange={(e) => updateArg(idx, e.target.value)}
+											placeholder={MCP_ARG_PLACEHOLDERS[idx] ?? t('mcp.form.argsItemPlaceholder')}
+										/>
+										<button
+											type="button"
+											className="ref-mcp-edit-env-remove"
+											onClick={() => removeArgEntry(idx)}
+											title={t('mcp.form.argsRemove')}
+											aria-label={t('mcp.form.argsRemove')}
+										>
+											<IconTrash />
+										</button>
+									</div>
+								))}
+								{argEntries.length === 0 ? <p className="ref-mcp-edit-env-empty">{t('mcp.form.argsEmpty')}</p> : null}
+							</div>
+							{commandPreview ? (
+								<div className="ref-mcp-edit-command-preview">
+									<span className="ref-mcp-edit-command-preview-label">{t('mcp.form.commandPreview')}</span>
+									<code>{commandPreview}</code>
+								</div>
+							) : null}
+						</div>
 					</div>
 					<div className="ref-mcp-edit-row">
 						<div className="ref-mcp-edit-expand">
@@ -266,14 +407,20 @@ function McpServerEditForm({ config, onChange, onSave, onCancel, onDelete, isNew
 								<span>{t('mcp.form.env')}</span>
 								{envEntries.length > 0 ? <span className="ref-mcp-edit-expand-count">{envEntries.length}</span> : null}
 							</button>
-							<button type="button" className="ref-mcp-edit-add-small" onClick={addEnvEntry}>
+							<button
+								type="button"
+								className="ref-mcp-edit-add-small"
+								onClick={addEnvEntry}
+								title={t('mcp.form.envAdd')}
+								aria-label={t('mcp.form.envAdd')}
+							>
 								<IconPlus />
 							</button>
 						</div>
 						{showEnv ? (
 							<div className="ref-mcp-edit-env-list">
 								{envEntries.map((entry, idx) => (
-									<div key={idx} className="ref-mcp-edit-env-row">
+									<div key={entry.id} className="ref-mcp-edit-env-row">
 										<input
 											value={entry.key}
 											onChange={(e) => updateEnv(idx, 'key', e.target.value)}
@@ -285,7 +432,13 @@ function McpServerEditForm({ config, onChange, onSave, onCancel, onDelete, isNew
 											placeholder="your-api-key"
 											type="password"
 										/>
-										<button type="button" className="ref-mcp-edit-env-remove" onClick={() => removeEnvEntry(idx)}>
+										<button
+											type="button"
+											className="ref-mcp-edit-env-remove"
+											onClick={() => removeEnvEntry(idx)}
+											title={t('mcp.form.envRemove')}
+											aria-label={t('mcp.form.envRemove')}
+										>
 											<IconTrash />
 										</button>
 									</div>
@@ -324,14 +477,20 @@ function McpServerEditForm({ config, onChange, onSave, onCancel, onDelete, isNew
 								<span>{t('mcp.form.headers')}</span>
 								{headerEntries.length > 0 ? <span className="ref-mcp-edit-expand-count">{headerEntries.length}</span> : null}
 							</button>
-							<button type="button" className="ref-mcp-edit-add-small" onClick={addHeaderEntry}>
+							<button
+								type="button"
+								className="ref-mcp-edit-add-small"
+								onClick={addHeaderEntry}
+								title={t('mcp.form.headersAdd')}
+								aria-label={t('mcp.form.headersAdd')}
+							>
 								<IconPlus />
 							</button>
 						</div>
 						{showHeaders ? (
 							<div className="ref-mcp-edit-env-list">
 								{headerEntries.map((entry, idx) => (
-									<div key={idx} className="ref-mcp-edit-env-row">
+									<div key={entry.id} className="ref-mcp-edit-env-row">
 										<input
 											value={entry.key}
 											onChange={(e) => updateHeader(idx, 'key', e.target.value)}
@@ -342,7 +501,13 @@ function McpServerEditForm({ config, onChange, onSave, onCancel, onDelete, isNew
 											onChange={(e) => updateHeader(idx, 'value', e.target.value)}
 											placeholder="Bearer xxx"
 										/>
-										<button type="button" className="ref-mcp-edit-env-remove" onClick={() => removeHeaderEntry(idx)}>
+										<button
+											type="button"
+											className="ref-mcp-edit-env-remove"
+											onClick={() => removeHeaderEntry(idx)}
+											title={t('mcp.form.headersRemove')}
+											aria-label={t('mcp.form.headersRemove')}
+										>
 											<IconTrash />
 										</button>
 									</div>

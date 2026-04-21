@@ -18649,6 +18649,66 @@ select.ref-settings-native-select:focus {
 	color: var(--void-fg-2);
 }
 
+.ref-mcp-edit-list-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.ref-mcp-edit-list-head .ref-mcp-edit-add-small {
+	margin-left: auto;
+}
+
+.ref-mcp-edit-list-title {
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--void-fg-2);
+}
+
+.ref-mcp-edit-help {
+	margin: 0;
+}
+
+.ref-mcp-edit-example {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 2px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px dashed var(--void-border-soft);
+	background: rgba(255, 255, 255, 0.02);
+}
+
+.ref-mcp-edit-example-title {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--void-fg-2);
+}
+
+.ref-mcp-edit-example-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.ref-mcp-edit-example-label {
+	flex: 0 0 64px;
+	font-size: 11px;
+	color: var(--void-fg-3);
+	line-height: 1.6;
+}
+
+.ref-mcp-edit-example-row code {
+	flex: 1;
+	min-width: 0;
+	font-size: 12px;
+	line-height: 1.6;
+	font-family: ui-monospace, monospace;
+	color: var(--void-fg-1);
+	word-break: break-word;
+}
+
 /* Match .ref-settings-field inputs；select 须加 .ref-settings-native-select，见上方 */
 .ref-mcp-edit-field input:not([type]),
 .ref-mcp-edit-field input[type='text'],
@@ -18820,6 +18880,31 @@ select.ref-settings-native-select:focus {
 	font-size: 11px;
 	color: var(--void-fg-3);
 	font-style: italic;
+}
+
+.ref-mcp-edit-command-preview {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 8px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px solid var(--void-border-soft);
+	background: rgba(255, 255, 255, 0.02);
+}
+
+.ref-mcp-edit-command-preview-label {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--void-fg-3);
+}
+
+.ref-mcp-edit-command-preview code {
+	font-size: 12px;
+	line-height: 1.5;
+	font-family: ui-monospace, monospace;
+	color: var(--void-fg-1);
+	word-break: break-word;
 }
 
 .ref-mcp-edit-actions {
