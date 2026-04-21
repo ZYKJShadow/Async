@@ -9,6 +9,8 @@ import {
 	IconRoleResearcher,
 	IconRoleCustom,
 } from './icons';
+import { TEAM_ROLE_AVATAR_IMAGE_URLS, pickTeamRoleAvatarUrl } from './teamRoleAvatarUrls';
+import { buildTeamAvatarSeed } from './teamAvatarSeed';
 
 type IconProps = { className?: string };
 
@@ -47,17 +49,28 @@ function resolveAvatarClass(roleType: TeamRoleType, assignmentKey?: string): str
 type Props = {
 	roleType: TeamRoleType;
 	assignmentKey?: string;
+	/** Optional fallback when no stable assignmentKey is available. */
+	avatarSeed?: string;
 	small?: boolean;
 };
 
-export function TeamRoleAvatar({ roleType, assignmentKey, small }: Props) {
+export function TeamRoleAvatar({ roleType, assignmentKey, avatarSeed, small }: Props) {
 	const Icon = resolveIcon(roleType, assignmentKey);
 	const modifier = resolveAvatarClass(roleType, assignmentKey);
+	const seed = buildTeamAvatarSeed({ roleType, assignmentKey, avatarSeed });
+	const imageSrc = pickTeamRoleAvatarUrl(seed, TEAM_ROLE_AVATAR_IMAGE_URLS);
 	const cls = [
 		'ref-team-expert-avatar',
-		`ref-team-expert-avatar--${modifier}`,
+		imageSrc ? 'ref-team-expert-avatar--photo' : `ref-team-expert-avatar--${modifier}`,
 		small && 'ref-team-avatar-sm',
 	].filter(Boolean).join(' ');
+	if (imageSrc) {
+		return (
+			<span className={cls}>
+				<img src={imageSrc} alt="" draggable={false} />
+			</span>
+		);
+	}
 	return (
 		<span className={cls}>
 			<Icon />

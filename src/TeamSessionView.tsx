@@ -16,7 +16,7 @@ function phaseLabel(t: TFunction, phase: TeamSessionState['phase']) {
 	return t(`team.phase.${phase}`);
 }
 
-const PHASE_STEPS: TeamSessionState['phase'][] = ['researching', 'planning', 'executing', 'reviewing', 'delivering'];
+const PHASE_STEPS: TeamSessionState['phase'][] = ['researching', 'planning', 'executing', 'reviewing', 'synthesizing', 'delivering'];
 
 function phaseIndex(phase: TeamSessionState['phase']): number {
 	const idx = PHASE_STEPS.indexOf(phase);
@@ -66,10 +66,21 @@ export const TeamSessionView = memo(function TeamSessionView({ t, session, onSel
 
 			{/* Planning summary */}
 			{session.planSummary ? (
-				<details className="ref-team-plan-summary" open={session.phase === 'planning'}>
+				<details
+					className="ref-team-plan-summary"
+					open={session.phase === 'planning' && !session.finalSummary}
+				>
 					<summary>{t('team.phase.planning')}</summary>
 					<ChatMarkdown content={session.planSummary} />
 				</details>
+			) : null}
+
+			{/* Lead final synthesis */}
+			{session.finalSummary ? (
+				<div className="ref-team-lead-final">
+					<strong>{t('team.phase.synthesizing')}</strong>
+					<ChatMarkdown content={session.finalSummary} />
+				</div>
 			) : null}
 
 			{/* Expert cards grid */}
@@ -89,7 +100,11 @@ export const TeamSessionView = memo(function TeamSessionView({ t, session, onSel
 				{selectedTask ? (
 					<>
 						<div className="ref-team-detail-head">
-							<TeamRoleAvatar roleType={selectedTask.roleType} assignmentKey={selectedTask.expertAssignmentKey} small />
+							<TeamRoleAvatar
+								roleType={selectedTask.roleType}
+								assignmentKey={selectedTask.expertAssignmentKey ?? selectedTask.expertId}
+								small
+							/>
 							<strong>{selectedTask.expertName}</strong>
 							<span className={`ref-team-expert-status ref-team-expert-status--${selectedTask.status}`}>
 								{selectedTask.status}

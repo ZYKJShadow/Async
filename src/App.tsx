@@ -3412,6 +3412,7 @@ function AppMainWorkspaceInner() {
 		onRevertFileEdit,
 		showScrollToBottomButton,
 		scrollMessagesToBottom,
+		scheduleMessagesScrollToBottom,
 		agentPlanSummaryCard,
 		teamSession,
 		onSelectTeamExpert: onSelectTeamTask,

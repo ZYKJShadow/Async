@@ -16,6 +16,7 @@ function buildSession(overrides: Partial<TeamSessionState> = {}): TeamSessionSta
 		leaderMessage: '',
 		leaderWorkflow: null,
 		planSummary: '',
+		finalSummary: '',
 		reviewSummary: '',
 		reviewVerdict: null,
 		preflightSummary: '',
@@ -130,5 +131,56 @@ describe('teamChatTimeline', () => {
 		expect(normalizeTeamLeaderText('请先明确你想优化的是性能、代码质量还是用户体验。')).toBe(
 			'请先明确你想优化的是性能、代码质量还是用户体验。'
 		);
+	});
+
+	it('keeps the review card visible without pending role cards before plan approval', () => {
+		const session = buildSession({
+			planProposal: {
+				proposalId: 'proposal-1',
+				summary: '我先拆 3 个专家方向。',
+				tasks: [
+					{
+						expert: 'game_designer',
+						expertName: 'Game Designer',
+						roleType: 'custom',
+						task: '设计 3 个高话题玩法方向',
+						acceptanceCriteria: ['给出 3 个方案'],
+					},
+				],
+				preflightSummary: '当前信息足够推进。',
+				preflightVerdict: 'ok',
+				awaitingApproval: true,
+			},
+			timelineEntries: [{ id: 'proposal-1', kind: 'plan_proposal', proposalId: 'proposal-1' }],
+		});
+
+		const timeline = buildTeamConversationTimeline(session, [{ role: 'user', content: '做个爆款游戏' }]);
+
+		expect(timeline.entries.map((entry) => entry.kind)).toEqual(['plan_proposal']);
+	});
+
+	it('shows pending role cards after the user approves the plan', () => {
+		const session = buildSession({
+			planProposal: {
+				proposalId: 'proposal-1',
+				summary: '我先拆 3 个专家方向。',
+				tasks: [
+					{
+						expert: 'game_designer',
+						expertName: 'Game Designer',
+						roleType: 'custom',
+						task: '设计 3 个高话题玩法方向',
+						acceptanceCriteria: ['给出 3 个方案'],
+					},
+				],
+				awaitingApproval: false,
+				decision: 'approved',
+			},
+			timelineEntries: [{ id: 'proposal-1', kind: 'plan_proposal', proposalId: 'proposal-1' }],
+		});
+
+		const timeline = buildTeamConversationTimeline(session, [{ role: 'user', content: '做个爆款游戏' }]);
+
+		expect(timeline.entries.map((entry) => entry.kind)).toEqual(['plan_proposal', 'task_card']);
 	});
 });

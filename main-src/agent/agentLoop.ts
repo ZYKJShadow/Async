@@ -805,22 +805,6 @@ async function runOpenAILoop(
 		teamToolRoleScope: options.teamToolRoleScope,
 		customToolHandlers: mergedCustomToolHandlers,
 	};
-	const resolveAnthropicApiTools = (): AnthropicToolSchema[] => {
-		const visibleToolPool = resolveVisibleToolPool();
-		if (!nativeAnthropicDeferEnabled) {
-			return toAnthropicTools(visibleToolPool);
-		}
-		const deferToolNames = new Set(
-			resolveFullToolPool()
-				.filter((tool) => isDeferredAgentTool(tool) && !discoveredDeferredToolNames.has(tool.name))
-				.map((tool) => tool.name)
-		);
-		return toAnthropicTools(visibleToolPool, {
-			deferToolNames,
-			includeExperimentalBetaFields: nativeAnthropicDeferEnabled,
-		});
-	};
-
 	async function handleMistakeLimitBeforeRound(): Promise<boolean> {
 		if (!mistakeLimitEnabled || consecutiveToolFailures < threshold) {
 			return false;
@@ -1363,6 +1347,21 @@ async function runAnthropicLoop(
 			options.toolPoolOverride,
 			nativeAnthropicDeferEnabled
 		);
+	const resolveAnthropicApiTools = (): AnthropicToolSchema[] => {
+		const visibleToolPool = resolveVisibleToolPool();
+		if (!nativeAnthropicDeferEnabled) {
+			return toAnthropicTools(visibleToolPool);
+		}
+		const deferToolNames = new Set(
+			resolveFullToolPool()
+				.filter((tool) => isDeferredAgentTool(tool) && !discoveredDeferredToolNames.has(tool.name))
+				.map((tool) => tool.name)
+		);
+		return toAnthropicTools(visibleToolPool, {
+			deferToolNames,
+			includeExperimentalBetaFields: nativeAnthropicDeferEnabled,
+		});
+	};
 	const mergedCustomToolHandlers = {
 		ToolSearch: createToolSearchToolHandler({
 			resolveFullToolPool,

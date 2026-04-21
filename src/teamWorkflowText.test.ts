@@ -30,6 +30,16 @@ describe('extractTeamLeadNarrative', () => {
 		expect(extractTeamLeadNarrative(input)).toBe(input);
 	});
 
+	it('removes html details blocks from team lead narrative text', () => {
+		const input = `这里是最终建议。
+
+<details><summary>初始分派说明</summary>
+这段折叠细节不应该直接展示给用户。
+</details>`;
+
+		expect(extractTeamLeadNarrative(input)).toBe('这里是最终建议。');
+	});
+
 	it('unwraps structured assistant payloads before extracting the narrative', () => {
 		const input = JSON.stringify({
 			_asyncAssistant: 1,

@@ -9,26 +9,15 @@ export type OpenAIContentPart =
 export type OpenAIUserContent = string | OpenAIContentPart[];
 
 function buildResolvedTextBody(resolved: ResolvedUserMessage): string {
-	const prelude: string[] = [];
-	const main: string[] = [];
+	const textParts: string[] = [];
 	for (const segment of resolved.segments) {
 		if (segment.kind === 'text') {
-			main.push(segment.text);
-		} else if (segment.kind === 'expanded_text_file') {
-			prelude.push(
-				segment.binary
-					? `### 工作区文件: ${segment.relPath}\n${segment.body}\n`
-					: `### 工作区文件: ${segment.relPath}\n\`\`\`\n${segment.body}\n\`\`\`\n`
-			);
-		} else if (segment.kind === 'missing_file') {
-			main.push(`[missing: ${segment.relPath}]`);
+			textParts.push(segment.text);
 		} else if (segment.kind === 'image_error') {
-			main.push(`[image error (${segment.error.kind}): ${segment.relPath}]`);
+			textParts.push(`[image error (${segment.error.kind}): ${segment.relPath}]`);
 		}
 	}
-	return [prelude.join('\n'), prelude.length > 0 ? '---\n' : '', main.join('')]
-		.filter((value) => value.length > 0)
-		.join('\n');
+	return textParts.join('');
 }
 
 export function buildOpenAIUserContent(resolved: ResolvedUserMessage): OpenAIUserContent {

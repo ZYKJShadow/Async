@@ -146,6 +146,26 @@ export function flattenAssistantTextPartsForSearch(raw: string): string {
 }
 
 /**
+ * 将结构化 assistant payload 规范化为适合直接展示的纯文本。
+ * 若消息本身就是结构化 JSON 但没有文本块，则返回 fallback，避免把传输层 JSON 暴露给 UI。
+ */
+export function extractAssistantTextForDisplay(raw: string, fallback = ''): string {
+	const flattened = flattenAssistantTextPartsForSearch(raw)
+		.replace(/\n[ \t]+\n/g, '\n\n')
+		.trim();
+	if (flattened) {
+		return flattened;
+	}
+	if (isStructuredAssistantMessage(raw)) {
+		return fallback;
+	}
+	const trimmed = String(raw ?? '')
+		.replace(/\n[ \t]+\n/g, '\n\n')
+		.trim();
+	return trimmed || fallback;
+}
+
+/**
  * 压缩副本：截断各 tool 的 result（与 conversationCompress 对 XML 的预算一致）
  */
 export function budgetStructuredAssistantToolResults(

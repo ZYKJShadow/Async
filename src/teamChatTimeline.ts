@@ -77,7 +77,8 @@ export function buildTeamConversationTimeline(
 		return { entries: [], currentLeaderMessage: '' };
 	}
 
-	const workflowItems = buildTeamWorkflowItems(session);
+	const suppressTaskCardsUntilPlanApproval = Boolean(session.planProposal?.awaitingApproval);
+	const workflowItems = suppressTaskCardsUntilPlanApproval ? [] : buildTeamWorkflowItems(session);
 	const itemsById = new Map(workflowItems.map((item) => [item.id, item]));
 	const seenLeaderTexts = new Set<string>();
 	const seenTaskIds = new Set<string>();
@@ -135,6 +136,9 @@ export function buildTeamConversationTimeline(
 				kind: 'plan_revision',
 				revision,
 			});
+			continue;
+		}
+		if (suppressTaskCardsUntilPlanApproval) {
 			continue;
 		}
 		const item = itemsById.get(timelineEntry.taskId);

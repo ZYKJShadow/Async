@@ -1,17 +1,32 @@
-import { useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { ChatMarkdown } from './ChatMarkdown';
 import { useI18n } from './i18n';
 import type { TeamPlanProposalState } from './hooks/useTeamSession';
 import { normalizeTeamLeaderText } from './teamChatTimeline';
+import { TeamRoleAvatar } from './TeamRoleAvatar';
 
 type Props = {
 	proposal: TeamPlanProposalState;
 	onApprove: (feedback?: string) => void;
 	onReject: (feedback?: string) => void;
 	hideSummary?: boolean;
+	onHeightMayChange?: () => void;
 };
 
-export function TeamPlanReviewPanel({ proposal, onApprove, onReject, hideSummary = false }: Props) {
+function sanitizeCriteria(criteria?: readonly string[]): string[] {
+	if (!criteria || criteria.length === 0) {
+		return [];
+	}
+	return criteria.map((item) => String(item ?? '').trim()).filter(Boolean);
+}
+
+export function TeamPlanReviewPanel({
+	proposal,
+	onApprove,
+	onReject,
+	hideSummary = false,
+	onHeightMayChange,
+}: Props) {
 	const { t } = useI18n();
 	const [showPreflight, setShowPreflight] = useState(true);
 	const [showTasks, setShowTasks] = useState(true);
@@ -25,6 +40,22 @@ export function TeamPlanReviewPanel({ proposal, onApprove, onReject, hideSummary
 			: proposal.decision === 'rejected'
 				? t('team.plan.decisionRejected')
 				: '';
+
+	useLayoutEffect(() => {
+		onHeightMayChange?.();
+	}, [
+		onHeightMayChange,
+		showPreflight,
+		showTasks,
+		hideSummary,
+		summary,
+		proposal.proposalId,
+		proposal.preflightVerdict,
+		proposal.awaitingApproval,
+		proposal.decision,
+		proposal.tasks.length,
+		Boolean(proposal.preflightSummary?.trim()),
+	]);
 
 	return (
 		<div className="ref-plan-review ref-team-plan-review" role="region" aria-label={t('team.plan.aria')}>
@@ -97,27 +128,31 @@ export function TeamPlanReviewPanel({ proposal, onApprove, onReject, hideSummary
 						</button>
 						{showTasks ? (
 							<div className="ref-plan-review-todos-list">
-								{proposal.tasks.map((task, idx) => (
-									<div key={`${task.expert}-${idx}`} className="ref-team-plan-task">
-										<span className={`ref-team-expert-avatar ref-team-expert-avatar--${task.roleType}`}>
-											{task.expertName.slice(0, 1).toUpperCase()}
-										</span>
-										<div className="ref-team-plan-task-body">
-											<div className="ref-team-plan-task-head">
-												<span className="ref-team-plan-task-name">{task.expertName}</span>
-												<span className="ref-team-plan-task-role">{task.expert}</span>
+								{proposal.tasks.map((task, idx) => {
+									const criteria = sanitizeCriteria(task.acceptanceCriteria);
+									return (
+										<div key={`${task.expert}-${idx}`} className="ref-team-plan-task">
+											<TeamRoleAvatar
+												roleType={task.roleType}
+												assignmentKey={task.expert}
+											/>
+											<div className="ref-team-plan-task-body">
+												<div className="ref-team-plan-task-head">
+													<span className="ref-team-plan-task-name">{task.expertName}</span>
+													<span className="ref-team-plan-task-role">{task.expert}</span>
+												</div>
+												<div className="ref-team-plan-task-desc">{task.task}</div>
+												{criteria.length > 0 ? (
+													<ul className="ref-team-plan-task-criteria">
+														{criteria.map((c, i) => (
+															<li key={i}>{c}</li>
+														))}
+													</ul>
+												) : null}
 											</div>
-											<div className="ref-team-plan-task-desc">{task.task}</div>
-											{task.acceptanceCriteria && task.acceptanceCriteria.length > 0 ? (
-												<ul className="ref-team-plan-task-criteria">
-													{task.acceptanceCriteria.map((c, i) => (
-														<li key={i}>{c}</li>
-													))}
-												</ul>
-											) : null}
 										</div>
-									</div>
-								))}
+									);
+								})}
 							</div>
 						) : null}
 					</div>

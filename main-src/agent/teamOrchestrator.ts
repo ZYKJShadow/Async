@@ -12,9 +12,12 @@ import {
 } from './requestUserInputTool.js';
 import { resolveTeamExpertProfiles, type TeamExpertRuntimeProfile } from './teamExpertProfiles.js';
 import { resolveModelRequest, type ResolvedModelRequest } from '../llm/modelResolve.js';
-import { getTeamPreset, getTeamPresetDefaults } from '../../src/teamPresetCatalog.js';
+import { getTeamSourceDefaults } from '../../src/teamPresetCatalog.js';
 import { buildAutoReplyLanguageRuleBlock } from '../../src/autoReplyLanguageRule.js';
-import { flattenAssistantTextPartsForSearch } from '../../src/agentStructuredMessage.js';
+import {
+	extractAssistantTextForDisplay,
+	flattenAssistantTextPartsForSearch,
+} from '../../src/agentStructuredMessage.js';
 import {
 	buildTeamPlanProposalId,
 	registerTeamPlanApprovalWaiter,
@@ -26,6 +29,7 @@ import {
 	teamPlanDecideTool,
 	type TeamPlanDecision,
 	type TeamPlanDecideTask,
+	type TeamPlanTaskKind,
 	setTeamPlanDecideRuntime,
 } from './teamPlanDecideTool.js';
 import {
@@ -51,6 +55,7 @@ type TeamPhase =
 	| 'proposing'
 	| 'executing'
 	| 'reviewing'
+	| 'synthesizing'
 	| 'delivering'
 	| 'cancelled';
 type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'revision';
@@ -83,6 +88,7 @@ export type TeamTask = {
 	status: TeamTaskStatus;
 	dependencies: string[];
 	acceptanceCriteria: string[];
+	kind: TeamPlanTaskKind;
 	result?: string;
 };
 
@@ -213,6 +219,7 @@ type TeamEmit =
 	| { threadId: string; type: 'team_expert_progress'; taskId: string; expertId: string; message?: string; delta?: string }
 	| { threadId: string; type: 'team_expert_done'; taskId: string; expertId: string; success: boolean; result: string }
 	| { threadId: string; type: 'team_review'; verdict: 'approved' | 'revision_needed'; summary: string }
+	| { threadId: string; type: 'team_lead_final'; summary: string }
 	| { threadId: string; type: 'team_plan_summary'; summary: string }
 	| { threadId: string; type: 'team_preflight_review'; verdict: 'ok' | 'needs_clarification'; summary: string }
 	| {
@@ -286,20 +293,12 @@ function buildReviewerWorkflowTask(
 		status: 'in_progress',
 		dependencies,
 		acceptanceCriteria,
+		kind: 'deliver',
 	};
 }
 
 function normalizeTeamAgentSummary(raw: string, fallback: string): string {
-	const flattened = flattenAssistantTextPartsForSearch(raw)
-		.replace(/\n[ \t]+\n/g, '\n\n')
-		.trim();
-	if (flattened) {
-		return flattened;
-	}
-	const trimmed = String(raw ?? '')
-		.replace(/\n[ \t]+\n/g, '\n\n')
-		.trim();
-	return trimmed || fallback;
+	return extractAssistantTextForDisplay(raw, fallback);
 }
 
 function appendTeamLanguageRule(settings: ShellSettings, prompt?: string): string {
@@ -338,6 +337,7 @@ export type TeamOrchestratorInput = {
 type LLMPlannedTask = {
 	expert: string;
 	task: string;
+	kind: TeamPlanTaskKind;
 	dependencies?: string[];
 	acceptanceCriteria?: string[];
 };
@@ -348,6 +348,7 @@ function toLlmPlannedTasks(tasks: TeamPlanDecideTask[]): LLMPlannedTask[] {
 	return tasks.map((task) => ({
 		expert: task.expert,
 		task: task.task,
+		kind: task.kind ?? 'deliver',
 		dependencies: task.dependencies ?? [],
 		acceptanceCriteria: task.acceptanceCriteria ?? [],
 	}));
@@ -378,6 +379,10 @@ function stripFencedBlocks(text: string): string {
 	return unclosed.trim();
 }
 
+function stripDetailsBlocks(text: string): string {
+	return text.replace(/<details\b[^>]*>[\s\S]*?<\/details>/gi, '').trim();
+}
+
 function stripTrailingRawJson(text: string): string {
 	const normalized = text.trim();
 	if (!normalized) {
@@ -398,8 +403,9 @@ function extractTeamLeadNarrative(text: string): string {
 		return '';
 	}
 	const withoutFence = stripFencedBlocks(normalized);
-	const withoutJson = stripTrailingRawJson(withoutFence || normalized);
-	return (withoutJson || withoutFence || normalized).replace(/\n{3,}/g, '\n\n').trim();
+	const withoutDetails = stripDetailsBlocks(withoutFence || normalized);
+	const withoutJson = stripTrailingRawJson(withoutDetails || withoutFence || normalized);
+	return (withoutJson || withoutDetails || withoutFence || normalized).replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function buildFallbackTeamLeadNarrative(hasCjk: boolean): string {
@@ -410,8 +416,246 @@ function buildFallbackTeamLeadNarrative(hasCjk: boolean): string {
 
 function buildClarificationNeededNarrative(hasCjk: boolean): string {
 	return hasCjk
-		? '当前需求还不够具体，我先不分派专家。请补充优化目标（如性能、代码质量、用户体验）、范围（模块 / 页面 / 流程）、限制条件，以及你希望得到的产出。'
-		: 'The request is still too broad, so I am not dispatching specialists yet. Please clarify the goal (for example performance, code quality, or UX), the scope (module/page/workflow), any constraints, and the outcome you want.';
+		? '当前需求还不够具体，我先不分派专家。请补充你最想解决的问题、希望聚焦的方向、限制条件，以及你希望得到的产出。'
+		: 'The request is still too broad, so I am not dispatching specialists yet. Please clarify the main problem to solve, the direction to focus on, any constraints, and the outcome you want.';
+}
+
+const DISCUSS_INTENT_PATTERNS = [
+	/思路/,
+	/想法/,
+	/建议/,
+	/方向/,
+	/点子/,
+	/创意/,
+	/头脑风暴/,
+	/脑暴/,
+	/brainstorm/i,
+	/\bideas?\b/i,
+	/\boptions?\b/i,
+	/\bpros?\s+and\s+cons\b/i,
+	/方案对比/,
+	/帮我想想/,
+	/你觉得/,
+	/有什么好的/,
+];
+
+const DELIVERY_INTENT_PATTERNS = [
+	/帮我实现/,
+	/实现一下/,
+	/写一下/,
+	/加上/,
+	/修一下/,
+	/开发/,
+	/落地/,
+	/原型/,
+	/\bbuild\b/i,
+	/\bimplement\b/i,
+	/\bship\b/i,
+	/\bfix\b/i,
+	/\brefactor\b/i,
+	/\badd\b/i,
+];
+
+function hasDiscussionIntent(text: string): boolean {
+	const normalized = String(text ?? '').trim();
+	return DISCUSS_INTENT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function hasDeliveryIntent(text: string): boolean {
+	const normalized = String(text ?? '').trim();
+	return DELIVERY_INTENT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function classifyDiscussFallbackAngle(
+	expert: Pick<TeamExpertRuntimeProfile, 'assignmentKey' | 'name' | 'summary' | 'roleType'>
+): 'design' | 'psychology' | 'marketing' | 'technical' | 'general' {
+	const haystack = [
+		expert.assignmentKey,
+		expert.name,
+		expert.summary,
+		expert.roleType,
+	]
+		.filter(Boolean)
+		.join(' ')
+		.toLowerCase();
+	if (
+		/game|design|designer|玩法|机制|策划|product|ux|interaction|creative/.test(haystack)
+	) {
+		return 'design';
+	}
+	if (/psych|behavior|research|mind|emotion|心理|行为|认知|research/.test(haystack)) {
+		return 'psychology';
+	}
+	if (
+		/market|growth|content|brand|social|viral|xiaohongshu|douyin|传播|营销|增长|社交|内容/.test(
+			haystack
+		)
+	) {
+		return 'marketing';
+	}
+	if (/frontend|backend|qa|engineer|developer|test|risk|可靠|技术|工程|测试/.test(haystack)) {
+		return 'technical';
+	}
+	return 'general';
+}
+
+function buildDiscussFallbackTask(
+	expert: TeamExpertRuntimeProfile,
+	hasCjk: boolean
+): LLMPlannedTask {
+	const angle = classifyDiscussFallbackAngle(expert);
+	if (hasCjk) {
+		if (angle === 'design') {
+			return {
+				expert: expert.assignmentKey,
+				task: '从核心机制与体验设计角度，提出 3 个最容易形成话题传播的方向，并比较优缺点。',
+				kind: 'discuss',
+				dependencies: [],
+				acceptanceCriteria: [
+					'至少提出 3 个具体方向或机制',
+					'说明每个方向为什么容易引发讨论、分享或吐槽',
+					'比较主要优缺点与风险',
+				],
+			};
+		}
+		if (angle === 'psychology') {
+			return {
+				expert: expert.assignmentKey,
+				task: '从用户心理、情绪触发与行为动机角度，分析什么样的设计最容易驱动分享、复玩和社交扩散。',
+				kind: 'discuss',
+				dependencies: [],
+				acceptanceCriteria: [
+					'总结至少 3 种有效的心理或情绪触发机制',
+					'解释这些机制为什么会促发讨论、分享或复玩',
+					'指出潜在反噬风险或用户厌恶点',
+				],
+			};
+		}
+		if (angle === 'marketing') {
+			return {
+				expert: expert.assignmentKey,
+				task: '从传播裂变、社交平台话题与内容包装角度，提出最容易形成扩散的传播钩子与玩法包装方式。',
+				kind: 'discuss',
+				dependencies: [],
+				acceptanceCriteria: [
+					'提出至少 5 个可传播的话题钩子或挑战方向',
+					'说明这些钩子适合在哪类社交场景扩散',
+					'指出最大的执行风险或平台限制',
+				],
+			};
+		}
+		if (angle === 'technical') {
+			return {
+				expert: expert.assignmentKey,
+				task: '从可实现性、节奏控制、作弊风险与长期新鲜感角度，指出哪些思路更稳妥，哪些坑需要避免。',
+				kind: 'discuss',
+				dependencies: [],
+				acceptanceCriteria: [
+					'指出最值得保留的 3 个方向或机制',
+					'说明每个方向的主要实现或运营风险',
+					'提醒最容易翻车的设计点',
+				],
+			};
+		}
+		return {
+			expert: expert.assignmentKey,
+			task: '从你的专业视角给出 3 个能够显著提升话题性的具体方向，并说明为什么值得优先考虑。',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'至少提出 3 个具体方向',
+				'说明每个方向为何有传播或讨论潜力',
+				'指出最大的风险或副作用',
+			],
+		};
+	}
+	if (angle === 'design') {
+		return {
+			expert: expert.assignmentKey,
+			task: 'From the mechanism and experience-design angle, propose 3 distinct directions that could naturally generate discussion and sharing, then compare the trade-offs.',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'Propose at least 3 concrete directions or mechanics',
+				'Explain why each direction could trigger discussion or sharing',
+				'Compare the main trade-offs and risks',
+			],
+		};
+	}
+	if (angle === 'psychology') {
+		return {
+			expert: expert.assignmentKey,
+			task: 'From the user-psychology and emotional-trigger angle, analyze which designs are most likely to drive sharing, replay, and social spread.',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'Name at least 3 strong psychological or emotional triggers',
+				'Explain why each trigger drives sharing or replay',
+				'Call out backlash risks or fatigue risks',
+			],
+		};
+	}
+	if (angle === 'marketing') {
+		return {
+			expert: expert.assignmentKey,
+			task: 'From the distribution, social-spread, and packaging angle, propose the strongest hooks or framing devices for organic discussion.',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'Propose at least 5 discussion hooks or challenge formats',
+				'Explain where each hook spreads best',
+				'Call out the main execution risk or platform constraint',
+			],
+		};
+	}
+	if (angle === 'technical') {
+		return {
+			expert: expert.assignmentKey,
+			task: 'From the feasibility, pacing, anti-abuse, and longevity angle, identify which directions are safest to pursue and which traps to avoid.',
+			kind: 'discuss',
+			dependencies: [],
+			acceptanceCriteria: [
+				'Highlight 3 directions or mechanics worth keeping',
+				'Explain the main execution or operational risk for each',
+				'Flag the easiest ways the concept could fail',
+			],
+		};
+	}
+	return {
+		expert: expert.assignmentKey,
+		task: 'From your specialty, propose 3 concrete directions that could materially increase discussion value, and explain why they are worth prioritizing.',
+		kind: 'discuss',
+		dependencies: [],
+		acceptanceCriteria: [
+			'Propose at least 3 concrete directions',
+			'Explain why each one has discussion or sharing potential',
+			'Call out the biggest downside or risk',
+		],
+	};
+}
+
+function buildDiscussionFallbackPlan(
+	userRequest: string,
+	specialists: TeamExpertRuntimeProfile[],
+	hasCjk: boolean
+): { tasks: LLMPlannedTask[]; planSummary: string } | null {
+	const normalized = String(userRequest ?? '').trim();
+	if (!normalized || specialists.length === 0) {
+		return null;
+	}
+	if (!hasDiscussionIntent(normalized) || hasDeliveryIntent(normalized)) {
+		return null;
+	}
+	const picked = specialists.slice(0, Math.min(3, specialists.length));
+	if (picked.length === 0) {
+		return null;
+	}
+	return {
+		tasks: picked.map((expert) => buildDiscussFallbackTask(expert, hasCjk)),
+		planSummary: hasCjk
+			? '这个请求明显是在要思路和方向，适合先做一轮多专家头脑风暴，而不是先卡在补充细节上。我会让几位专家分别从各自视角提出具体方向、传播机制和主要风险。'
+			: 'This request is clearly asking for ideas and directions, so it is better to start with a multi-expert brainstorm instead of blocking on clarification. I will have a few specialists contribute concrete angles, spread mechanisms, and key risks.',
+	};
 }
 
 function buildPlannerToolPool(baseTools: AgentToolDef[]): AgentToolDef[] {
@@ -511,6 +755,7 @@ function materializePlannedTasks(
 			.map((value) => dependencyIdByKey.get(normalizeTeamTaskKey(value)) ?? '')
 			.filter(Boolean),
 		acceptanceCriteria: item.plannedTask.acceptanceCriteria ?? [],
+		kind: item.plannedTask.kind,
 	}));
 }
 
@@ -702,11 +947,26 @@ export function buildSpecialistTaskPacket(params: {
 	allTasks?: TeamTask[];
 }): string {
 	const { task, expert, userRequest, planSummary, completedTasksById, allTasks } = params;
+	const isDiscuss = task.kind === 'discuss';
+	const introLines = isDiscuss
+		? [
+			'You are a specialist working under a Team Lead.',
+			'This is a DISCUSSION task (kind: discuss). The user wants your perspective, ideas, or analysis — NOT code changes.',
+			'You are receiving a focused assignment packet instead of the full chat transcript.',
+			'Rules for discussion tasks:',
+			'- Do NOT modify files. Do NOT propose diffs. Do NOT write implementation code blocks.',
+			'- You may inspect the repository with read-only tools (Read, Glob, Grep, LSP) to ground your opinions, but your output is text only.',
+			'- Produce a concise, structured textual deliverable from your specialty lens: options, trade-offs, risks, recommendations, questions for the Lead, etc.',
+			'- If the user later wants to implement, the Lead will dispatch a separate deliver-kind task.',
+		]
+		: [
+			'You are a specialist working under a Team Lead.',
+			'You are receiving a focused assignment packet instead of the full chat transcript.',
+			'Use the dependency handoffs below as the authoritative outputs from your teammates.',
+			'Stay within your assigned scope and produce a concrete deliverable.',
+		];
 	return [
-		'You are a specialist working under a Team Lead.',
-		'You are receiving a focused assignment packet instead of the full chat transcript.',
-		'Use the dependency handoffs below as the authoritative outputs from your teammates.',
-		'Stay within your assigned scope and produce a concrete deliverable.',
+		...introLines,
 		'',
 		'## Original User Request',
 		clampTeamPacketText(userRequest),
@@ -720,7 +980,7 @@ export function buildSpecialistTaskPacket(params: {
 		'## Your Role',
 		`${expert.name} (${expert.roleType})`,
 		'',
-		'## Assigned Task',
+		`## Assigned Task (${isDiscuss ? 'discussion — no file changes' : 'deliverable'})`,
 		task.description,
 		'',
 		'## Acceptance Criteria',
@@ -792,7 +1052,13 @@ async function llmPlanTasks(params: {
 		signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
 	} = params;
 	const hasCjk = messages.some((message) => /[\u3400-\u9fff]/.test(String(message.content ?? '')));
-	const availableRoles = specialists.map((s) => `- ${s.assignmentKey}: ${s.name}`).join('\n');
+	const effectiveUserRequest =
+		[...messages].reverse().find((message) => message.role === 'user')?.content?.trim() ?? '';
+	const availableRoles = specialists
+		.map((specialist) =>
+			`- ${specialist.assignmentKey}: ${specialist.name}${specialist.summary ? ` - ${specialist.summary}` : ''}`
+		)
+		.join('\n');
 	const planMessages: ChatMessage[] = [
 		...messages,
 		{
@@ -806,12 +1072,20 @@ async function llmPlanTasks(params: {
 				'You MUST call `team_plan_decide` exactly once before the turn ends.',
 				'Do NOT put control markers, raw JSON plans, or tool protocol text in your plain-text reply.',
 				'',
-				'Decision rules:',
-				'- Use mode ANSWER only for generic, repo-agnostic questions that do not need the team workflow.',
-				'- Use mode CLARIFY when the request is about this project but still too ambiguous to route safely.',
-				'- Use mode PLAN when you can assign concrete specialist work without guessing.',
+				'Decision rules (pick the mode that matches the USER INTENT, not just the topic):',
+				'- Use mode ANSWER when the user wants a quick, single-voice reply from you (the Lead) — simple questions, chit-chat, or quick clarifications that do NOT benefit from multi-specialist input.',
+				'- Use mode CLARIFY when you genuinely cannot tell whether the user wants ideas/discussion or actual implementation, or when a critical routing decision is missing. A good CLARIFY reply asks ONE focused question, for example: "你是想先听几位专家给出不同思路和方案对比，还是希望我们直接开始实现？"',
+				'- Use mode PLAN to dispatch specialists. Each task MUST carry a `kind`:',
+				'    * `kind: "discuss"` — the specialist shares perspective, analysis, risks, options, or recommendations in text only. They MUST NOT modify files. Use this when the user asked for ideas / 思路 / 想法 / 建议 / 方向 / brainstorm / options / 方案对比 / 讨论, or when they want to hear multiple angles from the team before committing.',
+				'    * `kind: "deliver"` — the specialist produces a concrete implementation deliverable (code edits, config, scripts, docs). Use this only when the user explicitly asked to build/implement/ship/write, or when they already accepted a previous discussion round and now want execution.',
+				'- NEVER mix discussion intent with deliver-kind tasks. If the user only wants ideas, ALL tasks in this PLAN must be `kind: "discuss"`. Jumping straight to deliver-kind coding on a brainstorming request is the single biggest failure mode — do not do it.',
 				'- When mode is ANSWER or CLARIFY, include the final user-visible reply in `replyToUser`.',
 				'- When mode is PLAN, include structured tasks in `team_plan_decide.tasks` and keep any plain-text reply as short narrative only.',
+				'',
+				'Intent signals to watch for:',
+				'- Discussion signals (→ PLAN with discuss-kind, or ANSWER): "给我一点思路", "有什么想法", "你觉得", "帮我想想", "方向", "ideas", "brainstorm", "what do you think", "options", "pros and cons", "方案对比".',
+				'- Delivery signals (→ PLAN with deliver-kind): "帮我实现", "写一下", "加上", "修一下", "跑一下", "build", "implement", "ship", "fix", "refactor", "add", or a follow-up turn after the user accepted a previous proposal.',
+				'- Mixed / ambiguous: prefer CLARIFY or discuss-kind PLAN. Err on the side of NOT writing code.',
 				'',
 				'Available specialist assignment keys:',
 				availableRoles,
@@ -819,7 +1093,7 @@ async function llmPlanTasks(params: {
 				'If you call `ask_plan_question`, do not repeat the raw options or tool protocol in markdown.',
 				'If the user answers an `ask_plan_question`, absorb that answer and continue planning in the same turn whenever possible.',
 				'Never invent a generic frontend/backend/qa split just to keep the workflow moving.',
-				'For PLAN tasks, include concrete acceptance criteria whenever possible and keep dependencies explicit.',
+				'For PLAN tasks, include concrete acceptance criteria whenever possible and keep dependencies explicit. For discuss-kind tasks, acceptance criteria should describe what the specialist is expected to OPINE on (e.g., "列出 3 种可行玩法方向并比较优劣"), not what to ship.',
 				'Respond in the same language as the user.',
 			].join('\n'),
 		},
@@ -838,6 +1112,7 @@ async function llmPlanTasks(params: {
 			status: 'in_progress',
 			dependencies: [],
 			acceptanceCriteria: [],
+			kind: 'deliver',
 		},
 		'lead'
 	);
@@ -985,6 +1260,19 @@ async function llmPlanTasks(params: {
 
 		if (!decision) {
 			const fallbackSummary = extractedNarrative || buildClarificationNeededNarrative(hasCjk);
+			const fallbackDiscussPlan = buildDiscussionFallbackPlan(
+				effectiveUserRequest,
+				specialists,
+				hasCjk
+			);
+			if (fallbackDiscussPlan && !usedClarificationTool) {
+				return {
+					tasks: fallbackDiscussPlan.tasks,
+					planSummary: fallbackDiscussPlan.planSummary,
+					mode: 'PLAN',
+					clarificationAnswers,
+				};
+			}
 			if (plannerTools.some((tool) => tool.name === 'ask_plan_question') && !usedClarificationTool && !signal.aborted) {
 				const fallbackToolCallId = `team-fallback-clarify-${randomUUID()}`;
 				const fallbackArgs = {
@@ -1038,6 +1326,22 @@ async function llmPlanTasks(params: {
 			decision.replyToUser?.trim() ||
 			extractedNarrative ||
 			(decision.mode === 'PLAN' ? buildFallbackTeamLeadNarrative(hasCjk) : buildClarificationNeededNarrative(hasCjk));
+
+		if (decision.mode === 'CLARIFY') {
+			const fallbackDiscussPlan = buildDiscussionFallbackPlan(
+				effectiveUserRequest,
+				specialists,
+				hasCjk
+			);
+			if (fallbackDiscussPlan && !usedClarificationTool) {
+				return {
+					tasks: fallbackDiscussPlan.tasks,
+					planSummary: fallbackDiscussPlan.planSummary,
+					mode: 'PLAN',
+					clarificationAnswers,
+				};
+			}
+		}
 
 		if (decision.mode === 'CLARIFY' && plannerTools.some((tool) => tool.name === 'ask_plan_question') && !usedClarificationTool && !signal.aborted) {
 			const fallbackToolCallId = `team-fallback-clarify-${randomUUID()}`;
@@ -1487,14 +1791,232 @@ async function runReviewerAgent(params: {
 	return { verdict, summary };
 }
 
+// ── LLM-based Lead final synthesis ───────────────────────────────────────
+
+function buildLeadFinalSynthesisPacket(params: {
+	teamLead: TeamExpertRuntimeProfile;
+	userRequest: string;
+	planSummary: string;
+	completedTasks: TeamTask[];
+	review: { verdict: 'approved' | 'revision_needed'; summary: string };
+	hasCjk: boolean;
+}): string {
+	const { teamLead, userRequest, planSummary, completedTasks, review, hasCjk } = params;
+	const taskBlocks = completedTasks
+		.map((task) =>
+			[
+				`### ${task.expertName} (${task.roleType}) — ${task.status}`,
+				`Task: ${task.description}`,
+				'Output:',
+				clampTeamPacketText(task.result, TEAM_HANDOFF_TEXT_LIMIT),
+			].join('\n')
+		)
+		.join('\n\n');
+	const isPureDiscuss = completedTasks.length > 0 && completedTasks.every((task) => task.kind === 'discuss');
+	const guidance = hasCjk
+		? [
+			`你是 ${teamLead.name}，本次协作的 Team Lead。所有专家已完成各自的任务。`,
+			'请基于用户的原始诉求和每位专家的输出，给用户写一段收尾陈述。',
+			'要求：',
+			'- 直接面向用户说话，不要复述任务分派过程。',
+			'- 将各专家的核心观点/产出整合成连贯的整体回答，不是简单的逐条罗列。',
+			'- 指出关键权衡、可选路径，以及你作为 Lead 的倾向性建议（如果有）。',
+			'- 给出下一步用户可采取的动作。',
+			isPureDiscuss
+				? '- 这是一次讨论（非交付），不要写任何代码或建议"我们已经修改了文件"之类的话术。'
+				: '- 如果有失败或需要返工的任务，诚实指出并说明影响。',
+			'- 不要以 "## " 或 "# " 标题开头，直接写正文即可；必要时可使用简短的小标题或项目符号。',
+			'- 用中文回答，语气专业而友好。',
+			'- 控制在 250 字以内的紧凑总结，避免冗长。',
+		].join('\n')
+		: [
+			`You are ${teamLead.name}, the Team Lead for this collaboration. All specialists have finished their tasks.`,
+			'Write a closing message to the user that integrates every specialists output.',
+			'Requirements:',
+			'- Speak directly to the user; do not restate the planning/dispatch process.',
+			'- Integrate the specialists outputs into a coherent answer, not a bulleted checklist.',
+			'- Highlight the key trade-offs, available paths, and your Lead-level recommendation.',
+			'- Tell the user what they can do next.',
+			isPureDiscuss
+				? '- This was a discussion, not a delivery — do not write code or claim any files were changed.'
+				: '- If any task failed or needs revision, be honest about it and its impact.',
+			'- Do not start with a "## " or "# " heading; write in prose with short sub-headings or bullets only when helpful.',
+			'- Keep it tight, under about 250 words.',
+		].join('\n');
+	return [
+		guidance,
+		'',
+		'## Original User Request',
+		clampTeamPacketText(userRequest),
+		'',
+		'## Team Lead Plan Summary',
+		clampTeamPacketText(planSummary),
+		'',
+		'## Specialist Outputs',
+		taskBlocks || (hasCjk ? '(无)' : '(no specialist output)'),
+		'',
+		'## Review Verdict',
+		`${review.verdict === 'approved' ? (hasCjk ? '通过' : 'Approved') : hasCjk ? '需要修订' : 'Needs revision'} — ${clampTeamPacketText(review.summary, 600)}`,
+	].join('\n');
+}
+
+async function runTeamLeadFinalSynthesis(params: {
+	settings: ShellSettings;
+	threadId: string;
+	teamLead: TeamExpertRuntimeProfile;
+	userRequest: string;
+	planSummary: string;
+	completedTasks: TeamTask[];
+	review: { verdict: 'approved' | 'revision_needed'; summary: string };
+	hasCjk: boolean;
+	modelSelection: string;
+	resolvedModel: TeamOrchestratorInput['resolvedModel'];
+	signal: AbortSignal;
+	thinkingLevel?: TeamOrchestratorInput['thinkingLevel'];
+	workspaceRoot?: string | null;
+	workspaceLspManager?: WorkspaceLspManager | null;
+	hostWebContentsId?: number | null;
+	toolHooks?: ToolExecutionHooks;
+	deferredToolState?: DeferredToolState;
+	onDeferredToolStateChange?: (state: DeferredToolState) => void;
+	toolResultReplacementState?: import('./toolResultBudget.js').ToolResultReplacementState;
+	onToolResultReplacementStateChange?: (
+		state: import('./toolResultBudget.js').ToolResultReplacementState
+	) => void;
+	emit: (evt: TeamEmit) => void;
+}): Promise<string> {
+	const {
+		settings, threadId, teamLead, userRequest, planSummary, completedTasks, review, hasCjk,
+		modelSelection, resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager,
+		hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange,
+		toolResultReplacementState, onToolResultReplacementStateChange, emit,
+	} = params;
+
+	const teamLeadScope = createTeamRoleScope(
+		{
+			id: 'team-lead-final',
+			expertId: teamLead.id,
+			expertAssignmentKey: teamLead.assignmentKey,
+			expertName: teamLead.name,
+			roleType: teamLead.roleType,
+			description: 'Synthesize the specialists outputs into a final user-facing reply.',
+			status: 'in_progress',
+			dependencies: completedTasks.map((task) => task.id),
+			acceptanceCriteria: [],
+			kind: 'deliver',
+		},
+		'lead'
+	);
+
+	const synthesisMessages: ChatMessage[] = [
+		{
+			role: 'user',
+			content: buildLeadFinalSynthesisPacket({
+				teamLead,
+				userRequest,
+				planSummary,
+				completedTasks,
+				review,
+				hasCjk,
+			}),
+		},
+	];
+
+	const options: AgentLoopOptions = {
+		modelSelection: teamLead.preferredModelId?.trim() || modelSelection,
+		requestModelId: resolvedModel.requestModelId,
+		paradigm: resolvedModel.paradigm,
+		requestApiKey: resolvedModel.apiKey,
+		requestBaseURL: resolvedModel.baseURL,
+		requestProxyUrl: resolvedModel.proxyUrl,
+		maxOutputTokens: resolvedModel.maxOutputTokens,
+		...(resolvedModel.contextWindowTokens != null
+			? { contextWindowTokens: resolvedModel.contextWindowTokens }
+			: {}),
+		signal,
+		composerMode: 'agent',
+		toolPoolOverride: [],
+		agentSystemAppend: appendTeamLanguageRule(settings, teamLead.systemPrompt),
+		thinkingLevel,
+		workspaceRoot,
+		workspaceLspManager,
+		hostWebContentsId: hostWebContentsId ?? null,
+		threadId,
+		toolHooks,
+		deferredToolState,
+		onDeferredToolStateChange,
+		toolResultReplacementState,
+		onToolResultReplacementStateChange,
+		teamToolRoleScope: teamLeadScope,
+	};
+
+	if (teamLead.preferredModelId?.trim() && teamLead.preferredModelId.trim() !== modelSelection) {
+		const resolved = resolveModelRequest(settings, teamLead.preferredModelId.trim());
+		if (resolved.ok) {
+			options.modelSelection = teamLead.preferredModelId.trim();
+			options.requestModelId = resolved.requestModelId;
+			options.paradigm = resolved.paradigm;
+			options.requestApiKey = resolved.apiKey;
+			options.requestBaseURL = resolved.baseURL;
+			options.requestProxyUrl = resolved.proxyUrl;
+			options.maxOutputTokens = resolved.maxOutputTokens;
+			options.contextWindowTokens = resolved.contextWindowTokens;
+		}
+	}
+
+	let collectedText = '';
+	const handlers: AgentLoopHandlers = {
+		onTextDelta: (text) => {
+			collectedText += text;
+			emit({ threadId, type: 'delta', text, teamRoleScope: teamLeadScope });
+		},
+		onThinkingDelta: (text) => {
+			emit({ threadId, type: 'thinking_delta', text, teamRoleScope: teamLeadScope });
+		},
+		onToolInputDelta: ({ name, partialJson, index }) => {
+			emit({ threadId, type: 'tool_input_delta', name, partialJson, index, teamRoleScope: teamLeadScope });
+		},
+		onToolProgress: ({ name, phase, detail }) => {
+			emit({ threadId, type: 'tool_progress', name, phase, detail, teamRoleScope: teamLeadScope });
+		},
+		onToolCall: (name, args, toolCallId) => {
+			emit({ threadId, type: 'tool_call', name, args: JSON.stringify(args), toolCallId, teamRoleScope: teamLeadScope });
+		},
+		onToolResult: (name, result, success, toolCallId) => {
+			emit({ threadId, type: 'tool_result', name, result, success, toolCallId, teamRoleScope: teamLeadScope });
+		},
+		onDone: (text, usage) => {
+			collectedText = text;
+			emit({ threadId, type: 'done', text, usage, teamRoleScope: teamLeadScope });
+		},
+		onError: () => {},
+	};
+
+	try {
+		await runAgentLoop(settings, synthesisMessages, options, handlers);
+	} catch {
+		// fall through to deterministic fallback
+	}
+
+	const narrative = extractTeamLeadNarrative(collectedText) || normalizeTeamAgentSummary(collectedText, '');
+	return narrative.trim();
+}
+
 // ── Specialist execution ─────────────────────────────────────────────────
 
-function buildSpecialistToolPool(base: AgentToolDef[], expert: TeamExpertRuntimeProfile): AgentToolDef[] {
+function buildSpecialistToolPool(
+	base: AgentToolDef[],
+	expert: TeamExpertRuntimeProfile,
+	taskKind: TeamPlanTaskKind = 'deliver'
+): AgentToolDef[] {
 	const allow = expert.allowedTools && expert.allowedTools.length > 0 ? new Set(expert.allowedTools) : null;
-	const filtered =
+	let filtered =
 		!allow
 			? [...base]
 			: base.filter((tool) => allow.has(tool.name));
+	if (taskKind === 'discuss') {
+		filtered = filtered.filter((tool) => isReadOnlyAgentTool(tool.name));
+	}
 	for (const tool of [teamEscalateToLeadTool, teamRequestFromPeerTool, teamReplyToPeerTool]) {
 		if (!filtered.some((item) => item.name === tool.name)) {
 			filtered.push(tool);
@@ -1552,7 +2074,7 @@ async function runOneSpecialist(params: {
 			}),
 		},
 	];
-	const specializedToolPool = buildSpecialistToolPool(baseTools, expert);
+	const specializedToolPool = buildSpecialistToolPool(baseTools, expert, task.kind);
 	let finalText = '';
 	let success = true;
 	let escalation: TeamEscalation | undefined;
@@ -1637,7 +2159,7 @@ async function runOneSpecialist(params: {
 			});
 		},
 		onDone: (text, usage) => {
-			finalText = text;
+			finalText = normalizeTeamAgentSummary(text, finalText);
 			emit({ threadId, type: 'done', text, usage, teamRoleScope });
 		},
 		onError: (message) => {
@@ -1775,6 +2297,36 @@ function buildCompletedTaskContext(completedTasks: TeamTask[]): string {
 	].join('\n')).join('\n\n');
 }
 
+function appendPlannerReviewRevisionMessage(
+	messages: ChatMessage[],
+	params: {
+		reviewSummary: string;
+		completedTasks: TeamTask[];
+	}
+): ChatMessage[] {
+	const { reviewSummary, completedTasks } = params;
+	return [
+		...messages,
+		{
+			role: 'user',
+			content: [
+				'[TEAM REVIEW REVISION]',
+				'The reviewer reported that the current delivery still needs revision.',
+				'',
+				'## Reviewer Feedback',
+				reviewSummary.trim() || '(none provided)',
+				'',
+				'## Work Completed So Far',
+				buildCompletedTaskContext(completedTasks),
+				'',
+				'Replan only the work needed to address the review issues.',
+				'Preserve already-acceptable work.',
+				'If an already completed task must be redone, assign a concrete revision task for it instead of asking for a full restart.',
+			].join('\n'),
+		},
+	];
+}
+
 function appendPlannerEscalationMessage(
 	messages: ChatMessage[],
 	params: {
@@ -1813,12 +2365,75 @@ function appendPlannerEscalationMessage(
 	];
 }
 
+function buildTaskDeliveryLine(task: TeamTask): string {
+	const statusIcon = task.status === 'completed' ? '✅' : '⚠️';
+	const parts = [
+		`- ${statusIcon} ${task.expertName}: ${task.description}`,
+		`status=${task.status}`,
+	];
+	return parts.join(' | ');
+}
+
+function buildTeamDeliveryText(params: {
+	teamLeadName: string;
+	planSummary: string;
+	finalSummary: string;
+	completedTasks: TeamTask[];
+	review: { verdict: 'approved' | 'revision_needed'; summary: string };
+	hasCjkRequest: boolean;
+}): string {
+	const { teamLeadName, planSummary, finalSummary, completedTasks, review, hasCjkRequest } = params;
+	const taskLines = completedTasks.length > 0
+		? completedTasks.map((task) => buildTaskDeliveryLine(task))
+		: [`- ${hasCjkRequest ? '无角色任务。' : 'No specialist tasks ran.'}`];
+	const detailNote = hasCjkRequest
+		? '详细角色输出与分派过程保留在 Team 面板中。'
+		: 'Detailed role outputs and planning history remain in the Team panel.';
+	const trimmedFinal = finalSummary.trim();
+	const trimmedPlan = planSummary.trim();
+	const trimmedReview = review.summary.trim();
+	const leadBody = trimmedFinal || trimmedPlan || (hasCjkRequest ? '(无)' : '(none)');
+	const leadHeading = hasCjkRequest
+		? trimmedFinal
+			? `## ${teamLeadName} 总结`
+			: '## Planning Summary'
+		: trimmedFinal
+			? `## ${teamLeadName}'s Closing`
+			: '## Planning Summary';
+	const sections = [
+		'# Team Delivery',
+		'',
+		`**Lead:** ${teamLeadName}`,
+		`**Review:** ${review.verdict === 'approved' ? '✅ Approved' : '⚠️ Revision Needed'}`,
+		'',
+		leadHeading,
+		leadBody,
+	];
+	sections.push(
+		'',
+		'## Task Status',
+		...taskLines
+	);
+	if (!trimmedFinal && trimmedReview) {
+		sections.push(
+			'',
+			'## Review',
+			clampTeamPacketText(trimmedReview, 1600)
+		);
+	}
+	sections.push(
+		'',
+		detailNote
+	);
+	return sections.join('\n');
+}
+
 // ── Main orchestrator ────────────────────────────────────────────────────
 
 export async function runTeamSession(input: TeamOrchestratorInput): Promise<void> {
 	const {
 		settings, threadId, messages, modelSelection, resolvedModel,
-		agentSystemAppend, signal, thinkingLevel, workspaceRoot, workspaceLspManager,
+		signal, thinkingLevel, workspaceRoot, workspaceLspManager,
 		hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit, onDone, onError,
 	} = input;
 
@@ -1832,12 +2447,11 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		const resolvedExperts = resolveTeamExpertProfiles(settings.team, baseTeamTools);
 		const { teamLead, specialists } = resolvedExperts;
 		const plannerTools = buildPlannerToolPool(baseTeamTools);
-		const presetMaxParallel = getTeamPreset(settings.team?.presetId).maxParallelExperts;
 		const rawConfiguredMaxParallel = Number(settings.team?.maxParallelExperts);
 		const maxParallelExperts =
 			Number.isFinite(rawConfiguredMaxParallel) && rawConfiguredMaxParallel > 0
 				? Math.max(1, Math.floor(rawConfiguredMaxParallel))
-				: Math.max(1, Math.floor(presetMaxParallel || 2));
+				: 3;
 
 		if (!teamLead || specialists.length === 0) {
 			onError('Team mode requires at least one Team Lead and one enabled specialist.');
@@ -1851,7 +2465,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		};
 
 		const hasCjkRequest = /[\u3400-\u9fff]/.test(effectiveUserText);
-		const presetDefaults = getTeamPresetDefaults(settings.team?.presetId);
+		const teamDefaults = getTeamSourceDefaults(settings.team?.source);
 		let planningMessages = messages;
 
 		// ── Phase 1: Planning ────────────────────────────────────────
@@ -1919,6 +2533,18 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 					plannedTasks = materializePlannedTasks(planResult.tasks, specialists);
 				}
 			} catch {
+				const fallbackDiscussPlan = buildDiscussionFallbackPlan(
+					effectiveUserText,
+					specialists,
+					hasCjkRequest
+				);
+				if (fallbackDiscussPlan) {
+					planSummary = fallbackDiscussPlan.planSummary;
+					plannedTasks = materializePlannedTasks(fallbackDiscussPlan.tasks, specialists);
+				}
+				if (plannedTasks.length > 0) {
+					break;
+				}
 				const clarificationText = buildClarificationNeededNarrative(hasCjkRequest);
 				emit({ threadId, type: 'team_plan_summary', summary: clarificationText });
 				emit({ threadId, type: 'team_phase', phase: 'delivering' });
@@ -1931,6 +2557,18 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 					reviewVerdict: null,
 				});
 				return;
+			}
+
+			if (plannedTasks.length === 0) {
+				const fallbackDiscussPlan = buildDiscussionFallbackPlan(
+					effectiveUserText,
+					specialists,
+					hasCjkRequest
+				);
+				if (fallbackDiscussPlan) {
+					planSummary = fallbackDiscussPlan.planSummary;
+					plannedTasks = materializePlannedTasks(fallbackDiscussPlan.tasks, specialists);
+				}
 			}
 
 			if (plannedTasks.length === 0) {
@@ -1950,10 +2588,12 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 			emit({ threadId, type: 'team_plan_summary', summary: planSummary });
 
+			const isPureDiscussPlan = plannedTasks.length > 0 && plannedTasks.every((task) => task.kind === 'discuss');
+
 			// ── Phase 1.25: Preflight requirement/plan review ────────────
 
-			const enablePreflightReview = settings.team?.enablePreflightReview ?? presetDefaults.enablePreflightReview;
-			if (enablePreflightReview && resolvedExperts.planReviewer) {
+			const enablePreflightReview = settings.team?.enablePreflightReview ?? teamDefaults.enablePreflightReview;
+			if (enablePreflightReview && resolvedExperts.planReviewer && !isPureDiscussPlan) {
 				checkAbort();
 				emit({ threadId, type: 'team_phase', phase: 'preflight' });
 				try {
@@ -1995,7 +2635,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 
 		// ── Phase 1.5: Plan proposal — await user approval ───────────
 
-		const requirePlanApproval = settings.team?.requirePlanApproval ?? presetDefaults.requirePlanApproval;
+		const requirePlanApproval = settings.team?.requirePlanApproval ?? teamDefaults.requirePlanApproval;
 		if (requirePlanApproval) {
 			checkAbort();
 			emit({ threadId, type: 'team_phase', phase: 'proposing' });
@@ -2097,6 +2737,7 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 		const maxConsecutiveFailedBatches = 2;
 		let consecutiveFailedBatches = 0;
 		let replanBudget = 2;
+		let reviewReplanBudget = 2;
 		const peerResponseTimeoutMs = 15000;
 
 		const clearPeerRequest = (targetTaskId: string, requestId: string): PeerMailboxRequest | null => {
@@ -2189,261 +2830,346 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 			});
 		};
 
-		while (pending.length > 0) {
-			checkAbort();
-			const ready = getReadyTasks(pending, completedIds);
-			if (ready.length === 0) {
-				for (const task of pending) {
-					completed.push({ ...task, status: 'failed', result: 'Stuck: unresolvable dependency.' });
-				}
-				pending.length = 0;
-				break;
-			}
+		let review: { verdict: 'approved' | 'revision_needed'; summary: string } = {
+			verdict: 'approved',
+			summary: '',
+		};
 
-			const batch = ready.slice(0, maxParallelExperts);
-			for (const bt of batch) {
-				const idx = pending.indexOf(bt);
-				if (idx !== -1) pending.splice(idx, 1);
-			}
-
-			// 用 Promise.race 确保 abort 信号能立即中断 Promise.all，
-			// 避免 agent loop 因 AbortSignal 事件监听器竞态而不停止
-			const abortPromise = new Promise<never>((_, reject) => {
-				if (signal.aborted) {
-					reject(new Error('Team session aborted by user.'));
-					return;
-				}
-				signal.addEventListener('abort', () => {
-					reject(new Error('Team session aborted by user.'));
-				}, { once: true });
-			});
-
-			const results = await Promise.race([
-				Promise.all(
-					batch.map(async (task) => {
-						if (signal.aborted) throw new Error('Team session aborted by user.');
-						const expert = specialists.find((s) => s.id === task.expertId) ?? specialists[0]!;
-						activeTaskIds.add(task.id);
-						emit({ threadId, type: 'team_expert_started', taskId: task.id, expertId: task.expertId });
-						const result = await runOneSpecialist({
-							settings, task, expert, userRequest: effectiveUserText, planSummary, completedTasksById,
-							allTasks: plannedTasks,
-							modelSelection, resolvedModel,
-							signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
-							baseTools: baseTeamTools,
-							threadId,
-							deferredToolState,
-							onDeferredToolStateChange,
-							toolResultReplacementState,
-							onToolResultReplacementStateChange,
-							pullPeerMailboxMessages: () => pullPeerMailboxMessages(task),
-							handlePeerRequest: (request) => waitForRunningPeerReply(task, request),
-							handlePeerReply: (reply) => {
-								const resolved = clearPeerRequest(task.id, reply.requestId);
-								resolved?.resolve(reply.answer);
-							},
-							emit,
-						});
-						activeTaskIds.delete(task.id);
-						return { task, result };
-					})
-				),
-				abortPromise,
-			]);
-
-			const escalatedItems = results.filter((item) => item.result.escalation);
-			const settledItems = results.filter((item) => !item.result.escalation);
-
-			for (const item of settledItems) {
-				emit({
-					threadId,
-					type: 'team_expert_done',
-					taskId: item.task.id,
-					expertId: item.task.expertId,
-					success: item.result.success,
-					result: item.result.text,
-				});
-				resolveOutstandingPeerRequestsForTask(item.task, item.result.text);
-				const finishedTask = {
-					...item.task,
-					status: (item.result.success ? 'completed' : 'failed') as TeamTaskStatus,
-					result: item.result.text,
-				};
-				completed.push(finishedTask);
-				completedTasksById.set(finishedTask.id, finishedTask);
-				if (item.result.success) {
-					completedIds.add(item.task.id);
-				}
-			}
-
-			if (escalatedItems.length > 0) {
-				const primaryEscalation = escalatedItems[0]!;
-				const replanCandidates = [...escalatedItems.map((item) => item.task), ...pending];
-				if (replanBudget > 0) {
-					replanBudget -= 1;
-					planningMessages = appendPlannerEscalationMessage(planningMessages, {
-						task: primaryEscalation.task,
-						escalation: primaryEscalation.result.escalation!,
-						completedTasks: completed,
-					});
-					emit({ threadId, type: 'team_phase', phase: 'planning' });
-
-					try {
-						const revisedPlan = await llmPlanTasks({
-							settings, threadId, teamLead, specialists, plannerTools, messages: planningMessages, modelSelection,
-							resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
-						});
-						if (revisedPlan.clarificationAnswers.length > 0) {
-							const propagated = applyTeamClarificationAnswers(
-								effectiveUserText,
-								planningMessages,
-								revisedPlan.clarificationAnswers
-							);
-							effectiveUserText = propagated.userText;
-							planningMessages = propagated.messages;
-						}
-
-						if (revisedPlan.mode !== 'PLAN' || revisedPlan.tasks.length === 0) {
-							const deliveryText = revisedPlan.planSummary.trim() || buildClarificationNeededNarrative(hasCjkRequest);
-							emit({ threadId, type: 'team_plan_summary', summary: deliveryText });
-							emit({ threadId, type: 'team_phase', phase: 'delivering' });
-							onDone(deliveryText, undefined, {
-								phase: 'delivering',
-								tasks: completed.map((task) => ({
-									id: task.id,
-									expertId: task.expertId,
-									expertAssignmentKey: task.expertAssignmentKey,
-									expertName: task.expertName,
-									roleType: task.roleType,
-									description: task.description,
-									status: task.status,
-									dependencies: task.dependencies,
-									acceptanceCriteria: task.acceptanceCriteria,
-									result: task.result,
-								})),
-								planSummary: deliveryText,
-								leaderMessage: deliveryText,
-								reviewSummary: '',
-								reviewVerdict: null,
-							});
-							return;
-						}
-
-						const revisedPendingTasks = materializePlannedTasks(revisedPlan.tasks, specialists, replanCandidates);
-						const diff = applyPlanDiff(replanCandidates, revisedPendingTasks);
-						pending = [...diff.nextPendingTasks];
-						plannedTasks = [...completed, ...pending];
-						planSummary = revisedPlan.planSummary;
-						consecutiveFailedBatches = 0;
-
-						emit({ threadId, type: 'team_plan_summary', summary: planSummary });
-						emit({
-							threadId,
-							type: 'team_plan_revised',
-							revisionId: `team-plan-revision-${randomUUID()}`,
-							summary: planSummary,
-							reason: primaryEscalation.result.escalation!.reason,
-							tasks: serializeTeamPlanTasks(pending),
-							addedTaskIds: diff.addedTasks.map((task) => task.id),
-							removedTaskIds: diff.removedTasks.map((task) => task.id),
-							keptTaskIds: diff.keptTasks.map((task) => task.id),
-						});
-						emit({ threadId, type: 'team_phase', phase: 'executing' });
-						continue;
-					} catch {
-						// Fall through to mark the escalated task as needing revision.
+		while (true) {
+			while (pending.length > 0) {
+				checkAbort();
+				const ready = getReadyTasks(pending, completedIds);
+				if (ready.length === 0) {
+					for (const task of pending) {
+						completed.push({ ...task, status: 'failed', result: 'Stuck: unresolvable dependency.' });
 					}
+					pending.length = 0;
+					break;
 				}
 
-				for (const item of escalatedItems) {
-					const resultText =
-						replanBudget <= 0
-							? `${item.result.text}\n\nReplan budget exhausted; reviewer should inspect this escalation.`
-							: item.result.text;
-					resolveOutstandingPeerRequestsForTask(item.task, resultText);
+				const batch = ready.slice(0, maxParallelExperts);
+				for (const bt of batch) {
+					const idx = pending.indexOf(bt);
+					if (idx !== -1) pending.splice(idx, 1);
+				}
+
+				// 用 Promise.race 确保 abort 信号能立即中断 Promise.all，
+				// 避免 agent loop 因 AbortSignal 事件监听器竞态而不停止
+				const abortPromise = new Promise<never>((_, reject) => {
+					if (signal.aborted) {
+						reject(new Error('Team session aborted by user.'));
+						return;
+					}
+					signal.addEventListener('abort', () => {
+						reject(new Error('Team session aborted by user.'));
+					}, { once: true });
+				});
+
+				const results = await Promise.race([
+					Promise.all(
+						batch.map(async (task) => {
+							if (signal.aborted) throw new Error('Team session aborted by user.');
+							const expert = specialists.find((s) => s.id === task.expertId) ?? specialists[0]!;
+							activeTaskIds.add(task.id);
+							emit({ threadId, type: 'team_expert_started', taskId: task.id, expertId: task.expertId });
+							const result = await runOneSpecialist({
+								settings, task, expert, userRequest: effectiveUserText, planSummary, completedTasksById,
+								allTasks: plannedTasks,
+								modelSelection, resolvedModel,
+								signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
+								baseTools: baseTeamTools,
+								threadId,
+								deferredToolState,
+								onDeferredToolStateChange,
+								toolResultReplacementState,
+								onToolResultReplacementStateChange,
+								pullPeerMailboxMessages: () => pullPeerMailboxMessages(task),
+								handlePeerRequest: (request) => waitForRunningPeerReply(task, request),
+								handlePeerReply: (reply) => {
+									const resolved = clearPeerRequest(task.id, reply.requestId);
+									resolved?.resolve(reply.answer);
+								},
+								emit,
+							});
+							activeTaskIds.delete(task.id);
+							return { task, result };
+						})
+					),
+					abortPromise,
+				]);
+
+				const escalatedItems = results.filter((item) => item.result.escalation);
+				const settledItems = results.filter((item) => !item.result.escalation);
+
+				for (const item of settledItems) {
 					emit({
 						threadId,
 						type: 'team_expert_done',
 						taskId: item.task.id,
 						expertId: item.task.expertId,
-						success: false,
-						result: resultText,
+						success: item.result.success,
+						result: item.result.text,
 					});
-					const revisionTask: TeamTask = {
+					resolveOutstandingPeerRequestsForTask(item.task, item.result.text);
+					const finishedTask = {
 						...item.task,
-						status: 'revision',
-						result: resultText,
+						status: (item.result.success ? 'completed' : 'failed') as TeamTaskStatus,
+						result: item.result.text,
 					};
-					completed.push(revisionTask);
-					completedTasksById.set(revisionTask.id, revisionTask);
+					completed.push(finishedTask);
+					completedTasksById.set(finishedTask.id, finishedTask);
+					if (item.result.success) {
+						completedIds.add(item.task.id);
+					}
+				}
+
+				if (escalatedItems.length > 0) {
+					const primaryEscalation = escalatedItems[0]!;
+					const replanCandidates = [...escalatedItems.map((item) => item.task), ...pending];
+					if (replanBudget > 0) {
+						replanBudget -= 1;
+						planningMessages = appendPlannerEscalationMessage(planningMessages, {
+							task: primaryEscalation.task,
+							escalation: primaryEscalation.result.escalation!,
+							completedTasks: completed,
+						});
+						emit({ threadId, type: 'team_phase', phase: 'planning' });
+
+						try {
+							const revisedPlan = await llmPlanTasks({
+								settings, threadId, teamLead, specialists, plannerTools, messages: planningMessages, modelSelection,
+								resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
+							});
+							if (revisedPlan.clarificationAnswers.length > 0) {
+								const propagated = applyTeamClarificationAnswers(
+									effectiveUserText,
+									planningMessages,
+									revisedPlan.clarificationAnswers
+								);
+								effectiveUserText = propagated.userText;
+								planningMessages = propagated.messages;
+							}
+
+							if (revisedPlan.mode !== 'PLAN' || revisedPlan.tasks.length === 0) {
+								const deliveryText = revisedPlan.planSummary.trim() || buildClarificationNeededNarrative(hasCjkRequest);
+								emit({ threadId, type: 'team_plan_summary', summary: deliveryText });
+								emit({ threadId, type: 'team_phase', phase: 'delivering' });
+								onDone(deliveryText, undefined, {
+									phase: 'delivering',
+									tasks: completed.map((task) => ({
+										id: task.id,
+										expertId: task.expertId,
+										expertAssignmentKey: task.expertAssignmentKey,
+										expertName: task.expertName,
+										roleType: task.roleType,
+										description: task.description,
+										status: task.status,
+										dependencies: task.dependencies,
+										acceptanceCriteria: task.acceptanceCriteria,
+										result: task.result,
+									})),
+									planSummary: deliveryText,
+									leaderMessage: deliveryText,
+									reviewSummary: '',
+									reviewVerdict: null,
+								});
+								return;
+							}
+
+							const revisedPendingTasks = materializePlannedTasks(revisedPlan.tasks, specialists, replanCandidates);
+							const diff = applyPlanDiff(replanCandidates, revisedPendingTasks);
+							pending = [...diff.nextPendingTasks];
+							plannedTasks = [...completed, ...pending];
+							planSummary = revisedPlan.planSummary;
+							consecutiveFailedBatches = 0;
+
+							emit({ threadId, type: 'team_plan_summary', summary: planSummary });
+							emit({
+								threadId,
+								type: 'team_plan_revised',
+								revisionId: `team-plan-revision-${randomUUID()}`,
+								summary: planSummary,
+								reason: primaryEscalation.result.escalation!.reason,
+								tasks: serializeTeamPlanTasks(pending),
+								addedTaskIds: diff.addedTasks.map((task) => task.id),
+								removedTaskIds: diff.removedTasks.map((task) => task.id),
+								keptTaskIds: diff.keptTasks.map((task) => task.id),
+							});
+							emit({ threadId, type: 'team_phase', phase: 'executing' });
+							continue;
+						} catch {
+							// Fall through to mark the escalated task as needing revision.
+						}
+					}
+
+					for (const item of escalatedItems) {
+						const resultText =
+							replanBudget <= 0
+								? `${item.result.text}\n\nReplan budget exhausted; reviewer should inspect this escalation.`
+								: item.result.text;
+						resolveOutstandingPeerRequestsForTask(item.task, resultText);
+						emit({
+							threadId,
+							type: 'team_expert_done',
+							taskId: item.task.id,
+							expertId: item.task.expertId,
+							success: false,
+							result: resultText,
+						});
+						const revisionTask: TeamTask = {
+							...item.task,
+							status: 'revision',
+							result: resultText,
+						};
+						completed.push(revisionTask);
+						completedTasksById.set(revisionTask.id, revisionTask);
+					}
+				}
+
+				const failedInBatch = [...settledItems, ...escalatedItems].filter((item) => !item.result.success).length;
+				consecutiveFailedBatches = failedInBatch === results.length ? consecutiveFailedBatches + 1 : 0;
+
+				if (pending.length > 0 && consecutiveFailedBatches >= maxConsecutiveFailedBatches) {
+					const fallback = 'Skipped due to repeated specialist failures (team circuit breaker triggered).';
+					for (const task of pending.splice(0, pending.length)) {
+						emit({
+							threadId, type: 'team_expert_done',
+							taskId: task.id, expertId: task.expertId,
+							success: false, result: fallback,
+						});
+						completed.push({ ...task, status: 'failed', result: fallback });
+					}
+					break;
 				}
 			}
 
-			const failedInBatch = [...settledItems, ...escalatedItems].filter((item) => !item.result.success).length;
-			consecutiveFailedBatches = failedInBatch === results.length ? consecutiveFailedBatches + 1 : 0;
+			// ── Phase 3: LLM-based review ────────────────────────────────
 
-			if (pending.length > 0 && consecutiveFailedBatches >= maxConsecutiveFailedBatches) {
-				const fallback = 'Skipped due to repeated specialist failures (team circuit breaker triggered).';
-				for (const task of pending.splice(0, pending.length)) {
-					emit({
-						threadId, type: 'team_expert_done',
-						taskId: task.id, expertId: task.expertId,
-						success: false, result: fallback,
-					});
-					completed.push({ ...task, status: 'failed', result: fallback });
-				}
+			checkAbort();
+			emit({ threadId, type: 'team_phase', phase: 'reviewing' });
+
+			const reviewingPureDiscuss = completed.length > 0 && completed.every((task) => task.kind === 'discuss');
+
+			if (resolvedExperts.deliveryReviewer && !reviewingPureDiscuss) {
+				checkAbort();
+				review = await runReviewerAgent({
+					settings, threadId, reviewer: resolvedExperts.deliveryReviewer, completedTasks: completed,
+					userRequest: effectiveUserText, planSummary, modelSelection, resolvedModel, signal, thinkingLevel,
+					workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools: baseTeamTools, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
+				});
+			} else {
+				const failed = completed.filter((t) => t.status === 'failed' || t.status === 'revision');
+				review = failed.length > 0
+					? { verdict: 'revision_needed', summary: `${failed.length} task(s) need revision.` }
+					: { verdict: 'approved', summary: `All ${completed.length} task(s) completed successfully.` };
+			}
+
+			emit({ threadId, type: 'team_review', verdict: review.verdict, summary: review.summary });
+
+			if (review.verdict !== 'revision_needed' || reviewReplanBudget <= 0) {
 				break;
 			}
+
+			reviewReplanBudget -= 1;
+			planningMessages = appendPlannerReviewRevisionMessage(planningMessages, {
+				reviewSummary: review.summary,
+				completedTasks: completed,
+			});
+			emit({ threadId, type: 'team_phase', phase: 'planning' });
+
+			try {
+				const revisedPlan = await llmPlanTasks({
+					settings, threadId, teamLead, specialists, plannerTools, messages: planningMessages, modelSelection,
+					resolvedModel, signal, thinkingLevel, workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
+				});
+				if (revisedPlan.clarificationAnswers.length > 0) {
+					const propagated = applyTeamClarificationAnswers(
+						effectiveUserText,
+						planningMessages,
+						revisedPlan.clarificationAnswers
+					);
+					effectiveUserText = propagated.userText;
+					planningMessages = propagated.messages;
+				}
+
+				if (revisedPlan.mode === 'PLAN' && revisedPlan.tasks.length > 0) {
+					const revisedPendingTasks = materializePlannedTasks(revisedPlan.tasks, specialists, completed);
+					const diff = applyPlanDiff([], revisedPendingTasks);
+					const revisedIds = new Set(revisedPendingTasks.map((task) => task.id));
+					for (let index = completed.length - 1; index >= 0; index -= 1) {
+						const task = completed[index]!;
+						if (task.status !== 'completed' || revisedIds.has(task.id)) {
+							completed.splice(index, 1);
+							completedTasksById.delete(task.id);
+							completedIds.delete(task.id);
+						}
+					}
+					pending = [...revisedPendingTasks];
+					plannedTasks = [...completed, ...pending];
+					planSummary = revisedPlan.planSummary;
+					consecutiveFailedBatches = 0;
+
+					emit({ threadId, type: 'team_plan_summary', summary: planSummary });
+					emit({
+						threadId,
+						type: 'team_plan_revised',
+						revisionId: `team-plan-revision-${randomUUID()}`,
+						summary: planSummary,
+						reason: review.summary,
+						tasks: serializeTeamPlanTasks(pending),
+						addedTaskIds: diff.addedTasks.map((task) => task.id),
+						removedTaskIds: diff.removedTasks.map((task) => task.id),
+						keptTaskIds: diff.keptTasks.map((task) => task.id),
+					});
+					emit({ threadId, type: 'team_phase', phase: 'executing' });
+					continue;
+				}
+			} catch {
+				// Fall through to final delivery with the current review result.
+			}
+
+			break;
 		}
 
-		// ── Phase 3: LLM-based review ────────────────────────────────
+		// ── Phase 3.5: Team Lead final synthesis ─────────────────────
 
 		checkAbort();
-		emit({ threadId, type: 'team_phase', phase: 'reviewing' });
-
-		let review: { verdict: 'approved' | 'revision_needed'; summary: string };
-
-		if (resolvedExperts.deliveryReviewer) {
-			checkAbort();
-			review = await runReviewerAgent({
-				settings, threadId, reviewer: resolvedExperts.deliveryReviewer, completedTasks: completed,
-				userRequest: effectiveUserText, planSummary, modelSelection, resolvedModel, signal, thinkingLevel,
-				workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks, baseTools: baseTeamTools, deferredToolState, onDeferredToolStateChange, toolResultReplacementState, onToolResultReplacementStateChange, emit,
-			});
-		} else {
-			const failed = completed.filter((t) => t.status === 'failed' || t.status === 'revision');
-			review = failed.length > 0
-				? { verdict: 'revision_needed', summary: `${failed.length} task(s) need revision.` }
-				: { verdict: 'approved', summary: `All ${completed.length} task(s) completed successfully.` };
+		let finalSummary = '';
+		if (completed.length > 0) {
+			emit({ threadId, type: 'team_phase', phase: 'synthesizing' });
+			try {
+				finalSummary = await runTeamLeadFinalSynthesis({
+					settings, threadId, teamLead,
+					userRequest: effectiveUserText, planSummary,
+					completedTasks: completed, review,
+					hasCjk: hasCjkRequest,
+					modelSelection, resolvedModel, signal, thinkingLevel,
+					workspaceRoot, workspaceLspManager, hostWebContentsId, toolHooks,
+					deferredToolState, onDeferredToolStateChange,
+					toolResultReplacementState, onToolResultReplacementStateChange, emit,
+				});
+			} catch (err) {
+				if (signal.aborted) throw err;
+				// Non-fatal — fall back to the planning summary.
+			}
+			if (finalSummary) {
+				emit({ threadId, type: 'team_lead_final', summary: finalSummary });
+			}
 		}
-
-		emit({ threadId, type: 'team_review', verdict: review.verdict, summary: review.summary });
 
 		// ── Phase 4: Delivery ────────────────────────────────────────
 
 		checkAbort();
 		emit({ threadId, type: 'team_phase', phase: 'delivering' });
 
-		const delivery = [
-			`# Team Delivery`,
-			``,
-			`**Lead:** ${teamLead.name}`,
-			`**Review:** ${review.verdict === 'approved' ? '✅ Approved' : '⚠️ Revision Needed'}`,
-			``,
-			`## Planning Summary`,
+		const delivery = buildTeamDeliveryText({
+			teamLeadName: teamLead.name,
 			planSummary,
-			``,
-			`## Specialist Outputs`,
-			...completed.map((task) => {
-				const body = (task.result ?? '').trim() || '(no output)';
-				const statusIcon = task.status === 'completed' ? '✅' : '❌';
-				return `### ${statusIcon} ${task.expertName}\n- **Task:** ${task.description}\n- **Status:** ${task.status}\n\n${body}`;
-			}),
-			``,
-			`## Review`,
-			review.summary,
-			...(agentSystemAppend?.trim() ? ['', '---', agentSystemAppend.trim()] : []),
-		].join('\n');
+			finalSummary,
+			completedTasks: completed,
+			review,
+			hasCjkRequest,
+		});
 
 		onDone(delivery, undefined, {
 			phase: 'delivering',
@@ -2460,9 +3186,10 @@ export async function runTeamSession(input: TeamOrchestratorInput): Promise<void
 				result: t.result,
 			})),
 			planSummary,
-			leaderMessage: planSummary,
+			leaderMessage: finalSummary || planSummary,
 			reviewSummary: review.summary,
 			reviewVerdict: review.verdict,
+			...(finalSummary ? { finalSummary } : {}),
 		});
 	} catch (error) {
 		if (signal.aborted) {

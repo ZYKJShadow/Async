@@ -14,10 +14,9 @@ import { streamChatUnified } from '../llm/llmRouter.js';
 import { buildAgentGlobalRuleAppend, prepareUserTurnForChat } from '../llm/agentMessagePrep.js';
 import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
-import { buildWorkspaceTreeSummary, modeExpandsWorkspaceFileContext } from '../llm/workspaceContextExpand.js';
+import { modeExpandsWorkspaceFileContext } from '../llm/workspaceContextExpand.js';
 import type { ComposerMode } from '../llm/composerMode.js';
 import { resolveMessagesForSend } from '../llm/sendResolved.js';
-import { buildRelevantMemoryContextBlock } from '../memdir/findRelevantMemories.js';
 import { loadMemoryPrompt } from '../memdir/memdir.js';
 import { type ShellSettings, getRecentWorkspaces } from '../settingsStore.js';
 import { queueExtractMemories } from '../services/extractMemories/extractMemories.js';
@@ -165,23 +164,11 @@ function buildBotSkillAppend(settings: ShellSettings, integration: BotIntegratio
 	].join('\n\n');
 }
 
-function buildEnrichedQuery(userText: string, threadMessages: ChatMessage[]): string {
-	const recentUserTexts = threadMessages
-		.filter((m) => m.role === 'user')
-		.slice(-3)
-		.map((m) => m.content.slice(0, 200))
-		.join(' ');
-	return `${userText} ${recentUserTexts}`.slice(0, 1000);
-}
-
 async function appendMemoryAndRetrievalContext(params: {
 	base: string | undefined;
 	mode: ComposerMode;
 	settings: ShellSettings;
 	root: string | null;
-	threadId: string;
-	userText: string;
-	modelSelection: string;
 	signal?: AbortSignal;
 }): Promise<string> {
 	let next = params.base ?? '';
@@ -193,22 +180,6 @@ async function appendMemoryAndRetrievalContext(params: {
 		const memoryPrompt = await loadMemoryPrompt(params.root);
 		if (memoryPrompt) {
 			next = appendSystemBlock(next, memoryPrompt);
-		}
-	}
-
-	if (modeExpandsWorkspaceFileContext(params.mode) && params.userText.trim().length > 8) {
-		const enrichedQuery = buildEnrichedQuery(params.userText, getThread(params.threadId)?.messages ?? []);
-		if (params.root) {
-			const relevantMemories = await buildRelevantMemoryContextBlock({
-				query: enrichedQuery,
-				settings: params.settings,
-				modelSelection: params.modelSelection,
-				workspaceRoot: params.root,
-				signal: params.signal,
-			});
-			if (relevantMemories) {
-				next = appendSystemBlock(next, relevantMemories);
-			}
 		}
 	}
 
@@ -1027,24 +998,11 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 		const uiLanguage = effectiveSettings.language === 'en' ? 'en' : 'zh-CN';
 		const prepared = prepareUserTurnForChat(task, agentForTurn, session.workspaceRoot, workspaceFiles, uiLanguage);
 		let finalSystemAppend = prepared.agentSystemAppend;
-		if (session.workspaceRoot && (mode === 'plan' || mode === 'ask' || mode === 'team')) {
-			const wsLine = `## Current workspace\nWorkspace root (absolute): \`${session.workspaceRoot.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
-			finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
-		}
-		if ((mode === 'plan' || mode === 'ask' || mode === 'team') && workspaceFiles.length > 0) {
-			const tree = buildWorkspaceTreeSummary(workspaceFiles);
-			if (tree) {
-				finalSystemAppend = appendSystemBlock(finalSystemAppend, tree);
-			}
-		}
 		finalSystemAppend = await appendMemoryAndRetrievalContext({
 			base: finalSystemAppend,
 			mode,
 			settings: effectiveSettings,
 			root: session.workspaceRoot,
-			threadId,
-			userText: prepared.userText,
-			modelSelection,
 			signal,
 		});
 

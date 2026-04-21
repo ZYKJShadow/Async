@@ -33,6 +33,7 @@ import {
 	planDraftToParsedPlan,
 	planDraftToThreadPlan,
 } from '../planDraft';
+import type { TeamModelValidationIssue } from '../teamModelValidation';
 
 export type StreamingToast = {
 	key: number;
@@ -147,6 +148,28 @@ function escapeSubAgentXmlText(s: string): string {
 
 function escapeStreamAttr(s: string): string {
 	return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function humanizeBuiltinExpertId(expertId: string): string {
+	return String(expertId ?? '')
+		.replace(/^builtin-/, '')
+		.replace(/[_-]+/g, ' ')
+		.trim();
+}
+
+function formatTeamModelValidationIssueLabel(
+	issue: TeamModelValidationIssue,
+	t: TFunction
+): string {
+	if (issue.kind === 'builtin_global') {
+		return t('settings.team.builtinGlobalModel');
+	}
+	if (issue.kind === 'builtin_role') {
+		return t('settings.team.builtinRoleModelIssue', {
+			role: humanizeBuiltinExpertId(issue.expertId),
+		});
+	}
+	return issue.role.name.trim() || t(`settings.team.role.${issue.role.roleType}`);
 }
 
 export function useStreamingChat() {
@@ -316,7 +339,7 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 			const missingRoles = findTeamRolesMissingModels(rt.teamSettings, rt.modelEntries);
 			if (missingRoles.length > 0) {
 				const roles = missingRoles
-					.map((role) => role.name.trim() || rt.t(`settings.team.role.${role.roleType}`))
+					.map((issue) => formatTeamModelValidationIssueLabel(issue, rt.t))
 					.join('、');
 				rt.flashComposerAttachErr(rt.t('team.sendMissingRoleModels', { roles }));
 				return;
@@ -796,6 +819,7 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 				payload.type === 'team_expert_progress' ||
 				payload.type === 'team_expert_done' ||
 				payload.type === 'team_review' ||
+				payload.type === 'team_lead_final' ||
 				payload.type === 'team_plan_summary' ||
 				payload.type === 'team_preflight_review' ||
 				payload.type === 'team_plan_proposed' ||

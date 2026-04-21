@@ -50,6 +50,7 @@ export function buildTeamWorkflowItems(session: TeamSessionState | null): TeamWo
 			: (session.planProposal?.tasks ?? []).map((task, index) => ({
 					id: buildProposalTaskId(index, task.expertName),
 					expertId: task.expert,
+					expertAssignmentKey: task.expert,
 					expertName: task.expertName,
 					roleType: task.roleType,
 					description: task.task,
@@ -67,8 +68,8 @@ export function buildTeamWorkflowItems(session: TeamSessionState | null): TeamWo
 	const preflightVerdict = session.planProposal?.preflightVerdict ?? session.preflightVerdict;
 	const reviewerWorkflow =
 		session.reviewerTaskId != null ? session.roleWorkflowByTaskId[session.reviewerTaskId] ?? null : null;
-	const hasReviewerSignals = Boolean(reviewerWorkflow || session.reviewSummary.trim() || preflightSummary || preflightVerdict);
-	if (!hasReviewerSignals) {
+	const hasExplicitReviewer = Boolean(session.reviewerTaskId || reviewerWorkflow);
+	if (!hasExplicitReviewer) {
 		return specialistItems;
 	}
 	const reviewerInFinalReview =

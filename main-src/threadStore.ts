@@ -53,12 +53,13 @@ export type TeamSessionSnapshotTask = {
 };
 
 export type TeamSessionSnapshot = {
-	phase: 'researching' | 'planning' | 'executing' | 'reviewing' | 'delivering';
+	phase: 'researching' | 'planning' | 'executing' | 'reviewing' | 'synthesizing' | 'delivering';
 	tasks: TeamSessionSnapshotTask[];
 	planSummary: string;
 	leaderMessage: string;
 	reviewSummary: string;
 	reviewVerdict: 'approved' | 'revision_needed' | null;
+	finalSummary?: string;
 };
 
 export type DeferredToolState = {

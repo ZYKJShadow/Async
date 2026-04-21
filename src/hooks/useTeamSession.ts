@@ -7,7 +7,7 @@ import {
 	createEmptyLiveAgentBlocks,
 	type LiveAgentBlocksState,
 } from '../liveAgentBlocks';
-import { flattenAssistantTextPartsForSearch } from '../agentStructuredMessage';
+import { extractAssistantTextForDisplay } from '../agentStructuredMessage';
 import type { PlanQuestion } from '../planParser';
 import { extractTeamLeadNarrative } from '../teamWorkflowText';
 
@@ -18,6 +18,7 @@ export type TeamSessionPhase =
 	| 'proposing'
 	| 'executing'
 	| 'reviewing'
+	| 'synthesizing'
 	| 'delivering'
 	| 'cancelled';
 
@@ -99,6 +100,7 @@ export type TeamSessionSnapshot = {
 	leaderMessage: string;
 	reviewSummary: string;
 	reviewVerdict: 'approved' | 'revision_needed' | null;
+	finalSummary?: string;
 	timelineEntries?: TeamTimelineEntry[];
 };
 
@@ -138,6 +140,7 @@ export type TeamSessionState = {
 	leaderMessage: string;
 	leaderWorkflow: TeamRoleWorkflowState | null;
 	planSummary: string;
+	finalSummary: string;
 	reviewSummary: string;
 	reviewVerdict: 'approved' | 'revision_needed' | null;
 	preflightSummary: string;
@@ -162,6 +165,7 @@ function emptySession(): TeamSessionState {
 		leaderMessage: '',
 		leaderWorkflow: null,
 		planSummary: '',
+		finalSummary: '',
 		reviewSummary: '',
 		reviewVerdict: null,
 		preflightSummary: '',
@@ -183,12 +187,7 @@ const MAX_TASK_LOGS = 50;
 const FLUSH_INTERVAL_MS = 250;
 
 function normalizeTeamSummary(raw: string, fallback = ''): string {
-	const flattened = flattenAssistantTextPartsForSearch(raw).trim();
-	if (flattened) {
-		return flattened;
-	}
-	const trimmed = String(raw ?? '').trim();
-	return trimmed || fallback;
+	return extractAssistantTextForDisplay(raw, fallback);
 }
 
 function normalizeLeaderTimelineText(raw: string): string {
@@ -711,10 +710,11 @@ export function useTeamSession() {
 				case 'team_expert_done': {
 					const task = session.tasks.find((candidate) => candidate.id === payload.taskId);
 					if (task) {
+						const normalizedResult = normalizeTeamSummary(payload.result);
 						task.status = payload.success ? 'completed' : 'failed';
-						task.result = payload.result;
-						if (payload.result) {
-							task.logs = clampLogs(task.logs, payload.result);
+						task.result = normalizedResult;
+						if (normalizedResult) {
+							task.logs = clampLogs(task.logs, normalizedResult);
 						}
 					}
 					break;
@@ -734,6 +734,15 @@ export function useTeamSession() {
 						ensureTaskTimelineEntry(session, session.reviewerTaskId);
 					}
 					break;
+				case 'team_lead_final': {
+					const normalizedFinal = normalizeLeaderTimelineText(payload.summary) || normalizeTeamSummary(payload.summary);
+					if (normalizedFinal) {
+						session.finalSummary = normalizedFinal;
+						session.leaderMessage = normalizedFinal;
+						appendLeaderTimelineEntry(session, normalizedFinal);
+					}
+					break;
+				}
 				case 'team_preflight_review':
 					session.preflightVerdict = payload.verdict;
 					session.preflightSummary = normalizeTeamSummary(payload.summary);
@@ -991,23 +1000,27 @@ export function useTeamSession() {
 			}
 			const session: TeamSessionState = {
 				phase: snapshot.phase,
-				tasks: snapshot.tasks.map((t) => ({
-					id: t.id,
-					expertId: t.expertId,
-					expertAssignmentKey: t.expertAssignmentKey,
-					expertName: t.expertName,
-					roleType: (t.roleType as TeamRoleType) || 'custom',
-					description: t.description,
-					status: (t.status as TeamTaskStatus) || 'completed',
-					dependencies: t.dependencies,
-					acceptanceCriteria: t.acceptanceCriteria ?? [],
-					result: t.result,
-					logs: t.result ? [t.result] : [],
-				})),
+				tasks: snapshot.tasks.map((t) => {
+					const normalizedTaskResult = normalizeTeamSummary(t.result ?? '');
+					return {
+						id: t.id,
+						expertId: t.expertId,
+						expertAssignmentKey: t.expertAssignmentKey,
+						expertName: t.expertName,
+						roleType: (t.roleType as TeamRoleType) || 'custom',
+						description: t.description,
+						status: (t.status as TeamTaskStatus) || 'completed',
+						dependencies: t.dependencies,
+						acceptanceCriteria: t.acceptanceCriteria ?? [],
+						result: normalizedTaskResult,
+						logs: normalizedTaskResult ? [normalizedTaskResult] : [],
+					};
+				}),
 				originalUserRequest: '',
 				leaderMessage: snapshot.leaderMessage,
 				leaderWorkflow: null,
 				planSummary: snapshot.planSummary,
+				finalSummary: snapshot.finalSummary ?? '',
 				reviewSummary: normalizeTeamSummary(snapshot.reviewSummary),
 				reviewVerdict: snapshot.reviewVerdict,
 				preflightSummary: '',

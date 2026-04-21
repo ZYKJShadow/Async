@@ -7,6 +7,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type CSSProperties,
 	type ComponentProps,
 	type Dispatch,
 	type ReactNode,
@@ -49,10 +50,12 @@ import {
 import { computeMergedAgentFileChanges } from './agentFileChangesCompute';
 import {
 	buildConversationRenderKey,
-	computeLatestTurnFocusSpacerPx,
-	findLatestTurnFocusUserIndex,
+	computeTurnSectionSpacerPx,
+	findLatestTurnStartUserIndex,
 	findStickyUserIndexForViewport,
 	resolveStickyUserIndex,
+	type MeasuredTurnFocusRow,
+	type TurnFocusRow,
 } from './agentTurnFocus';
 import { useAppShellGitFiles, useAppShellGitMeta } from './app/appShellContexts';
 import { userMessageToSegments, type ComposerSegment } from './composerSegments';
@@ -157,6 +160,7 @@ export type AgentChatPanelProps = {
 	onRevertFileEdit: (rel: string) => void;
 	showScrollToBottomButton: boolean;
 	scrollMessagesToBottom: (behavior?: ScrollBehavior) => void;
+	scheduleMessagesScrollToBottom: () => void;
 	agentPlanSummaryCard: ReactNode;
 	teamSession: TeamSessionState | null;
 	onSelectTeamExpert: (taskId: string) => void;
@@ -213,6 +217,21 @@ function expandStartIndexByPixelBudget(
 	}
 	return newStart;
 }
+
+function sanitizeTeamCriteria(criteria?: readonly string[]): string[] {
+	if (!criteria || criteria.length === 0) {
+		return [];
+	}
+	return criteria.map((item) => String(item ?? '').trim()).filter(Boolean);
+}
+
+type ChatRenderRow = TurnFocusRow & {
+	key: string;
+	className: string;
+	content: ReactNode;
+	dataMsgIndex?: number;
+	dataPreflightFor?: number;
+};
 
 export const AgentChatPanel = memo(function AgentChatPanel({
 	layout = 'agent-center',
@@ -286,6 +305,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	onRevertFileEdit,
 	showScrollToBottomButton,
 	scrollMessagesToBottom,
+	scheduleMessagesScrollToBottom,
 	agentPlanSummaryCard,
 	teamSession,
 	onSelectTeamExpert,
@@ -316,6 +336,74 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		}
 		return idx;
 	}, [displayMessages]);
+	const teamConversationTimeline = useMemo(
+		() =>
+			teamSession && composerMode === 'team' && hasConversation
+				? buildTeamConversationTimeline(teamSession, displayMessages)
+				: null,
+		[teamSession, composerMode, hasConversation, displayMessages]
+	);
+	const shouldRenderCurrentTeamLeaderRow = useMemo(() => {
+		if (!teamSession || composerMode !== 'team' || !hasConversation) {
+			return false;
+		}
+		const workflow = teamSession.leaderWorkflow;
+		const content = teamConversationTimeline?.currentLeaderMessage ?? teamSession.leaderMessage ?? '';
+		const lastAssistantContent =
+			[...displayMessages].reverse().find((message) => message.role === 'assistant')?.content?.trim() || '';
+		const hasLiveBlocks = (workflow?.liveBlocks.blocks.length ?? 0) > 0;
+		const isBootstrapping = awaitingReply && !workflow && !content.trim();
+		const isWorking = Boolean(workflow?.awaitingReply) || isBootstrapping;
+		const hideAsDuplicateTerminalReply =
+			teamSession.phase === 'delivering' &&
+			teamSession.tasks.length === 0 &&
+			lastAssistantContent.length > 0 &&
+			lastAssistantContent === content.trim();
+		if (!content.trim() && !isWorking && !hasLiveBlocks) {
+			return false;
+		}
+		if (hideAsDuplicateTerminalReply) {
+			return false;
+		}
+		return true;
+	}, [
+		teamSession,
+		composerMode,
+		hasConversation,
+		teamConversationTimeline,
+		displayMessages,
+		awaitingReply,
+	]);
+	const hasTeamSupplementalRows =
+		(teamConversationTimeline?.entries.length ?? 0) > 0 || shouldRenderCurrentTeamLeaderRow;
+	const teamLiveReplyMeta = useMemo(() => {
+		if (!teamSession || composerMode !== 'team' || !hasConversation) {
+			return {
+				isLive: false,
+				hasNarrativeContent: false,
+				hasLiveBlocks: false,
+				hasStreamingThinking: false,
+			};
+		}
+		const workflow = teamSession.leaderWorkflow;
+		const currentLeaderMessage = teamConversationTimeline?.currentLeaderMessage?.trim() ?? '';
+		const hasLiveBlocks = (workflow?.liveBlocks.blocks.length ?? 0) > 0;
+		const hasStreamingThinking = Boolean(workflow?.streamingThinking?.trim());
+		const hasNarrativeContent = currentLeaderMessage.length > 0;
+		return {
+			isLive:
+				awaitingReply ||
+				Boolean(workflow?.awaitingReply) ||
+				hasLiveBlocks ||
+				hasStreamingThinking,
+			hasNarrativeContent,
+			hasLiveBlocks,
+			hasStreamingThinking,
+		};
+	}, [teamSession, composerMode, hasConversation, teamConversationTimeline, awaitingReply]);
+	const shouldUseStableTeamLiveLayout =
+		composerMode === 'team' &&
+		teamLiveReplyMeta.isLive;
 	if (import.meta.env.DEV) {
 		console.log(`[perf] AgentChatPanel render: thread=${messagesThreadId}, messages=${displayMessages.length}, hasConv=${hasConversation}`);
 	}
@@ -513,13 +601,14 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const messageRowHeightsRef = useRef<Map<number, number>>(new Map());
 	/**
 	 * 「过程区」独立行（preflight row）高度缓存：key 为它附属的 assistant 消息 index。
-	 * 不参与 stickyUserIndex / data-msg-index 体系；仅在 DOM 直测缺失时作为
-	 * latestTurnFocusSpacerPx 的兜底估算。
+	 * 仅用于向上懒加载时的高度预算估算，不参与 turn sticky 归属判断。
 	 */
 	const preflightRowHeightsRef = useRef<Map<number, number>>(new Map());
+	const renderRowsRef = useRef<ChatRenderRow[]>([]);
 	const [messageStartIndex, setMessageStartIndex] = useState(0);
-	const [latestTurnFocusSpacerPx, setLatestTurnFocusSpacerPx] = useState(0);
+	const [activeTurnSpacerPx, setActiveTurnSpacerPx] = useState(0);
 	const [stickyUserIndex, setStickyUserIndex] = useState<number | null>(null);
+	const [stickyUserTopPx, setStickyUserTopPx] = useState(0);
 	const [layoutMeasureVersion, setLayoutMeasureVersion] = useState(0);
 	const messagesTopSentinelRef = useRef<HTMLDivElement | null>(null);
 	const pendingPrependScrollRef = useRef<{ prevScrollHeight: number } | null>(null);
@@ -534,9 +623,17 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 	const len = displayMessages.length;
 	const allHistoryRendered = messageStartIndex <= 0;
-	const latestTurnFocusUserIndex = useMemo(
-		() => findLatestTurnFocusUserIndex(displayMessages, composerMode),
-		[displayMessages, composerMode]
+	const latestUserMessageIndex = useMemo(() => {
+		for (let i = displayMessages.length - 1; i >= 0; i--) {
+			if (displayMessages[i]?.role === 'user') {
+				return i;
+			}
+		}
+		return null;
+	}, [displayMessages]);
+	const latestTurnStartUserIndex = useMemo(
+		() => findLatestTurnStartUserIndex(displayMessages, composerMode, hasTeamSupplementalRows),
+		[displayMessages, composerMode, hasTeamSupplementalRows]
 	);
 	const lastDisplayedMessage = len > 0 ? displayMessages[len - 1] : undefined;
 	const lastMessageLayoutSig = useMemo(
@@ -546,6 +643,46 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				: `${lastDisplayedMessage?.role ?? ''}:${(lastDisplayedMessage?.content ?? '').length}:${streaming.length}`,
 		[len, lastDisplayedMessage?.role, lastDisplayedMessage?.content, streaming]
 	);
+	const collectMeasuredTurnRows = useCallback((): MeasuredTurnFocusRow[] => {
+		const viewport = messagesViewportRef.current;
+		const track = messagesTrackRef.current;
+		if (!viewport || !track) {
+			return [];
+		}
+		const rowsById = new Map(renderRowsRef.current.map((row) => [row.rowId, row]));
+		return Array.from(
+			track.querySelectorAll<HTMLElement>('.ref-msg-row-measure[data-row-id]')
+		)
+			.map((rowEl) => {
+				const rowId = rowEl.dataset.rowId;
+				const meta = rowId ? rowsById.get(rowId) : undefined;
+				if (!meta) {
+					return null;
+				}
+				const height = rowEl.offsetHeight || Math.ceil(rowEl.getBoundingClientRect().height);
+				return {
+					rowId: meta.rowId,
+					messageIndex: meta.messageIndex,
+					turnOwnerUserIndex: meta.turnOwnerUserIndex,
+					isTurnStart: meta.isTurnStart,
+					stickyUserIndex: meta.stickyUserIndex,
+					top: rowEl.offsetTop - viewport.scrollTop,
+					height: Math.max(0, height),
+					offsetTop: rowEl.offsetTop,
+				};
+			})
+			.filter((row): row is MeasuredTurnFocusRow => row != null);
+	}, [messagesTrackRef, messagesViewportRef]);
+	const notifyTeamCardLayoutChange = useCallback(() => {
+		setLayoutMeasureVersion((version) => version + 1);
+		scheduleMessagesScrollToBottom();
+		window.requestAnimationFrame(() => {
+			scheduleMessagesScrollToBottom();
+			window.requestAnimationFrame(() => {
+				scheduleMessagesScrollToBottom();
+			});
+		});
+	}, [scheduleMessagesScrollToBottom]);
 
 	/**
 	 * 切换对话：清空测量并按视口高度预算重算起点。
@@ -579,9 +716,24 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	}, [displayMessages.length, conversationRenderKey, trackGapPx]);
 
 	useLayoutEffect(() => {
-		setLatestTurnFocusSpacerPx(0);
+		setActiveTurnSpacerPx(0);
 		setStickyUserIndex(null);
+		setStickyUserTopPx(0);
 	}, [conversationRenderKey]);
+
+	useLayoutEffect(() => {
+		if (!hasConversation) {
+			setStickyUserTopPx((prev) => (prev === 0 ? prev : 0));
+			return;
+		}
+		const viewport = messagesViewportRef.current;
+		if (!viewport) {
+			return;
+		}
+		const viewportStyle = window.getComputedStyle(viewport);
+		const topPadding = Number.parseFloat(viewportStyle.paddingTop || '0') || 0;
+		setStickyUserTopPx((prev) => (Math.abs(prev - topPadding) <= 1 ? prev : topPadding));
+	}, [hasConversation, conversationRenderKey, layoutMeasureVersion, messagesViewportRef]);
 
 	/** 顶部哨兵：再往上加载约「一整屏」高的内容（按已测/估算行高累计） */
 	useEffect(() => {
@@ -711,66 +863,36 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	}, [messageStartIndex, displayMessages.length]);
 
 	useLayoutEffect(() => {
-		if (!hasConversation || latestTurnFocusUserIndex == null) {
-			setLatestTurnFocusSpacerPx((prev) => (prev === 0 ? prev : 0));
+		if (!hasConversation || latestTurnStartUserIndex == null || shouldUseStableTeamLiveLayout) {
+			setActiveTurnSpacerPx((prev) => (prev === 0 ? prev : 0));
 			return;
 		}
 		const viewport = messagesViewportRef.current;
-		const track = messagesTrackRef.current;
-		if (!viewport || !track) {
+		if (!viewport) {
 			return;
 		}
 		const viewportStyle = window.getComputedStyle(viewport);
 		const topPadding = Number.parseFloat(viewportStyle.paddingTop || '0') || 0;
 		const bottomPadding = Number.parseFloat(viewportStyle.paddingBottom || '0') || 0;
-		const activeRow = track.querySelector<HTMLElement>(
-			`.ref-msg-row-measure[data-msg-index="${latestTurnFocusUserIndex}"]`
-		);
-		const tailSpacer = track.querySelector<HTMLElement>('.ref-messages-tail-spacer');
-		let activeRowHeight = Math.max(0, getRowHeightForBudget(latestTurnFocusUserIndex));
-		let belowContentHeight = 0;
-		if (activeRow) {
-			// 用真实布局距离兜住 preflight row 的负 margin、文件 chip/图片撑高等情况，
-			// 避免统一 gap 估算把最近 user 永远差几像素顶不到 sticky 边界。
-			const measuredActiveHeight =
-				activeRow.offsetHeight || Math.ceil(activeRow.getBoundingClientRect().height);
-			activeRowHeight = Math.max(0, measuredActiveHeight);
-			const activeBottom = activeRow.offsetTop + measuredActiveHeight;
-			belowContentHeight = tailSpacer
-				? Math.max(0, tailSpacer.offsetTop - activeBottom)
-				: Math.max(0, track.scrollHeight - activeBottom);
-		} else {
-			for (let i = latestTurnFocusUserIndex + 1; i < len; i++) {
-				belowContentHeight += Math.max(0, getRowHeightForBudget(i));
-				belowContentHeight += trackGapPx;
-				const preflightH = preflightRowHeightsRef.current.get(i);
-				if (preflightH && preflightH > 0) {
-					belowContentHeight += preflightH;
-					belowContentHeight += trackGapPx;
-				}
-			}
-			belowContentHeight += trackGapPx;
-		}
-		const baseSpacer = computeLatestTurnFocusSpacerPx({
+		const renderedRows = collectMeasuredTurnRows();
+		const baseSpacer = computeTurnSectionSpacerPx({
 			viewportHeight: viewport.clientHeight,
 			topPadding,
 			bottomPadding,
-			activeRowHeight,
-			belowContentHeight,
+			renderedRows,
+			activeTurnStartUserIndex: latestTurnStartUserIndex,
 		});
 		const nextSpacer = Math.max(0, baseSpacer);
-		setLatestTurnFocusSpacerPx((prev) => (Math.abs(prev - nextSpacer) <= 1 ? prev : nextSpacer));
+		setActiveTurnSpacerPx((prev) => (Math.abs(prev - nextSpacer) <= 1 ? prev : nextSpacer));
 	}, [
 		hasConversation,
-		latestTurnFocusUserIndex,
-		len,
+		latestTurnStartUserIndex,
+		shouldUseStableTeamLiveLayout,
 		lastMessageLayoutSig,
 		layoutMeasureVersion,
 		conversationRenderKey,
-		getRowHeightForBudget,
-		trackGapPx,
+		collectMeasuredTurnRows,
 		messagesViewportRef,
-		messagesTrackRef,
 	]);
 
 	/**
@@ -827,9 +949,12 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	 */
 	const syncStickyUserIndexRef = useRef<() => void>(() => {});
 	syncStickyUserIndexRef.current = () => {
+		if (shouldUseStableTeamLiveLayout) {
+			setStickyUserIndex((prev) => (prev == null ? prev : null));
+			return;
+		}
 		const viewport = messagesViewportRef.current;
-		const track = messagesTrackRef.current;
-		if (!viewport || !track) {
+		if (!viewport) {
 			return;
 		}
 		const distFromBottom = Math.max(
@@ -839,33 +964,26 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		const isAtBottom =
 			distFromBottom <= 16 || viewport.scrollHeight <= viewport.clientHeight + 16;
 		bottomTodoAtBottomRef.current = isAtBottom;
-		const renderedRowTops = Array.from(
-			track.querySelectorAll<HTMLElement>('.ref-msg-row-measure[data-msg-index]')
-		)
-			.map((row) => {
-				const raw = row.dataset.msgIndex;
-				const index = raw ? Number(raw) : Number.NaN;
-				const height = row.offsetHeight || Math.ceil(row.getBoundingClientRect().height);
-				return {
-					index,
-					top: row.offsetTop - viewport.scrollTop,
-					height,
-				};
-			})
-			.filter((row) => Number.isFinite(row.index));
+		const renderedRows = collectMeasuredTurnRows();
 		const nextStickyIndex = findStickyUserIndexForViewport({
-			displayMessages,
-			renderedRowTops,
+			renderedRows,
 			stickyTopPx: 0,
-			latestTurnFocusUserIndex,
-			latestTurnFocusSpacerPx,
+			latestTurnStartUserIndex,
+			latestTurnSpacerPx: activeTurnSpacerPx,
 		});
-		const resolvedStickyIndex = resolveStickyUserIndex(nextStickyIndex);
+		const shouldSuppressPinnedTeamSticky =
+			composerMode === 'team' &&
+			isAtBottom &&
+			activeTurnSpacerPx > 0 &&
+			nextStickyIndex === latestTurnStartUserIndex;
+		const resolvedStickyIndex = resolveStickyUserIndex(
+			shouldSuppressPinnedTeamSticky ? null : nextStickyIndex
+		);
 		setStickyUserIndex((prev) => (prev === resolvedStickyIndex ? prev : resolvedStickyIndex));
 	};
 
 	useLayoutEffect(() => {
-		if (!hasConversation || composerMode === 'team') {
+		if (!hasConversation) {
 			setStickyUserIndex((prev) => (prev == null ? prev : null));
 			return;
 		}
@@ -895,25 +1013,25 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				window.cancelAnimationFrame(rafId);
 			}
 		};
-	}, [hasConversation, composerMode, conversationRenderKey, messagesViewportRef, messagesTrackRef]);
+	}, [hasConversation, conversationRenderKey, messagesViewportRef, messagesTrackRef]);
 
 	/**
 	 * 数据/布局变化时主动触发一次同步——监听器订阅 effect 不再覆盖这些维度。
-	 * 注意：latestTurnFocusSpacerPx 必须在这里，因为 spacer 高度变化会改变所有行的 top，
+	 * 注意：activeTurnSpacerPx 必须在这里，因为 spacer 高度变化会改变所有行的 top，
 	 * 必须重新评估 sticky 候选；否则上一帧选定的 user 可能已经不再贴顶。
 	 */
 	useLayoutEffect(() => {
-		if (!hasConversation || composerMode === 'team') {
+		if (!hasConversation) {
 			return;
 		}
 		syncStickyUserIndexRef.current();
 	}, [
 		hasConversation,
-		composerMode,
 		lastMessageLayoutSig,
-		latestTurnFocusSpacerPx,
-		latestTurnFocusUserIndex,
+		activeTurnSpacerPx,
+		latestTurnStartUserIndex,
 		messageStartIndex,
+		shouldUseStableTeamLiveLayout,
 	]);
 
 	/**
@@ -954,8 +1072,46 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	}, [hasConversation, conversationRenderKey, messagesViewportRef, messagesTrackRef]);
 
 	/**
+	 * Team 时间线（plan proposal / revision / 角色卡 / leader workflow）并不完全依赖
+	 * `displayMessages.length` 驱动。像方案评审卡这类大容器首次插入时，仍需要显式补一次
+	 * “follow output” 调度，才能稳住自动置底。
+	 */
+	useLayoutEffect(() => {
+		if (
+			!hasConversation ||
+			composerMode !== 'team' ||
+			!teamSession ||
+			teamLiveReplyMeta.isLive
+		) {
+			return;
+		}
+		scheduleMessagesScrollToBottom();
+		let raf2 = 0;
+		const raf1 = window.requestAnimationFrame(() => {
+			scheduleMessagesScrollToBottom();
+			raf2 = window.requestAnimationFrame(() => {
+				scheduleMessagesScrollToBottom();
+			});
+		});
+		return () => {
+			window.cancelAnimationFrame(raf1);
+			if (raf2 !== 0) {
+				window.cancelAnimationFrame(raf2);
+			}
+		};
+	}, [
+		hasConversation,
+		composerMode,
+		conversationRenderKey,
+		teamConversationTimeline?.entries,
+		shouldRenderCurrentTeamLeaderRow,
+		teamLiveReplyMeta.isLive,
+		scheduleMessagesScrollToBottom,
+	]);
+
+	/**
 	 * 构造 assistant row 与 user 气泡之间的「过程区」props（live thought + 是否 streaming）。
-	 * 提取为内部函数，供 messageNodeAtIndex 与 buildFlatMessageList 中的 preflight row 复用。
+	 * 提取为内部函数，供 messageNodeAtIndex 与构建 preflight row 时复用。
 	 */
 	const computeAssistantRuntime = (i: number) => {
 		const m = displayMessages[i]!;
@@ -1059,7 +1215,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 			/**
 			 * Agent / Plan 模式下「过程内容」已经被搬到 user 气泡正下方的 preflight row（见
-			 * buildFlatMessageList），assistant 气泡只渲染 outcome（file_edit / 收尾总结等）。
+			 * buildFlatMessageRows），assistant 气泡只渲染 outcome（file_edit / 收尾总结等）。
 			 * 其他场景（普通聊天、错误气泡、ask/debug 等）保持 'all' 整段渲染。
 			 */
 			const useAgentSplit =
@@ -1120,10 +1276,13 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	/**
 	 * 渲染挂在 user 气泡正下方的「过程区」独立行。
 	 * 数据源是「下一条 assistant 消息」的 content + liveBlocks（如果该 assistant 是流式末条）。
-	 * 不带 `data-msg-index`，不入 stickyUserIndex 体系；高度通过 `data-preflight-for` 由测量
-	 * effect 写入 `preflightRowHeightsRef`，参与 latestTurnFocusSpacerPx。
+	 * 不带 `data-msg-index`，高度通过 `data-preflight-for` 由测量 effect 写入
+	 * `preflightRowHeightsRef`，仅参与向上懒加载的高度预算。
 	 */
-	const renderPreflightRowForAssistant = (assistantIdx: number): ReactNode => {
+	const buildPreflightRowForAssistant = (
+		assistantIdx: number,
+		turnOwnerUserIndex: number | null
+	): ChatRenderRow | null => {
 		const m = displayMessages[assistantIdx];
 		if (!m || m.role !== 'assistant') return null;
 		if (composerMode === 'team' || composerMode === 'ask' || composerMode === 'debug') return null;
@@ -1138,12 +1297,17 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 		// 完整复用 assistant 气泡的双层 DOM（slot + body），让浏览器自动产出与下方
 		// assistant 气泡 .ref-md-root--agent-chat 完全相同的内容宽度，无须任何手动计算。
-		return (
-			<div
-				key={`row-${conversationRenderKey}-preflight-${assistantIdx}`}
-				className="ref-msg-row-measure ref-msg-preflight-row"
-				data-preflight-for={String(assistantIdx)}
-			>
+		const rowId = `row-${conversationRenderKey}-preflight-${assistantIdx}`;
+		return {
+			key: rowId,
+			rowId,
+			messageIndex: null,
+			turnOwnerUserIndex,
+			isTurnStart: false,
+			stickyUserIndex: null,
+			className: 'ref-msg-row-measure ref-msg-preflight-row',
+			dataPreflightFor: assistantIdx,
+			content: (
 				<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--preflight">
 					<div className="ref-msg-assistant-body">
 						<ChatMarkdown
@@ -1165,54 +1329,67 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						/>
 					</div>
 				</div>
-			</div>
-		);
+			),
+		};
 	};
 
-	const buildFlatMessageList = (): ReactNode[] => {
+	const buildMessageRow = (
+		messageIndex: number,
+		turnOwnerUserIndex: number | null
+	): ChatRenderRow => {
+		const message = displayMessages[messageIndex]!;
+		const isTurnStart = message.role === 'user';
+		const rowId = `row-${conversationRenderKey}-${messageIndex}`;
+		return {
+			key: rowId,
+			rowId,
+			messageIndex,
+			turnOwnerUserIndex,
+			isTurnStart,
+			stickyUserIndex: isTurnStart ? messageIndex : null,
+			className: 'ref-msg-row-measure',
+			dataMsgIndex: messageIndex,
+			content: messageNodeAtIndex(messageIndex),
+		};
+	};
+
+	const buildFlatMessageRows = (): ChatRenderRow[] => {
 		const t0 = import.meta.env.DEV ? performance.now() : 0;
-		const nodes: ReactNode[] = [];
-		const convoKey = conversationRenderKey;
+		const rows: ChatRenderRow[] = [];
+		let turnOwnerUserIndex: number | null = null;
+		for (let i = messageStartIndex - 1; i >= 0; i--) {
+			if (displayMessages[i]?.role === 'user') {
+				turnOwnerUserIndex = i;
+				break;
+			}
+		}
 		for (let i = messageStartIndex; i < displayMessages.length; i++) {
-			const isStickyUserRow = i === stickyUserIndex;
 			const m = displayMessages[i]!;
 			// assistant 之前如有 preflight 内容，先插入一条独立 preflight row（贴在前一条 user 下方）
 			if (m.role === 'assistant') {
-				const preflightNode = renderPreflightRowForAssistant(i);
-				if (preflightNode) nodes.push(preflightNode);
+				const preflightRow = buildPreflightRowForAssistant(i, turnOwnerUserIndex);
+				if (preflightRow) rows.push(preflightRow);
+				rows.push(buildMessageRow(i, turnOwnerUserIndex));
+				continue;
 			}
-			nodes.push(
-				<div
-					key={`row-${convoKey}-${i}`}
-					className={`ref-msg-row-measure${isStickyUserRow ? ' ref-msg-sticky-user-wrap' : ''}`}
-					data-msg-index={String(i)}
-				>
-					{messageNodeAtIndex(i)}
-				</div>
-			);
+			turnOwnerUserIndex = i;
+			rows.push(buildMessageRow(i, turnOwnerUserIndex));
 		}
 		if (import.meta.env.DEV) {
 			const elapsed = performance.now() - t0;
 			if (elapsed > 12) {
 				console.log(
-					`[perf] renderChatMessageList: ${elapsed.toFixed(1)}ms, slice=${nodes.length}/${displayMessages.length}, awaiting=${awaitingReply}`
+					`[perf] renderChatMessageList: ${elapsed.toFixed(1)}ms, slice=${rows.length}/${displayMessages.length}, awaiting=${awaitingReply}`
 				);
 			}
 		}
-		if (latestTurnFocusSpacerPx > 0) {
-			nodes.push(
-				<div
-					key={`row-${convoKey}-turn-focus-tail`}
-					className="ref-messages-tail-spacer"
-					style={{ height: `${latestTurnFocusSpacerPx}px` }}
-					aria-hidden
-				/>
-			);
-		}
-		return nodes;
+		return rows;
 	};
 
-	const buildTeamLeaderRow = (contentOverride?: string, rowIndex = displayMessages.length): ReactNode | null => {
+	const buildTeamLeaderRow = (
+		turnOwnerUserIndex: number | null,
+		contentOverride?: string
+	): ChatRenderRow | null => {
 		if (!teamSession || composerMode !== 'team' || !hasConversation) {
 			return null;
 		}
@@ -1243,13 +1420,17 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						tokenUsage: workflow?.lastTurnUsage ?? null,
 					}
 				: null;
+		const rowId = `row-${conversationRenderKey}-team-leader`;
 
-		return (
-			<div
-				key={`row-${conversationRenderKey}-team-leader`}
-				className="ref-msg-row-measure ref-msg-row-measure--team-leader"
-				data-msg-index={String(rowIndex)}
-			>
+		return {
+			key: rowId,
+			rowId,
+			messageIndex: null,
+			turnOwnerUserIndex,
+			isTurnStart: false,
+			stickyUserIndex: null,
+			className: 'ref-msg-row-measure ref-msg-row-measure--team-leader',
+			content: (
 				<div className="ref-msg-slot ref-msg-slot--assistant">
 					<div className="ref-msg-assistant-body">
 						<ChatMarkdown
@@ -1268,138 +1449,206 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						/>
 					</div>
 				</div>
-			</div>
-		);
+			),
+		};
 	};
 
 	const buildHistoricalTeamLeaderRow = (
+		turnOwnerUserIndex: number | null,
 		content: string,
-		rowKey: string,
-		rowIndex: number
-	): ReactNode => (
-		<div
-			key={`row-${conversationRenderKey}-${rowKey}`}
-			className="ref-msg-row-measure ref-msg-row-measure--team-leader"
-			data-msg-index={String(rowIndex)}
-		>
-			<div className="ref-msg-slot ref-msg-slot--assistant">
-				<div className="ref-msg-assistant-body">
-					<ChatMarkdown
-						content={content}
-						agentUi
-						workspaceRoot={workspace}
-						onOpenAgentFile={onOpenAgentConversationFile}
-						onRunCommand={onRunCommand}
-						hidePendingActivityTextCluster
-						revertedPaths={revertedFiles}
-						revertedChangeKeys={revertedChangeKeys}
-						skipPlanTodo
-					/>
+		rowKey: string
+	): ChatRenderRow => {
+		const rowId = `row-${conversationRenderKey}-${rowKey}`;
+		return {
+			key: rowId,
+			rowId,
+			messageIndex: null,
+			turnOwnerUserIndex,
+			isTurnStart: false,
+			stickyUserIndex: null,
+			className: 'ref-msg-row-measure ref-msg-row-measure--team-leader',
+			content: (
+				<div className="ref-msg-slot ref-msg-slot--assistant">
+					<div className="ref-msg-assistant-body">
+						<ChatMarkdown
+							content={content}
+							agentUi
+							workspaceRoot={workspace}
+							onOpenAgentFile={onOpenAgentConversationFile}
+							onRunCommand={onRunCommand}
+							hidePendingActivityTextCluster
+							revertedPaths={revertedFiles}
+							revertedChangeKeys={revertedChangeKeys}
+							skipPlanTodo
+						/>
+					</div>
 				</div>
-			</div>
-		</div>
-	);
+			),
+		};
+	};
 
 	const buildTeamTaskRow = (
+		turnOwnerUserIndex: number | null,
 		item: {
 			id: string;
 			roleType: Parameters<typeof TeamRoleAvatar>[0]['roleType'];
 			expertAssignmentKey?: string;
+			expertId?: string;
 			roleKind: 'specialist' | 'reviewer';
 			expertName: string;
 			description: string;
 			acceptanceCriteria?: string[];
 			status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'revision';
-		},
-		rowIndex: number
-	): ReactNode => (
-		<div
-			key={`row-${conversationRenderKey}-team-item-${item.id}`}
-			className="ref-msg-row-measure ref-msg-row-measure--team-item"
-			data-msg-index={String(rowIndex)}
-		>
-			<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-item">
-				<button
-					type="button"
-					className={`ref-team-timeline-item ${teamSession?.selectedTaskId === item.id ? 'is-active' : ''}`}
-					onClick={() => onSelectTeamExpert(item.id)}
-				>
-					<TeamRoleAvatar roleType={item.roleType} assignmentKey={item.expertAssignmentKey} />
-					<span className="ref-team-timeline-item-copy">
-						<span className="ref-team-timeline-item-meta">{t(`team.timeline.role.${item.roleKind}`)}</span>
-						<span className="ref-team-timeline-item-title">{item.expertName}</span>
-						<span className="ref-team-timeline-item-body">{item.description}</span>
-						{item.acceptanceCriteria && item.acceptanceCriteria.length > 0 ? (
-							<ul className="ref-team-timeline-item-criteria">
-								{item.acceptanceCriteria.map((criterion, idx) => (
-									<li key={idx}>{criterion}</li>
-								))}
-							</ul>
-						) : null}
-					</span>
-					<span className={`ref-team-expert-status ref-team-expert-status--${item.status}`}>
-						{item.status === 'in_progress' ? <span className="ref-team-pulse" /> : null}
-						{t(`team.timeline.status.${item.status}`)}
-					</span>
-				</button>
-			</div>
-		</div>
-	);
+		}
+	): ChatRenderRow => {
+		const criteria = sanitizeTeamCriteria(item.acceptanceCriteria);
+		const rowId = `row-${conversationRenderKey}-team-item-${item.id}`;
+		return {
+			key: rowId,
+			rowId,
+			messageIndex: null,
+			turnOwnerUserIndex,
+			isTurnStart: false,
+			stickyUserIndex: null,
+			className: 'ref-msg-row-measure ref-msg-row-measure--team-item',
+			content: (
+				<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-item">
+					<button
+						type="button"
+						className={`ref-team-timeline-item ${teamSession?.selectedTaskId === item.id ? 'is-active' : ''}`}
+						onClick={() => onSelectTeamExpert(item.id)}
+					>
+						<TeamRoleAvatar
+							roleType={item.roleType}
+							assignmentKey={item.expertAssignmentKey ?? item.expertId}
+						/>
+						<span className="ref-team-timeline-item-copy">
+							<span className="ref-team-timeline-item-meta">{t(`team.timeline.role.${item.roleKind}`)}</span>
+							<span className="ref-team-timeline-item-title">{item.expertName}</span>
+							<span className="ref-team-timeline-item-body">{item.description}</span>
+							{criteria.length > 0 ? (
+								<ul className="ref-team-timeline-item-criteria">
+									{criteria.map((criterion, idx) => (
+										<li key={idx}>{criterion}</li>
+									))}
+								</ul>
+							) : null}
+						</span>
+						<span className={`ref-team-expert-status ref-team-expert-status--${item.status}`}>
+							{item.status === 'in_progress' ? <span className="ref-team-pulse" /> : null}
+							{t(`team.timeline.status.${item.status}`)}
+						</span>
+					</button>
+				</div>
+			),
+		};
+	};
 
-	const buildTeamTimelineRows = (): ReactNode[] => {
-		const nodes = buildFlatMessageList();
-		if (!teamSession || composerMode !== 'team' || !hasConversation) {
+	const buildTeamTimelineRows = (): ChatRenderRow[] => {
+		const nodes = buildFlatMessageRows();
+		if (!teamSession || composerMode !== 'team' || !hasConversation || !teamConversationTimeline) {
 			return nodes;
 		}
-		const teamTimeline = buildTeamConversationTimeline(teamSession, displayMessages);
-		let syntheticIndex = displayMessages.length;
-		const nextSyntheticIndex = () => syntheticIndex++;
+		const teamTimeline = teamConversationTimeline;
+		const turnOwnerUserIndex = latestUserMessageIndex;
 		const timelineRows = teamTimeline.entries.map((entry) => {
 			if (entry.kind === 'leader_message') {
-				return buildHistoricalTeamLeaderRow(entry.content, entry.id, nextSyntheticIndex());
+				return buildHistoricalTeamLeaderRow(turnOwnerUserIndex, entry.content, entry.id);
 			}
 			if (entry.kind === 'plan_proposal') {
+				const rowId = `row-${conversationRenderKey}-${entry.id}`;
 				return (
-					<div
-						key={`row-${conversationRenderKey}-${entry.id}`}
-						className="ref-msg-row-measure ref-msg-row-measure--team-plan"
-						data-msg-index={String(nextSyntheticIndex())}
-					>
-						<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-plan">
-							<TeamPlanReviewPanel
-								proposal={entry.proposal}
-								hideSummary={entry.hideSummary}
-								onApprove={(fb) => onTeamPlanApprove(entry.proposal.proposalId, fb)}
-								onReject={(fb) => onTeamPlanReject(entry.proposal.proposalId, fb)}
-							/>
-						</div>
-					</div>
+					{
+						key: rowId,
+						rowId,
+						messageIndex: null,
+						turnOwnerUserIndex,
+						isTurnStart: false,
+						stickyUserIndex: null,
+						className: 'ref-msg-row-measure ref-msg-row-measure--team-plan',
+						content: (
+							<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-plan">
+								<TeamPlanReviewPanel
+									proposal={entry.proposal}
+									hideSummary={entry.hideSummary}
+									onApprove={(fb) => onTeamPlanApprove(entry.proposal.proposalId, fb)}
+									onReject={(fb) => onTeamPlanReject(entry.proposal.proposalId, fb)}
+									onHeightMayChange={notifyTeamCardLayoutChange}
+								/>
+							</div>
+						),
+					}
 				);
 			}
 			if (entry.kind === 'plan_revision') {
+				const rowId = `row-${conversationRenderKey}-${entry.id}`;
 				return (
-					<div
-						key={`row-${conversationRenderKey}-${entry.id}`}
-						className="ref-msg-row-measure ref-msg-row-measure--team-plan"
-						data-msg-index={String(nextSyntheticIndex())}
-					>
-						<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-plan">
-							<TeamPlanRevisionCard revision={entry.revision} />
-						</div>
-					</div>
+					{
+						key: rowId,
+						rowId,
+						messageIndex: null,
+						turnOwnerUserIndex,
+						isTurnStart: false,
+						stickyUserIndex: null,
+						className: 'ref-msg-row-measure ref-msg-row-measure--team-plan',
+						content: (
+							<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-plan">
+								<TeamPlanRevisionCard
+									revision={entry.revision}
+									onHeightMayChange={notifyTeamCardLayoutChange}
+								/>
+							</div>
+						),
+					}
 				);
 			}
-			return buildTeamTaskRow(entry.item, nextSyntheticIndex());
+			return buildTeamTaskRow(turnOwnerUserIndex, entry.item);
 		});
-		const currentLeaderRow = buildTeamLeaderRow(teamTimeline.currentLeaderMessage, nextSyntheticIndex());
-		const isTrailingDeliveryMessage =
-			!awaitingReply &&
+		const hasTrailingAssistantRow =
 			lastAssistantMessageIndex === displayMessages.length - 1 &&
 			lastAssistantMessageIndex >= messageStartIndex &&
 			displayMessages[displayMessages.length - 1]?.role === 'assistant';
+		const liveLeaderContent =
+			hasTrailingAssistantRow && lastAssistantMessageIndex >= 0
+				? displayMessages[lastAssistantMessageIndex]?.content ?? teamTimeline.currentLeaderMessage
+				: teamTimeline.currentLeaderMessage;
+		const currentLeaderRow = buildTeamLeaderRow(
+			turnOwnerUserIndex,
+			liveLeaderContent
+		);
+		const leaderWorkflow = teamSession.leaderWorkflow;
+		const isLiveTeamReply =
+			awaitingReply ||
+			Boolean(leaderWorkflow?.awaitingReply) ||
+			(leaderWorkflow?.liveBlocks.blocks.length ?? 0) > 0 ||
+			Boolean(leaderWorkflow?.streamingThinking);
+		const shouldKeepLiveLeaderAtBottom =
+			teamSession.phase === 'synthesizing' ||
+			teamSession.phase === 'delivering';
+		const isTrailingDeliveryMessage =
+			!awaitingReply &&
+			hasTrailingAssistantRow;
+
+		if (isLiveTeamReply) {
+			if (hasTrailingAssistantRow && nodes.length > 0) {
+				nodes.pop();
+			}
+			if (shouldKeepLiveLeaderAtBottom) {
+				nodes.push(...timelineRows);
+				if (currentLeaderRow) {
+					nodes.push(currentLeaderRow);
+				}
+				return nodes;
+			}
+			if (currentLeaderRow) {
+				nodes.push(currentLeaderRow);
+			}
+			nodes.push(...timelineRows);
+			return nodes;
+		}
 
 		if (isTrailingDeliveryMessage) {
-			const trailingAssistant = nodes.pop();
+			const trailingAssistant = nodes.length > 0 ? nodes.pop() ?? null : null;
 			nodes.push(...timelineRows);
 			if (currentLeaderRow) {
 				nodes.push(currentLeaderRow);
@@ -1416,6 +1665,52 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		}
 		return nodes;
 	};
+
+	const renderedChatRows =
+		composerMode === 'team' ? buildTeamTimelineRows() : buildFlatMessageRows();
+	renderRowsRef.current = renderedChatRows;
+	const renderedChatRowNodes = renderedChatRows.map((row) => {
+		const isStickyRow =
+			row.stickyUserIndex != null && row.stickyUserIndex === stickyUserIndex;
+		const stickyModeClass =
+			isStickyRow && composerMode === 'team'
+				? ' ref-msg-sticky-user-wrap--team'
+				: '';
+		return (
+			<div
+				key={row.key}
+				className={`${row.className}${isStickyRow ? ' ref-msg-sticky-user-wrap' : ''}${stickyModeClass}`}
+				style={
+					isStickyRow
+						? ({ '--ref-sticky-user-top': `${stickyUserTopPx}px` } as CSSProperties)
+						: undefined
+				}
+				data-row-id={row.rowId}
+				data-msg-index={
+					row.dataMsgIndex != null ? String(row.dataMsgIndex) : undefined
+				}
+				data-preflight-for={
+					row.dataPreflightFor != null ? String(row.dataPreflightFor) : undefined
+				}
+				data-turn-owner={
+					row.turnOwnerUserIndex != null ? String(row.turnOwnerUserIndex) : undefined
+				}
+				data-turn-start={row.isTurnStart ? 'true' : undefined}
+			>
+				{row.content}
+			</div>
+		);
+	});
+	if (activeTurnSpacerPx > 0) {
+		renderedChatRowNodes.push(
+			<div
+				key={`row-${conversationRenderKey}-turn-focus-tail`}
+				className="ref-messages-tail-spacer"
+				style={{ height: `${activeTurnSpacerPx}px` }}
+				aria-hidden
+			/>
+		);
+	}
 
 	const dataTransferHasFiles = (dt: DataTransfer | null): boolean => !!dt?.types?.includes('Files');
 
@@ -1483,7 +1778,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						aria-hidden
 					/>
 				) : null}
-				{composerMode === 'team' ? buildTeamTimelineRows() : buildFlatMessageList()}
+				{renderedChatRowNodes}
 			</div>
 		</div>
 	) : null;

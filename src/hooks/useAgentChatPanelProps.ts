@@ -55,12 +55,14 @@ export function useAgentChatPanelProps({
 		agentPlanSummaryCard: rest.agentPlanSummaryCard,
 		showScrollToBottomButton: rest.showScrollToBottomButton,
 		scrollMessagesToBottom: rest.scrollMessagesToBottom,
+		scheduleMessagesScrollToBottom: rest.scheduleMessagesScrollToBottom,
 	}), [
 		rest.persistedMessages, rest.messagesThreadId,
 		rest.currentId,
 		rest.hasConversation, rest.awaitingReply,
 		rest.lastTurnUsage, rest.fileChangesDismissed,
-		rest.agentPlanSummaryCard, rest.showScrollToBottomButton, rest.scrollMessagesToBottom,
+		rest.agentPlanSummaryCard, rest.showScrollToBottomButton,
+		rest.scrollMessagesToBottom, rest.scheduleMessagesScrollToBottom,
 	]);
 
 	// Group 2: Composer state (changes on user input)

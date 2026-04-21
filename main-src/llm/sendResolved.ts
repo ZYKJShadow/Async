@@ -4,8 +4,6 @@ import type { ChatMessage } from '../threadStore.js';
 import type { UserMessagePart } from '../../src/messageParts.js';
 import { skillInvocationWire } from '../../src/composerSegments.js';
 import { resolveWorkspacePath } from '../workspace.js';
-import { getIndexedWorkspaceFilesIfFresh, listWorkspaceRelativeFiles } from '../workspaceFileIndex.js';
-import { collectAtWorkspacePathsInText } from './workspaceContextExpand.js';
 import {
 	preprocessImageForSend,
 	type ImageProcessError,
@@ -27,9 +25,7 @@ export type ResolvedImageAsset = {
 
 export type ResolvedUserSegment =
 	| { kind: 'text'; text: string }
-	| { kind: 'expanded_text_file'; relPath: string; body: string; binary: boolean }
 	| { kind: 'image_asset'; asset: ResolvedImageAsset }
-	| { kind: 'missing_file'; relPath: string }
 	| { kind: 'image_error'; relPath: string; error: ImageProcessError };
 
 export type ResolvedUserMessage = {
@@ -44,23 +40,6 @@ export type ResolvedUserMessage = {
 };
 
 export type SendableMessage = ChatMessage & { resolved?: ResolvedUserMessage };
-
-const MAX_EXPANDED_FILE_BYTES = 512 * 1024;
-
-function readFileText(fullPath: string): { body: string; binary: boolean } | null {
-	try {
-		const buf = fs.readFileSync(fullPath);
-		if (buf.includes(0)) {
-			return { body: `（二进制文件，${buf.length} 字节 — 已引用路径，可通过工具读取。）`, binary: true };
-		}
-		const sliced = buf.length > MAX_EXPANDED_FILE_BYTES ? buf.subarray(0, MAX_EXPANDED_FILE_BYTES) : buf;
-		const text = sliced.toString('utf8');
-		const truncated = buf.length > MAX_EXPANDED_FILE_BYTES ? `\n\n… (truncated, ${buf.length} bytes total)` : '';
-		return { body: text + truncated, binary: false };
-	} catch {
-		return null;
-	}
-}
 
 function sha256Hex(buf: Buffer): string {
 	return crypto.createHash('sha256').update(buf).digest('hex');
@@ -79,7 +58,11 @@ async function resolveImagePart(
 	let buf: Buffer;
 	try {
 		if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
-			return { kind: 'missing_file', relPath: part.relPath };
+			return {
+				kind: 'image_error',
+				relPath: part.relPath,
+				error: { kind: 'io_error', detail: 'Image file not found.' },
+			};
 		}
 		buf = fs.readFileSync(full);
 	} catch (err) {
@@ -110,58 +93,32 @@ async function resolveImagePart(
 	};
 }
 
-function resolveFileRef(relPath: string, workspaceRoot: string): ResolvedUserSegment {
-	let full: string;
-	try {
-		full = resolveWorkspacePath(relPath, workspaceRoot);
-	} catch {
-		return { kind: 'missing_file', relPath };
-	}
-	if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
-		return { kind: 'missing_file', relPath };
-	}
-	const read = readFileText(full);
-	if (!read) {
-		return { kind: 'missing_file', relPath };
-	}
-	return { kind: 'expanded_text_file', relPath, body: read.body, binary: read.binary };
-}
-
 function flatTextFor(segments: ResolvedUserSegment[]): string {
-	const blocks: string[] = [];
-	const prelude: string[] = [];
-	const main: string[] = [];
+	const parts: string[] = [];
 	for (const s of segments) {
 		if (s.kind === 'text') {
-			main.push(s.text);
-			continue;
-		}
-		if (s.kind === 'expanded_text_file') {
-			prelude.push(
-				s.binary
-					? `### 工作区文件: ${s.relPath}\n${s.body}\n`
-					: `### 工作区文件: ${s.relPath}\n\`\`\`\n${s.body}\n\`\`\`\n`
-			);
+			parts.push(s.text);
 			continue;
 		}
 		if (s.kind === 'image_asset') {
-			main.push(`[image: ${s.asset.relPath}]`);
-			continue;
-		}
-		if (s.kind === 'missing_file') {
-			main.push(`[missing: ${s.relPath}]`);
 			continue;
 		}
 		if (s.kind === 'image_error') {
-			main.push(`[image error (${s.error.kind}): ${s.relPath}]`);
+			parts.push(`[image error (${s.error.kind}): ${s.relPath}]`);
 		}
 	}
-	if (prelude.length > 0) {
-		blocks.push(prelude.join('\n'));
-		blocks.push('---\n');
+	return parts.join('');
+}
+
+function shouldInsertSpaceAfter(parts: UserMessagePart[], index: number): boolean {
+	const next = parts[index + 1];
+	if (!next) {
+		return false;
 	}
-	blocks.push(main.join(''));
-	return blocks.join('\n');
+	if (next.kind === 'text') {
+		return next.text.length > 0 && !/^\s/u.test(next.text);
+	}
+	return next.kind === 'command' || next.kind === 'skill_invoke' || next.kind === 'file_ref';
 }
 
 async function resolveStructuredUserMessage(
@@ -174,25 +131,23 @@ async function resolveStructuredUserMessage(
 		if (p.kind === 'text') {
 			segments.push({ kind: 'text', text: p.text });
 		} else if (p.kind === 'command') {
-			const slash = String(p.command).startsWith('/') ? String(p.command) : `/${String(p.command)}`;
+			let slash = String(p.command).startsWith('/') ? String(p.command) : `/${String(p.command)}`;
+			if (shouldInsertSpaceAfter(parts, i) || parts[i + 1]?.kind === 'image_ref') {
+				slash += ' ';
+			}
 			segments.push({ kind: 'text', text: slash });
 		} else if (p.kind === 'skill_invoke') {
 			let wire = skillInvocationWire(p.slug);
-			const next = parts[i + 1];
-			if (next?.kind === 'text' && next.text.length > 0 && !/^\s/u.test(next.text)) {
-				wire += ' ';
-			} else if (
-				next &&
-				(next.kind === 'file_ref' ||
-					next.kind === 'image_ref' ||
-					next.kind === 'command' ||
-					next.kind === 'skill_invoke')
-			) {
+			if (shouldInsertSpaceAfter(parts, i) || parts[i + 1]?.kind === 'image_ref') {
 				wire += ' ';
 			}
 			segments.push({ kind: 'text', text: wire });
 		} else if (p.kind === 'file_ref') {
-			segments.push(resolveFileRef(p.relPath, workspaceRoot));
+			let text = `@${p.relPath}`;
+			if (shouldInsertSpaceAfter(parts, i)) {
+				text += ' ';
+			}
+			segments.push({ kind: 'text', text });
 		} else if (p.kind === 'image_ref') {
 			segments.push(await resolveImagePart(p, workspaceRoot));
 		}
@@ -201,23 +156,17 @@ async function resolveStructuredUserMessage(
 	return { segments, flatText: flatTextFor(segments), hasImages };
 }
 
-async function resolveLegacyTextMessage(content: string, workspaceRoot: string): Promise<ResolvedUserMessage> {
-	let known: string[] = [];
-	try {
-		known = getIndexedWorkspaceFilesIfFresh(workspaceRoot) ?? listWorkspaceRelativeFiles(workspaceRoot);
-	} catch {
-		known = [];
-	}
-	const refs = collectAtWorkspacePathsInText(content, known);
-	const expansions: ResolvedUserSegment[] = refs.map((rel) => resolveFileRef(rel, workspaceRoot));
-	const segments: ResolvedUserSegment[] = [...expansions, { kind: 'text', text: content }];
+async function resolveLegacyTextMessage(content: string, _workspaceRoot: string): Promise<ResolvedUserMessage> {
+	const segments: ResolvedUserSegment[] = [{ kind: 'text', text: content }];
 	return { segments, flatText: flatTextFor(segments), hasImages: false };
 }
 
 /**
  * Resolve all user messages in the conversation for sending. Messages with
  * structured `parts` (v2) are resolved via `parts`; legacy text-only messages
- * fall back to inline `@path` expansion. Non-user messages pass through.
+ * are forwarded as-is. Text file references stay as path mentions so the model
+ * can decide whether to use workspace tools to read them. Image references are
+ * still resolved into multimodal payloads.
  */
 export async function resolveMessagesForSend(
 	messages: ChatMessage[],

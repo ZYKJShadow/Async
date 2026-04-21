@@ -5,11 +5,12 @@
   "type": "module",
   "main": "electron/main.bundle.cjs",
   "scripts": {
+    "sync:builtin-team": "node scripts/sync-builtin-team-repo.mjs",
     "build:main": "node esbuild.main.mjs",
     "build:main:watch": "node esbuild.main.mjs --watch",
     "typecheck": "tsc --noEmit",
     "build:renderer": "npm run typecheck && vite build",
-    "build": "npm run build:main && npm run build:renderer",
+    "build": "npm run sync:builtin-team && npm run build:main && npm run build:renderer",
     "preview": "npm run build:renderer && vite preview",
     "icons": "node scripts/export-app-icon.mjs",
     "readme:screenshots": "node scripts/export-readme-screenshots.mjs",
