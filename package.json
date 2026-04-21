@@ -132,6 +132,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/xterm": "^5.5.0",
+    "better-sqlite3": "^12.9.0",
     "chokidar": "^3.6.0",
     "diff": "^5.2.0",
     "electron-updater": "^6.8.3",

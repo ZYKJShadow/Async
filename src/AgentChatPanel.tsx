@@ -798,7 +798,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			if (!Number.isFinite(idx)) {
 				continue;
 			}
-			const h = Math.ceil(el.getBoundingClientRect().height);
+			const h = el.offsetHeight;
 			if (h > 0) {
 				messageRowHeightsRef.current.set(idx, h);
 			}
@@ -811,7 +811,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			if (!raw) continue;
 			const idx = Number(raw);
 			if (!Number.isFinite(idx)) continue;
-			const h = Math.ceil(el.getBoundingClientRect().height);
+			const h = el.offsetHeight;
 			if (h > 0) {
 				preflightRowHeightsRef.current.set(idx, h);
 			}

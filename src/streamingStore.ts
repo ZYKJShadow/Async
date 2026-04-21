@@ -18,7 +18,7 @@ type StreamingSnapshot = {
 	thinkingTick: number;
 };
 
-let snapshot: StreamingSnapshot = {
+const initialSnapshot: StreamingSnapshot = {
 	streaming: '',
 	streamingThinking: '',
 	streamingToolPreview: null,
@@ -26,7 +26,13 @@ let snapshot: StreamingSnapshot = {
 	thinkingTick: 0,
 };
 
+/** committed: 已发布的 snapshot，getSnapshot 返回此值 */
+let committed: StreamingSnapshot = initialSnapshot;
+/** pending: 累积中的 snapshot，setter 操作此值 */
+let pending: StreamingSnapshot = committed;
+
 const listeners = new Set<() => void>();
+let emitRafId: number | null = null;
 
 function subscribe(listener: () => void): () => void {
 	listeners.add(listener);
@@ -35,18 +41,30 @@ function subscribe(listener: () => void): () => void {
 	};
 }
 
-function emit() {
+function flush() {
+	emitRafId = null;
+	if (Object.is(committed, pending)) {
+		return;
+	}
+	committed = pending;
 	for (const listener of listeners) {
 		listener();
 	}
 }
 
-function writeField<K extends keyof StreamingSnapshot>(key: K, next: StreamingSnapshot[K]) {
-	if (Object.is(snapshot[key], next)) {
+function scheduleFlush() {
+	if (emitRafId !== null) {
 		return;
 	}
-	snapshot = { ...snapshot, [key]: next };
-	emit();
+	emitRafId = requestAnimationFrame(flush);
+}
+
+function writeField<K extends keyof StreamingSnapshot>(key: K, next: StreamingSnapshot[K]) {
+	if (Object.is(pending[key], next)) {
+		return;
+	}
+	pending = { ...pending, [key]: next };
+	scheduleFlush();
 }
 
 type Updater<T> = T | ((prev: T) => T);
@@ -56,31 +74,39 @@ function resolve<T>(current: T, updater: Updater<T>): T {
 }
 
 export const streamingStore = {
-	getStreaming: (): string => snapshot.streaming,
-	getStreamingThinking: (): string => snapshot.streamingThinking,
-	getStreamingToolPreview: (): StreamingToolPreview => snapshot.streamingToolPreview,
-	getLiveAssistantBlocks: (): LiveAgentBlocksState => snapshot.liveAssistantBlocks,
-	getThinkingTick: (): number => snapshot.thinkingTick,
+	getStreaming: (): string => committed.streaming,
+	getStreamingThinking: (): string => committed.streamingThinking,
+	getStreamingToolPreview: (): StreamingToolPreview => committed.streamingToolPreview,
+	getLiveAssistantBlocks: (): LiveAgentBlocksState => committed.liveAssistantBlocks,
+	getThinkingTick: (): number => committed.thinkingTick,
 	setStreaming(updater: Updater<string>) {
-		writeField('streaming', resolve(snapshot.streaming, updater));
+		writeField('streaming', resolve(pending.streaming, updater));
 	},
 	setStreamingThinking(updater: Updater<string>) {
-		writeField('streamingThinking', resolve(snapshot.streamingThinking, updater));
+		writeField('streamingThinking', resolve(pending.streamingThinking, updater));
 	},
 	setStreamingToolPreview(updater: Updater<StreamingToolPreview>) {
-		writeField('streamingToolPreview', resolve(snapshot.streamingToolPreview, updater));
+		writeField('streamingToolPreview', resolve(pending.streamingToolPreview, updater));
 	},
 	setLiveAssistantBlocks(updater: Updater<LiveAgentBlocksState>) {
-		writeField('liveAssistantBlocks', resolve(snapshot.liveAssistantBlocks, updater));
+		writeField('liveAssistantBlocks', resolve(pending.liveAssistantBlocks, updater));
 	},
 	resetLiveBlocks() {
 		writeField('liveAssistantBlocks', createEmptyLiveAgentBlocks());
 	},
 	incrementThinkingTick() {
-		writeField('thinkingTick', snapshot.thinkingTick + 1);
+		writeField('thinkingTick', pending.thinkingTick + 1);
 	},
 	resetThinkingTick() {
 		writeField('thinkingTick', 0);
+	},
+	/** 立即 flush 所有 pending 更新；用于流结束等需要同步清空的场景 */
+	flush() {
+		if (emitRafId !== null) {
+			cancelAnimationFrame(emitRafId);
+			emitRafId = null;
+		}
+		flush();
 	},
 };
 

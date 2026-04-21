@@ -141,10 +141,12 @@ class BotController {
 		const key = sessionMapKey(integration.id, envelope.conversationKey);
 		const inMemory = this.sessions.get(key);
 		if (inMemory) {
+			this.syncSessionModelFromIntegration(inMemory, integration, settings);
 			return inMemory;
 		}
 		const persisted = readBotSession({ integrationId: integration.id, conversationKey: envelope.conversationKey });
 		if (persisted) {
+			this.syncSessionModelFromIntegration(persisted, integration, settings);
 			this.sessions.set(key, persisted);
 			return persisted;
 		}
@@ -157,6 +159,31 @@ class BotController {
 		);
 		this.sessions.set(key, session);
 		return session;
+	}
+
+	/** 若用户未通过 /model 手动指定模型，则把 session.modelId 同步为 integration.defaultModelId */
+	private syncSessionModelFromIntegration(
+		session: BotSessionState,
+		integration: BotIntegrationConfig,
+		settings: ShellSettings
+	): void {
+		if (session.modelIdExplicitlySet) {
+			return;
+		}
+		const models = getAvailableBotModels(settings);
+		const expectedModelId =
+			(integration.defaultModelId && models.some((item) => item.id === integration.defaultModelId)
+				? integration.defaultModelId
+				: null) ??
+			(settings.defaultModel && models.some((item) => item.id === settings.defaultModel)
+				? settings.defaultModel
+				: null) ??
+			models[0]?.id ??
+			'';
+		if (session.modelId !== expectedModelId) {
+			session.modelId = expectedModelId;
+			this.persistSession(integration, session);
+		}
 	}
 
 	private persistSession(integration: BotIntegrationConfig, session: BotSessionState): void {
@@ -252,6 +279,7 @@ class BotController {
 					return true;
 				}
 				session.modelId = match.id;
+				session.modelIdExplicitlySet = true;
 				this.persistSession(integration, session);
 				await reply(`已切换模型：${match.label}`);
 				return true;

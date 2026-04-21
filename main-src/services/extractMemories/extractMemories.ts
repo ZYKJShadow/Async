@@ -30,6 +30,7 @@ import { scanMemoryFiles, type MemoryHeader } from '../../memdir/memoryScan.js';
 import { getAutoMemEntrypoint, getAutoMemPath } from '../../memdir/paths.js';
 import { parseMemoryType, type MemoryType } from '../../memdir/memoryTypes.js';
 import type { RuntimeMemoryModel } from '../../memdir/findRelevantMemories.js';
+import { queueExtractSkills } from '../extractSkills/extractSkills.js';
 
 type ExtractedMemoryDraft = {
 	filename: string;
@@ -49,7 +50,7 @@ const MAX_SOURCE_CHARS = 16_000;
 const inFlight = new Map<string, Promise<void>>();
 const rerunRequested = new Set<string>();
 
-/** 默认数量级设置（此处用消息/工具计数近似） */
+/** 默认数量级设置（此处用消�?工具计数近似�?*/
 const DEFAULT_MIN_NON_SYSTEM_BEFORE_FIRST = 4;
 const DEFAULT_MIN_NON_SYSTEM_BETWEEN = 3;
 const DEFAULT_MIN_TOOL_CALLS_BETWEEN = 3;
@@ -67,8 +68,7 @@ function lastAssistantMessageUsedTools(messages: ChatMessage[]): boolean {
 }
 
 /**
- * 是否应排队后台记忆抽取（对齐 CC `shouldExtractMemory`：消息间隔 ∧ (工具次数 ∨ 末轮无工具)）。
- */
+ * 是否应排队后台记忆抽取（对齐 CC `shouldExtractMemory`：消息间�?�?(工具次数 �?末轮无工�?）�? */
 export function shouldRunMemoryExtractionForThread(threadId: string, settings: ShellSettings): boolean {
 	const cfg = settings.agent?.memoryExtraction;
 	if (cfg?.enabled === false) return false;
@@ -111,7 +111,8 @@ Return strict JSON with this shape:
 Rules:
 - Save only durable, reusable information.
 - Prefer updating/overwriting existing memory topics over creating duplicates.
-- Use only these types: user, feedback, project, reference.
+- Use only these types: user, feedback, project, reference, session.
+- session type: Save a high-level summary when the conversation involved a complex, multi-step task. This helps recall "that thing we discussed before" across sessions. Store under sessions/YYYY-MM-DD-topic.md.
 - Do not save secrets, tokens, passwords, or ephemeral turn-specific details.
 - "forget" should contain filenames only when the user explicitly asks to forget or remove a memory.
 - Return at most 5 memories.
@@ -213,7 +214,7 @@ export function renderMemoryFile(draft: ExtractedMemoryDraft): string {
 function memoryIndexLine(header: MemoryHeader): string {
 	const title = header.title?.trim() || path.basename(header.filename, '.md');
 	const hook = header.description?.trim() || 'memory note';
-	return `- [${title}](${header.filename.replace(/\\/g, '/')}) — ${hook}`;
+	return `- [${title}](${header.filename.replace(/\\/g, '/')}) �?${hook}`;
 }
 
 export function buildMemoryEntrypoint(headers: MemoryHeader[]): string {
@@ -226,6 +227,36 @@ export function buildMemoryEntrypoint(headers: MemoryHeader[]): string {
 		})
 		.map(memoryIndexLine)
 		.join('\n');
+}
+
+function buildUserProfileEntrypoint(userMemories: MemoryHeader[]): string {
+	const lines = [
+		'# User Profile',
+		'',
+		'This file aggregates all `user` type memories. It is auto-generated; do not edit manually.',
+		'',
+	];
+	if (userMemories.length === 0) {
+		lines.push('No user preferences recorded yet.');
+	} else {
+		for (const m of userMemories) {
+			const title = m.title?.trim() || m.filename;
+			const hook = m.description?.trim() || 'memory note';
+			lines.push(`- [${title}](${m.filename.replace(/\\/g, '/')}) �?${hook}`);
+		}
+	}
+	return lines.join('\n');
+}
+
+async function rebuildUserMd(memoryDir: string): Promise<void> {
+	try {
+		const all = await scanMemoryFiles(memoryDir);
+		const userMemories = all.filter((m) => m.type === 'user').sort((a, b) => b.mtimeMs - a.mtimeMs);
+		const userMdPath = path.join(memoryDir, 'USER.md');
+		await fs.writeFile(userMdPath, buildUserProfileEntrypoint(userMemories), 'utf8');
+	} catch {
+		/* ignore */
+	}
 }
 
 async function writeExtractionResult(params: {
@@ -257,6 +288,8 @@ async function writeExtractionResult(params: {
 	if (entrypoint) {
 		await fs.writeFile(entrypoint, indexBody, 'utf8');
 	}
+	// 同步更新 USER.md 用户画像索引
+	await rebuildUserMd(memoryDir);
 }
 
 async function extractWithRuntimeModel(
@@ -396,11 +429,18 @@ export function queueExtractMemories(params: {
 	workspaceRoot: string | null;
 	settings: ShellSettings;
 	modelSelection: string;
+	enableSkillExtraction?: boolean;
 }): void {
-	const { threadId, workspaceRoot, settings, modelSelection } = params;
+	const { threadId, workspaceRoot, settings, modelSelection, enableSkillExtraction } = params;
 	if (!workspaceRoot) {
 		return;
 	}
+
+	// 仅在 Bot 对话中并行触发 Skill 抽取（Hermes 式闭环学习）
+	if (enableSkillExtraction) {
+		queueExtractSkills({ threadId, workspaceRoot, settings, modelSelection });
+	}
+
 	if (!shouldRunMemoryExtractionForThread(threadId, settings)) {
 		return;
 	}

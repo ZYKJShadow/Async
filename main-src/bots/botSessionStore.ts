@@ -7,7 +7,7 @@ let inMemory: Record<string, BotSessionState> = {};
 let dirty = false;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-type PersistedBotSessionState = Omit<BotSessionState, 'leaderMessages'> & {
+type PersistedBotSessionState = Omit<BotSessionState, 'leaderMessages' | 'cachedMemoryPrompt'> & {
 	leaderMessages: BotSessionState['leaderMessages'];
 	leaderSummary?: string;
 	leaderSummaryCoversCount?: number;

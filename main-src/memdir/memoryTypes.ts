@@ -1,4 +1,4 @@
-export type MemoryType = 'user' | 'feedback' | 'project' | 'reference';
+export type MemoryType = 'user' | 'feedback' | 'project' | 'reference' | 'session';
 
 export const MEMORY_FRONTMATTER_EXAMPLE = [
 	'---',
@@ -14,6 +14,7 @@ export function parseMemoryType(raw: string | undefined): MemoryType | undefined
 		case 'feedback':
 		case 'project':
 		case 'reference':
+		case 'session':
 			return raw!.trim().toLowerCase() as MemoryType;
 		default:
 			return undefined;
@@ -26,6 +27,7 @@ export const TYPES_SECTION_INDIVIDUAL = [
 	'- `feedback`: Repeatedly observed behaviors to continue or avoid.',
 	'- `project`: Important project-specific decisions, architecture, conventions, or constraints.',
 	'- `reference`: Reusable facts, locations, commands, or gotchas that save future time.',
+	'- `session`: High-level summary of a completed conversation or complex task, for cross-session recall.',
 ];
 
 export const WHAT_NOT_TO_SAVE_SECTION = [
