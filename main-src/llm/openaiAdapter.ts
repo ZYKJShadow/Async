@@ -3,7 +3,11 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { ShellSettings } from '../settingsStore.js';
 import { composeSystem, temperatureForMode } from './modePrompts.js';
 import type { StreamHandlers, TurnTokenUsage, UnifiedChatOptions } from './types.js';
-import { openAIReasoningEffort } from './thinkingLevel.js';
+import {
+	openAICompatibleEffectiveTemperature,
+	openAIReasoningEffort,
+	resolveRequestedTemperature,
+} from './thinkingLevel.js';
 import { resolveStreamTimeouts, createStreamTimeoutManager } from './streamTimeouts.js';
 import { llmSdkResponseHeadTimeoutMs } from './sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from './llmTransportRetry.js';
@@ -74,7 +78,15 @@ export async function streamOpenAICompatible(
 		settings,
 		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend)
 	);
-	const temperature = temperatureForMode(options.mode);
+	const requestedTemperature = resolveRequestedTemperature(
+		temperatureForMode(options.mode),
+		options.temperatureMode,
+		options.temperature
+	);
+	const temperature =
+		options.temperatureMode === 'custom' && options.temperature != null
+			? requestedTemperature
+			: openAICompatibleEffectiveTemperature(model, requestedTemperature);
 	const effort = openAIReasoningEffort(options.thinkingLevel ?? 'off');
 
 	let full = '';

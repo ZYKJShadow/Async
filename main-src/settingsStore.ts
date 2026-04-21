@@ -41,6 +41,8 @@ export type UserLlmProvider = {
 	proxyUrl?: string;
 };
 
+export type UserModelTemperatureMode = 'auto' | 'custom';
+
 export type UserModelEntry = {
 	/** 稳定 id，用于设置与选择器 */
 	id: string;
@@ -60,6 +62,14 @@ export type UserModelEntry = {
 	 * 不填则使用 OpenAI 兼容 `/v1/models` 缓存、启发式或默认 200k。
 	 */
 	contextWindowTokens?: number;
+	/**
+	 * temperature 策略：
+	 * - `auto`: 继续沿用应用内默认策略和兼容修正
+	 * - `custom`: 对该模型固定发送用户填写的 temperature
+	 */
+	temperatureMode?: UserModelTemperatureMode;
+	/** 仅 `temperatureMode === 'custom'` 时使用 */
+	temperature?: number;
 };
 
 export type LLMProviderId = ModelRequestParadigm;
@@ -322,6 +332,9 @@ type LegacyModelJson = {
 	displayName?: string;
 	requestName?: string;
 	maxOutputTokens?: number;
+	contextWindowTokens?: number;
+	temperatureMode?: UserModelTemperatureMode;
+	temperature?: number;
 	providerId?: string;
 	paradigm?: ModelRequestParadigm;
 	useCustomConnection?: boolean;
@@ -456,6 +469,9 @@ function migrateProviderModelLayout(settings: ShellSettings): { next: ShellSetti
 			displayName: String(raw.displayName ?? ''),
 			requestName: String(raw.requestName ?? ''),
 			maxOutputTokens: raw.maxOutputTokens,
+			contextWindowTokens: raw.contextWindowTokens,
+			temperatureMode: raw.temperatureMode,
+			temperature: raw.temperature,
 		});
 	}
 

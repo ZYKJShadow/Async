@@ -404,6 +404,8 @@ function resolveManagedAgentLoopOptions(
 		...(resolved.contextWindowTokens != null
 			? { contextWindowTokens: resolved.contextWindowTokens }
 			: {}),
+		temperatureMode: resolved.temperatureMode,
+		...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
 		composerMode: 'agent',
 		thinkingLevel,
 		workspaceRoot,
@@ -735,6 +737,8 @@ function runChatStream(
 				...(resolved.contextWindowTokens != null
 					? { contextWindowTokens: resolved.contextWindowTokens }
 					: {}),
+				temperatureMode: resolved.temperatureMode,
+				...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
 				thinkingLevel,
 			};
 			if (mode === 'team') {
@@ -843,6 +847,8 @@ function runChatStream(
 					...(resolved.contextWindowTokens != null
 						? { contextWindowTokens: resolved.contextWindowTokens }
 						: {}),
+					temperatureMode: resolved.temperatureMode,
+					...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
 					signal: ac.signal,
 					composerMode: mode,
 					thinkingLevel,
@@ -919,6 +925,8 @@ function runChatStream(
 						...(resolved.contextWindowTokens != null
 							? { contextWindowTokens: resolved.contextWindowTokens }
 							: {}),
+						temperatureMode: resolved.temperatureMode,
+						...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
 						signal: ac.signal,
 						composerMode: mode,
 						thinkingLevel,
@@ -1015,6 +1023,8 @@ function runChatStream(
 				requestBaseURL: resolved.baseURL,
 				requestProxyUrl: resolved.proxyUrl,
 				maxOutputTokens: resolved.maxOutputTokens,
+				temperatureMode: resolved.temperatureMode,
+				...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
 				thinkingLevel,
 				workspaceRoot,
 				...(agentSystemAppend?.trim() ? { agentSystemAppend: agentSystemAppend.trim() } : {}),

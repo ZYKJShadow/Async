@@ -59,6 +59,47 @@ export function anthropicEffectiveTemperature(defaultTemperature: number, thinkB
 	return thinkBudget !== null ? 1 : defaultTemperature;
 }
 
+export function normalizeUserModelTemperature(raw: unknown): number | undefined {
+	if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+		return undefined;
+	}
+	if (raw < 0 || raw > 2) {
+		return undefined;
+	}
+	return Math.round(raw * 1000) / 1000;
+}
+
+export function resolveRequestedTemperature(
+	defaultTemperature: number,
+	temperatureMode: 'auto' | 'custom' | undefined,
+	customTemperature: number | undefined
+): number {
+	const normalized = normalizeUserModelTemperature(customTemperature);
+	if (temperatureMode === 'custom' && normalized != null) {
+		return normalized;
+	}
+	return defaultTemperature;
+}
+
+function isFixedTemperatureOneOpenAIModel(model: string): boolean {
+	const m = model.trim().toLowerCase();
+	return (
+		m.includes('gpt-5') ||
+		m.includes('o1') ||
+		m.includes('o3') ||
+		m.includes('o4')
+	);
+}
+
+/**
+ * 部分 OpenAI / OpenAI-compatible 推理模型（常见如 GPT-5 / o1 / o3 / o4）
+ * 在 Chat Completions 兼容接口上仅接受 `temperature: 1`。
+ * 其余模型继续沿用调用方给定温度。
+ */
+export function openAICompatibleEffectiveTemperature(model: string, requestedTemperature: number): number {
+	return isFixedTemperatureOneOpenAIModel(model) ? 1 : requestedTemperature;
+}
+
 /** OpenAI Chat Completions reasoning_effort（非推理模型会忽略或报错由网关决定） */
 export function openAIReasoningEffort(level: ThinkingLevel): 'low' | 'medium' | 'high' | undefined {
 	switch (level) {

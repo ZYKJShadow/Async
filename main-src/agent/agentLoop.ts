@@ -34,7 +34,9 @@ import {
 	anthropicEffectiveMaxTokens,
 	anthropicEffectiveTemperature,
 	anthropicThinkingBudget,
+	openAICompatibleEffectiveTemperature,
 	openAIReasoningEffort,
+	resolveRequestedTemperature,
 } from '../llm/thinkingLevel.js';
 import {
 	addAnthropicCacheBreakpoints,
@@ -216,6 +218,8 @@ export type AgentLoopOptions = {
 	requestProxyUrl?: string;
 	maxOutputTokens: number;
 	contextWindowTokens?: number;
+	temperatureMode?: 'auto' | 'custom';
+	temperature?: number;
 	signal: AbortSignal;
 	/** 与主界面 Composer 模式一致；Plan 仅注册只读工具 */
 	composerMode: ComposerMode;
@@ -719,7 +723,15 @@ async function runOpenAILoop(
 		options.composerMode,
 		settings
 	);
-	const temperature = temperatureForMode(options.composerMode);
+	const requestedTemperature = resolveRequestedTemperature(
+		temperatureForMode(options.composerMode),
+		options.temperatureMode,
+		options.temperature
+	);
+	const temperature =
+		options.temperatureMode === 'custom' && options.temperature != null
+			? requestedTemperature
+			: openAICompatibleEffectiveTemperature(model, requestedTemperature);
 	let deferredToolState = normalizeDeferredToolStateForLoop(
 		options.deferredToolState,
 		options.discoveredDeferredToolNames
@@ -1373,7 +1385,12 @@ async function runAnthropicLoop(
 	const structured = new StructuredAssistantBuilder();
 	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
-	const temperature = anthropicEffectiveTemperature(temperatureForMode(options.composerMode), thinkBudget);
+	const requestedTemperature = resolveRequestedTemperature(
+		temperatureForMode(options.composerMode),
+		options.temperatureMode,
+		options.temperature
+	);
+	const temperature = anthropicEffectiveTemperature(requestedTemperature, thinkBudget);
 	let accUsage: TurnTokenUsage | undefined;
 
 	const mistakeLimitEnabled = options.mistakeLimitEnabled !== false;

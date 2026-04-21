@@ -13,7 +13,7 @@ export function SettingsAutoUpdatePanel({ shell }: SettingsAutoUpdatePanelProps)
 	const [downloading, setDownloading] = useState(false);
 	const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
 	const [allowDifferential, setAllowDifferential] = useState(true);
-	const [currentVersion] = useState('0.0.5');
+	const [currentVersion, setCurrentVersion] = useState('');
 
 	// 加载设置
 	useEffect(() => {
@@ -25,6 +25,18 @@ export function SettingsAutoUpdatePanel({ shell }: SettingsAutoUpdatePanelProps)
 		}).catch(() => {
 			// 忽略错误
 		});
+	}, [shell]);
+
+	// 获取当前应用版本
+	useEffect(() => {
+		if (!shell) return;
+		shell.invoke('app:getVersion')
+			.then((r: any) => {
+				setCurrentVersion(r?.version ?? '');
+			})
+			.catch(() => {
+				// 忽略错误
+			});
 	}, [shell]);
 
 	// 监听自动更新状态变化

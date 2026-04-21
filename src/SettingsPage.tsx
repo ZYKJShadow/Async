@@ -1118,6 +1118,7 @@ export function SettingsPage({
 														<ul className="ref-settings-provider-model-list">
 															{subModels.map((m) => {
 																const maxOut = m.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS;
+																const temperatureMode = m.temperatureMode === 'custom' ? 'custom' : 'auto';
 																return (
 																	<li key={m.id} className="ref-settings-user-model-card ref-settings-user-model-card--v2 ref-settings-user-model-card--nested">
 																		<div className="ref-settings-model-v2-head">
@@ -1160,6 +1161,59 @@ export function SettingsPage({
 																		<details className="ref-settings-model-advanced">
 																			<summary className="ref-settings-model-advanced-summary">{t('settings.modelAdvanced')}</summary>
 																			<div className="ref-settings-model-advanced-body">
+																				<label className="ref-settings-field ref-settings-field--compact">
+																					<span>{t('settings.temperatureMode')}</span>
+																					<VoidSelect
+																						ariaLabel={t('settings.temperatureMode')}
+																						value={temperatureMode}
+																						onChange={(value) => {
+																							if (value === 'custom') {
+																								patchEntry(m.id, {
+																									temperatureMode: 'custom',
+																									...(m.temperature == null ? { temperature: 1 } : {}),
+																								});
+																								return;
+																							}
+																							patchEntry(m.id, { temperatureMode: 'auto' });
+																						}}
+																						options={[
+																							{ value: 'auto', label: t('settings.temperatureModeAuto') },
+																							{ value: 'custom', label: t('settings.temperatureModeCustom') },
+																						]}
+																					/>
+																					<p className="ref-settings-proxy-hint ref-settings-field-footnote">
+																						{t('settings.temperatureModeHint')}
+																					</p>
+																				</label>
+																				{temperatureMode === 'custom' ? (
+																					<label className="ref-settings-field ref-settings-field--compact">
+																						<span>{t('settings.temperature')}</span>
+																						<input
+																							type="number"
+																							min={0}
+																							max={2}
+																							step={0.05}
+																							placeholder="1"
+																							value={m.temperature ?? ''}
+																							onChange={(e) => {
+																								const raw = e.target.value.trim();
+																								if (raw === '') {
+																									patchEntry(m.id, { temperature: undefined });
+																									return;
+																								}
+																								const v = Number.parseFloat(raw);
+																								patchEntry(m.id, {
+																									temperature: Number.isNaN(v)
+																										? undefined
+																										: Math.max(0, Math.min(2, v)),
+																								});
+																							}}
+																						/>
+																						<p className="ref-settings-proxy-hint ref-settings-field-footnote">
+																							{t('settings.temperatureCustomHint')}
+																						</p>
+																					</label>
+																				) : null}
 																				<label className="ref-settings-field ref-settings-field--compact">
 																					<span>{t('settings.maxOutputTokens')}</span>
 																					<input

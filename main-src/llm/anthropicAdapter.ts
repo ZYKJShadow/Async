@@ -7,6 +7,7 @@ import {
 	anthropicEffectiveMaxTokens,
 	anthropicEffectiveTemperature,
 	anthropicThinkingBudget,
+	resolveRequestedTemperature,
 } from './thinkingLevel.js';
 import { resolveStreamTimeouts, createStreamTimeoutManager } from './streamTimeouts.js';
 import {
@@ -104,7 +105,12 @@ export async function streamAnthropic(
 	);
 	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
-	const temperature = anthropicEffectiveTemperature(temperatureForMode(options.mode), thinkBudget);
+	const requestedTemperature = resolveRequestedTemperature(
+		temperatureForMode(options.mode),
+		options.temperatureMode,
+		options.temperature
+	);
+	const temperature = anthropicEffectiveTemperature(requestedTemperature, thinkBudget);
 	const maxTokens = anthropicEffectiveMaxTokens(thinkBudget, options.maxOutputTokens);
 	const thinkingParam =
 		thinkBudget !== null
