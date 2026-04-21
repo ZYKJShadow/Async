@@ -16,6 +16,7 @@ function buildSession(overrides: Partial<TeamSessionState> = {}): TeamSessionSta
 		leaderMessage: '',
 		leaderWorkflow: null,
 		planSummary: '',
+		finalSummary: '',
 		reviewSummary: '',
 		reviewVerdict: null,
 		preflightSummary: '',

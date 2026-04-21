@@ -1,6 +1,7 @@
 import { ChatMarkdown } from './ChatMarkdown';
 import type { TeamPlanRevisionState } from './hooks/useTeamSession';
 import { useI18n } from './i18n';
+import { TeamRoleAvatar } from './TeamRoleAvatar';
 
 type Props = {
 	revision: TeamPlanRevisionState;
@@ -43,6 +44,11 @@ export function TeamPlanRevisionCard({ revision }: Props) {
 						<div className="ref-plan-review-todos-list">
 							{revision.tasks.map((task) => (
 								<div key={task.id} className="ref-team-plan-task">
+									<TeamRoleAvatar
+										roleType={task.roleType}
+										assignmentKey={task.expertAssignmentKey ?? task.expertId}
+										avatarSeed={task.id}
+									/>
 									<div className="ref-team-plan-task-body">
 										<div className="ref-team-plan-task-head">
 											<span className="ref-team-plan-task-name">{task.expertName}</span>

@@ -3,6 +3,7 @@ import { ChatMarkdown } from './ChatMarkdown';
 import { useI18n } from './i18n';
 import type { TeamPlanProposalState } from './hooks/useTeamSession';
 import { normalizeTeamLeaderText } from './teamChatTimeline';
+import { TeamRoleAvatar } from './TeamRoleAvatar';
 
 type Props = {
 	proposal: TeamPlanProposalState;
@@ -10,6 +11,13 @@ type Props = {
 	onReject: (feedback?: string) => void;
 	hideSummary?: boolean;
 };
+
+function sanitizeCriteria(criteria?: readonly string[]): string[] {
+	if (!criteria || criteria.length === 0) {
+		return [];
+	}
+	return criteria.map((item) => String(item ?? '').trim()).filter(Boolean);
+}
 
 export function TeamPlanReviewPanel({ proposal, onApprove, onReject, hideSummary = false }: Props) {
 	const { t } = useI18n();
@@ -97,27 +105,33 @@ export function TeamPlanReviewPanel({ proposal, onApprove, onReject, hideSummary
 						</button>
 						{showTasks ? (
 							<div className="ref-plan-review-todos-list">
-								{proposal.tasks.map((task, idx) => (
-									<div key={`${task.expert}-${idx}`} className="ref-team-plan-task">
-										<span className={`ref-team-expert-avatar ref-team-expert-avatar--${task.roleType}`}>
-											{task.expertName.slice(0, 1).toUpperCase()}
-										</span>
-										<div className="ref-team-plan-task-body">
-											<div className="ref-team-plan-task-head">
-												<span className="ref-team-plan-task-name">{task.expertName}</span>
-												<span className="ref-team-plan-task-role">{task.expert}</span>
+								{proposal.tasks.map((task, idx) => {
+									const criteria = sanitizeCriteria(task.acceptanceCriteria);
+									const avatarSeed = `${proposal.proposalId}:${idx}:${task.expert}`;
+									return (
+										<div key={`${task.expert}-${idx}`} className="ref-team-plan-task">
+											<TeamRoleAvatar
+												roleType={task.roleType}
+												assignmentKey={task.expert}
+												avatarSeed={avatarSeed}
+											/>
+											<div className="ref-team-plan-task-body">
+												<div className="ref-team-plan-task-head">
+													<span className="ref-team-plan-task-name">{task.expertName}</span>
+													<span className="ref-team-plan-task-role">{task.expert}</span>
+												</div>
+												<div className="ref-team-plan-task-desc">{task.task}</div>
+												{criteria.length > 0 ? (
+													<ul className="ref-team-plan-task-criteria">
+														{criteria.map((c, i) => (
+															<li key={i}>{c}</li>
+														))}
+													</ul>
+												) : null}
 											</div>
-											<div className="ref-team-plan-task-desc">{task.task}</div>
-											{task.acceptanceCriteria && task.acceptanceCriteria.length > 0 ? (
-												<ul className="ref-team-plan-task-criteria">
-													{task.acceptanceCriteria.map((c, i) => (
-														<li key={i}>{c}</li>
-													))}
-												</ul>
-											) : null}
 										</div>
-									</div>
-								))}
+									);
+								})}
 							</div>
 						) : null}
 					</div>

@@ -47,7 +47,11 @@ export const TeamWorkflowTimelineCard = memo(function TeamWorkflowTimelineCard({
 								className={`ref-team-timeline-item ${session.selectedTaskId === item.id ? 'is-active' : ''}`}
 								onClick={() => onSelectTask(item.id)}
 							>
-								<TeamRoleAvatar roleType={item.roleType} assignmentKey={item.expertAssignmentKey} />
+								<TeamRoleAvatar
+									roleType={item.roleType}
+									assignmentKey={item.expertAssignmentKey}
+									avatarSeed={item.id}
+								/>
 								<span className="ref-team-timeline-item-copy">
 									<span className="ref-team-timeline-item-meta">{roleKindLabel(t, item)}</span>
 									<span className="ref-team-timeline-item-title">{item.expertName}</span>
@@ -76,7 +80,11 @@ export const TeamWorkflowTimelineCard = memo(function TeamWorkflowTimelineCard({
 								className={`ref-team-timeline-item ${session.selectedTaskId === item.id ? 'is-active' : ''}`}
 								onClick={() => onSelectTask(item.id)}
 							>
-								<TeamRoleAvatar roleType={item.roleType} assignmentKey={item.expertAssignmentKey} />
+								<TeamRoleAvatar
+									roleType={item.roleType}
+									assignmentKey={item.expertAssignmentKey}
+									avatarSeed={item.id}
+								/>
 								<span className="ref-team-timeline-item-copy">
 									<span className="ref-team-timeline-item-meta">{roleKindLabel(t, item)}</span>
 									<span className="ref-team-timeline-item-title">{item.expertName}</span>

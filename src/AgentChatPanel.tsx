@@ -214,6 +214,13 @@ function expandStartIndexByPixelBudget(
 	return newStart;
 }
 
+function sanitizeTeamCriteria(criteria?: readonly string[]): string[] {
+	if (!criteria || criteria.length === 0) {
+		return [];
+	}
+	return criteria.map((item) => String(item ?? '').trim()).filter(Boolean);
+}
+
 export const AgentChatPanel = memo(function AgentChatPanel({
 	layout = 'agent-center',
 	t,
@@ -1312,39 +1319,46 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'revision';
 		},
 		rowIndex: number
-	): ReactNode => (
-		<div
-			key={`row-${conversationRenderKey}-team-item-${item.id}`}
-			className="ref-msg-row-measure ref-msg-row-measure--team-item"
-			data-msg-index={String(rowIndex)}
-		>
-			<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-item">
-				<button
-					type="button"
-					className={`ref-team-timeline-item ${teamSession?.selectedTaskId === item.id ? 'is-active' : ''}`}
-					onClick={() => onSelectTeamExpert(item.id)}
-				>
-					<TeamRoleAvatar roleType={item.roleType} assignmentKey={item.expertAssignmentKey} />
-					<span className="ref-team-timeline-item-copy">
-						<span className="ref-team-timeline-item-meta">{t(`team.timeline.role.${item.roleKind}`)}</span>
-						<span className="ref-team-timeline-item-title">{item.expertName}</span>
-						<span className="ref-team-timeline-item-body">{item.description}</span>
-						{item.acceptanceCriteria && item.acceptanceCriteria.length > 0 ? (
-							<ul className="ref-team-timeline-item-criteria">
-								{item.acceptanceCriteria.map((criterion, idx) => (
-									<li key={idx}>{criterion}</li>
-								))}
-							</ul>
-						) : null}
-					</span>
-					<span className={`ref-team-expert-status ref-team-expert-status--${item.status}`}>
-						{item.status === 'in_progress' ? <span className="ref-team-pulse" /> : null}
-						{t(`team.timeline.status.${item.status}`)}
-					</span>
-				</button>
+	): ReactNode => {
+		const criteria = sanitizeTeamCriteria(item.acceptanceCriteria);
+		return (
+			<div
+				key={`row-${conversationRenderKey}-team-item-${item.id}`}
+				className="ref-msg-row-measure ref-msg-row-measure--team-item"
+				data-msg-index={String(rowIndex)}
+			>
+				<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-item">
+					<button
+						type="button"
+						className={`ref-team-timeline-item ${teamSession?.selectedTaskId === item.id ? 'is-active' : ''}`}
+						onClick={() => onSelectTeamExpert(item.id)}
+					>
+						<TeamRoleAvatar
+							roleType={item.roleType}
+							assignmentKey={item.expertAssignmentKey}
+							avatarSeed={item.id}
+						/>
+						<span className="ref-team-timeline-item-copy">
+							<span className="ref-team-timeline-item-meta">{t(`team.timeline.role.${item.roleKind}`)}</span>
+							<span className="ref-team-timeline-item-title">{item.expertName}</span>
+							<span className="ref-team-timeline-item-body">{item.description}</span>
+							{criteria.length > 0 ? (
+								<ul className="ref-team-timeline-item-criteria">
+									{criteria.map((criterion, idx) => (
+										<li key={idx}>{criterion}</li>
+									))}
+								</ul>
+							) : null}
+						</span>
+						<span className={`ref-team-expert-status ref-team-expert-status--${item.status}`}>
+							{item.status === 'in_progress' ? <span className="ref-team-pulse" /> : null}
+							{t(`team.timeline.status.${item.status}`)}
+						</span>
+					</button>
+				</div>
 			</div>
-		</div>
-	);
+		);
+	};
 
 	const buildTeamTimelineRows = (): ReactNode[] => {
 		const nodes = buildFlatMessageList();

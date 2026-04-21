@@ -100,7 +100,12 @@ export const TeamSessionView = memo(function TeamSessionView({ t, session, onSel
 				{selectedTask ? (
 					<>
 						<div className="ref-team-detail-head">
-							<TeamRoleAvatar roleType={selectedTask.roleType} assignmentKey={selectedTask.expertAssignmentKey} small />
+							<TeamRoleAvatar
+								roleType={selectedTask.roleType}
+								assignmentKey={selectedTask.expertAssignmentKey}
+								avatarSeed={selectedTask.id}
+								small
+							/>
 							<strong>{selectedTask.expertName}</strong>
 							<span className={`ref-team-expert-status ref-team-expert-status--${selectedTask.status}`}>
 								{selectedTask.status}

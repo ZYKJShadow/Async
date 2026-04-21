@@ -70,6 +70,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	const suppressScrollToBottomButtonTimerRef = useRef<number | null>(null);
 	const messagesScrollToBottomRafRef = useRef<number | null>(null);
 	const messagesTrackScrollHeightRef = useRef(0);
+	const messagesViewportClientHeightRef = useRef(0);
 	const messagesShrinkScrollTimerRef = useRef<number | null>(null);
 	const prevMessagesLenForScrollRef = useRef(0);
 
@@ -243,18 +244,32 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		if (!outer || !track) {
 			return;
 		}
+		messagesTrackScrollHeightRef.current = track.scrollHeight;
+		messagesViewportClientHeightRef.current = outer.clientHeight;
 		const ro = new ResizeObserver(() => {
 			const h = track.scrollHeight;
 			const prev = messagesTrackScrollHeightRef.current;
 			messagesTrackScrollHeightRef.current = h;
+			const viewportHeight = outer.clientHeight;
+			const prevViewportHeight = messagesViewportClientHeightRef.current;
+			messagesViewportClientHeightRef.current = viewportHeight;
+			const wasPinned = pinMessagesToBottomRef.current;
 			syncMessagesScrollIndicators();
+			const trackGrew = h >= prev - 2;
+			const viewportShrank =
+				prevViewportHeight > 0 && viewportHeight < prevViewportHeight - 2;
 			// 变高：新内容 / 展开，立即粘底（仍由 schedule 合并到单帧）
-			if (h >= prev - 2) {
+			if (trackGrew || viewportShrank) {
 				if (messagesShrinkScrollTimerRef.current !== null) {
 					window.clearTimeout(messagesShrinkScrollTimerRef.current);
 					messagesShrinkScrollTimerRef.current = null;
 				}
-				scheduleMessagesScrollToBottom();
+				if (wasPinned) {
+					pinMessagesToBottomRef.current = true;
+				}
+				if (wasPinned || pinMessagesToBottomRef.current) {
+					scheduleMessagesScrollToBottom();
+				}
 				return;
 			}
 			// 变矮：多为折叠动画中间帧，避免每帧 scrollTo 造成整区闪烁；结束后补一次即可贴底
@@ -263,9 +278,15 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			}
 			messagesShrinkScrollTimerRef.current = window.setTimeout(() => {
 				messagesShrinkScrollTimerRef.current = null;
-				scheduleMessagesScrollToBottom();
+				if (wasPinned) {
+					pinMessagesToBottomRef.current = true;
+				}
+				if (wasPinned || pinMessagesToBottomRef.current) {
+					scheduleMessagesScrollToBottom();
+				}
 			}, 340);
 		});
+		ro.observe(outer);
 		ro.observe(track);
 		return () => {
 			ro.disconnect();
