@@ -143,6 +143,37 @@ export function isSlashCommandDomPendingUpgrade(
 	return domTail === propTail;
 }
 
+/** props 已是某 skill chip，DOM 仍为纯文本 `./...`（含无空格紧贴后缀） */
+export function isSkillInvocationDomPendingUpgrade(
+	segments: ComposerSegment[],
+	domSegs: ComposerSegment[]
+): boolean {
+	const norm = mergeAdjacentText(segments);
+	const p0 = norm[0];
+	const d0 = domSegs[0];
+	if (p0?.kind !== 'skill') {
+		return false;
+	}
+	if (d0?.kind !== 'text') {
+		return false;
+	}
+	const wire = skillInvocationWire(p0.slug);
+	const tx = d0.text;
+	if (tx === wire || tx.startsWith(wire)) {
+		return true;
+	}
+	if (!tx.startsWith('./')) {
+		return false;
+	}
+	const domSkillToken = tx.match(/^\.\/\S*/)?.[0] ?? '';
+	if (!domSkillToken) {
+		return false;
+	}
+	const domTail = tx.slice(domSkillToken.length).replace(/^\s+/, '');
+	const propTail = segmentsToWireText(norm.slice(1)).replace(/^\s+/, '');
+	return domTail === propTail;
+}
+
 /**
  * 文件/command 与紧随其后的正文之间若缺少空白，在 wire 中补一个 ASCII 空格，
  * 避免 `@path` 与后续字符粘连后被最长前缀匹配吃进路径（如 `@foo.tshello`）。

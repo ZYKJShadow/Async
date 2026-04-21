@@ -17,6 +17,7 @@ import {
 	type ComposerPlusMcpItem,
 	type ComposerPlusSkillItem,
 } from '../ComposerPlusMenu';
+import { ComposerSkillMenu } from '../ComposerSkillMenu';
 import { ComposerSlashMenu } from '../ComposerSlashMenu';
 import { GitBranchPickerDropdown } from '../GitBranchPickerDropdown';
 import { ModelPickerDropdown, type ModelPickerItem } from '../ModelPickerDropdown';
@@ -153,6 +154,14 @@ export type AppShellOverlaysProps = {
 	setAtMenuHighlight: (i: number) => void;
 	applyAtSelection: (item: AtMenuItem) => void;
 	closeAtMenu: () => void;
+	skillMenuOpen: boolean;
+	skillQuery: string;
+	skillMenuItems: ComponentProps<typeof ComposerSkillMenu>['items'];
+	skillMenuHighlight: number;
+	skillCaretRect: CaretRectSnapshot | null;
+	setSkillMenuHighlight: (i: number) => void;
+	applySkillSelection: ComponentProps<typeof ComposerSkillMenu>['onSelect'];
+	closeSkillMenu: () => void;
 	slashMenuOpen: boolean;
 	slashQuery: string;
 	slashMenuItems: ComponentProps<typeof ComposerSlashMenu>['items'];
@@ -240,6 +249,14 @@ export const AppShellOverlays = memo(function AppShellOverlays({
 	setAtMenuHighlight,
 	applyAtSelection,
 	closeAtMenu,
+	skillMenuOpen,
+	skillQuery,
+	skillMenuItems,
+	skillMenuHighlight,
+	skillCaretRect,
+	setSkillMenuHighlight,
+	applySkillSelection,
+	closeSkillMenu,
 	slashMenuOpen,
 	slashQuery,
 	slashMenuItems,
@@ -441,6 +458,17 @@ export const AppShellOverlays = memo(function AppShellOverlays({
 				onHighlight={setSlashMenuHighlight}
 				onSelect={applySlashSelection}
 				onClose={closeSlashMenu}
+			/>
+
+			<ComposerSkillMenu
+				open={skillMenuOpen}
+				query={skillQuery}
+				items={skillMenuItems}
+				highlightIndex={skillMenuHighlight}
+				caretRect={skillCaretRect}
+				onHighlight={setSkillMenuHighlight}
+				onSelect={applySkillSelection}
+				onClose={closeSkillMenu}
 			/>
 
 			{saveToastVisible ? <div key={saveToastKey} className="ref-save-toast">Saved ✓</div> : null}

@@ -230,16 +230,16 @@ function collectSkillItemsFromDir(
 		return [];
 	}
 	const out: AgentSkill[] = [];
-	for (const dirName of fs.readdirSync(dirPath)) {
-		const skillPath = path.join(dirPath, dirName, 'SKILL.md');
+	const pushSkillFromDirectory = (skillDir: string, dirName: string): void => {
+		const skillPath = path.join(skillDir, 'SKILL.md');
 		const raw = readTextFileSafe(skillPath);
 		if (!raw.trim()) {
-			continue;
+			return;
 		}
 		const { body, meta } = stripSimpleFrontmatter(raw);
 		const slug = dirName.trim().toLowerCase();
 		if (!slug) {
-			continue;
+			return;
 		}
 		out.push({
 			id: `plugin-skill:${contributionKey}:${slug}`,
@@ -255,6 +255,14 @@ function collectSkillItemsFromDir(
 			pluginSourceRelPath: relativePluginPath(pluginRoot, skillPath),
 			pluginSourceKind: sourceKind,
 		});
+	};
+	pushSkillFromDirectory(dirPath, path.basename(dirPath));
+	for (const dirName of fs.readdirSync(dirPath)) {
+		const skillDir = path.join(dirPath, dirName);
+		if (!fs.existsSync(skillDir) || !fs.statSync(skillDir).isDirectory()) {
+			continue;
+		}
+		pushSkillFromDirectory(skillDir, dirName);
 	}
 	return out.sort((a, b) => a.slug.localeCompare(b.slug));
 }

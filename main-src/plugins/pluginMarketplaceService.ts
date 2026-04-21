@@ -59,6 +59,14 @@ type MarketplacePluginEntry = {
 	category?: unknown;
 	tags?: unknown;
 	source?: unknown;
+	skills?: unknown;
+	commands?: unknown;
+	agents?: unknown;
+	mcpServers?: unknown;
+	disabled?: unknown;
+	interface?: {
+		displayName?: unknown;
+	};
 };
 
 type MarketplaceManifest = {
@@ -79,6 +87,20 @@ type PluginRemoteSource =
 	| { source: 'npm'; package?: unknown }
 	| { source: 'pip'; package?: unknown }
 	| { source: string; [key: string]: unknown };
+
+type PluginManifestFile = {
+	name: string;
+	version?: string;
+	description?: string;
+	disabled?: boolean;
+	skills?: string[];
+	commands?: string[];
+	agents?: string[];
+	mcpServers?: string;
+	interface?: {
+		displayName?: string;
+	};
+};
 
 function getMarketplaceCacheRoot(): string {
 	const root = path.join(getCachedAsyncDataDir(), 'plugin-marketplaces');
@@ -139,6 +161,87 @@ function sanitizeSlug(value: string): string {
 		.replace(/[^\w.-]+/g, '-')
 		.replace(/^-+|-+$/g, '');
 	return cleaned || 'plugin';
+}
+
+function asTrimmedString(value: unknown): string | null {
+	if (typeof value !== 'string') {
+		return null;
+	}
+	const trimmed = value.trim();
+	return trimmed ? trimmed : null;
+}
+
+function asTrimmedStringArray(value: unknown): string[] {
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		return trimmed ? [trimmed] : [];
+	}
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value
+		.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+		.map((item) => item.trim());
+}
+
+function buildSynthesizedPluginManifests(
+	pluginName: string,
+	entry: MarketplacePluginEntry,
+): { claudeManifest: PluginManifestFile | null; codexManifest: PluginManifestFile | null } {
+	const description = asTrimmedString(entry.description) ?? undefined;
+	const version = asTrimmedString(entry.version) ?? undefined;
+	const skills = asTrimmedStringArray(entry.skills);
+	const commands = asTrimmedStringArray(entry.commands);
+	const agents = asTrimmedStringArray(entry.agents);
+	const mcpServers = asTrimmedString(entry.mcpServers) ?? undefined;
+	const displayName = asTrimmedString(entry.interface?.displayName) ?? undefined;
+	const disabled = entry.disabled === true ? true : undefined;
+	const baseManifest = {
+		name: pluginName,
+		...(version ? { version } : {}),
+		...(description ? { description } : {}),
+		...(disabled ? { disabled } : {}),
+	} satisfies Omit<PluginManifestFile, 'skills' | 'commands' | 'agents' | 'mcpServers' | 'interface'>;
+	const claudeManifest =
+		skills.length > 0 || commands.length > 0 || agents.length > 0
+			? {
+					...baseManifest,
+					...(skills.length > 0 ? { skills } : {}),
+					...(commands.length > 0 ? { commands } : {}),
+					...(agents.length > 0 ? { agents } : {}),
+				}
+			: null;
+	const codexManifest =
+		skills.length > 0 || Boolean(mcpServers) || Boolean(displayName)
+			? {
+					...baseManifest,
+					...(skills.length > 0 ? { skills } : {}),
+					...(mcpServers ? { mcpServers } : {}),
+					...(displayName ? { interface: { displayName } } : {}),
+				}
+			: null;
+	return { claudeManifest, codexManifest };
+}
+
+function canSynthesizePluginMetadata(entry: MarketplacePluginEntry): boolean {
+	const manifests = buildSynthesizedPluginManifests(String(entry.name ?? '').trim() || 'plugin', entry);
+	return Boolean(manifests.claudeManifest || manifests.codexManifest);
+}
+
+function ensurePluginMetadataForInstall(targetDir: string, pluginName: string, entry: MarketplacePluginEntry): void {
+	if (isRecognizedPluginDirectorySync(targetDir)) {
+		return;
+	}
+	const manifests = buildSynthesizedPluginManifests(pluginName, entry);
+	if (!manifests.claudeManifest && !manifests.codexManifest) {
+		return;
+	}
+	if (manifests.claudeManifest) {
+		writeJsonAtomic(path.join(targetDir, '.claude-plugin', 'plugin.json'), manifests.claudeManifest);
+	}
+	if (manifests.codexManifest) {
+		writeJsonAtomic(path.join(targetDir, '.codex-plugin', 'plugin.json'), manifests.codexManifest);
+	}
 }
 
 function sourceKindOfMarketplace(source: MarketplaceSource): PluginMarketplaceSourceKind {
@@ -827,7 +930,7 @@ async function materializePluginSourceToTemp(
 		if (!fs.existsSync(stageDir) || !fs.statSync(stageDir).isDirectory()) {
 			throw new Error(`Plugin source directory not found: ${stageDir}`);
 		}
-		if (!isRecognizedPluginDirectorySync(stageDir)) {
+		if (!isRecognizedPluginDirectorySync(stageDir) && !canSynthesizePluginMetadata(entry)) {
 			throw new Error(`Plugin source is missing plugin metadata: ${stageDir}`);
 		}
 		return { stageDir, cleanup: () => {} };
@@ -898,7 +1001,7 @@ async function materializePluginSourceToTemp(
 				if (!fs.existsSync(stageDir) || !fs.statSync(stageDir).isDirectory()) {
 					throw new Error(`Plugin subdirectory not found: ${stageDir}`);
 				}
-				if (!isRecognizedPluginDirectorySync(stageDir)) {
+				if (!isRecognizedPluginDirectorySync(stageDir) && !canSynthesizePluginMetadata(entry)) {
 					throw new Error(`Plugin subdirectory is missing plugin metadata: ${stageDir}`);
 				}
 				return {
@@ -913,7 +1016,7 @@ async function materializePluginSourceToTemp(
 				throw new Error(`Plugin source "${sourceKind || 'unknown'}" is not supported.`);
 		}
 
-		if (!isRecognizedPluginDirectorySync(repoDir)) {
+		if (!isRecognizedPluginDirectorySync(repoDir) && !canSynthesizePluginMetadata(entry)) {
 			throw new Error(`Plugin "${String(entry.name ?? '')}" does not contain a recognized plugin manifest.`);
 		}
 		return {
@@ -951,7 +1054,7 @@ export async function installMarketplacePlugin(
 	const targetDir = path.join(targetRoot, sanitizeSlug(pluginName));
 	const staged = await materializePluginSourceToTemp(marketplaceName, manifest, pluginEntry, marketplaceEntry);
 	try {
-		if (!isRecognizedPluginDirectorySync(staged.stageDir)) {
+		if (!isRecognizedPluginDirectorySync(staged.stageDir) && !canSynthesizePluginMetadata(pluginEntry)) {
 			throw new Error(`Plugin "${pluginName}" is missing a supported plugin manifest.`);
 		}
 		if (!isPathInsideRoot(targetDir, targetRoot)) {
@@ -959,6 +1062,10 @@ export async function installMarketplacePlugin(
 		}
 		if (path.resolve(staged.stageDir) !== path.resolve(targetDir)) {
 			copyPathReplacing(staged.stageDir, targetDir);
+		}
+		ensurePluginMetadataForInstall(targetDir, pluginName, pluginEntry);
+		if (!isRecognizedPluginDirectorySync(targetDir)) {
+			throw new Error(`Plugin "${pluginName}" is missing a supported plugin manifest.`);
 		}
 		writeInstallMeta(targetDir, {
 			pluginId: `${pluginName}@${marketplaceName}`,

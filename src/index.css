@@ -13961,6 +13961,17 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	flex-wrap: wrap;
 }
 
+.ref-settings-plugins-runtime-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+.ref-settings-plugins-runtime-label {
+	margin: 0;
+}
+
 .ref-appearance-lead {
 	margin: 0 0 20px;
 	font-size: 13px;

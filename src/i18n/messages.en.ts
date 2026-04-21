@@ -1073,6 +1073,7 @@ export const messagesEn: Record<string, string> = {
 	'settings.plugins.runtimeCommands': '{{count}} commands',
 	'settings.plugins.runtimeMcp': '{{count}} MCP',
 	'settings.plugins.runtimeReadyDesc': 'Available immediately in chat and Tools & MCP.',
+	'settings.plugins.runtimeSkillInvokeLabel': 'Invoke in chat with:',
 	'settings.general.lead1': 'General options will live here. For ',
 	'settings.general.leadBold1': 'API keys, model list, and default model',
 	'settings.general.lead2': ', open ',
@@ -1640,6 +1641,8 @@ export const messagesEn: Record<string, string> = {
 
 	'slashCmd.menuAria': 'Slash commands',
 	'slashCmd.noMatch': 'No matching commands',
+	'skillInvoke.menuAria': 'Callable skills',
+	'skillInvoke.noMatch': 'No matching skills',
 	'slashCmd.createSkillDesc':
 		'Create a Skill: scope picker, then Agent mode—prefer writing `.async/skills/.../SKILL.md` with tools.',
 	'slashCmd.createRuleDesc':

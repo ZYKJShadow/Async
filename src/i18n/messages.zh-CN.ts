@@ -1056,6 +1056,7 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.plugins.runtimeCommands': '{{count}} 个 Commands',
 	'settings.plugins.runtimeMcp': '{{count}} 个 MCP',
 	'settings.plugins.runtimeReadyDesc': '安装后已自动接入聊天与「工具 / MCP」面板。',
+	'settings.plugins.runtimeSkillInvokeLabel': '聊天中可直接调用：',
 	'settings.general.lead1': '通用与应用级选项将放在此处。对话所用的 ',
 	'settings.general.leadBold1': 'API 密钥、模型列表与默认模型',
 	'settings.general.lead2': ' 请在左侧选择 ',
@@ -1621,6 +1622,8 @@ export const messagesZhCN: Record<string, string> = {
 
 	'slashCmd.menuAria': '斜杠命令',
 	'slashCmd.noMatch': '无匹配命令',
+	'skillInvoke.menuAria': '可调用技能',
+	'skillInvoke.noMatch': '无匹配技能',
 	'slashCmd.createSkillDesc': '创建 Skill：选范围后走 Agent，尽量在工作区落盘 .async/skills/…/SKILL.md。',
 	'slashCmd.createRuleDesc':
 		'引导创建 Rule：选作用域后自动切到 Agent，并由助手用工具写入 `.async/rules/*.mdc`（非仅聊天内粘贴）。',

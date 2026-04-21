@@ -52,6 +52,7 @@ import {
 import { getAtMentionRange } from './composerAtMention';
 import { textBeforeCaretForAt } from './composerRichDom';
 import { useComposerAtMention, type AtComposerSlot } from './useComposerAtMention';
+import { useComposerSkillInvoke } from './useComposerSkillInvoke';
 import { useComposerSlashCommand } from './useComposerSlashCommand';
 
 const EMPTY_AGENT_PENDING_PATCHES: AgentPendingPatch[] = [];
@@ -2721,6 +2722,19 @@ function AppMainWorkspaceInner() {
 			slot === 'inline' && resendIdxRef.current !== null ? setInlineResendSegments : setComposerSegments,
 		[setInlineResendSegments, setComposerSegments]
 	);
+	const composerPlusSkills = useMemo(
+		() =>
+			(mergedAgentCustomization.skills ?? [])
+				.filter((skill) => skill.enabled !== false && skill.slug.trim().length > 0)
+				.map((skill) => ({
+					id: skill.id,
+					name: skill.name,
+					slug: skill.slug.trim(),
+					description: skill.description.trim() || skill.content.trim().slice(0, 140),
+				}))
+				.sort((a, b) => a.name.localeCompare(b.name)),
+		[mergedAgentCustomization.skills]
+	);
 
 	const atMention = useComposerAtMention(getComposerSegmentsSetter, composerRichSurface, {
 		gitChangedPaths,
@@ -2732,6 +2746,9 @@ function AppMainWorkspaceInner() {
 		layoutMode,
 		editorPreviewFile: editorSidebarSelectedRel,
 	});
+	const skillInvoke = useComposerSkillInvoke(getComposerSegmentsSetter, composerRichSurface, {
+		skills: composerPlusSkills,
+	});
 	const slashCommand = useComposerSlashCommand(getComposerSegmentsSetter, composerRichSurface, {
 		t,
 		userCommands: mergedAgentCustomization.commands,
@@ -2741,14 +2758,22 @@ function AppMainWorkspaceInner() {
 			const slice = textBeforeCaretForAt(root);
 			const caret = slice.length;
 			if (getAtMentionRange(slice, caret)) {
+				skillInvoke.closeSkillMenu();
 				slashCommand.closeSlashMenu();
 				atMention.syncAtFromRich(root, slot);
 				return;
 			}
 			atMention.syncAtFromRich(root, slot);
+			skillInvoke.syncSkillFromRich(root, slot);
 			slashCommand.syncSlashFromRich(root, slot);
 		},
-		[atMention.syncAtFromRich, slashCommand.closeSlashMenu, slashCommand.syncSlashFromRich]
+		[
+			atMention.syncAtFromRich,
+			skillInvoke.closeSkillMenu,
+			skillInvoke.syncSkillFromRich,
+			slashCommand.closeSlashMenu,
+			slashCommand.syncSlashFromRich,
+		]
 	);
 	closeAtMenuLatestRef.current = atMention.closeAtMenu;
 
@@ -2764,10 +2789,11 @@ function AppMainWorkspaceInner() {
 			if (inlineResendRootRef.current?.contains(t)) {
 				return;
 			}
-			if (t instanceof Element && t.closest('.ref-at-menu, .ref-slash-menu, .ref-model-dd, .ref-plus-menu, .ref-plus-submenu')) {
+			if (t instanceof Element && t.closest('.ref-at-menu, .ref-slash-menu, .ref-skill-menu, .ref-model-dd, .ref-plus-menu, .ref-plus-submenu')) {
 				return;
 			}
 			closeAtMenuLatestRef.current();
+			skillInvoke.closeSkillMenu();
 			slashCommand.closeSlashMenu();
 			composerRichInlineRef.current?.blur();
 			setResendFromUserIndex(null);
@@ -2775,7 +2801,7 @@ function AppMainWorkspaceInner() {
 		};
 		document.addEventListener('pointerdown', onDocPointerDown, true);
 		return () => document.removeEventListener('pointerdown', onDocPointerDown, true);
-	}, [resendFromUserIndex, slashCommand]);
+	}, [resendFromUserIndex, skillInvoke.closeSkillMenu, slashCommand.closeSlashMenu]);
 
 	const commitStaged = async () => {
 		if (!shell) {
@@ -3142,6 +3168,7 @@ function AppMainWorkspaceInner() {
 			syncComposerOverlays,
 			setResendFromUserIndex,
 			setInlineResendSegments,
+			skillInvokeKeyDown: skillInvoke.handleSkillKeyDown,
 			slashCommandKeyDown: slashCommand.handleSlashKeyDown,
 			atMentionKeyDown: atMention.handleAtKeyDown,
 		}),
@@ -3175,6 +3202,7 @@ function AppMainWorkspaceInner() {
 			syncComposerOverlays,
 			setResendFromUserIndex,
 			setInlineResendSegments,
+			skillInvoke.handleSkillKeyDown,
 			slashCommand.handleSlashKeyDown,
 			atMention.handleAtKeyDown,
 		]
@@ -3861,20 +3889,6 @@ function AppMainWorkspaceInner() {
 		]
 	);
 
-	const composerPlusSkills = useMemo(
-		() =>
-			(mergedAgentCustomization.skills ?? [])
-				.filter((skill) => skill.enabled !== false && skill.slug.trim().length > 0)
-				.map((skill) => ({
-					id: skill.id,
-					name: skill.name,
-					slug: skill.slug.trim(),
-					description: skill.description.trim() || skill.content.trim().slice(0, 140),
-				}))
-				.sort((a, b) => a.name.localeCompare(b.name)),
-		[mergedAgentCustomization.skills]
-	);
-
 	const composerPlusMcpServers = useMemo(() => {
 		const statusById = new Map(mcpStatuses.map((status) => [status.id, status]));
 		return mcpServers.map((server) => {
@@ -4058,6 +4072,14 @@ function AppMainWorkspaceInner() {
 				setAtMenuHighlight={atMention.setAtMenuHighlight}
 				applyAtSelection={atMention.applyAtSelection}
 				closeAtMenu={atMention.closeAtMenu}
+				skillMenuOpen={skillInvoke.skillMenuOpen}
+				skillQuery={skillInvoke.skillQuery}
+				skillMenuItems={skillInvoke.skillMenuItems}
+				skillMenuHighlight={skillInvoke.skillMenuHighlight}
+				skillCaretRect={skillInvoke.skillCaretRect}
+				setSkillMenuHighlight={skillInvoke.setSkillMenuHighlight}
+				applySkillSelection={skillInvoke.applySkillSelection}
+				closeSkillMenu={skillInvoke.closeSkillMenu}
 				slashMenuOpen={slashCommand.slashMenuOpen}
 				slashQuery={slashCommand.slashQuery}
 				slashMenuItems={slashCommand.slashMenuItems}
