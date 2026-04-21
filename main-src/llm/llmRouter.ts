@@ -10,7 +10,7 @@ import { resolveMessagesForSend, type SendableMessage } from './sendResolved.js'
 /**
  * Agent 模式的多轮工具循环已由 agent/agentLoop.ts 实现。
  * 此文件仅处理非 Agent 模式（Ask / Plan / Debug）的简单流式补全。
- * 当消息带 `parts` 时走结构化解析；否则回退到基于 @path 的文本内联展开。
+ * 当消息带 `parts` 时走结构化解析；文本文件引用保留为路径提示，由模型自行决定是否使用工具读取。
  */
 
 export async function streamChatUnified(

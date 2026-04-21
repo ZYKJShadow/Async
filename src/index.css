@@ -3414,7 +3414,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 /* ?????????? .ref-messages ???????????????????? */
 .ref-msg-sticky-user-wrap {
 	position: sticky;
-	top: 0;
+	top: var(--ref-sticky-user-top, 0px);
 	z-index: 8;
 	align-self: center;
 	width: min(100%, 720px);
@@ -3431,6 +3431,19 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 /* ?????????????? */
 .ref-center--chat .ref-msg-sticky-user-wrap {
 	/*background: var(--void-bg-0);*/
+}
+
+.ref-msg-sticky-user-wrap--team {
+	top: var(--ref-sticky-user-top, 0px);
+	padding-top: 0;
+	margin-top: 0;
+	background: linear-gradient(
+		to bottom,
+		color-mix(in srgb, var(--void-bg-0) 100%, transparent) 0%,
+		color-mix(in srgb, var(--void-bg-0) 100%, transparent) calc(100% - 12px),
+		transparent 100%
+	);
+	padding-bottom: 12px;
 }
 
 /* ?? sticky ????????? diff ???? */

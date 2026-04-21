@@ -11,8 +11,8 @@ function modeBlock(mode: ComposerMode): string {
 		case 'ask':
 			return [
 				'You are in Ask mode.',
-				'The system message may include the **current workspace root path** and an **indicative file tree** (when a folder is open). User `@` references and paths are relative to that root unless stated otherwise.',
-				'You do not have workspace tools in this mode — rely on the provided tree, any expanded file excerpts, and what the user pastes.',
+				'When a workspace is open, the system message may include project rules or git context, but ordinary source files are not preloaded for you.',
+				'You do not have workspace tools in this mode — rely only on what the user pasted or explicitly attached in the conversation.',
 				'Answer clearly and cite uncertainty. Prefer explanations over large code dumps.',
 				'Do not assume the user wants repository edits unless they explicitly ask for changes.',
 			].join('\n');
@@ -59,7 +59,7 @@ function modeBlock(mode: ComposerMode): string {
 				'',
 				'### Phase 1: Clarify (ALWAYS start here for a new topic)',
 				'1. Read the user\'s request carefully.',
-				'2. If the workspace file tree is in context, review it to understand the project.',
+				'2. Use Read / Glob / Grep / LSP tools when you need to inspect the project.',
 				'3. Identify the most important decision point and call **`ask_plan_question`** once for it.',
 				'4. Wait for the tool result (user choice). Do NOT call `plan_submit_draft` yet.',
 				'5. After the tool returns, ask the next clarification with another **`ask_plan_question`** call, or move to Phase 2 if enough info.',
@@ -75,7 +75,7 @@ function modeBlock(mode: ComposerMode): string {
 				'Adjust based on feedback. When satisfied, the user will click the Build button.',
 				'',
 				'## Guidelines',
-				'- Reference ACTUAL file paths from the workspace file tree when available.',
+				'- Reference ACTUAL file paths only after confirming them via tools or explicit user-provided paths.',
 				'- Do NOT invent file names — if unsure, say "需要确认具体文件位置".',
 				'- Prefer small, incremental steps over big-bang rewrites.',
 				'- Highlight dependencies between steps (e.g. "Step 3 depends on Step 1").',

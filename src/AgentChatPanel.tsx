@@ -7,6 +7,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type CSSProperties,
 	type ComponentProps,
 	type Dispatch,
 	type ReactNode,
@@ -375,6 +376,34 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	]);
 	const hasTeamSupplementalRows =
 		(teamConversationTimeline?.entries.length ?? 0) > 0 || shouldRenderCurrentTeamLeaderRow;
+	const teamLiveReplyMeta = useMemo(() => {
+		if (!teamSession || composerMode !== 'team' || !hasConversation) {
+			return {
+				isLive: false,
+				hasNarrativeContent: false,
+				hasLiveBlocks: false,
+				hasStreamingThinking: false,
+			};
+		}
+		const workflow = teamSession.leaderWorkflow;
+		const currentLeaderMessage = teamConversationTimeline?.currentLeaderMessage?.trim() ?? '';
+		const hasLiveBlocks = (workflow?.liveBlocks.blocks.length ?? 0) > 0;
+		const hasStreamingThinking = Boolean(workflow?.streamingThinking?.trim());
+		const hasNarrativeContent = currentLeaderMessage.length > 0;
+		return {
+			isLive:
+				awaitingReply ||
+				Boolean(workflow?.awaitingReply) ||
+				hasLiveBlocks ||
+				hasStreamingThinking,
+			hasNarrativeContent,
+			hasLiveBlocks,
+			hasStreamingThinking,
+		};
+	}, [teamSession, composerMode, hasConversation, teamConversationTimeline, awaitingReply]);
+	const shouldUseStableTeamLiveLayout =
+		composerMode === 'team' &&
+		teamLiveReplyMeta.isLive;
 	if (import.meta.env.DEV) {
 		console.log(`[perf] AgentChatPanel render: thread=${messagesThreadId}, messages=${displayMessages.length}, hasConv=${hasConversation}`);
 	}
@@ -579,6 +608,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const [messageStartIndex, setMessageStartIndex] = useState(0);
 	const [activeTurnSpacerPx, setActiveTurnSpacerPx] = useState(0);
 	const [stickyUserIndex, setStickyUserIndex] = useState<number | null>(null);
+	const [stickyUserTopPx, setStickyUserTopPx] = useState(0);
 	const [layoutMeasureVersion, setLayoutMeasureVersion] = useState(0);
 	const messagesTopSentinelRef = useRef<HTMLDivElement | null>(null);
 	const pendingPrependScrollRef = useRef<{ prevScrollHeight: number } | null>(null);
@@ -688,7 +718,22 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	useLayoutEffect(() => {
 		setActiveTurnSpacerPx(0);
 		setStickyUserIndex(null);
+		setStickyUserTopPx(0);
 	}, [conversationRenderKey]);
+
+	useLayoutEffect(() => {
+		if (!hasConversation) {
+			setStickyUserTopPx((prev) => (prev === 0 ? prev : 0));
+			return;
+		}
+		const viewport = messagesViewportRef.current;
+		if (!viewport) {
+			return;
+		}
+		const viewportStyle = window.getComputedStyle(viewport);
+		const topPadding = Number.parseFloat(viewportStyle.paddingTop || '0') || 0;
+		setStickyUserTopPx((prev) => (Math.abs(prev - topPadding) <= 1 ? prev : topPadding));
+	}, [hasConversation, conversationRenderKey, layoutMeasureVersion, messagesViewportRef]);
 
 	/** 顶部哨兵：再往上加载约「一整屏」高的内容（按已测/估算行高累计） */
 	useEffect(() => {
@@ -818,7 +863,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	}, [messageStartIndex, displayMessages.length]);
 
 	useLayoutEffect(() => {
-		if (!hasConversation || latestTurnStartUserIndex == null) {
+		if (!hasConversation || latestTurnStartUserIndex == null || shouldUseStableTeamLiveLayout) {
 			setActiveTurnSpacerPx((prev) => (prev === 0 ? prev : 0));
 			return;
 		}
@@ -842,6 +887,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	}, [
 		hasConversation,
 		latestTurnStartUserIndex,
+		shouldUseStableTeamLiveLayout,
 		lastMessageLayoutSig,
 		layoutMeasureVersion,
 		conversationRenderKey,
@@ -903,6 +949,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	 */
 	const syncStickyUserIndexRef = useRef<() => void>(() => {});
 	syncStickyUserIndexRef.current = () => {
+		if (shouldUseStableTeamLiveLayout) {
+			setStickyUserIndex((prev) => (prev == null ? prev : null));
+			return;
+		}
 		const viewport = messagesViewportRef.current;
 		if (!viewport) {
 			return;
@@ -921,7 +971,14 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			latestTurnStartUserIndex,
 			latestTurnSpacerPx: activeTurnSpacerPx,
 		});
-		const resolvedStickyIndex = resolveStickyUserIndex(nextStickyIndex);
+		const shouldSuppressPinnedTeamSticky =
+			composerMode === 'team' &&
+			isAtBottom &&
+			activeTurnSpacerPx > 0 &&
+			nextStickyIndex === latestTurnStartUserIndex;
+		const resolvedStickyIndex = resolveStickyUserIndex(
+			shouldSuppressPinnedTeamSticky ? null : nextStickyIndex
+		);
 		setStickyUserIndex((prev) => (prev === resolvedStickyIndex ? prev : resolvedStickyIndex));
 	};
 
@@ -974,6 +1031,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		activeTurnSpacerPx,
 		latestTurnStartUserIndex,
 		messageStartIndex,
+		shouldUseStableTeamLiveLayout,
 	]);
 
 	/**
@@ -1019,7 +1077,12 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	 * “follow output” 调度，才能稳住自动置底。
 	 */
 	useLayoutEffect(() => {
-		if (!hasConversation || composerMode !== 'team' || !teamSession) {
+		if (
+			!hasConversation ||
+			composerMode !== 'team' ||
+			!teamSession ||
+			teamLiveReplyMeta.isLive
+		) {
 			return;
 		}
 		scheduleMessagesScrollToBottom();
@@ -1040,7 +1103,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		hasConversation,
 		composerMode,
 		conversationRenderKey,
-		teamSession?.updatedAt,
+		teamConversationTimeline?.entries,
+		shouldRenderCurrentTeamLeaderRow,
+		teamLiveReplyMeta.isLive,
 		scheduleMessagesScrollToBottom,
 	]);
 
@@ -1539,15 +1604,48 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			}
 			return buildTeamTaskRow(turnOwnerUserIndex, entry.item);
 		});
-		const currentLeaderRow = buildTeamLeaderRow(
-			turnOwnerUserIndex,
-			teamTimeline.currentLeaderMessage
-		);
-		const isTrailingDeliveryMessage =
-			!awaitingReply &&
+		const hasTrailingAssistantRow =
 			lastAssistantMessageIndex === displayMessages.length - 1 &&
 			lastAssistantMessageIndex >= messageStartIndex &&
 			displayMessages[displayMessages.length - 1]?.role === 'assistant';
+		const liveLeaderContent =
+			hasTrailingAssistantRow && lastAssistantMessageIndex >= 0
+				? displayMessages[lastAssistantMessageIndex]?.content ?? teamTimeline.currentLeaderMessage
+				: teamTimeline.currentLeaderMessage;
+		const currentLeaderRow = buildTeamLeaderRow(
+			turnOwnerUserIndex,
+			liveLeaderContent
+		);
+		const leaderWorkflow = teamSession.leaderWorkflow;
+		const isLiveTeamReply =
+			awaitingReply ||
+			Boolean(leaderWorkflow?.awaitingReply) ||
+			(leaderWorkflow?.liveBlocks.blocks.length ?? 0) > 0 ||
+			Boolean(leaderWorkflow?.streamingThinking);
+		const shouldKeepLiveLeaderAtBottom =
+			teamSession.phase === 'synthesizing' ||
+			teamSession.phase === 'delivering';
+		const isTrailingDeliveryMessage =
+			!awaitingReply &&
+			hasTrailingAssistantRow;
+
+		if (isLiveTeamReply) {
+			if (hasTrailingAssistantRow && nodes.length > 0) {
+				nodes.pop();
+			}
+			if (shouldKeepLiveLeaderAtBottom) {
+				nodes.push(...timelineRows);
+				if (currentLeaderRow) {
+					nodes.push(currentLeaderRow);
+				}
+				return nodes;
+			}
+			if (currentLeaderRow) {
+				nodes.push(currentLeaderRow);
+			}
+			nodes.push(...timelineRows);
+			return nodes;
+		}
 
 		if (isTrailingDeliveryMessage) {
 			const trailingAssistant = nodes.length > 0 ? nodes.pop() ?? null : null;
@@ -1574,10 +1672,19 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const renderedChatRowNodes = renderedChatRows.map((row) => {
 		const isStickyRow =
 			row.stickyUserIndex != null && row.stickyUserIndex === stickyUserIndex;
+		const stickyModeClass =
+			isStickyRow && composerMode === 'team'
+				? ' ref-msg-sticky-user-wrap--team'
+				: '';
 		return (
 			<div
 				key={row.key}
-				className={`${row.className}${isStickyRow ? ' ref-msg-sticky-user-wrap' : ''}`}
+				className={`${row.className}${isStickyRow ? ' ref-msg-sticky-user-wrap' : ''}${stickyModeClass}`}
+				style={
+					isStickyRow
+						? ({ '--ref-sticky-user-top': `${stickyUserTopPx}px` } as CSSProperties)
+						: undefined
+				}
 				data-row-id={row.rowId}
 				data-msg-index={
 					row.dataMsgIndex != null ? String(row.dataMsgIndex) : undefined

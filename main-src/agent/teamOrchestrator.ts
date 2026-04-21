@@ -379,6 +379,10 @@ function stripFencedBlocks(text: string): string {
 	return unclosed.trim();
 }
 
+function stripDetailsBlocks(text: string): string {
+	return text.replace(/<details\b[^>]*>[\s\S]*?<\/details>/gi, '').trim();
+}
+
 function stripTrailingRawJson(text: string): string {
 	const normalized = text.trim();
 	if (!normalized) {
@@ -399,8 +403,9 @@ function extractTeamLeadNarrative(text: string): string {
 		return '';
 	}
 	const withoutFence = stripFencedBlocks(normalized);
-	const withoutJson = stripTrailingRawJson(withoutFence || normalized);
-	return (withoutJson || withoutFence || normalized).replace(/\n{3,}/g, '\n\n').trim();
+	const withoutDetails = stripDetailsBlocks(withoutFence || normalized);
+	const withoutJson = stripTrailingRawJson(withoutDetails || withoutFence || normalized);
+	return (withoutJson || withoutDetails || withoutFence || normalized).replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function buildFallbackTeamLeadNarrative(hasCjk: boolean): string {
@@ -2382,8 +2387,8 @@ function buildTeamDeliveryText(params: {
 		? completedTasks.map((task) => buildTaskDeliveryLine(task))
 		: [`- ${hasCjkRequest ? '无角色任务。' : 'No specialist tasks ran.'}`];
 	const detailNote = hasCjkRequest
-		? '详细角色输出保留在 Team 面板中。'
-		: 'Detailed role outputs remain in the Team panel.';
+		? '详细角色输出与分派过程保留在 Team 面板中。'
+		: 'Detailed role outputs and planning history remain in the Team panel.';
 	const trimmedFinal = finalSummary.trim();
 	const trimmedPlan = planSummary.trim();
 	const leadBody = trimmedFinal || trimmedPlan || (hasCjkRequest ? '(无)' : '(none)');
@@ -2403,16 +2408,6 @@ function buildTeamDeliveryText(params: {
 		leadHeading,
 		leadBody,
 	];
-	if (trimmedFinal && trimmedPlan && trimmedPlan !== trimmedFinal) {
-		sections.push(
-			'',
-			hasCjkRequest ? '<details><summary>初始分派说明</summary>' : '<details><summary>Initial plan</summary>',
-			'',
-			trimmedPlan,
-			'',
-			'</details>'
-		);
-	}
 	sections.push(
 		'',
 		'## Task Status',

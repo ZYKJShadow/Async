@@ -116,7 +116,6 @@ import { discoverProviderModels } from '../llm/providerModelDiscovery.js';
 import { streamChatUnified } from '../llm/llmRouter.js';
 import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import {
-	buildWorkspaceTreeSummary,
 	modeExpandsWorkspaceFileContext,
 } from '../llm/workspaceContextExpand.js';
 import { resolveMessagesForSend } from '../llm/sendResolved.js';
@@ -203,7 +202,6 @@ import {
 	ensureSymbolIndexLoaded,
 } from '../workspaceSymbolIndex.js';
 import { getGitContextBlock, clearGitContextCacheForRoot } from '../gitContext.js';
-import { buildRelevantMemoryContextBlock } from '../memdir/findRelevantMemories.js';
 import { ensureMemoryDirExists, loadMemoryPrompt } from '../memdir/memdir.js';
 import { scanMemoryFiles } from '../memdir/memoryScan.js';
 import { getAutoMemEntrypoint } from '../memdir/paths.js';
@@ -270,19 +268,6 @@ function resolveWorkspaceScopeForThreads(
 		}
 	}
 	return senderWorkspaceRoot(event);
-}
-
-/**
- * 融合当前用户输入与最近几轮历史 user 消息，构建更丰富的语义检索 query。
- * 多轮对话场景下，仅用当前 userText 检索可能遗漏与历史上下文相关的代码片段。
- */
-function buildEnrichedQuery(userText: string, threadMessages: ChatMessage[]): string {
-	const recentUserTexts = threadMessages
-		.filter((m) => m.role === 'user')
-		.slice(-3)
-		.map((m) => m.content.slice(0, 200))
-		.join(' ');
-	return `${userText} ${recentUserTexts}`.slice(0, 1000);
 }
 
 function appendSystemBlock(base: string | undefined, block: string): string {
@@ -358,10 +343,6 @@ async function appendMemoryAndRetrievalContext(params: {
 	mode: ComposerMode;
 	settings: ReturnType<typeof getSettings>;
 	root: string | null;
-	threadId: string;
-	userText: string;
-	atPaths: string[];
-	modelSelection: string;
 	signal?: AbortSignal;
 }): Promise<string> {
 	let next = params.base ?? '';
@@ -373,23 +354,6 @@ async function appendMemoryAndRetrievalContext(params: {
 		const memoryPrompt = await loadMemoryPrompt(params.root);
 		if (memoryPrompt) {
 			next = appendSystemBlock(next, memoryPrompt);
-		}
-	}
-
-	if (modeExpandsWorkspaceFileContext(params.mode) && params.userText.trim().length > 8) {
-		const recentPaths = Object.keys(getThread(params.threadId)?.fileStates ?? {});
-		const enrichedQuery = buildEnrichedQuery(params.userText, getThread(params.threadId)?.messages ?? []);
-		if (params.root) {
-			const relevantMemories = await buildRelevantMemoryContextBlock({
-				query: enrichedQuery,
-				settings: params.settings,
-				modelSelection: params.modelSelection,
-				workspaceRoot: params.root,
-				signal: params.signal,
-			});
-			if (relevantMemories) {
-				next = appendSystemBlock(next, relevantMemories);
-			}
 		}
 	}
 
@@ -2586,25 +2550,11 @@ export function registerIpc(): void {
 				let finalSystemAppend = prepared.agentSystemAppend
 					? `${prepared.agentSystemAppend}\n\n---\n\n${skillBlock}`
 					: skillBlock;
-				if (root) {
-					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
-					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
-				}
-				if (workspaceFiles.length > 0) {
-					const tree = buildWorkspaceTreeSummary(workspaceFiles);
-					if (tree) {
-						finalSystemAppend = appendSystemBlock(finalSystemAppend, tree);
-					}
-				}
 				finalSystemAppend = await appendMemoryAndRetrievalContext({
 					base: finalSystemAppend,
 					mode: creatorAgentMode,
 					settings,
 					root,
-					threadId,
-					userText: prepared.userText,
-					atPaths: prepared.atPaths,
-					modelSelection,
 					signal: preflightAc.signal,
 				});
 				throwIfAbortRequested(preflightAc.signal, threadId, 'skillCreator preflight');
@@ -2626,25 +2576,11 @@ export function registerIpc(): void {
 				let finalSystemAppend = prepared.agentSystemAppend
 					? `${prepared.agentSystemAppend}\n\n---\n\n${ruleBlock}`
 					: ruleBlock;
-				if (root) {
-					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
-					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
-				}
-				if (workspaceFiles.length > 0) {
-					const tree = buildWorkspaceTreeSummary(workspaceFiles);
-					if (tree) {
-						finalSystemAppend = appendSystemBlock(finalSystemAppend, tree);
-					}
-				}
 				finalSystemAppend = await appendMemoryAndRetrievalContext({
 					base: finalSystemAppend,
 					mode: creatorAgentMode,
 					settings,
 					root,
-					threadId,
-					userText: prepared.userText,
-					atPaths: prepared.atPaths,
-					modelSelection,
 					signal: preflightAc.signal,
 				});
 				throwIfAbortRequested(preflightAc.signal, threadId, 'ruleCreator preflight');
@@ -2673,25 +2609,11 @@ export function registerIpc(): void {
 				let finalSystemAppend = prepared.agentSystemAppend
 					? `${prepared.agentSystemAppend}\n\n---\n\n${subBlock}`
 					: subBlock;
-				if (root) {
-					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
-					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
-				}
-				if (workspaceFiles.length > 0) {
-					const tree = buildWorkspaceTreeSummary(workspaceFiles);
-					if (tree) {
-						finalSystemAppend = appendSystemBlock(finalSystemAppend, tree);
-					}
-				}
 				finalSystemAppend = await appendMemoryAndRetrievalContext({
 					base: finalSystemAppend,
 					mode: creatorAgentMode,
 					settings,
 					root,
-					threadId,
-					userText: prepared.userText,
-					atPaths: prepared.atPaths,
-					modelSelection,
 					signal: preflightAc.signal,
 				});
 				throwIfAbortRequested(preflightAc.signal, threadId, 'subagentCreator preflight');
@@ -2701,7 +2623,7 @@ export function registerIpc(): void {
 				return { ok: true as const };
 			}
 
-			const { userText, agentSystemAppend, atPaths } = prepareUserTurnForChat(
+			const { userText, agentSystemAppend } = prepareUserTurnForChat(
 				text,
 				agentForTurn,
 				root,
@@ -2709,25 +2631,11 @@ export function registerIpc(): void {
 			);
 
 			let finalSystemAppend = agentSystemAppend;
-			if (root && (mode === 'plan' || mode === 'ask' || mode === 'team')) {
-				const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
-				finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
-			}
-			if ((mode === 'plan' || mode === 'ask' || mode === 'team') && workspaceFiles.length > 0) {
-				const tree = buildWorkspaceTreeSummary(workspaceFiles);
-				if (tree) {
-					finalSystemAppend = appendSystemBlock(finalSystemAppend, tree);
-				}
-			}
 			finalSystemAppend = await appendMemoryAndRetrievalContext({
 				base: finalSystemAppend,
 				mode,
 				settings,
 				root,
-				threadId,
-				userText,
-				atPaths,
-				modelSelection,
 				signal: preflightAc.signal,
 			});
 			throwIfAbortRequested(preflightAc.signal, threadId, 'chat preflight');
@@ -2816,28 +2724,14 @@ export function registerIpc(): void {
 					mergeAgentWithProjectSlice(settings.agent, projectAgent),
 					root
 				);
-				const { userText, agentSystemAppend, atPaths } = prepareUserTurnForChat(trimmed, agentForTurn, root, workspaceFiles);
+				const { userText, agentSystemAppend } = prepareUserTurnForChat(trimmed, agentForTurn, root, workspaceFiles);
 
 				let finalSystemAppend = agentSystemAppend;
-				if (root && (mode === 'plan' || mode === 'ask' || mode === 'team')) {
-					const wsLine = `## Current workspace\nWorkspace root (absolute): \`${root.replace(/\\/g, '/')}\`\nUser file references with \`@\` are relative to this root.`;
-					finalSystemAppend = finalSystemAppend ? `${finalSystemAppend}\n\n---\n${wsLine}` : wsLine;
-				}
-				if ((mode === 'plan' || mode === 'ask' || mode === 'team') && workspaceFiles.length > 0) {
-					const tree = buildWorkspaceTreeSummary(workspaceFiles);
-					if (tree) {
-						finalSystemAppend = appendSystemBlock(finalSystemAppend, tree);
-					}
-				}
 				finalSystemAppend = await appendMemoryAndRetrievalContext({
 					base: finalSystemAppend,
 					mode,
 					settings,
 					root,
-					threadId,
-					userText,
-					atPaths,
-					modelSelection,
 					signal: preflightAc.signal,
 				});
 				throwIfAbortRequested(preflightAc.signal, threadId, 'editResend preflight');

@@ -8,6 +8,10 @@ function stripFencedBlocks(text: string): string {
 	return text.replace(/```[\s\S]*?```/g, '').trim();
 }
 
+function stripDetailsBlocks(text: string): string {
+	return text.replace(/<details\b[^>]*>[\s\S]*?<\/details>/gi, '').trim();
+}
+
 function stripTrailingRawJson(text: string): string {
 	const normalized = text.trim();
 	if (!normalized) {
@@ -36,7 +40,8 @@ export function extractTeamLeadNarrative(summary: string): string {
 	}
 
 	const withoutFence = stripFencedBlocks(text);
-	const withoutRawJson = stripTrailingRawJson(withoutFence || text);
+	const withoutDetails = stripDetailsBlocks(withoutFence || text);
+	const withoutRawJson = stripTrailingRawJson(withoutDetails || withoutFence || text);
 
-	return normalizeNarrativeText(withoutRawJson || withoutFence || text);
+	return normalizeNarrativeText(withoutRawJson || withoutDetails || withoutFence || text);
 }
