@@ -49,8 +49,7 @@ export const TeamWorkflowTimelineCard = memo(function TeamWorkflowTimelineCard({
 							>
 								<TeamRoleAvatar
 									roleType={item.roleType}
-									assignmentKey={item.expertAssignmentKey}
-									avatarSeed={item.id}
+									assignmentKey={item.expertAssignmentKey ?? item.expertId}
 								/>
 								<span className="ref-team-timeline-item-copy">
 									<span className="ref-team-timeline-item-meta">{roleKindLabel(t, item)}</span>
@@ -82,8 +81,7 @@ export const TeamWorkflowTimelineCard = memo(function TeamWorkflowTimelineCard({
 							>
 								<TeamRoleAvatar
 									roleType={item.roleType}
-									assignmentKey={item.expertAssignmentKey}
-									avatarSeed={item.id}
+									assignmentKey={item.expertAssignmentKey ?? item.expertId}
 								/>
 								<span className="ref-team-timeline-item-copy">
 									<span className="ref-team-timeline-item-meta">{roleKindLabel(t, item)}</span>

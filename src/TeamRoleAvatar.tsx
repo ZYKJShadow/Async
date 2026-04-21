@@ -10,6 +10,7 @@ import {
 	IconRoleCustom,
 } from './icons';
 import { TEAM_ROLE_AVATAR_IMAGE_URLS, pickTeamRoleAvatarUrl } from './teamRoleAvatarUrls';
+import { buildTeamAvatarSeed } from './teamAvatarSeed';
 
 type IconProps = { className?: string };
 
@@ -48,7 +49,7 @@ function resolveAvatarClass(roleType: TeamRoleType, assignmentKey?: string): str
 type Props = {
 	roleType: TeamRoleType;
 	assignmentKey?: string;
-	/** Stable id (e.g. task id) so the same expert keeps the same random avatar. */
+	/** Optional fallback when no stable assignmentKey is available. */
 	avatarSeed?: string;
 	small?: boolean;
 };
@@ -56,10 +57,7 @@ type Props = {
 export function TeamRoleAvatar({ roleType, assignmentKey, avatarSeed, small }: Props) {
 	const Icon = resolveIcon(roleType, assignmentKey);
 	const modifier = resolveAvatarClass(roleType, assignmentKey);
-	const seed =
-		typeof avatarSeed === 'string' && avatarSeed.trim().length > 0
-			? avatarSeed.trim()
-			: `${roleType}:${assignmentKey ?? ''}`;
+	const seed = buildTeamAvatarSeed({ roleType, assignmentKey, avatarSeed });
 	const imageSrc = pickTeamRoleAvatarUrl(seed, TEAM_ROLE_AVATAR_IMAGE_URLS);
 	const cls = [
 		'ref-team-expert-avatar',

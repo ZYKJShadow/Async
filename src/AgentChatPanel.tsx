@@ -1493,6 +1493,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			id: string;
 			roleType: Parameters<typeof TeamRoleAvatar>[0]['roleType'];
 			expertAssignmentKey?: string;
+			expertId?: string;
 			roleKind: 'specialist' | 'reviewer';
 			expertName: string;
 			description: string;
@@ -1519,8 +1520,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 					>
 						<TeamRoleAvatar
 							roleType={item.roleType}
-							assignmentKey={item.expertAssignmentKey}
-							avatarSeed={item.id}
+							assignmentKey={item.expertAssignmentKey ?? item.expertId}
 						/>
 						<span className="ref-team-timeline-item-copy">
 							<span className="ref-team-timeline-item-meta">{t(`team.timeline.role.${item.roleKind}`)}</span>

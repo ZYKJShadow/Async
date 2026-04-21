@@ -130,13 +130,11 @@ export function TeamPlanReviewPanel({
 							<div className="ref-plan-review-todos-list">
 								{proposal.tasks.map((task, idx) => {
 									const criteria = sanitizeCriteria(task.acceptanceCriteria);
-									const avatarSeed = `${proposal.proposalId}:${idx}:${task.expert}`;
 									return (
 										<div key={`${task.expert}-${idx}`} className="ref-team-plan-task">
 											<TeamRoleAvatar
 												roleType={task.roleType}
 												assignmentKey={task.expert}
-												avatarSeed={avatarSeed}
 											/>
 											<div className="ref-team-plan-task-body">
 												<div className="ref-team-plan-task-head">

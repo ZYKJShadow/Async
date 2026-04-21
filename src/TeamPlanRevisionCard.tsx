@@ -54,7 +54,6 @@ export function TeamPlanRevisionCard({ revision, onHeightMayChange }: Props) {
 									<TeamRoleAvatar
 										roleType={task.roleType}
 										assignmentKey={task.expertAssignmentKey ?? task.expertId}
-										avatarSeed={task.id}
 									/>
 									<div className="ref-team-plan-task-body">
 										<div className="ref-team-plan-task-head">

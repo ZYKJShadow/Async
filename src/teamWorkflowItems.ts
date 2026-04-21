@@ -50,6 +50,7 @@ export function buildTeamWorkflowItems(session: TeamSessionState | null): TeamWo
 			: (session.planProposal?.tasks ?? []).map((task, index) => ({
 					id: buildProposalTaskId(index, task.expertName),
 					expertId: task.expert,
+					expertAssignmentKey: task.expert,
 					expertName: task.expertName,
 					roleType: task.roleType,
 					description: task.task,

@@ -25,7 +25,10 @@ export const TeamExpertCard = memo(function TeamExpertCard({ task, active, onSel
 			onClick={onSelect}
 			title={`${task.expertName}: ${task.description}`}
 		>
-			<TeamRoleAvatar roleType={task.roleType} assignmentKey={task.expertAssignmentKey} avatarSeed={task.id} />
+			<TeamRoleAvatar
+				roleType={task.roleType}
+				assignmentKey={task.expertAssignmentKey ?? task.expertId}
+			/>
 			<span className="ref-team-expert-meta">
 				<span className="ref-team-expert-name">{task.expertName}</span>
 				<span className="ref-team-expert-task">{task.description}</span>

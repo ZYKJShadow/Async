@@ -219,8 +219,7 @@ export const TeamRoleWorkflowPanel = memo(function TeamRoleWorkflowPanel({
 					<div className="ref-team-role-shell-expert">
 						<TeamRoleAvatar
 							roleType={item.roleType}
-							assignmentKey={item.expertAssignmentKey}
-							avatarSeed={item.id}
+							assignmentKey={item.expertAssignmentKey ?? item.expertId}
 						/>
 						<div className="ref-team-role-shell-title-stack">
 							<div className="ref-team-role-shell-title-row">
