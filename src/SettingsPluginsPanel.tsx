@@ -221,13 +221,18 @@ export function SettingsPluginsPanel({ shell, workspaceOpen }: Props) {
 			string,
 			{
 				skills: number;
+				skillSlugs: string[];
 				commands: number;
 				mcpServers: number;
 			}
 		>();
 		for (const plugin of runtimeState?.plugins ?? []) {
+			const skillSlugs = [...new Set(plugin.skills.map((skill) => skill.slug.trim()).filter(Boolean))].sort((a, b) =>
+				a.localeCompare(b)
+			);
 			map.set(plugin.installDir, {
 				skills: plugin.skills.length,
+				skillSlugs,
 				commands: plugin.commands.length,
 				mcpServers: plugin.mcpServers.length,
 			});
@@ -771,6 +776,18 @@ export function SettingsPluginsPanel({ shell, workspaceOpen }: Props) {
 										<p className="ref-settings-proxy-hint" style={{ marginTop: 10 }}>
 											{t('settings.plugins.runtimeReadyDesc')}
 										</p>
+									) : null}
+									{runtime && runtime.skillSlugs.length > 0 ? (
+										<div className="ref-settings-plugins-runtime-list">
+											<p className="ref-settings-agent-card-desc ref-settings-plugins-runtime-label">
+												{t('settings.plugins.runtimeSkillInvokeLabel')}
+											</p>
+											<div className="ref-settings-plugins-badge-row">
+												{runtime.skillSlugs.map((slug) => (
+													<Badge key={`${plugin.installDir}:${slug}`} text={`./${slug}`} />
+												))}
+											</div>
+										</div>
 									) : null}
 								</div>
 								<div className="ref-settings-plugins-marketplace-toolbar">

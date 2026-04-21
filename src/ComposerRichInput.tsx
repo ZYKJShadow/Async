@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+	isSkillInvocationDomPendingUpgrade,
 	isSlashCommandDomPendingUpgrade,
 	newSegmentId,
 	segmentsContentKey,
@@ -158,6 +159,7 @@ export function ComposerRichInput({
 			const allowSyncWhileFocused =
 				domWire === wire ||
 				isSlashCommandDomPendingUpgrade(segments, domSegs) ||
+				isSkillInvocationDomPendingUpgrade(segments, domSegs) ||
 				(wire.length > domWire.length && wire.startsWith(domWire));
 			if (!allowSyncWhileFocused) {
 				return;

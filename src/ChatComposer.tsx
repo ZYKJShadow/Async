@@ -68,6 +68,7 @@ interface ChatComposerProps {
 	syncComposerOverlays: (root: HTMLElement, slot: AtComposerSlot) => void;
 	setResendFromUserIndex: Dispatch<SetStateAction<number | null>>;
 	setInlineResendSegments: Dispatch<SetStateAction<ComposerSegment[]>>;
+	skillInvokeKeyDown: (e: KeyboardEvent<HTMLDivElement>) => boolean;
 	slashCommandKeyDown: (e: KeyboardEvent<HTMLDivElement>) => boolean;
 	atMentionKeyDown: (e: KeyboardEvent<HTMLDivElement>) => boolean;
 }
@@ -113,6 +114,7 @@ export function ChatComposer({
 	syncComposerOverlays,
 	setResendFromUserIndex,
 	setInlineResendSegments,
+	skillInvokeKeyDown,
 	slashCommandKeyDown,
 	atMentionKeyDown,
 }: ChatComposerProps) {
@@ -151,6 +153,7 @@ export function ChatComposer({
 	const sendTitle = awaitingReply ? t('app.stopGeneration') : t('app.send');
 
 	const onComposerKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+		if (skillInvokeKeyDown(e)) return;
 		if (slashCommandKeyDown(e)) return;
 		if (atMentionKeyDown(e)) return;
 		if (e.key === 'Escape' && resendFromUserIndex !== null && slot === 'inline') {
