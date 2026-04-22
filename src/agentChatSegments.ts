@@ -1030,6 +1030,22 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 				mk
 			);
 		}
+		case 'Fetch': {
+			const fetchUrl = String(mk.args.url ?? '').trim();
+			const fetchMethod = String(mk.args.method ?? 'GET').toUpperCase();
+			return withNestActivity(
+				{
+					type: 'activity',
+					text: inProgress
+						? t('agent.activity.fetching', { method: fetchMethod, url: fetchUrl || '…' })
+						: t('agent.activity.fetched', { method: fetchMethod, url: fetchUrl || '…' }),
+					status: inProgress ? 'pending' : failed ? 'error' : 'success',
+					detail,
+					summary,
+				},
+				mk
+			);
+		}
 		case 'ask_plan_question': {
 			return withNestActivity(
 				{

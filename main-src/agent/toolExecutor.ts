@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import * as http from 'node:http';
 import * as https from 'node:https';
 import { getThread } from '../threadStore.js';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -882,6 +883,192 @@ async function executeWebSearchTool(call: ToolCall, execCtx: ToolExecutionContex
 	}
 }
 
+type FetchResult = {
+	status: number;
+	statusText: string;
+	headers: Record<string, string | string[]>;
+	body: string;
+	truncated: boolean;
+};
+
+function performFetch(
+	url: string,
+	options: {
+		method?: string;
+		headers?: Record<string, string>;
+		body?: string;
+		signal?: AbortSignal;
+		maxBodyLength?: number;
+	}
+): Promise<FetchResult> {
+	return new Promise((resolve, reject) => {
+		const parsed = new URL(url);
+		const isHttps = parsed.protocol === 'https:';
+		const client = isHttps ? https : http;
+		const maxBodyLength = options.maxBodyLength ?? 200_000;
+
+		const req = client.request(
+			url,
+			{
+				method: options.method || 'GET',
+				headers: {
+					'User-Agent':
+						'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+					Accept: '*/*',
+					...options.headers,
+				},
+				timeout: 30_000,
+			},
+			(res) => {
+				if (options.signal?.aborted) {
+					reject(new DOMException('Aborted', 'AbortError'));
+					return;
+				}
+
+				const chunks: Buffer[] = [];
+				let totalLength = 0;
+				let truncated = false;
+
+				res.on('data', (chunk: Buffer) => {
+					if (truncated) return;
+					totalLength += chunk.length;
+					if (totalLength > maxBodyLength) {
+						chunks.push(chunk.slice(0, maxBodyLength - (totalLength - chunk.length)));
+						truncated = true;
+						res.destroy();
+					} else {
+						chunks.push(chunk);
+					}
+				});
+
+				res.on('end', () => {
+					if (options.signal?.aborted) {
+						reject(new DOMException('Aborted', 'AbortError'));
+						return;
+					}
+					const body = Buffer.concat(chunks).toString('utf8');
+					const headers: Record<string, string | string[]> = {};
+					for (const [key, value] of Object.entries(res.headers)) {
+						headers[key] = value ?? '';
+					}
+					resolve({
+						status: res.statusCode ?? 0,
+						statusText: res.statusMessage ?? '',
+						headers,
+						body,
+						truncated,
+					});
+				});
+
+				res.on('error', (err) => reject(err));
+			}
+		);
+
+		req.on('error', (err) => reject(err));
+		req.on('timeout', () => {
+			req.destroy();
+			reject(new Error('Request timed out after 30s'));
+		});
+
+		options.signal?.addEventListener('abort', () => {
+			req.destroy();
+			reject(new DOMException('Aborted', 'AbortError'));
+		});
+
+		if (options.body) {
+			req.write(options.body);
+		}
+		req.end();
+	});
+}
+
+async function executeFetchTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
+	throwIfToolAbortRequested(execCtx.signal, call.name, 'fetch:start');
+
+	const url = String(call.arguments.url ?? '').trim();
+	if (!url) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'Error: url is required for Fetch',
+			isError: true,
+		};
+	}
+
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: `Error: only HTTP and HTTPS URLs are supported, got "${parsed.protocol}"`,
+				isError: true,
+			};
+		}
+	} catch {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: invalid URL "${url}"`,
+			isError: true,
+		};
+	}
+
+	const method = String(call.arguments.method ?? 'GET').toUpperCase();
+	const allowedMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+	if (!allowedMethods.includes(method)) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: unsupported HTTP method "${method}". Allowed: ${allowedMethods.join(', ')}`,
+			isError: true,
+		};
+	}
+
+	const rawHeaders = call.arguments.headers;
+	const headers: Record<string, string> = {};
+	if (rawHeaders && typeof rawHeaders === 'object') {
+		for (const [key, value] of Object.entries(rawHeaders)) {
+			if (value !== undefined && value !== null) {
+				headers[key] = String(value);
+			}
+		}
+	}
+
+	const body = call.arguments.body !== undefined && call.arguments.body !== null
+		? String(call.arguments.body)
+		: undefined;
+
+	try {
+		const result = await performFetch(url, {
+			method,
+			headers,
+			body,
+			signal: execCtx.signal,
+		});
+
+		const headerLines = Object.entries(result.headers)
+			.map(([k, v]) => `  ${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+			.join('\n');
+
+		const truncatedNote = result.truncated ? '\n\n[Response body truncated at 200 KB]' : '';
+
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `HTTP ${result.status} ${result.statusText}\nHeaders:\n${headerLines}\n\nBody:\n${result.body}${truncatedNote}`,
+			isError: result.status >= 400,
+		};
+	} catch (error) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Fetch failed: ${error instanceof Error ? error.message : String(error)}`,
+			isError: true,
+		};
+	}
+}
+
 async function executeBrowserCaptureTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
 	throwIfToolAbortRequested(execCtx.signal, call.name, 'browser-capture:start');
 	const hostId = execCtx.hostWebContentsId ?? null;
@@ -1166,6 +1353,8 @@ export async function executeTool(
 			return await executeBrowserCaptureTool(call, execCtx);
 		case 'WebSearch':
 			return await executeWebSearchTool(call, execCtx);
+		case 'Fetch':
+			return await executeFetchTool(call, execCtx);
 		case 'LSP':
 			return await executeLspTool(call, execCtx);
 		case 'Agent':
