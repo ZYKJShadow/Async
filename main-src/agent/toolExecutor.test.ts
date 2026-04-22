@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -8,6 +9,7 @@ const createTerminalSessionMock = vi.fn();
 const startOneShotCommandSessionMock = vi.fn();
 const runOneShotCommandMock = vi.fn();
 const runTerminalSessionToExitMock = vi.fn();
+const httpsRequestMock = vi.fn();
 
 vi.mock('../terminalProfileStore.js', () => ({
 	resolveTerminalToolExecCreateOpts: (...args: unknown[]) => resolveTerminalToolExecCreateOptsMock(...args),
@@ -18,6 +20,10 @@ vi.mock('../terminalSessionService.js', () => ({
 	startOneShotCommandSession: (...args: unknown[]) => startOneShotCommandSessionMock(...args),
 	runOneShotCommand: (...args: unknown[]) => runOneShotCommandMock(...args),
 	runTerminalSessionToExit: (...args: unknown[]) => runTerminalSessionToExitMock(...args),
+}));
+
+vi.mock('node:https', () => ({
+	request: (...args: unknown[]) => httpsRequestMock(...args),
 }));
 
 import { executeTool } from './toolExecutor.js';
@@ -310,6 +316,36 @@ describe('executeTool Terminal exec', () => {
 });
 
 describe('executeTool Fetch', () => {
+	beforeEach(() => {
+		httpsRequestMock.mockImplementation((_url, _options, callback) => {
+			const res = new EventEmitter() as any;
+			res.statusCode = 200;
+			res.statusMessage = 'OK';
+			res.headers = { 'content-type': 'application/json' };
+			res.destroy = vi.fn();
+
+			const req = {
+				write: vi.fn(),
+				end: vi.fn(),
+				destroy: vi.fn(),
+				on: vi.fn(),
+			};
+
+			process.nextTick(() => {
+				const cb = callback as (res: any) => void;
+				cb(res);
+				res.emit('data', Buffer.from('{"test": true}'));
+				res.emit('end');
+			});
+
+			return req;
+		});
+	});
+
+	afterEach(() => {
+		httpsRequestMock.mockClear();
+	});
+
 	it('returns error when url is missing', async () => {
 		const result = await executeTool({
 			id: 'fetch-1',
