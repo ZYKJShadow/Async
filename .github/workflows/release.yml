@@ -87,7 +87,7 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build macOS packages
+      - name: Build macOS packages (unsigned)
         run: npm run release:mac:unsigned
 
       - name: Upload macOS release assets

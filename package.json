@@ -23,6 +23,8 @@
     "release:mac": "npm run build && npm run icons && npm run rebuild:native && electron-builder --mac dmg zip --publish never",
     "release:mac:unsigned": "npm run build && npm run icons && npm run rebuild:native && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --publish never",
     "release:mac:dir": "npm run build && npm run icons && npm run rebuild:native && electron-builder --mac dir --publish never",
+    "release:mac:arm64": "npm run build && npm run icons && npm run rebuild:native && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --publish never",
+    "release:mac:x64": "npm run build && npm run icons && npm run rebuild:native && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --x64 --publish never",
     "release:win": "npm run build && npm run icons && npm run rebuild:native && electron-builder --win nsis msi --x64 --publish never",
     "release:win:dir": "npm run build && npm run icons && npm run rebuild:native && electron-builder --win dir --x64 --publish never",
     "test": "vitest run",
@@ -81,8 +83,20 @@
       "icon": "resources/icons/icon.icns",
       "category": "public.app-category.developer-tools",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ]
     },
     "dmg": {

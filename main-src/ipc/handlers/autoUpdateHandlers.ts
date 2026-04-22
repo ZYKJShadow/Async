@@ -4,6 +4,7 @@ import {
 	downloadUpdate,
 	getStatus,
 	quitAndInstall,
+	openUpdateFolder,
 	type AutoUpdateStatus,
 } from '../../autoUpdate.js';
 
@@ -42,5 +43,15 @@ export function registerAutoUpdateHandlers(): void {
 	/** 自动更新：获取当前状态 */
 	ipcMain.handle('auto-update:get-status', (): AutoUpdateStatus => {
 		return getStatus();
+	});
+
+	/** 自动更新：打开更新包所在文件夹 */
+	ipcMain.handle('auto-update:open-folder', (): Promise<{ ok: boolean; error?: string }> => {
+		try {
+			openUpdateFolder();
+			return Promise.resolve({ ok: true });
+		} catch (e) {
+			return Promise.resolve({ ok: false, error: String(e) });
+		}
 	});
 }

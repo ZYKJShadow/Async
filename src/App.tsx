@@ -16,6 +16,7 @@ import type { editor as MonacoEditorNS } from 'monaco-editor';
 import { ChatMarkdown } from './ChatMarkdown';
 import {
 	type AgentPendingPatch,
+	type AutoUpdateStatus,
 	type ChatPlanExecutePayload,
 	type TurnTokenUsage,
 } from './ipcTypes';
@@ -658,7 +659,7 @@ function AppMainWorkspaceInner() {
 	const [layoutSwitchTarget, setLayoutSwitchTarget] = useState<LayoutMode | null>(null);
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
 	const [plusMenuOpen, setPlusMenuOpen] = useState(false);
-	const [updateDownloaded, setUpdateDownloaded] = useState(false);
+	const [updateStatus, setUpdateStatus] = useState<AutoUpdateStatus | null>(null);
 	useEffect(() => {
 		if (plusMenuOpen || modelPickerOpen) {
 			setGitBranchPickerOpen(false);
@@ -667,7 +668,7 @@ function AppMainWorkspaceInner() {
 	useEffect(() => {
 		const unsubscribe = shell?.subscribeAutoUpdateStatus?.((status) => {
 			if (status?.state === 'downloaded') {
-				setUpdateDownloaded(true);
+				setUpdateStatus(status as AutoUpdateStatus);
 			}
 		});
 		return () => {
@@ -676,6 +677,11 @@ function AppMainWorkspaceInner() {
 	}, [shell]);
 	const onInstallUpdate = useCallback(() => {
 		shell?.invoke('auto-update:install').catch(() => {
+			/* ignore */
+		});
+	}, [shell]);
+	const onOpenUpdateFolder = useCallback(() => {
+		shell?.invoke('auto-update:open-folder').catch(() => {
 			/* ignore */
 		});
 	}, [shell]);
@@ -4111,15 +4117,25 @@ function AppMainWorkspaceInner() {
 				onSubAgentToastClick={onSubAgentToastClick}
 			/>
 
-			{updateDownloaded ? (
+			{updateStatus?.state === 'downloaded' ? (
 				<div className="ref-update-ready-toast">
-					<span className="ref-update-ready-toast-text">{t('app.updateReady')}</span>
+					<span className="ref-update-ready-toast-text">
+						{updateStatus.platform === 'darwin' && !updateStatus.isSigned
+							? t('app.updateReadyMacUnsigned')
+							: t('app.updateReady')}
+					</span>
 					<button
 						type="button"
 						className="ref-update-ready-toast-btn"
-						onClick={onInstallUpdate}
+						onClick={
+							updateStatus.platform === 'darwin' && !updateStatus.isSigned
+								? onOpenUpdateFolder
+								: onInstallUpdate
+						}
 					>
-						{t('settings.autoUpdate.restartNow')}
+						{updateStatus.platform === 'darwin' && !updateStatus.isSigned
+							? t('app.openDownloadFolder')
+							: t('settings.autoUpdate.restartNow')}
 					</button>
 				</div>
 			) : null}

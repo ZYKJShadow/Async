@@ -179,6 +179,7 @@ const INVOKE_CHANNELS = new Set([
 	'auto-update:download',
 	'auto-update:install',
 	'auto-update:get-status',
+	'auto-update:open-folder',
 ]);
 
 const chatHandlers = new Map();
