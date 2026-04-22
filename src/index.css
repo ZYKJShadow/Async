@@ -19530,6 +19530,54 @@ select.ref-settings-native-select:focus {
 	color: #fca5a5;
 }
 
+/* ── Update ready toast (window bottom-left) ──────────────────────────── */
+.ref-update-ready-toast {
+	position: fixed;
+	bottom: 24px;
+	left: 24px;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 16px;
+	border-radius: 10px;
+	background: rgba(129, 140, 248, 0.14);
+	border: 1px solid rgba(129, 140, 248, 0.32);
+	color: #a5b4fc;
+	font-size: 13px;
+	font-weight: 500;
+	pointer-events: auto;
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+	animation: ref-update-toast-in 0.24s ease;
+	z-index: 9999;
+}
+
+@keyframes ref-update-toast-in {
+	from { opacity: 0; transform: translateY(10px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+.ref-update-ready-toast-text {
+	white-space: nowrap;
+}
+
+.ref-update-ready-toast-btn {
+	appearance: none;
+	border: none;
+	border-radius: 6px;
+	padding: 5px 12px;
+	background: rgba(129, 140, 248, 0.24);
+	color: #c7d2fe;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.15s ease;
+	font: inherit;
+}
+
+.ref-update-ready-toast-btn:hover {
+	background: rgba(129, 140, 248, 0.38);
+}
+
 /* ── Team Session ────────────────────────────────────────────────────── */
 
 .ref-team-session {

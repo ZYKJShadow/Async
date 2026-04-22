@@ -34,6 +34,8 @@ export interface AsyncShellAPI {
 	/** 查询全能终端设置页可显示的内置 Shell / 连接模板 */
 	/** 主进程请求主窗口打开设置并切换到指定侧栏项（如从独立浏览器窗口唤起） */
 	subscribeOpenSettingsNav?(callback: (nav: string) => void): () => void;
+	/** 自动更新状态推送（checking / available / downloading / downloaded / error 等） */
+	subscribeAutoUpdateStatus?(callback: (payload: { state: string } & Record<string, unknown>) => void): () => void;
 }
 declare global {
 interface AsyncShellWebviewElement extends HTMLElement {

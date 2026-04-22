@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { autoUpdater, UpdateInfo, ProgressInfo } from 'electron-updater';
 import { getSettings } from './settingsStore.js';
 
@@ -15,6 +15,7 @@ export type AutoUpdateStatus =
 let currentStatus: AutoUpdateStatus = { state: 'idle' };
 let updateCheckPromise: Promise<void> | null = null;
 let mainWindow: BrowserWindow | null = null;
+let isConfigured = false;
 
 /** 设置主窗口引用，用于发送更新事件 */
 export function setMainWindow(win: BrowserWindow | null): void {
@@ -42,6 +43,11 @@ function isDifferentialAllowed(): boolean {
 
 /** 配置 autoUpdater */
 function configureUpdater(): void {
+	if (isConfigured) {
+		return;
+	}
+	isConfigured = true;
+
 	autoUpdater.autoDownload = true;
 	autoUpdater.autoInstallOnAppQuit = true;
 	
@@ -86,26 +92,6 @@ function configureUpdater(): void {
 		console.log('[AutoUpdate] Update downloaded:', info.version);
 		currentStatus = { state: 'downloaded' };
 		sendStatusToRenderer();
-
-		// 通知用户并询问是否立即重启
-		if (mainWindow && !mainWindow.isDestroyed()) {
-			dialog.showMessageBox(mainWindow, {
-				type: 'info',
-				title: '更新已就绪',
-				message: `Async IDE ${info.version} 已下载完成`,
-				detail: '是否立即重启以应用更新？',
-				buttons: ['立即重启', '稍后重启'],
-				defaultId: 0,
-				cancelId: 1,
-			}).then((result) => {
-				if (result.response === 0) {
-					// 用户选择立即重启
-					autoUpdater.quitAndInstall();
-				}
-			}).catch(() => {
-				// 忽略错误
-			});
-		}
 	});
 }
 
