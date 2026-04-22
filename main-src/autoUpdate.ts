@@ -1,6 +1,8 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { autoUpdater, UpdateInfo, ProgressInfo } from 'electron-updater';
 import { getSettings } from './settingsStore.js';
+import { copyFileSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 /** 自动更新状态 */
 export type AutoUpdateStatus =
@@ -9,7 +11,7 @@ export type AutoUpdateStatus =
 	| { state: 'available'; info: UpdateInfo }
 	| { state: 'not-available' }
 	| { state: 'downloading'; progress: ProgressInfo }
-	| { state: 'downloaded' }
+	| { state: 'downloaded'; platform: NodeJS.Platform; isSigned: boolean; downloadPath?: string }
 	| { state: 'error'; message: string };
 
 let currentStatus: AutoUpdateStatus = { state: 'idle' };
@@ -90,7 +92,33 @@ function configureUpdater(): void {
 
 	autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
 		console.log('[AutoUpdate] Update downloaded:', info.version);
-		currentStatus = { state: 'downloaded' };
+
+		const platform = process.platform;
+		const signed = isAppSigned();
+
+		if (platform === 'darwin' && !signed) {
+			// macOS 无签名：将更新包复制到 Downloads，提示用户手动安装
+			const downloadedFile = getDownloadedUpdatePath();
+			if (downloadedFile) {
+				const downloadsDir = join(app.getPath('home'), 'Downloads');
+				const dest = join(downloadsDir, `Async-IDE-${info.version}-mac-update.zip`);
+				try {
+					if (!existsSync(downloadsDir)) {
+						mkdirSync(downloadsDir, { recursive: true });
+					}
+					copyFileSync(downloadedFile, dest);
+					console.log('[AutoUpdate] Copied update to Downloads:', dest);
+					currentStatus = { state: 'downloaded', platform, isSigned: false, downloadPath: dest };
+				} catch (e) {
+					console.error('[AutoUpdate] Failed to copy update to Downloads:', e);
+					currentStatus = { state: 'downloaded', platform, isSigned: false };
+				}
+			} else {
+				currentStatus = { state: 'downloaded', platform, isSigned: false };
+			}
+		} else {
+			currentStatus = { state: 'downloaded', platform, isSigned: signed };
+		}
 		sendStatusToRenderer();
 	});
 }
@@ -145,12 +173,63 @@ export async function downloadUpdate(): Promise<void> {
 	}
 }
 
+/** 检测应用是否被代码签名 */
+function isAppSigned(): boolean {
+	if (process.platform !== 'darwin') {
+		return true; // 非 macOS 无需检测
+	}
+	try {
+		const { execSync } = require('child_process');
+		const appPath = app.getPath('exe');
+		// codesign -dv 会输出签名信息；未签名时返回非零退出码
+		execSync(`codesign -dv "${appPath}"`, { stdio: 'pipe' });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** 获取已下载的更新包路径（electron-updater 内部属性） */
+function getDownloadedUpdatePath(): string | undefined {
+	try {
+		const updater = autoUpdater as any;
+		return updater.downloadedUpdateHelper?.file;
+	} catch {
+		return undefined;
+	}
+}
+
 /** 重启并安装更新 */
 export function quitAndInstall(): void {
 	if (currentStatus.state !== 'downloaded') {
 		throw new Error('Update not downloaded yet');
 	}
+
+	// macOS 无签名：无法自动安装，打开下载文件夹
+	if (currentStatus.platform === 'darwin' && !currentStatus.isSigned) {
+		const downloadPath = currentStatus.downloadPath;
+		if (downloadPath) {
+			shell.showItemInFolder(downloadPath);
+		} else {
+			shell.openPath(join(app.getPath('home'), 'Downloads'));
+		}
+		return;
+	}
+
 	autoUpdater.quitAndInstall();
+}
+
+/** 打开更新包所在文件夹 */
+export function openUpdateFolder(): void {
+	if (currentStatus.state !== 'downloaded') {
+		return;
+	}
+	const downloadPath = currentStatus.downloadPath;
+	if (downloadPath) {
+		shell.showItemInFolder(downloadPath);
+	} else {
+		shell.openPath(join(app.getPath('home'), 'Downloads'));
+	}
 }
 
 /** 获取当前状态 */

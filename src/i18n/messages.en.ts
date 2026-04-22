@@ -79,6 +79,8 @@ export const messagesEn: Record<string, string> = {
 	'app.help.about': 'About Async IDE',
 	'app.help.aboutVersion': 'Version {version}',
 	'app.updateReady': 'Update ready — restart to apply',
+	'app.updateReadyMacUnsigned': 'Update downloaded to Downloads. Please install manually.',
+	'app.openDownloadFolder': 'Open Downloads',
 	'app.help.aboutTagline': 'An async-native IDE for working with AI coding agents.',
 	'app.help.aboutOpenRepo': 'Open Repository',
 	'app.help.aboutCopyInfo': 'Copy Info',

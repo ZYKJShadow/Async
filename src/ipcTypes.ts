@@ -325,5 +325,5 @@ export type AutoUpdateStatus =
 	| { state: 'available'; info: { version: string; releaseDate?: string; releaseNotes?: string } }
 	| { state: 'not-available' }
 	| { state: 'downloading'; progress: { percent: number; bytesPerSecond: number; total: number; transferred: number } }
-	| { state: 'downloaded' }
+	| { state: 'downloaded'; platform: string; isSigned: boolean; downloadPath?: string }
 	| { state: 'error'; message: string };
