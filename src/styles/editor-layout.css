@@ -1591,13 +1591,18 @@
 	gap: 4px;
 	flex: 1;
 	min-width: 0;
-	overflow: hidden;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.ref-editor-chat-tabs-scroll::-webkit-scrollbar {
+	display: none;
 }
 
 .ref-editor-chat-tab-shell {
 	display: flex;
 	align-items: stretch;
-	flex: 0 1 auto;
+	flex: 0 0 auto;
 	width: max-content;
 	max-width: 200px;
 	min-width: 0;
