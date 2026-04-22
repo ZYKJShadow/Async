@@ -78,6 +78,7 @@ export const messagesEn: Record<string, string> = {
 	'app.help.releases': 'Release Notes',
 	'app.help.about': 'About Async IDE',
 	'app.help.aboutVersion': 'Version {version}',
+	'app.updateReady': 'Update ready — restart to apply',
 	'app.help.aboutTagline': 'An async-native IDE for working with AI coding agents.',
 	'app.help.aboutOpenRepo': 'Open Repository',
 	'app.help.aboutCopyInfo': 'Copy Info',

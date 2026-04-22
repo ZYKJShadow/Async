@@ -82,6 +82,7 @@ export const messagesZhCN: Record<string, string> = {
 	'app.help.releases': '发布说明',
 	'app.help.about': '关于 Async IDE',
 	'app.help.aboutVersion': '版本 {version}',
+	'app.updateReady': '更新已就绪，重启即可应用',
 	'app.help.aboutTagline': '面向 AI 编程代理的异步原生 IDE。',
 	'app.help.aboutOpenRepo': '打开仓库',
 	'app.help.aboutCopyInfo': '复制信息',

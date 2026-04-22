@@ -658,11 +658,27 @@ function AppMainWorkspaceInner() {
 	const [layoutSwitchTarget, setLayoutSwitchTarget] = useState<LayoutMode | null>(null);
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
 	const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+	const [updateDownloaded, setUpdateDownloaded] = useState(false);
 	useEffect(() => {
 		if (plusMenuOpen || modelPickerOpen) {
 			setGitBranchPickerOpen(false);
 		}
 	}, [plusMenuOpen, modelPickerOpen, setGitBranchPickerOpen]);
+	useEffect(() => {
+		const unsubscribe = shell?.subscribeAutoUpdateStatus?.((status) => {
+			if (status?.state === 'downloaded') {
+				setUpdateDownloaded(true);
+			}
+		});
+		return () => {
+			unsubscribe?.();
+		};
+	}, [shell]);
+	const onInstallUpdate = useCallback(() => {
+		shell?.invoke('auto-update:install').catch(() => {
+			/* ignore */
+		});
+	}, [shell]);
 	const {
 		composerSegments,
 		setComposerSegments,
@@ -4095,7 +4111,18 @@ function AppMainWorkspaceInner() {
 				onSubAgentToastClick={onSubAgentToastClick}
 			/>
 
-
+			{updateDownloaded ? (
+				<div className="ref-update-ready-toast">
+					<span className="ref-update-ready-toast-text">{t('app.updateReady')}</span>
+					<button
+						type="button"
+						className="ref-update-ready-toast-btn"
+						onClick={onInstallUpdate}
+					>
+						{t('settings.autoUpdate.restartNow')}
+					</button>
+				</div>
+			) : null}
 		</div>
 		</ComposerActionsProvider>
 		</AppProvider>
