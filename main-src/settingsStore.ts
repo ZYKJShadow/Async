@@ -19,6 +19,7 @@ export type {
 	AgentCommand,
 	AgentToolPermissionRule,
 	AgentMemoryExtractionSettings,
+	AgentSkillExtractionSettings,
 	ToolPermissionBehavior,
 } from './agentSettingsTypes.js';
 export type { McpServerConfig } from './mcp/mcpTypes.js';

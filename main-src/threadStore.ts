@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveAsyncDataDir } from './dataDir.js';
+import { syncThreadMessages } from './sessionDb.js';
 import { appendSuffixToStructuredAssistant, isStructuredAssistantMessage } from '../src/agentStructuredMessage.js';
 import type { AgentSessionSnapshot } from '../src/agentSessionTypes.js';
 import type { ToolResultReplacementState } from './agent/toolResultBudget.js';
@@ -91,6 +92,8 @@ export type ThreadRecord = {
 	agentToolCallsCompleted?: number;
 	/** 上次记忆抽取完成时的 `agentToolCallsCompleted`，用于计算间隔内工具调用数 */
 	memoryExtractionToolBaseline?: number;
+	/** 上次 Skill 抽取完成时的 `agentToolCallsCompleted`，用于计算间隔内工具调用数 */
+	skillExtractedToolBaseline?: number;
 	/** 线程中已通过 ToolSearch 加载过的延迟工具状态（兼容旧字段懒升级）。 */
 	deferredToolState?: DeferredToolState;
 	discoveredDeferredToolNames?: string[];
@@ -153,6 +156,13 @@ function normalizeBucketKey(workspaceRoot: string | null | undefined): string {
 		return GLOBAL_BUCKET_KEY;
 	}
 	return `ws:${path.resolve(raw).replace(/\\/g, '/').toLowerCase()}`;
+}
+
+function extractWorkspaceRootFromBucketKey(bucketKey: string): string | null {
+	if (bucketKey.startsWith('ws:')) {
+		return bucketKey.slice(3);
+	}
+	return null;
 }
 
 function ensureBucket(workspaceRoot: string | null | undefined): ThreadBucket {
@@ -401,6 +411,17 @@ export function appendMessage(threadId: string, msg: ChatMessage): ThreadRecord 
 		thread.title = normalized.content.slice(0, 48) + (normalized.content.length > 48 ? '?' : '');
 	}
 	save();
+	// 同步到 SQLite FTS5
+	try {
+		syncThreadMessages(
+			threadId,
+			extractWorkspaceRootFromBucketKey(located.bucketKey),
+			thread.messages,
+			thread.agentToolCallsCompleted ?? 0
+		);
+	} catch {
+		/* ignore SQLite sync errors */
+	}
 	return thread;
 }
 
@@ -419,10 +440,11 @@ function normalizeUserMessageForWrite(msg: ChatMessage): ChatMessage {
 }
 
 export function updateLastAssistant(threadId: string, fullContent: string): void {
-	const thread = getThread(threadId);
-	if (!thread) {
+	const located = findBucketByThreadId(threadId);
+	if (!located) {
 		return;
 	}
+	const thread = located.thread;
 	const last = thread.messages[thread.messages.length - 1];
 	if (last && last.role === 'assistant') {
 		last.content = fullContent;
@@ -431,6 +453,17 @@ export function updateLastAssistant(threadId: string, fullContent: string): void
 	}
 	thread.updatedAt = Date.now();
 	save();
+	// 同步到 SQLite FTS5
+	try {
+		syncThreadMessages(
+			threadId,
+			extractWorkspaceRootFromBucketKey(located.bucketKey),
+			thread.messages,
+			thread.agentToolCallsCompleted ?? 0
+		);
+	} catch {
+		/* ignore SQLite sync errors */
+	}
 }
 
 export function saveTeamSession(threadId: string, snapshot: TeamSessionSnapshot): void {
@@ -752,6 +785,26 @@ export function saveMemoryExtractedMessageCount(threadId: string, count: number)
 	thread.memoryExtractedMessageCount = Math.max(0, Math.floor(count));
 	thread.updatedAt = Date.now();
 	save();
+}
+
+export function saveSkillExtractionToolBaseline(threadId: string): void {
+	const thread = getThread(threadId);
+	if (!thread) {
+		return;
+	}
+	thread.skillExtractedToolBaseline = thread.agentToolCallsCompleted ?? 0;
+	thread.updatedAt = Date.now();
+	save();
+}
+
+export function getAgentToolCallsSinceSkillBaseline(threadId: string): number {
+	const thread = getThread(threadId);
+	if (!thread) {
+		return 0;
+	}
+	const cur = thread.agentToolCallsCompleted ?? 0;
+	const base = thread.skillExtractedToolBaseline ?? 0;
+	return Math.max(0, cur - base);
 }
 
 export function touchFileInThread(threadId: string, relPath: string, action: FileStateAction, isNew: boolean): void {

@@ -265,6 +265,7 @@ export function useStreamingChat() {
 		streamStartedAtRef.current = null;
 		firstTokenAtRef.current = null;
 		setAwaitingReply(false);
+		streamingStore.flush();
 		streamingStore.setStreaming('');
 		streamingStore.resetThinkingTick();
 	}, []);

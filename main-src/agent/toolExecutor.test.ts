@@ -309,6 +309,75 @@ describe('executeTool Terminal exec', () => {
 	});
 });
 
+describe('executeTool Fetch', () => {
+	it('returns error when url is missing', async () => {
+		const result = await executeTool({
+			id: 'fetch-1',
+			name: 'Fetch',
+			arguments: {},
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain('url is required');
+	});
+
+	it('returns error for invalid URL', async () => {
+		const result = await executeTool({
+			id: 'fetch-2',
+			name: 'Fetch',
+			arguments: { url: 'not-a-url' },
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain('invalid URL');
+	});
+
+	it('returns error for non-HTTP protocols', async () => {
+		const result = await executeTool({
+			id: 'fetch-3',
+			name: 'Fetch',
+			arguments: { url: 'ftp://example.com/file.txt' },
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain('only HTTP and HTTPS URLs are supported');
+	});
+
+	it('returns error for unsupported HTTP method', async () => {
+		const result = await executeTool({
+			id: 'fetch-4',
+			name: 'Fetch',
+			arguments: { url: 'https://example.com', method: 'TRACE' },
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain('unsupported HTTP method');
+	});
+
+	it('successfully fetches a public HTTPS endpoint', async () => {
+		const result = await executeTool({
+			id: 'fetch-5',
+			name: 'Fetch',
+			arguments: { url: 'https://httpbin.org/get' },
+		});
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain('HTTP 200');
+		expect(result.content).toContain('Body:');
+	});
+
+	it('successfully sends a POST with body and headers', async () => {
+		const result = await executeTool({
+			id: 'fetch-6',
+			name: 'Fetch',
+			arguments: {
+				url: 'https://httpbin.org/post',
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'X-Test-Header': 'hello' },
+				body: JSON.stringify({ test: true }),
+			},
+		});
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain('HTTP 200');
+		expect(result.content).toContain('"test": true');
+	});
+});
+
 describe('executeTool Terminal run', () => {
 	it('can start a local one-shot command in the background', async () => {
 		startOneShotCommandSessionMock.mockReturnValue({

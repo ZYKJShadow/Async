@@ -24,6 +24,7 @@ const ctx = await esbuild.context({
 		'cpu-features',
 		'chokidar',
 		'fsevents',
+		'better-sqlite3',
 	],
 	sourcemap: true,
 	minify: !isWatch,

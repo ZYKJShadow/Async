@@ -47,6 +47,8 @@ export const READ_ONLY_AGENT_TOOL_NAMES = [
 	'ListMcpResourcesTool',
 	'ReadMcpResourceTool',
 	'ToolSearch',
+	'WebSearch',
+	'Fetch',
 ] as const;
 
 export function isReadOnlyAgentTool(name: string): boolean {
@@ -960,6 +962,49 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				},
 			},
 			required: ['title', 'goal', 'implementationSteps', 'todos'],
+		},
+	},
+	{
+		name: 'WebSearch',
+		description:
+			'Search the web for up-to-date information that is not available in the workspace. Use this for current documentation, API references, news, or facts that may have changed after the training cutoff. The tool opens a search engine and returns the visible text from the results page, including result titles, URLs, and snippets. Keep queries concise and specific.',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description: 'Search query text. Be specific; include key terms, version numbers, or error messages when applicable.',
+				},
+			},
+			required: ['query'],
+		},
+	},
+	{
+		name: 'Fetch',
+		description:
+			'Send an HTTP request to a URL and return the response. Use this for API calls, webhooks, fetching JSON or HTML, or any scenario where you need data from a remote endpoint without opening a browser. Supports GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS. Only HTTP and HTTPS URLs are allowed.',
+		parameters: {
+			type: 'object',
+			properties: {
+				url: {
+					type: 'string',
+					description: 'Target URL. Must start with http:// or https://.',
+				},
+				method: {
+					type: 'string',
+					enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+					description: 'HTTP method. Defaults to GET.',
+				},
+				headers: {
+					type: 'object',
+					description: 'Optional request headers as a flat object of string values (e.g. {"Content-Type": "application/json"}).',
+				},
+				body: {
+					type: 'string',
+					description: 'Optional request body as a raw string. For JSON payloads, pass the serialized JSON here and set Content-Type header accordingly.',
+				},
+			},
+			required: ['url'],
 		},
 	},
 ];

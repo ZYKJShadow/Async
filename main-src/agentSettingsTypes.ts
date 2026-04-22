@@ -82,6 +82,15 @@ export type AgentMemoryExtractionSettings = {
 	minToolCallsBetween?: number;
 };
 
+/** 后台 Skill 自动创建配置 */
+export type AgentSkillExtractionSettings = {
+	enabled?: boolean;
+	/** 触发 Skill 抽取所需的最少工具调用数（默认 5） */
+	minToolCallsForSkill?: number;
+	/** 每个工作区最多保留的自动 Skill 数量（默认 50） */
+	maxAutoSkills?: number;
+};
+
 export type ShellPermissionMode = 'always' | 'rules' | 'ask_every_time';
 
 export type AgentCustomization = {
@@ -151,4 +160,6 @@ export type AgentCustomization = {
 	shouldAvoidPermissionPrompts?: boolean;
 	/** 控制何时触发 `.async/memory` 后台抽取，减少每轮都调用模型 */
 	memoryExtraction?: AgentMemoryExtractionSettings;
+	/** 控制是否启用自动 Skill 创建及阈值 */
+	skillExtraction?: AgentSkillExtractionSettings;
 };

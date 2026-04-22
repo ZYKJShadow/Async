@@ -329,7 +329,7 @@ const SKILL_LEAD = /^\s*\.\/([\w.-]+)\s*([\s\S]*)$/;
 export function applySkillInvocation(
 	text: string,
 	skills: AgentSkill[] | undefined
-): { userText: string; skillSystemBlock: string } {
+): { userText: string; skillSystemBlock: string; usedSkillSlug?: string } {
 	const raw = text.trim();
 	const m = raw.match(SKILL_LEAD);
 	if (!m || !skills?.length) {
@@ -343,7 +343,7 @@ export function applySkillInvocation(
 	}
 	const userText = rest.length > 0 ? rest : '（已调用 Skill，请按下列说明执行。）';
 	const skillSystemBlock = `#### Skill: ${sk.name}\n${sk.description ? `${sk.description}\n\n` : ''}${sk.content}`;
-	return { userText, skillSystemBlock };
+	return { userText, skillSystemBlock, usedSkillSlug: sk.slug };
 }
 
 function pathMatchesGlob(relPath: string, pattern: string): boolean {
@@ -500,6 +500,8 @@ export type PreparedUserTurn = {
 	agentSystemAppend: string;
 	/** 用户消息中通过 @ 引用的工作区相对路径列表，用于语义检索去重 */
 	atPaths: string[];
+	/** 本次用户消息触发使用的 Skill slug（如果有） */
+	usedSkillSlug?: string;
 };
 
 export function prepareUserTurnForChat(
@@ -518,7 +520,7 @@ export function prepareUserTurnForChat(
 	const agentWithDisk: AgentCustomization | undefined = agent
 		? { ...agent, skills: mergedSkills, subagents: mergedSubagents }
 		: agent;
-	const { userText, skillSystemBlock } = applySkillInvocation(afterManual, mergedSkills);
+	const { userText, skillSystemBlock, usedSkillSlug } = applySkillInvocation(afterManual, mergedSkills);
 	const atPaths = workspaceRoot ? collectAtWorkspacePathsInText(userText, workspaceFiles) : [];
 	const cursorRules = workspaceRoot ? loadThirdPartyAgentRules(workspaceRoot) : '';
 	const claudeRules = workspaceRoot ? loadClaudeProjectRulesMarkdown(workspaceRoot) : '';
@@ -533,5 +535,5 @@ export function prepareUserTurnForChat(
 		uiLanguage,
 		manualRuleBlocks: manualBlocks,
 	});
-	return { userText, agentSystemAppend, atPaths };
+	return { userText, agentSystemAppend, atPaths, usedSkillSlug };
 }

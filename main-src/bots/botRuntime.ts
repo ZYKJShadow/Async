@@ -21,6 +21,11 @@ import { loadMemoryPrompt } from '../memdir/memdir.js';
 import { type ShellSettings, getRecentWorkspaces } from '../settingsStore.js';
 import { queueExtractMemories } from '../services/extractMemories/extractMemories.js';
 import {
+	recordSkillUsage,
+	updateSkillSuccessRate,
+} from '../services/extractSkills/skillSelfImprove.js';
+import { runDialecticAnalysis, buildDialecticContextBlock, buildRelationshipContextBlock } from '../services/dialectic/dialectic.js';
+import {
 	appendMessage,
 	accumulateTokenUsage,
 	createThread,
@@ -58,6 +63,8 @@ export type BotSessionState = {
 	conversationKey: string;
 	workspaceRoot: string | null;
 	modelId: string;
+	/** 用户通过 /model 命令手动切换过模型；此时不应被 integration.defaultModelId 覆盖 */
+	modelIdExplicitlySet?: boolean;
 	mode: BotComposerMode;
 	threadIdsByWorkspace: Record<string, string>;
 	leaderMessages: ChatMessage[];
@@ -67,6 +74,17 @@ export type BotSessionState = {
 	lastUserName?: string;
 	browserHostWebContentsId?: number | null;
 	pendingQrLogin?: BotPendingQrLoginState;
+	/**
+	 * 同一会话内缓存的 memory prompt，用于保留 LLM prefix cache。
+	 * `undefined` = 尚未加载；`null` = 已加载但无 memory；`string` = 已加载的 memory prompt。
+	 * 该字段不持久化到磁盘，session 重启后重新加载。
+	 */
+	cachedMemoryPrompt?: string | null;
+	/**
+	 * 本会话中已完成的对话轮次计数，用于 Periodic Nudge。
+	 * 该字段不持久化到磁盘。
+	 */
+	turnCount?: number;
 };
 
 export type BotPendingQrLoginState = {
@@ -847,6 +865,26 @@ export function buildBotOrchestratorPrompt(
 			globalRuleAppend
 		);
 	}
+	// Dialectic 用户画像 + 关系演进注入（Hermes 式两层上下文）
+	const dialecticBlock = buildDialecticContextBlock({ workspaceRoot: session.workspaceRoot, turnNumber: session.turnCount ?? 0 });
+	if (dialecticBlock) {
+		lines.push('', dialecticBlock);
+	}
+	const relationshipBlock = buildRelationshipContextBlock(session.conversationKey);
+	if (relationshipBlock) {
+		lines.push('', relationshipBlock);
+	}
+
+	// Periodic Nudge: 每 8 轮提醒 Agent 主动沉淀知识（Hermes 式学习循环）
+	const turnCount = session.turnCount ?? 0;
+	if (turnCount > 0 && turnCount % 8 === 0) {
+		lines.push(
+			'',
+			language === 'en'
+				? `[System nudge] You have completed ${turnCount} turns with this user. Take a moment to reflect: are there any user preferences, project conventions, or lessons learned from this conversation worth persisting to long-term memory? If so, mention them naturally and they will be automatically extracted.`
+				: `[系统提醒] 你已和用户完成了 ${turnCount} 轮对话。请回顾：本轮讨论中是否有值得长期保存的用户偏好、项目约定或经验教训？如果有，请在回复中自然提及，系统会自动提取到持久记忆。`
+		);
+	}
 	return lines.join('\n');
 }
 
@@ -998,13 +1036,22 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 		const uiLanguage = effectiveSettings.language === 'en' ? 'en' : 'zh-CN';
 		const prepared = prepareUserTurnForChat(task, agentForTurn, session.workspaceRoot, workspaceFiles, uiLanguage);
 		let finalSystemAppend = prepared.agentSystemAppend;
-		finalSystemAppend = await appendMemoryAndRetrievalContext({
-			base: finalSystemAppend,
-			mode,
-			settings: effectiveSettings,
-			root: session.workspaceRoot,
-			signal,
-		});
+
+		// Frozen memory: 同一会话内缓存 MEMORY.md，保留 LLM prefix cache
+		if (session.cachedMemoryPrompt === undefined) {
+			session.cachedMemoryPrompt = (mode === 'agent' || mode === 'debug') && session.workspaceRoot
+				? await loadMemoryPrompt(session.workspaceRoot)
+				: null;
+		}
+		if (session.cachedMemoryPrompt) {
+			finalSystemAppend = appendSystemBlock(finalSystemAppend, session.cachedMemoryPrompt);
+		}
+		if (modeExpandsWorkspaceFileContext(mode) && session.workspaceRoot) {
+			const gitBlock = await getGitContextBlock(session.workspaceRoot);
+			if (gitBlock) {
+				finalSystemAppend = appendSystemBlock(finalSystemAppend, gitBlock);
+			}
+		}
 
 		const updatedThread = appendMessage(threadId, { role: 'user', content: prepared.userText });
 		const thinkingLevel = resolveThinkingLevelForSelection(effectiveSettings, modelSelection);
@@ -1034,15 +1081,34 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 			saveSummary(threadId, compressResult.newSummary, compressResult.newSummaryCoversCount);
 		}
 
+		const usedSkillSlug = prepared.usedSkillSlug;
 		const finish = (full: string, usage?: { inputTokens?: number; outputTokens?: number }) => {
 			updateLastAssistant(threadId, full);
 			accumulateTokenUsage(threadId, usage?.inputTokens, usage?.outputTokens);
+			// Skill self-improve: 记录使用并更新 stats
+			if (usedSkillSlug && session.workspaceRoot) {
+				void recordSkillUsage(usedSkillSlug, session.workspaceRoot);
+				void updateSkillSuccessRate(usedSkillSlug, session.workspaceRoot, true);
+			}
 			queueExtractMemories({
 				threadId,
 				workspaceRoot: session.workspaceRoot,
 				settings: effectiveSettings,
 				modelSelection,
+				enableSkillExtraction: true,
 			});
+			// Dialectic 实时推理：分析对话并更新用户画像 + 关系演进
+			const threadForDialectic = getThread(threadId);
+			if (threadForDialectic && session.workspaceRoot) {
+				void runDialecticAnalysis({
+					sessionId: threadId,
+					workspaceRoot: session.workspaceRoot,
+					messages: threadForDialectic.messages,
+					settings: effectiveSettings,
+					modelSelection,
+					turnNumber: session.turnCount ?? 0,
+				});
+			}
 		};
 
 		if (mode === 'team') {
@@ -1561,6 +1627,7 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 		...baseLeaderMessages,
 		{ role: 'assistant', content: full.trim() } satisfies ChatMessage,
 	]);
+	session.turnCount = (session.turnCount ?? 0) + 1;
 	args.onLeaderMessagesPersist?.(session);
 	return full.trim();
 }
