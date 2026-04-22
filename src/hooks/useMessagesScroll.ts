@@ -66,8 +66,13 @@ function resolveContentBottomScroll(
 	if (!lastContentRow) {
 		return Math.max(0, viewport.scrollHeight - viewport.clientHeight);
 	}
-	const contentBottom = lastContentRow.offsetTop + lastContentRow.offsetHeight;
-	return Math.max(0, contentBottom - viewport.clientHeight);
+	/* 必须用 getBoundingClientRect 而非 offsetTop，因为 offsetParent
+	   在 editor-rail 等布局下可能是外层 ref-chat-drop-zone（position:relative），
+	   而不是 track 本身，导致参考系不一致。 */
+	const rowRect = lastContentRow.getBoundingClientRect();
+	const viewportRect = viewport.getBoundingClientRect();
+	const rowBottomInViewport = rowRect.bottom - viewportRect.top;
+	return Math.max(0, viewport.scrollTop + rowBottomInViewport - viewport.clientHeight);
 }
 
 export function measureMessagesScroll(
