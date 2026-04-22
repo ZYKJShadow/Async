@@ -47,6 +47,7 @@ export const READ_ONLY_AGENT_TOOL_NAMES = [
 	'ListMcpResourcesTool',
 	'ReadMcpResourceTool',
 	'ToolSearch',
+	'WebSearch',
 ] as const;
 
 export function isReadOnlyAgentTool(name: string): boolean {
@@ -960,6 +961,21 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				},
 			},
 			required: ['title', 'goal', 'implementationSteps', 'todos'],
+		},
+	},
+	{
+		name: 'WebSearch',
+		description:
+			'Search the web for up-to-date information that is not available in the workspace. Use this for current documentation, API references, news, or facts that may have changed after the training cutoff. The tool opens a search engine and returns the visible text from the results page, including result titles, URLs, and snippets. Keep queries concise and specific.',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description: 'Search query text. Be specific; include key terms, version numbers, or error messages when applicable.',
+				},
+			},
+			required: ['query'],
 		},
 	},
 ];

@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import * as https from 'node:https';
 import { getThread } from '../threadStore.js';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
@@ -738,6 +739,149 @@ async function executeBrowserTool(call: ToolCall, execCtx: ToolExecutionContext)
 	}
 }
 
+function stripHtmlTags(html: string): string {
+	return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function decodeHtmlEntities(text: string): string {
+	return text
+		.replace(/&amp;/g, '&')
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'")
+		.replace(/&nbsp;/g, ' ')
+		.replace(/&#\d+;/g, (m) => {
+			try {
+				return String.fromCharCode(Number.parseInt(m.slice(2, -1), 10));
+			} catch {
+				return m;
+			}
+		});
+}
+
+function parseDuckDuckGoHtml(html: string): Array<{ title: string; url: string; snippet: string }> {
+	const results: Array<{ title: string; url: string; snippet: string }> = [];
+	// DuckDuckGo HTML results: each result block starts with <div class="result ...">
+	const blocks = html.split(/<div[^>]*class=["']result[^"']*["'][^>]*>/i);
+	for (let i = 1; i < blocks.length; i++) {
+		const block = blocks[i]!;
+		const titleMatch = block.match(/<a[^>]*class=["']result__a["'][^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/i);
+		const snippetMatch = block.match(/<a[^>]*class=["']result__snippet["'][^>]*>([\s\S]*?)<\/a>/i);
+		if (titleMatch) {
+			const rawUrl = decodeHtmlEntities(stripHtmlTags(titleMatch[1]!)).trim();
+			const title = decodeHtmlEntities(stripHtmlTags(titleMatch[2]!)).trim();
+			const snippet = snippetMatch
+				? decodeHtmlEntities(stripHtmlTags(snippetMatch[1]!)).trim()
+				: '';
+			// DuckDuckGo sometimes wraps external links via their redirect endpoint
+			const url = rawUrl.startsWith('http') ? rawUrl : `https://duckduckgo.com${rawUrl}`;
+			if (title) {
+				results.push({ title, url, snippet });
+			}
+		}
+	}
+	return results.slice(0, 8);
+}
+
+function performWebSearch(
+	query: string,
+	signal?: AbortSignal
+): Promise<Array<{ title: string; url: string; snippet: string }>> {
+	return new Promise((resolve, reject) => {
+		const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+		const req = https.get(
+			url,
+			{
+				headers: {
+					'User-Agent':
+						'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+					Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+					'Accept-Language': 'en-US,en;q=0.9',
+				},
+				timeout: 15_000,
+			},
+			(res) => {
+				if (signal?.aborted) {
+					reject(new DOMException('Aborted', 'AbortError'));
+					return;
+				}
+				if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+					reject(new Error(`Search request failed with status ${res.statusCode}`));
+					return;
+				}
+				const chunks: Buffer[] = [];
+				res.on('data', (chunk) => chunks.push(chunk));
+				res.on('end', () => {
+					if (signal?.aborted) {
+						reject(new DOMException('Aborted', 'AbortError'));
+						return;
+					}
+					const html = Buffer.concat(chunks).toString('utf8');
+					try {
+						resolve(parseDuckDuckGoHtml(html));
+					} catch (e) {
+						reject(new Error(`Failed to parse search results: ${e instanceof Error ? e.message : String(e)}`));
+					}
+				});
+			}
+		);
+		req.on('error', (err) => reject(err));
+		req.on('timeout', () => {
+			req.destroy();
+			reject(new Error('Search request timed out after 15s'));
+		});
+		signal?.addEventListener('abort', () => {
+			req.destroy();
+			reject(new DOMException('Aborted', 'AbortError'));
+		});
+	});
+}
+
+async function executeWebSearchTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
+	throwIfToolAbortRequested(execCtx.signal, call.name, 'websearch:start');
+
+	const query = String(call.arguments.query ?? '').trim();
+	if (!query) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'Error: query is required for WebSearch',
+			isError: true,
+		};
+	}
+
+	try {
+		const results = await performWebSearch(query, execCtx.signal);
+		if (results.length === 0) {
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: `No search results found for "${query}".`,
+				isError: false,
+			};
+		}
+
+		const formatted = results
+			.map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`)
+			.join('\n\n');
+
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Search results for "${query}":\n\n${formatted}`,
+			isError: false,
+		};
+	} catch (error) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `WebSearch failed: ${error instanceof Error ? error.message : String(error)}`,
+			isError: true,
+		};
+	}
+}
+
 async function executeBrowserCaptureTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
 	throwIfToolAbortRequested(execCtx.signal, call.name, 'browser-capture:start');
 	const hostId = execCtx.hostWebContentsId ?? null;
@@ -1020,6 +1164,8 @@ export async function executeTool(
 			return await executeBrowserTool(call, execCtx);
 		case 'BrowserCapture':
 			return await executeBrowserCaptureTool(call, execCtx);
+		case 'WebSearch':
+			return await executeWebSearchTool(call, execCtx);
 		case 'LSP':
 			return await executeLspTool(call, execCtx);
 		case 'Agent':

@@ -31,6 +31,7 @@ import {
 	type StreamingToolPreview,
 } from './agentChatSegments';
 import { useI18n } from './i18n';
+import { useTypewriter } from './useTypewriter';
 import type { TurnTokenUsage } from './ipcTypes';
 import { liveBlocksToAssistantSegments, type LiveAgentBlocksState } from './liveAgentBlocks';
 
@@ -195,6 +196,8 @@ type Props = {
 	revertedChangeKeys?: ReadonlySet<string>;
 	allowAgentFileActions?: boolean;
 	skipPlanTodo?: boolean;
+	/** 启用打字机效果：流式输出时对 markdown 文本做平滑逐字揭示 */
+	typewriter?: boolean;
 	/**
 	 * 渲染范围：
 	 * - `'all'`（默认，兼容老调用方）：preflight + outcome 都在本组件渲染（整段一起）。
@@ -362,6 +365,21 @@ function ActivityLine({
 	);
 }
 
+const TypewriterMd = memo(function TypewriterMd({
+	text,
+	enabled,
+}: {
+	text: string;
+	enabled: boolean;
+}) {
+	const display = useTypewriter(text, enabled);
+	return (
+		<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+			{display}
+		</ReactMarkdown>
+	);
+});
+
 export const ChatMarkdown = memo(function ChatMarkdown({
 	content,
 	agentUi = false,
@@ -380,6 +398,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	allowAgentFileActions = false,
 	skipPlanTodo = false,
 	renderMode = 'all',
+	typewriter = false,
 }: Props) {
 	const { t } = useI18n();
 
@@ -507,9 +526,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 				: 'ref-md-root';
 		return (
 			<div className={plainClass}>
-				<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-					{content}
-				</ReactMarkdown>
+				<TypewriterMd text={content} enabled={typewriter} />
 			</div>
 		);
 	}
@@ -520,11 +537,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		const insideShell = opts?.insideShell === true;
 		switch (seg.type) {
 			case 'markdown':
-				return (
-					<ReactMarkdown key={`u-${i}`} remarkPlugins={[remarkGfm]} components={markdownComponents}>
-						{seg.text}
-					</ReactMarkdown>
-				);
+				return <TypewriterMd key={`u-${i}`} text={seg.text} enabled={typewriter} />;
 			case 'thinking_group': {
 				const thoughtMeta = thinkingGroupRenderMeta(seg.chunks, liveThoughtMeta);
 				if (insideShell) {
@@ -628,9 +641,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 					>
 						<div className="ref-sub-agent-md-label">{label}</div>
 						<div className="ref-md-root ref-md-root--agent-chat ref-sub-agent-md-body">
-							<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-								{seg.text}
-							</ReactMarkdown>
+							<TypewriterMd text={seg.text} enabled={typewriter} />
 						</div>
 					</div>
 				);
@@ -746,9 +757,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		if (outcome.length === 1 && outcome[0]!.type === 'markdown') {
 			return (
 				<div className={agentRootClass}>
-					<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-						{outcome[0]!.text}
-					</ReactMarkdown>
+					<TypewriterMd text={outcome[0]!.text} enabled={typewriter} />
 				</div>
 			);
 		}
@@ -763,9 +772,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		if (content.trim()) {
 			return (
 				<div className={agentRootClass}>
-					<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-						{content}
-					</ReactMarkdown>
+					<TypewriterMd text={content} enabled={typewriter} />
 				</div>
 			);
 		}
@@ -774,9 +781,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	if (renderUnits.length === 1 && renderUnits[0]!.type === 'markdown') {
 		return (
 			<div className={agentRootClass}>
-				<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-					{renderUnits[0]!.text}
-				</ReactMarkdown>
+				<TypewriterMd text={renderUnits[0]!.text} enabled={typewriter} />
 			</div>
 		);
 	}

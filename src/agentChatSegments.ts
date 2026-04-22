@@ -1015,6 +1015,21 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 				mk
 			);
 		}
+		case 'WebSearch': {
+			const query = String(mk.args.query ?? '').trim();
+			return withNestActivity(
+				{
+					type: 'activity',
+					text: inProgress
+						? t('agent.activity.webSearching', { query: query || '…' })
+						: t('agent.activity.webSearched', { query: query || '…' }),
+					status: inProgress ? 'pending' : failed ? 'error' : 'success',
+					detail,
+					summary,
+				},
+				mk
+			);
+		}
 		case 'ask_plan_question': {
 			return withNestActivity(
 				{

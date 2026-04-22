@@ -1,4 +1,4 @@
-/** English UI copy */
+﻿/** English UI copy */
 export const messagesEn: Record<string, string> = {
 	'common.truncatedSuffix': '\n… (truncated)',
 	'common.soon': 'Soon',
@@ -1383,6 +1383,8 @@ export const messagesEn: Record<string, string> = {
 	'agent.activity.listed': 'Listed {{path}}',
 	'agent.activity.searching': 'Searching “{{pattern}}”',
 	'agent.activity.searched': 'Searched “{{pattern}}”',
+	'agent.activity.webSearching': 'Searching the web for "{{query}}"',
+	'agent.activity.webSearched': 'Searched the web for "{{query}}"',
 	'agent.activity.cmdFailed': 'Command failed: {{cmd}}',
 	'agent.activity.running': 'Running `{{cmd}}`',
 	'agent.activity.ran': 'Ran `{{cmd}}`',
@@ -1409,7 +1411,8 @@ export const messagesEn: Record<string, string> = {
 	'agent.tool.ListMcpResourcesTool': 'List MCP resources',
 	'agent.tool.ReadMcpResourceTool': 'Read MCP resource',
 	'agent.tool.ToolSearch': 'Search deferred tools',
-	'agent.tool.search_files': 'Search files',
+	'agent.tool.WebSearch': 'Web Search',
+		'agent.tool.search_files': 'Search files',
 	'agent.tool.Bash': 'Bash',
 	'agent.tool.execute_command': 'Run command',
 	'agent.tool.Agent': 'Sub-agent',

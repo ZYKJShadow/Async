@@ -1266,6 +1266,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 								}
 								skipPlanTodo
 								renderMode={chatRenderMode}
+								typewriter={isLast && awaitingReply}
 							/>
 						)}
 					</div>
