@@ -50,6 +50,26 @@ export type UseMessagesScrollResult = {
 	syncMessagesScrollIndicators: () => void;
 };
 
+/** 计算滚动位置时，以「最后一条内容行（带 data-msg-index）的底部」为准，
+ *  而不是 track 的 scrollHeight 底部。这样 turn 容器 padding、tail spacer 等
+ *  纯装饰性高度不会把视口顶下去，避免消息被 sticky bubble 遮挡。 */
+function resolveContentBottomScroll(
+	viewport: HTMLElement,
+	track: HTMLElement | null
+): number {
+	if (!track) {
+		return Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+	}
+	const lastContentRow = track.querySelector<HTMLElement>(
+		'.ref-msg-row-measure[data-msg-index]:last-of-type'
+	);
+	if (!lastContentRow) {
+		return Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+	}
+	const contentBottom = lastContentRow.offsetTop + lastContentRow.offsetHeight;
+	return Math.max(0, contentBottom - viewport.clientHeight);
+}
+
 export function measureMessagesScroll(
 	viewport: Pick<HTMLElement, 'scrollHeight' | 'clientHeight' | 'scrollTop'>
 ): MessagesScrollMetrics {
@@ -147,7 +167,18 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			if (!el) {
 				return;
 			}
-			const metrics = measureMessagesScroll(el);
+			const rawMetrics = measureMessagesScroll(el);
+			const track = messagesTrackRef.current;
+			const contentMaxScroll = resolveContentBottomScroll(el, track);
+			const metrics: MessagesScrollMetrics = {
+				maxScroll: contentMaxScroll,
+				clampedTop: rawMetrics.clampedTop,
+				distanceFromBottom: Math.max(0, contentMaxScroll - rawMetrics.clampedTop),
+				nearBottom:
+					Math.max(0, contentMaxScroll - rawMetrics.clampedTop) <
+					MESSAGES_FOLLOW_BOTTOM_BUFFER_PX,
+				canJumpToBottom: contentMaxScroll > MESSAGES_MIN_SCROLLABLE_OVERFLOW_PX,
+			};
 			pinMessagesToBottomRef.current = derivePinnedBottomIntent(
 				pinMessagesToBottomRef.current,
 				metrics,
@@ -177,7 +208,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				prev === shouldShowJumpButton ? prev : shouldShowJumpButton
 			);
 		},
-		[currentIdRef, messagesThreadIdRef, clearScrollToBottomButtonSuppression]
+		[currentIdRef, messagesThreadIdRef, clearScrollToBottomButtonSuppression, messagesTrackRef]
 	);
 
 	const syncMessagesScrollIndicators = useCallback(() => {
@@ -208,8 +239,9 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				clearScrollToBottomButtonSuppression();
 			}
 			setShowScrollToBottomButton(false);
-			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-			el.scrollTo({ top: maxScroll, behavior });
+			const track = messagesTrackRef.current;
+			const targetScroll = resolveContentBottomScroll(el, track);
+			el.scrollTo({ top: targetScroll, behavior });
 			syncMessagesScrollState('programmatic');
 		},
 		[clearScrollToBottomButtonSuppression, syncMessagesScrollState]
@@ -228,8 +260,8 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			if (!el || !pinMessagesToBottomRef.current) {
 				return;
 			}
-			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-			el.scrollTop = maxScroll;
+			const track = messagesTrackRef.current;
+			el.scrollTop = resolveContentBottomScroll(el, track);
 			syncMessagesScrollState('programmatic');
 		});
 	}, [syncMessagesScrollState]);
@@ -263,8 +295,8 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				return;
 			}
 			pinMessagesToBottomRef.current = true;
-			const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-			el.scrollTop = maxScroll;
+			const track = messagesTrackRef.current;
+			el.scrollTop = resolveContentBottomScroll(el, track);
 			pendingMessagesScrollRestoreRef.current = null;
 			syncMessagesScrollState('programmatic');
 		});
@@ -282,9 +314,24 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			messages[len - 1]?.role === 'user'
 		) {
 			pinMessagesToBottomRef.current = true;
+			/**
+			 * 「新提问后把气泡顶到视口顶部」依赖 AgentChatPanel 的 activeTurnSpacerPx：
+			 * 该 spacer 在另一个 useLayoutEffect 里通过 setState 计算，会触发 React 在
+			 * paint 之前的同步重渲。如果这里立即 scrollTo(maxScroll)，使用的还是「没有
+			 * spacer 时」的 scrollHeight，导致用户气泡先停在视口中部/底部、流式回复一冒
+			 * 出来就和气泡叠在同一行；气泡背景不透明（var(--void-bg-3)）+ z-index:8 会
+			 * 把回复的顶部完全盖住。
+			 *
+			 * 改为先调用 scheduleMessagesScrollToBottom（rAF 内读取最新 scrollHeight），
+			 * 再追加一帧补滚，覆盖 spacer 因 ResizeObserver/补测量而再度变化的情形。
+			 */
 			scrollMessagesToBottom('auto');
+			scheduleMessagesScrollToBottom();
+			window.requestAnimationFrame(() => {
+				scheduleMessagesScrollToBottom();
+			});
 		}
-	}, [messages, currentId, messagesThreadId, scrollMessagesToBottom]);
+	}, [messages, currentId, messagesThreadId, scrollMessagesToBottom, scheduleMessagesScrollToBottom]);
 
 	useLayoutEffect(() => {
 		if (!hasConversation || !pinMessagesToBottomRef.current) {

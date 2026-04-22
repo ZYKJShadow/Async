@@ -3378,6 +3378,20 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	flex-shrink: 0;
 }
 
+
+
+.ref-turn-container {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 22px;
+	width: 100%;
+}
+
+.ref-turn-container:not(:last-child) {
+	padding-bottom: 50px;
+}
+
 .ref-messages-tail-spacer {
 	width: 100%;
 	flex-shrink: 0;
@@ -3411,7 +3425,19 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	}
 }
 
-/* ?????????? .ref-messages ???????????????????? */
+/* sticky 用户气泡：保持在 .ref-messages 视口顶部。
+ *
+ * 注意：这里不能放任何 padding/margin（特别是 margin-top）。
+ * 父容器是 flex column + gap:22；如果给本 row 设 margin-top: -4，
+ * 整行的 flex outer-top 会随之上移 4px，下一条 row（user 气泡正下方
+ * 的 preflight「正在分析」容器）也会跟着上移 4px，导致：
+ *   - 第一条（无 sticky 包装）：气泡 ↔ preflight = gap22 + preflightMargin(-8) = 14px
+ *   - 第二条（有 sticky 包装）：气泡 ↔ preflight = (22-4) - 8 = 10px
+ * 出现「从第二条气泡开始，正在分析容器贴得更近」的视觉差异。
+ *
+ * 视口顶部和气泡之间的安全区由 --ref-sticky-user-top（即 viewport 的
+ * padding-top）提供，不需要在 wrap 上再额外加 padding-top。
+ */
 .ref-msg-sticky-user-wrap {
 	position: sticky;
 	top: var(--ref-sticky-user-top, 0px);
@@ -3422,9 +3448,6 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	box-sizing: border-box;
 	padding-top: 4px;
 	margin-top: -4px;
-	/* 勿在气泡下垫�?padding：背景为 void-bg-0，比气泡更暗，会像气泡底部一条黑�?*/
-	padding-bottom: 0;
-	margin-bottom: 0;
 	overflow: visible;
 }
 

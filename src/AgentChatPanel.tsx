@@ -1348,7 +1348,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			turnOwnerUserIndex,
 			isTurnStart,
 			stickyUserIndex: isTurnStart ? messageIndex : null,
-			className: 'ref-msg-row-measure',
+			className: `ref-msg-row-measure${message.role === 'assistant' ? ' ref-msg-row-measure--assistant' : ''}`,
 			dataMsgIndex: messageIndex,
 			content: messageNodeAtIndex(messageIndex),
 		};
@@ -1702,16 +1702,67 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			</div>
 		);
 	});
-	if (activeTurnSpacerPx > 0) {
-		renderedChatRowNodes.push(
+	const tailSpacerNode =
+		activeTurnSpacerPx > 0 ? (
 			<div
 				key={`row-${conversationRenderKey}-turn-focus-tail`}
 				className="ref-messages-tail-spacer"
 				style={{ height: `${activeTurnSpacerPx}px` }}
 				aria-hidden
 			/>
-		);
-	}
+		) : null;
+
+	/* 按 turn 分组：同一轮次的消息包在一个 ref-turn-container 内，
+	   容器之间用 padding-bottom 提供 assistant → 下一条 user 的安全距离。
+	   tail spacer 放在所有 turn 容器之后，不参与 turn 分组。
+	   滚动位置由 useMessagesScroll.ts 基于“最后内容行底部”计算，
+	   不受容器 padding 或 tail spacer 影响。 */
+	const renderTurnContainers = (): ReactNode[] => {
+		const containers: ReactNode[] = [];
+		let currentTurnNodes: ReactNode[] = [];
+		let currentTurnOwner: string | null = null;
+
+		for (const node of renderedChatRowNodes) {
+			const isTurnStart = (node as JSX.Element).props['data-turn-start'] === 'true';
+			const turnOwner = (node as JSX.Element).props['data-turn-owner'];
+
+			if (isTurnStart && currentTurnNodes.length > 0) {
+				containers.push(
+					<div
+						key={`turn-${currentTurnOwner}-${containers.length}`}
+						className="ref-turn-container"
+						data-turn-owner={currentTurnOwner ?? undefined}
+					>
+						{currentTurnNodes}
+					</div>
+				);
+				currentTurnNodes = [];
+			}
+
+			currentTurnNodes.push(node);
+			if (isTurnStart) {
+				currentTurnOwner = turnOwner ?? null;
+			}
+		}
+
+		if (currentTurnNodes.length > 0) {
+			containers.push(
+				<div
+					key={`turn-${currentTurnOwner}-${containers.length}`}
+					className="ref-turn-container"
+					data-turn-owner={currentTurnOwner ?? undefined}
+				>
+					{currentTurnNodes}
+				</div>
+			);
+		}
+
+		if (tailSpacerNode) {
+			containers.push(tailSpacerNode);
+		}
+
+		return containers;
+	};
 
 	const dataTransferHasFiles = (dt: DataTransfer | null): boolean => !!dt?.types?.includes('Files');
 
@@ -1779,7 +1830,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						aria-hidden
 					/>
 				) : null}
-				{renderedChatRowNodes}
+				{renderTurnContainers()}
 			</div>
 		</div>
 	) : null;

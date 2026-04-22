@@ -45,10 +45,13 @@ export function findLatestTurnStartUserIndex(
 	if (composerMode === 'team') {
 		return hasSupplementalContentAfterUser ? userIndex : null;
 	}
-	const hasEarlierAssistant = displayMessages
-		.slice(0, userIndex)
-		.some((message) => message.role === 'assistant');
-	return hasEarlierAssistant ? userIndex : null;
+	/**
+	 * 非 team 模式：始终把最新一条用户消息作为「轮次锚点」，让 spacer + sticky 机制
+	 * 即使在第一轮（没有更早的 assistant 历史）也能生效。这样每条新提问都会像 ChatGPT
+	 * 那样直接吸到视口顶部、回复在气泡正下方流出，而不会出现 assistant 长度超过
+	 * `clientHeight - paddings - bubbleHeight` 时被气泡的不透明背景盖住顶部的视觉 bug。
+	 */
+	return userIndex;
 }
 
 export function computeTurnSectionSpacerPx(params: {
