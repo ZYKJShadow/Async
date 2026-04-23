@@ -2,9 +2,11 @@ import { app, BrowserWindow } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { initWindowsConsoleUtf8 } from './winUtf8.js';
-import { initSettingsStore, getRestorableWorkspace, getSettings } from './settingsStore.js';
+import { initSettingsStore, getRestorableWorkspace, getSettings, getMcpServerConfigs } from './settingsStore.js';
 import { ensureDefaultThread, flushPendingSave, initThreadStore } from './threadStore.js';
 import { registerIpc } from './ipc/register.js';
+import { getMcpManager } from './mcp/index.js';
+import { getEffectiveMcpServerConfigs } from './plugins/pluginRuntimeService.js';
 import { configureAppWindowIcon, createAppWindow } from './appWindow.js';
 import { initAutoUpdate } from './autoUpdate.js';
 import { disposeBotController, initBotController, syncBotControllerFromSettings } from './bots/botController.js';
@@ -113,6 +115,13 @@ app.whenReady().then(() => {
 
 	registerIpc();
 	lap('IPC registered');
+
+	// 自动启动已启用且 autoStart 的 MCP 服务器
+	const mcpManager = getMcpManager();
+	mcpManager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), restoredUsable));
+	void mcpManager.startAll().then(() => {
+		lap('MCP auto-start done');
+	});
 
 	createAppWindow({
 		surface: 'agent',

@@ -85,4 +85,71 @@ describe('McpManager', () => {
 		expect(destroyed).toEqual(['srv', 'srv:changed']);
 		expect((manager as any).clients.has('srv')).toBe(false);
 	});
+
+	it('does NOT destroy a client that is currently connecting', () => {
+		const manager = new McpManager();
+		const base = makeConfig('srv');
+		manager.loadConfigs([base]);
+
+		const destroyed: string[] = [];
+		(manager as any).clients.set('srv', {
+			config: base,
+			destroy: () => {
+				destroyed.push('srv');
+			},
+			getServerStatus: () => makeStatus('srv', 'connecting'),
+		});
+
+		// Even though we disable the config, the connecting client should be protected
+		manager.loadConfigs([{ ...base, enabled: false }]);
+		expect(destroyed).toEqual([]);
+		expect((manager as any).clients.has('srv')).toBe(true);
+	});
+
+	it('allows destroying a client once it leaves connecting state', () => {
+		const manager = new McpManager();
+		const base = makeConfig('srv');
+		manager.loadConfigs([base]);
+
+		const destroyed: string[] = [];
+		const mockClient = {
+			config: base,
+			destroy: () => {
+				destroyed.push('srv');
+			},
+			getServerStatus: () => makeStatus('srv', 'connecting'),
+		};
+		(manager as any).clients.set('srv', mockClient);
+
+		// Protected while connecting
+		manager.loadConfigs([{ ...base, enabled: false }]);
+		expect(destroyed).toEqual([]);
+
+		// Simulate connection finished (error)
+		mockClient.getServerStatus = () => makeStatus('srv', 'error');
+		manager.loadConfigs([{ ...base, enabled: false }]);
+		expect(destroyed).toEqual(['srv']);
+		expect((manager as any).clients.has('srv')).toBe(false);
+	});
+
+	it('restartServer stops then starts the server', async () => {
+		const manager = new McpManager();
+		const base = makeConfig('srv');
+		manager.loadConfigs([base]);
+
+		const events: string[] = [];
+		(manager as any).clients.set('srv', {
+			config: base,
+			getServerStatus: () => makeStatus('srv', 'connected'),
+			disconnect: async () => {
+				events.push('disconnect');
+			},
+			connect: async () => {
+				events.push('connect');
+			},
+		});
+
+		await manager.restartServer('srv');
+		expect(events).toEqual(['disconnect', 'connect']);
+	});
 });

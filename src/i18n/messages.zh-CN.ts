@@ -2081,6 +2081,13 @@ export const messagesZhCN: Record<string, string> = {
 	'mcp.lastConnected': '上次连接',
 	'mcp.neverConnected': '从未连接',
 	'mcp.connectionError': '连接错误',
+	'mcp.jsonMode': 'JSON 模式',
+	'mcp.visualMode': '可视化',
+	'mcp.jsonInvalid': 'JSON 格式错误',
+	'mcp.importJson': '导入 JSON',
+	'mcp.exportJson': '导出 JSON',
+	'mcp.copyJson': '复制 JSON',
+	'mcp.jsonHint': '支持直接编辑配置数组，或粘贴 Claude Desktop 的 { mcpServers: {} } 格式进行导入。',
 
 	// common additions
 	'common.yes': '是',

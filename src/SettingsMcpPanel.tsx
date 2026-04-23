@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from './i18n';
 import { formatMcpCommandPreview, serializeMcpArgs, serializeMcpKeyValueEntries } from './mcpFormUtils';
+import { SettingsMcpJsonEditor } from './SettingsMcpJsonEditor';
 import { VoidSelect } from './VoidSelect';
 import type { McpServerConfig, McpServerStatus, McpServerTemplate } from './mcpTypes';
 import { MCP_SERVER_TEMPLATES } from './mcpTypes';
@@ -567,9 +568,21 @@ type McpServerRowProps = {
 	onEdit?: () => void;
 	onDelete?: () => void;
 	readOnly?: boolean;
+	pendingAction?: 'start' | 'stop' | 'restart';
+	actionError?: string | null;
 };
 
-function deriveDisplayMcpStatus(config: McpServerConfig, status: McpServerStatus | null): DisplayMcpStatus {
+function deriveDisplayMcpStatus(
+	config: McpServerConfig,
+	status: McpServerStatus | null,
+	pendingAction?: 'start' | 'stop' | 'restart'
+): DisplayMcpStatus {
+	if (pendingAction === 'start' || pendingAction === 'restart') {
+		return 'connecting';
+	}
+	if (pendingAction === 'stop') {
+		return 'stopped';
+	}
 	if (!config.enabled) {
 		return 'disabled';
 	}
@@ -601,11 +614,13 @@ function McpServerRow({
 	toggleBusy = false,
 	onDelete,
 	readOnly = false,
+	pendingAction,
+	actionError,
 }: McpServerRowProps) {
 	const { t } = useI18n();
 	const [expanded, setExpanded] = useState(false);
 	
-	const currentStatus = deriveDisplayMcpStatus(config, status);
+	const currentStatus = deriveDisplayMcpStatus(config, status, pendingAction);
 	const tools = status?.tools ?? [];
 	
 	return (
@@ -628,13 +643,13 @@ function McpServerRow({
 							<input
 								type="checkbox"
 								checked={config.enabled}
-								disabled={toggleBusy}
+								disabled={toggleBusy || !!pendingAction}
 								onChange={(e) => onToggleEnabled(e.target.checked)}
 							/>
 							<span>{t('mcp.form.enabled')}</span>
 						</label>
 					) : null}
-					{config.enabled
+					{config.enabled && !pendingAction
 						? currentStatus === 'connected' ? (
 								<>
 									<button type="button" className="ref-mcp-server-action" onClick={onStop} title={t('mcp.action.stop')}>
@@ -671,6 +686,13 @@ function McpServerRow({
 					) : null}
 				</div>
 			</div>
+
+			{actionError ? (
+				<div className="ref-mcp-server-error">
+					<IconAlert />
+					<span>{actionError}</span>
+				</div>
+			) : null}
 			
 			{tools.length > 0 ? (
 				<div className="ref-mcp-server-tools">
@@ -734,9 +756,9 @@ export function SettingsMcpPanel({
 	statuses,
 	onChangeServers,
 	onRefreshStatuses,
-	onStartServer,
-	onStopServer,
-	onRestartServer,
+	onStartServer: _onStartServer,
+	onStopServer: _onStopServer,
+	onRestartServer: _onRestartServer,
 	shell,
 }: SettingsMcpPanelProps) {
 	const { t } = useI18n();
@@ -744,8 +766,11 @@ export function SettingsMcpPanel({
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editingConfig, setEditingConfig] = useState<McpServerConfig | null>(null);
 	const [showTemplates, setShowTemplates] = useState(false);
+	const [editMode, setEditMode] = useState<'visual' | 'json'>('visual');
 	const [pluginServers, setPluginServers] = useState<McpServerConfig[]>([]);
 	const [pendingPluginToggleIds, setPendingPluginToggleIds] = useState<string[]>([]);
+	const [pendingActions, setPendingActions] = useState<Record<string, 'start' | 'stop' | 'restart'>>({});
+	const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
 	
 	const statusMap = useMemo(() => {
 		const map = new Map<string, McpServerStatus>();
@@ -796,6 +821,77 @@ export function SettingsMcpPanel({
 	const deleteServer = useCallback((id: string) => {
 		onChangeServers(servers.filter(s => s.id !== id));
 	}, [servers, onChangeServers]);
+
+	const clearActionError = useCallback((id: string) => {
+		setActionErrors((prev) => {
+			const next = { ...prev };
+			delete next[id];
+			return next;
+		});
+	}, []);
+
+	const handleStartServer = useCallback(
+		async (id: string) => {
+			clearActionError(id);
+			setPendingActions((prev) => ({ ...prev, [id]: 'start' }));
+			try {
+				const result = (await shell?.invoke('mcp:startServer', id)) as { ok?: boolean; error?: string } | undefined;
+				if (result?.ok === false && result.error) {
+					setActionErrors((prev) => ({ ...prev, [id]: result.error! }));
+				}
+			} finally {
+				setPendingActions((prev) => {
+					const next = { ...prev };
+					delete next[id];
+					return next;
+				});
+				await onRefreshStatuses();
+			}
+		},
+		[shell, onRefreshStatuses, clearActionError]
+	);
+
+	const handleStopServer = useCallback(
+		async (id: string) => {
+			clearActionError(id);
+			setPendingActions((prev) => ({ ...prev, [id]: 'stop' }));
+			try {
+				const result = (await shell?.invoke('mcp:stopServer', id)) as { ok?: boolean; error?: string } | undefined;
+				if (result?.ok === false && result.error) {
+					setActionErrors((prev) => ({ ...prev, [id]: result.error! }));
+				}
+			} finally {
+				setPendingActions((prev) => {
+					const next = { ...prev };
+					delete next[id];
+					return next;
+				});
+				await onRefreshStatuses();
+			}
+		},
+		[shell, onRefreshStatuses, clearActionError]
+	);
+
+	const handleRestartServer = useCallback(
+		async (id: string) => {
+			clearActionError(id);
+			setPendingActions((prev) => ({ ...prev, [id]: 'restart' }));
+			try {
+				const result = (await shell?.invoke('mcp:restartServer', id)) as { ok?: boolean; error?: string } | undefined;
+				if (result?.ok === false && result.error) {
+					setActionErrors((prev) => ({ ...prev, [id]: result.error! }));
+				}
+			} finally {
+				setPendingActions((prev) => {
+					const next = { ...prev };
+					delete next[id];
+					return next;
+				});
+				await onRefreshStatuses();
+			}
+		},
+		[shell, onRefreshStatuses, clearActionError]
+	);
 	
 	const applyTemplate = useCallback((template: McpServerTemplate) => {
 		const newConfig: McpServerConfig = {
@@ -843,13 +939,13 @@ export function SettingsMcpPanel({
 			if (enabled) {
 				await onRefreshStatuses();
 			} else {
-				await onStopServer(config.id);
+				await handleStopServer(config.id);
 			}
 			setPluginServers(await listPluginServers());
 		} finally {
 			setPendingPluginToggleIds((prev) => prev.filter((id) => id !== config.id));
 		}
-	}, [listPluginServers, onRefreshStatuses, onStopServer, shell]);
+	}, [listPluginServers, onRefreshStatuses, handleStopServer, shell]);
 	
 	// Auto-refresh statuses on mount
 	useEffect(() => {
@@ -895,9 +991,25 @@ export function SettingsMcpPanel({
 				<button type="button" className="ref-settings-mcp-refresh" onClick={onRefreshStatuses} title={t('common.refresh')}>
 					<IconRefresh />
 				</button>
+				<div className="ref-settings-mcp-mode-switch">
+					<button
+						type="button"
+						className={editMode === 'visual' ? 'ref-settings-mcp-mode--active' : ''}
+						onClick={() => setEditMode('visual')}
+					>
+						{t('mcp.visualMode')}
+					</button>
+					<button
+						type="button"
+						className={editMode === 'json' ? 'ref-settings-mcp-mode--active' : ''}
+						onClick={() => setEditMode('json')}
+					>
+						{t('mcp.jsonMode')}
+					</button>
+				</div>
 			</div>
 			
-			{showTemplates ? (
+			{showTemplates && editMode === 'visual' ? (
 				<div className="ref-settings-mcp-templates-panel">
 					<p className="ref-settings-mcp-templates-hint">{t('mcp.templatesHint')}</p>
 					<ul className="ref-settings-mcp-templates-list">
@@ -916,8 +1028,16 @@ export function SettingsMcpPanel({
 					</ul>
 				</div>
 			) : null}
+
+			{editMode === 'json' ? (
+				<SettingsMcpJsonEditor
+					servers={servers}
+					onChangeServers={onChangeServers}
+					templates={MCP_SERVER_TEMPLATES}
+				/>
+			) : null}
 			
-			{editingId && editingConfig ? (
+			{editingId && editingConfig && editMode === 'visual' ? (
 				<div className="ref-settings-mcp-edit-wrap">
 					<h3 className="ref-settings-mcp-edit-title">
 						{servers.some(s => s.id === editingId) ? t('mcp.editServer') : t('mcp.newServer')}
@@ -936,28 +1056,32 @@ export function SettingsMcpPanel({
 				</div>
 			) : null}
 			
-			<section className="ref-settings-mcp-servers">
-				<h2 className="ref-settings-mcp-servers-title">{t('mcp.serversTitle')}</h2>
-				{servers.length === 0 ? (
-					<p className="ref-settings-mcp-empty">{t('mcp.noServers')}</p>
-				) : (
-					<ul className="ref-settings-mcp-servers-list">
-						{servers.map((config) => (
-							<li key={config.id}>
-								<McpServerRow
-									config={config}
-									status={statusMap.get(config.id) ?? null}
-									onEdit={() => startEdit(config)}
-									onStart={() => onStartServer(config.id)}
-									onStop={() => onStopServer(config.id)}
-									onRestart={() => onRestartServer(config.id)}
-									onDelete={() => deleteServer(config.id)}
-								/>
-							</li>
-						))}
-					</ul>
-				)}
-			</section>
+			{editMode === 'visual' ? (
+				<section className="ref-settings-mcp-servers">
+					<h2 className="ref-settings-mcp-servers-title">{t('mcp.serversTitle')}</h2>
+					{servers.length === 0 ? (
+						<p className="ref-settings-mcp-empty">{t('mcp.noServers')}</p>
+					) : (
+						<ul className="ref-settings-mcp-servers-list">
+							{servers.map((config) => (
+								<li key={config.id}>
+									<McpServerRow
+										config={config}
+										status={statusMap.get(config.id) ?? null}
+										onEdit={() => startEdit(config)}
+										onStart={() => handleStartServer(config.id)}
+										onStop={() => handleStopServer(config.id)}
+										onRestart={() => handleRestartServer(config.id)}
+										onDelete={() => deleteServer(config.id)}
+										pendingAction={pendingActions[config.id]}
+										actionError={actionErrors[config.id] ?? null}
+									/>
+								</li>
+							))}
+						</ul>
+					)}
+				</section>
+			) : null}
 
 			{pluginServers.length > 0 ? (
 				<section className="ref-settings-mcp-servers">
@@ -969,9 +1093,9 @@ export function SettingsMcpPanel({
 								<McpServerRow
 									config={config}
 									status={statusMap.get(config.id) ?? null}
-									onStart={() => onStartServer(config.id)}
-									onStop={() => onStopServer(config.id)}
-									onRestart={() => onRestartServer(config.id)}
+									onStart={() => handleStartServer(config.id)}
+									onStop={() => handleStopServer(config.id)}
+									onRestart={() => handleRestartServer(config.id)}
 									onToggleEnabled={(next) => void togglePluginServerEnabled(config, next)}
 									toggleBusy={pendingPluginToggleIds.includes(config.id)}
 									readOnly

@@ -3446,14 +3446,22 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	width: min(100%, 720px);
 	max-width: min(100%, 720px);
 	box-sizing: border-box;
-	padding-top: 4px;
-	margin-top: -4px;
 	overflow: visible;
 }
 
 /* ?????????????? */
 .ref-center--chat .ref-msg-sticky-user-wrap {
 	/*background: var(--void-bg-0);*/
+}
+
+/*
+ * Editor 右栏里 sticky user 气泡在 Chromium / Electron 下更容易出现滚动重绘闪烁。
+ * 只提升实际气泡，避免 sticky wrapper 自身参与额外变换。
+ */
+.ref-right--editor-chat .ref-msg-sticky-user-wrap .ref-msg-user {
+	transform: translateZ(0);
+	backface-visibility: hidden;
+	-webkit-backface-visibility: hidden;
 }
 
 .ref-msg-sticky-user-wrap--team {
@@ -19019,6 +19027,152 @@ select.ref-settings-native-select:focus {
 
 .ref-settings-mcp-doc a:hover {
 	text-decoration: underline;
+}
+
+/* MCP JSON Editor */
+.ref-settings-mcp-mode-switch {
+	display: inline-flex;
+	gap: 0;
+	margin-left: auto;
+	border-radius: 6px;
+	border: 1px solid var(--void-border-soft);
+	overflow: hidden;
+}
+
+.ref-settings-mcp-mode-switch button {
+	padding: 4px 10px;
+	font-size: 11px;
+	background: transparent;
+	color: var(--void-fg-3);
+	border: none;
+	border-radius: 0;
+	cursor: pointer;
+}
+
+.ref-settings-mcp-mode-switch button:hover {
+	background: rgba(255, 255, 255, 0.04);
+}
+
+.ref-settings-mcp-mode-switch button.ref-settings-mcp-mode--active {
+	background: rgba(129, 140, 248, 0.15);
+	color: #a5b4fc;
+}
+
+.ref-mcp-json-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 8px;
+}
+
+.ref-mcp-json-toolbar {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-mcp-json-actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.ref-mcp-json-btn {
+	padding: 5px 10px;
+	font-size: 11px;
+	border-radius: 6px;
+	border: 1px solid var(--void-border-soft);
+	background: transparent;
+	color: var(--void-fg-2);
+	cursor: pointer;
+}
+
+.ref-mcp-json-btn:hover {
+	background: rgba(255, 255, 255, 0.06);
+}
+
+.ref-mcp-json-templates {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.ref-mcp-json-templates-label {
+	font-size: 11px;
+	color: var(--void-fg-3);
+}
+
+.ref-mcp-json-template-chip {
+	padding: 3px 8px;
+	font-size: 11px;
+	border-radius: 4px;
+	border: 1px solid var(--void-border-soft);
+	background: transparent;
+	color: var(--void-fg-2);
+	cursor: pointer;
+}
+
+.ref-mcp-json-template-chip:hover {
+	background: rgba(129, 140, 248, 0.1);
+	border-color: rgba(129, 140, 248, 0.3);
+}
+
+.ref-mcp-json-textarea {
+	width: 100%;
+	min-height: 320px;
+	padding: 12px;
+	font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-soft);
+	background: var(--void-bg-1);
+	color: var(--void-fg-1);
+	resize: vertical;
+	box-sizing: border-box;
+}
+
+.ref-mcp-json-textarea:focus {
+	outline: none;
+	border-color: rgba(129, 140, 248, 0.5);
+}
+
+.ref-mcp-json-textarea--error {
+	border-color: rgba(248, 113, 113, 0.6);
+}
+
+.ref-mcp-json-error {
+	padding: 8px 10px;
+	border-radius: 6px;
+	background: rgba(248, 113, 113, 0.08);
+	border: 1px solid rgba(248, 113, 113, 0.2);
+	font-size: 12px;
+	color: #fca5a5;
+}
+
+.ref-mcp-json-hint {
+	font-size: 11px;
+	color: var(--void-fg-3);
+}
+
+.ref-mcp-server-error {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 6px;
+	padding: 6px 10px;
+	border-radius: 6px;
+	background: rgba(248, 113, 113, 0.08);
+	border: 1px solid rgba(248, 113, 113, 0.2);
+	font-size: 12px;
+	color: #fca5a5;
+}
+
+.ref-mcp-server-error svg {
+	flex-shrink: 0;
+	width: 14px;
+	height: 14px;
 }
 
 /* —— 设置：统计与用量 —— */

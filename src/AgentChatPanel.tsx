@@ -1,4 +1,5 @@
 import {
+	isValidElement,
 	memo,
 	useCallback,
 	useDeferredValue,
@@ -649,6 +650,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		if (!viewport || !track) {
 			return [];
 		}
+		const viewportRect = viewport.getBoundingClientRect();
 		const rowsById = new Map(renderRowsRef.current.map((row) => [row.rowId, row]));
 		return Array.from(
 			track.querySelectorAll<HTMLElement>('.ref-msg-row-measure[data-row-id]')
@@ -659,16 +661,23 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				if (!meta) {
 					return null;
 				}
-				const height = rowEl.offsetHeight || Math.ceil(rowEl.getBoundingClientRect().height);
+				/**
+				 * 不能用 offsetTop：在 editor-rail 下 offsetParent 可能是外层
+				 * .ref-chat-drop-zone（position:relative），不是 viewport/track，
+				 * 参考系会错乱，sticky user 选中就会在滚动过程中抖动甚至闪烁。
+				 */
+				const rowRect = rowEl.getBoundingClientRect();
+				const top = rowRect.top - viewportRect.top;
+				const height = Math.max(0, Math.ceil(rowRect.height) || rowEl.offsetHeight);
 				return {
 					rowId: meta.rowId,
 					messageIndex: meta.messageIndex,
 					turnOwnerUserIndex: meta.turnOwnerUserIndex,
 					isTurnStart: meta.isTurnStart,
 					stickyUserIndex: meta.stickyUserIndex,
-					top: rowEl.offsetTop - viewport.scrollTop,
-					height: Math.max(0, height),
-					offsetTop: rowEl.offsetTop,
+					top,
+					height,
+					offsetTop: Math.max(0, viewport.scrollTop + top),
 				};
 			})
 			.filter((row): row is MeasuredTurnFocusRow => row != null);
@@ -967,7 +976,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		const renderedRows = collectMeasuredTurnRows();
 		const nextStickyIndex = findStickyUserIndexForViewport({
 			renderedRows,
-			stickyTopPx: 0,
+			stickyTopPx: stickyUserTopPx,
 			latestTurnStartUserIndex,
 			latestTurnSpacerPx: activeTurnSpacerPx,
 		});
@@ -1029,6 +1038,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		hasConversation,
 		lastMessageLayoutSig,
 		activeTurnSpacerPx,
+		stickyUserTopPx,
 		latestTurnStartUserIndex,
 		messageStartIndex,
 		shouldUseStableTeamLiveLayout,
@@ -1721,10 +1731,19 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		const containers: ReactNode[] = [];
 		let currentTurnNodes: ReactNode[] = [];
 		let currentTurnOwner: string | null = null;
+		type TurnContainerNodeProps = {
+			'data-turn-start'?: string;
+			'data-turn-owner'?: string;
+		};
 
 		for (const node of renderedChatRowNodes) {
-			const isTurnStart = (node as JSX.Element).props['data-turn-start'] === 'true';
-			const turnOwner = (node as JSX.Element).props['data-turn-owner'];
+			if (!isValidElement<TurnContainerNodeProps>(node)) {
+				currentTurnNodes.push(node);
+				continue;
+			}
+			const isTurnStart = node.props['data-turn-start'] === 'true';
+			const turnOwner =
+				typeof node.props['data-turn-owner'] === 'string' ? node.props['data-turn-owner'] : null;
 
 			if (isTurnStart && currentTurnNodes.length > 0) {
 				containers.push(
