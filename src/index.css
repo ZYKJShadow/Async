@@ -13257,15 +13257,15 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-plus-mcp-status--ok {
-	color: #4ade80;
+	color: var(--void-status-success);
 }
 
 .ref-plus-mcp-status--warn {
-	color: #facc15;
+	color: var(--void-status-warning);
 }
 
 .ref-plus-mcp-status--err {
-	color: #f87171;
+	color: var(--void-status-error);
 }
 
 .ref-plus-mcp-item-error {
@@ -18453,7 +18453,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-server-row:hover {
-	border-color: rgba(255, 255, 255, 0.1);
+	border-color: color-mix(in srgb, var(--void-fg-0) 10%, transparent);
 }
 
 .ref-mcp-server-row--disabled {
@@ -18493,7 +18493,7 @@ select.ref-settings-native-select:focus {
 	color: var(--void-fg-3);
 	padding: 2px 6px;
 	border-radius: 4px;
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
 
 .ref-mcp-server-actions {
@@ -18509,7 +18509,7 @@ select.ref-settings-native-select:focus {
 	min-height: 28px;
 	padding: 0 8px;
 	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 	color: var(--void-fg-2);
 	font-size: 11px;
 }
@@ -18539,7 +18539,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-server-action:hover {
-	background: rgba(255, 255, 255, 0.08);
+	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 	color: var(--void-fg-1);
 }
 
@@ -18562,34 +18562,34 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-status--connected {
-	color: #86efac;
-	background: rgba(34, 197, 94, 0.12);
+	color: var(--void-status-success);
+	background: var(--void-status-success-soft);
 }
 
 .ref-mcp-status--not-started {
 	color: var(--void-fg-2);
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
 
 .ref-mcp-status--connecting {
-	color: #fcd34d;
-	background: rgba(250, 204, 21, 0.12);
+	color: var(--void-status-warning);
+	background: var(--void-status-warning-soft);
 	animation: ref-mcp-status-pulse 1.5s ease-in-out infinite;
 }
 
 .ref-mcp-status--stopped {
-	color: #fdba74;
-	background: rgba(251, 146, 60, 0.12);
+	color: var(--void-status-orange);
+	background: var(--void-status-orange-soft);
 }
 
 .ref-mcp-status--error {
-	color: #fca5a5;
-	background: rgba(248, 113, 113, 0.12);
+	color: var(--void-status-error);
+	background: var(--void-status-error-soft);
 }
 
 .ref-mcp-status--disabled {
-	color: rgba(255, 255, 255, 0.45);
-	background: rgba(255, 255, 255, 0.03);
+	color: var(--void-fg-3);
+	background: color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 
 @keyframes ref-mcp-status-pulse {
@@ -18619,7 +18619,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-server-tools-expand:hover {
-	background: rgba(255, 255, 255, 0.06);
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 	color: var(--void-fg-2);
 }
 
@@ -18638,7 +18638,7 @@ select.ref-settings-native-select:focus {
 	gap: 2px;
 	padding: 6px 8px;
 	border-radius: 6px;
-	background: rgba(255, 255, 255, 0.02);
+	background: color-mix(in srgb, var(--void-fg-0) 2%, transparent);
 }
 
 .ref-mcp-server-tool-name {
@@ -18719,7 +18719,7 @@ select.ref-settings-native-select:focus {
 	padding: 10px 12px;
 	border-radius: 10px;
 	border: 1px dashed var(--void-border-soft);
-	background: rgba(255, 255, 255, 0.02);
+	background: color-mix(in srgb, var(--void-fg-0) 2%, transparent);
 }
 
 .ref-mcp-edit-example-title {
@@ -18836,7 +18836,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-edit-expand-btn:hover {
-	background: rgba(255, 255, 255, 0.06);
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 }
 
 .ref-mcp-edit-expand-count {
@@ -18855,7 +18855,7 @@ select.ref-settings-native-select:focus {
 	height: 24px;
 	border: none;
 	border-radius: 5px;
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 	color: var(--void-fg-3);
 	cursor: pointer;
 	transition: background 0.1s, color 0.1s;
@@ -18932,7 +18932,7 @@ select.ref-settings-native-select:focus {
 	padding: 10px 12px;
 	border-radius: 10px;
 	border: 1px solid var(--void-border-soft);
-	background: rgba(255, 255, 255, 0.02);
+	background: color-mix(in srgb, var(--void-fg-0) 2%, transparent);
 }
 
 .ref-mcp-edit-command-preview-label {
@@ -18987,7 +18987,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-edit-cancel:hover {
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 	border-color: var(--void-fg-3);
 }
 
@@ -19011,7 +19011,7 @@ select.ref-settings-native-select:focus {
 	padding: 12px;
 	border-radius: 8px;
 	border: 1px solid var(--void-border-soft);
-	background: rgba(255, 255, 255, 0.015);
+	background: color-mix(in srgb, var(--void-fg-0) 1.5%, transparent);
 	font-size: 12px;
 	color: var(--void-fg-3);
 }
@@ -19050,7 +19050,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-settings-mcp-mode-switch button:hover {
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
 
 .ref-settings-mcp-mode-switch button.ref-settings-mcp-mode--active {
@@ -19088,7 +19088,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-json-btn:hover {
-	background: rgba(255, 255, 255, 0.06);
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 }
 
 .ref-mcp-json-templates {

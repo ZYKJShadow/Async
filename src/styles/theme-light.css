@@ -26,6 +26,14 @@
 	--void-git-added: #228b60;
 	--void-git-deleted: #d65055;
 	--void-git-ignored: #9aa6ba;
+	--void-status-success: #15803d;
+	--void-status-success-soft: color-mix(in srgb, #22c55e 14%, transparent);
+	--void-status-warning: #a16207;
+	--void-status-warning-soft: color-mix(in srgb, #ca8a04 14%, transparent);
+	--void-status-error: #b91c1c;
+	--void-status-error-soft: color-mix(in srgb, #ef4444 14%, transparent);
+	--void-status-orange: #c2410c;
+	--void-status-orange-soft: color-mix(in srgb, #f97316 14%, transparent);
 	--void-scrollbar-track: color-mix(in srgb, var(--void-bg-1) 78%, transparent);
 	--void-scrollbar-thumb: color-mix(in srgb, var(--void-fg-3) 38%, transparent);
 	--void-scrollbar-thumb-hover: color-mix(in srgb, var(--void-fg-2) 50%, transparent);
