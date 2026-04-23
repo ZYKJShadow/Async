@@ -16,6 +16,19 @@ type RichRefs = {
 	inline: React.RefObject<HTMLDivElement | null>;
 };
 
+function getLeadingSkillSegmentText(segs: ComposerSegment[]): string | null {
+	if (segs.length !== 1) {
+		return null;
+	}
+	const first = segs[0];
+	if (first?.kind !== 'text') {
+		return null;
+	}
+	const { text } = first;
+	const isSkillPrefix = text.startsWith('./') || (text.startsWith('/') && !text.startsWith('//'));
+	return isSkillPrefix ? text : null;
+}
+
 export function useComposerSkillInvoke(
 	getSegmentsSetter: (slot: AtComposerSlot) => React.Dispatch<React.SetStateAction<ComposerSegment[]>>,
 	richRefs: RichRefs,
@@ -60,9 +73,8 @@ export function useComposerSkillInvoke(
 		(root: HTMLElement, slot: AtComposerSlot) => {
 			skillSlotRef.current = slot;
 			const segs = readSegmentsFromRoot(root);
-			const firstText = segs[0]?.text ?? '';
-			const isSkillPrefix = firstText.startsWith('./') || (firstText.startsWith('/') && !firstText.startsWith('//'));
-			if (segs.length !== 1 || segs[0]?.kind !== 'text' || !isSkillPrefix) {
+			const firstText = getLeadingSkillSegmentText(segs);
+			if (firstText === null) {
 				closeSkillMenu();
 				return;
 			}
@@ -101,14 +113,13 @@ export function useComposerSkillInvoke(
 				return;
 			}
 			const segs = readSegmentsFromRoot(r);
-			const firstText2 = segs[0]?.text ?? '';
-				const isSkillPrefix2 = firstText2.startsWith('./') || (firstText2.startsWith('/') && !firstText2.startsWith('//'));
-				if (segs.length !== 1 || segs[0]?.kind !== 'text' || !isSkillPrefix2) {
+			const firstText = getLeadingSkillSegmentText(segs);
+			if (firstText === null) {
 				closeSkillMenu();
 				return;
 			}
 			const plainPrefix = textBeforeCaretForAt(r);
-			if (getLeadingSkillInvokeQuery(segs[0].text, plainPrefix) === null) {
+			if (getLeadingSkillInvokeQuery(firstText, plainPrefix) === null) {
 				closeSkillMenu();
 				return;
 			}
@@ -169,16 +180,14 @@ export function useComposerSkillInvoke(
 				return;
 			}
 			const segs = readSegmentsFromRoot(root);
-			const firstText2 = segs[0]?.text ?? '';
-				const isSkillPrefix2 = firstText2.startsWith('./') || (firstText2.startsWith('/') && !firstText2.startsWith('//'));
-				if (segs.length !== 1 || segs[0]?.kind !== 'text' || !isSkillPrefix2) {
+			const firstText = getLeadingSkillSegmentText(segs);
+			if (firstText === null) {
 				closeSkillMenu();
 				return;
 			}
-			const t = segs[0].text;
-			const skillTok = t.match(/^\.\/\S*/) || t.match(/^\/\S*/);
-			const skillLen = skillTok ? skillTok[0]!.length : (t.startsWith('./') ? 2 : 1);
-			const tail = t.slice(skillLen);
+			const skillTok = firstText.match(/^\.\/\S*/) || firstText.match(/^\/\S*/);
+			const skillLen = skillTok ? skillTok[0]!.length : (firstText.startsWith('./') ? 2 : 1);
+			const tail = firstText.slice(skillLen);
 			const setSeg = getSegmentsSetter(skillSlotRef.current);
 			setSeg([
 				{ id: newSegmentId(), kind: 'skill', slug: picked.slug, name: picked.name },

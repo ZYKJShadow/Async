@@ -314,8 +314,6 @@ export function SettingsAgentPanel({
 
 	const pluginSkills = skills.filter((s) => isPluginImportedSkill(s));
 	const diskSkillsAll = skills.filter((s) => isAnyDiskImportedSkill(s));
-	const diskWorkspaceSkills = diskSkillsAll.filter((s) => isWorkspaceDiskImportedSkill(s));
-	const diskGlobalSkills = diskSkillsAll.filter((s) => isGlobalDiskImportedSkill(s));
 	const editableSkills = skills.filter((s) => !isAnyDiskImportedSkill(s) && !isPluginImportedSkill(s));
 	const skillsDrag = useDragReorder(editableSkills, (nextEditable) =>
 		patch({ skills: [...pluginSkills, ...diskSkillsAll, ...nextEditable] })
