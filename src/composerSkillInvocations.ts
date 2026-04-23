@@ -20,14 +20,18 @@ export function filterSkillInvokeMenuItems(
 }
 
 /**
- * 首段为 `./...` 且光标仍在「skill slug」内时返回查询词（不含 `./`）。
+ * 首段为 `./...` 或 `/...` 且光标仍在「skill slug」内时返回查询词（不含前缀）。
  * plainPrefix：caret 前由 DOM 采样的纯文本前缀，须与首段文本对齐。
  */
 export function getLeadingSkillInvokeQuery(firstSegmentText: string, plainPrefix: string): string | null {
-	if (!firstSegmentText.startsWith('./') || plainPrefix.length === 0 || !firstSegmentText.startsWith(plainPrefix)) {
+	const isDotSlash = firstSegmentText.startsWith('./');
+	const isSlash = firstSegmentText.startsWith('/') && !firstSegmentText.startsWith('//');
+	if ((!isDotSlash && !isSlash) || plainPrefix.length === 0 || !firstSegmentText.startsWith(plainPrefix)) {
 		return null;
 	}
-	const skillToken = firstSegmentText.match(/^\.\/(\S*)/);
+	const prefixLen = isDotSlash ? 2 : 1;
+	const pattern = isDotSlash ? /^\.\/(\S*)/ : /^\/(\S*)/;
+	const skillToken = firstSegmentText.match(pattern);
 	if (!skillToken) {
 		return null;
 	}
@@ -35,7 +39,7 @@ export function getLeadingSkillInvokeQuery(firstSegmentText: string, plainPrefix
 	if (plainPrefix.length > tokenEnd) {
 		return null;
 	}
-	const afterPrefix = plainPrefix.slice(2);
+	const afterPrefix = plainPrefix.slice(prefixLen);
 	if (/\s/u.test(afterPrefix)) {
 		return null;
 	}

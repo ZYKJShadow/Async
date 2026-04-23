@@ -163,6 +163,8 @@ export type AgentCustomization = {
 	toolPermissionRules?: AgentToolPermissionRule[];
 	shouldAvoidPermissionPrompts?: boolean;
 	memoryExtraction?: AgentMemoryExtractionSettings;
+	/** 磁盘扫描 skill（工作区 + 全局）的启用/禁用覆盖（key 为 slug） */
+	diskSkillEnabledOverrides?: Record<string, boolean>;
 };
 
 export const defaultAgentCustomization = (): AgentCustomization => ({
@@ -181,6 +183,16 @@ export const defaultAgentCustomization = (): AgentCustomization => ({
 /** 主进程从 `.claude` / `.cursor` / `.async` 的 skills 目录扫描出的项，id 形如 `ws-skill-*`；不应写入 settings 或 `.async/agent.json`。 */
 export function isWorkspaceDiskImportedSkill(s: { id: string }): boolean {
 	return s.id.startsWith('ws-skill-');
+}
+
+/** 从用户主目录 `~/.claude/skills/`、`~/.async/skills/` 扫描出的全局 skill，id 形如 `global-skill-*`；不应写入 settings 或 `.async/agent.json`。 */
+export function isGlobalDiskImportedSkill(s: { id: string }): boolean {
+	return s.id.startsWith('global-skill-');
+}
+
+/** 任何从磁盘扫描导入的 skill（工作区或全局） */
+export function isAnyDiskImportedSkill(s: { id: string }): boolean {
+	return isWorkspaceDiskImportedSkill(s) || isGlobalDiskImportedSkill(s);
 }
 
 export function isPluginImportedSkill(s: { id: string } | null | undefined): boolean {

@@ -153,7 +153,7 @@ import {
 	abortTeamPlanApprovalForThread,
 	resolveTeamPlanApproval,
 } from '../agent/teamPlanApprovalTool.js';
-import { loadClaudeWorkspaceSkills, prepareUserTurnForChat } from '../llm/agentMessagePrep.js';
+import { loadClaudeWorkspaceSkills, loadGlobalSkills, prepareUserTurnForChat } from '../llm/agentMessagePrep.js';
 import {
 	buildSkillCreatorSystemAppend,
 	formatSkillCreatorUserBubble,
@@ -2134,7 +2134,8 @@ export function registerIpc(): void {
 		if (!root) {
 			return { ok: true as const, skills: [] };
 		}
-		return { ok: true as const, skills: loadClaudeWorkspaceSkills(root) };
+		const globalSkills = loadGlobalSkills();
+			return { ok: true as const, skills: [...globalSkills, ...loadClaudeWorkspaceSkills(root)] };
 	});
 
 	/** 删除工作区内技能目录（`.cursor|claude|async/skills/<slug>/` 整夹），参数为其中 `SKILL.md` 的相对路径 */

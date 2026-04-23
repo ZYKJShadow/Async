@@ -359,6 +359,8 @@ type Props = {
 	onOpenWorkspaceSkillFile?: (relPath: string) => void | Promise<void>;
 	/** 删除磁盘上的技能目录（SKILL.md 相对路径）；成功返回 true */
 	onDeleteWorkspaceSkillDisk?: (skillMdRelPath: string) => Promise<boolean>;
+	/** 重新扫描磁盘技能（工作区 + 全局） */
+	onRefreshDiskSkills?: () => void;
 	editorSettings: EditorSettings;
 	onChangeEditorSettings: (v: EditorSettings) => void;
 	/** 语言切换后立即持久化（与关闭设置页时的全量保存配合） */
@@ -403,6 +405,7 @@ export function SettingsPage({
 	onOpenSkillCreator,
 	onOpenWorkspaceSkillFile,
 	onDeleteWorkspaceSkillDisk,
+	onRefreshDiskSkills,
 	editorSettings,
 	onChangeEditorSettings,
 	onPersistLanguage,
@@ -1279,6 +1282,7 @@ export function SettingsPage({
 									onOpenSkillCreator={onOpenSkillCreator}
 									onOpenWorkspaceSkillFile={onOpenWorkspaceSkillFile}
 									onDeleteWorkspaceSkillDisk={onDeleteWorkspaceSkillDisk}
+									onRefreshDiskSkills={onRefreshDiskSkills}
 								/>
 							</Suspense>
 						) : null}

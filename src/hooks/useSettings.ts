@@ -17,9 +17,9 @@ import {
 } from '../providerIdentitySettings';
 import {
 	defaultAgentCustomization,
+	isAnyDiskImportedSkill,
 	isPluginImportedCommand,
 	isPluginImportedSkill,
-	isWorkspaceDiskImportedSkill,
 	mergeSkillsBySlug,
 	type TeamSettings,
 	type AgentCustomization,
@@ -108,10 +108,20 @@ export function useSettings(
 	const mergedAgentCustomization = useMemo((): AgentCustomization => {
 		const persistedSkills = [...(agentCustomization.skills ?? []), ...projectAgentSlice.skills];
 		const pluginThenPersistedSkills = mergeSkillsBySlug(pluginRuntimeState.skills, persistedSkills);
-		const skills =
+		const diskSkills =
 			workspaceDiskSkills.length > 0
 				? mergeSkillsBySlug(pluginThenPersistedSkills, workspaceDiskSkills)
 				: pluginThenPersistedSkills;
+		// 应用磁盘 skill 的启用/禁用覆盖
+		const overrides = agentCustomization.diskSkillEnabledOverrides ?? {};
+		const skills = diskSkills.map((s) => {
+			if (!isAnyDiskImportedSkill(s)) return s;
+			const slug = s.slug.trim().toLowerCase();
+			if (slug in overrides) {
+				return { ...s, enabled: overrides[slug] };
+			}
+			return s;
+		});
 		return {
 			...agentCustomization,
 			rules: [...(agentCustomization.rules ?? []), ...projectAgentSlice.rules],
@@ -126,7 +136,7 @@ export function useSettings(
 			const ur = next.rules?.filter((r) => (r.origin ?? 'user') !== 'project') ?? [];
 			const pr = next.rules?.filter((r) => r.origin === 'project') ?? [];
 			const skillsPersist = (next.skills ?? []).filter(
-				(s) => !isWorkspaceDiskImportedSkill(s) && !isPluginImportedSkill(s)
+				(s) => !isAnyDiskImportedSkill(s) && !isPluginImportedSkill(s)
 			);
 			const us = skillsPersist.filter((s) => (s.origin ?? 'user') !== 'project');
 			const ps = skillsPersist.filter((s) => s.origin === 'project');

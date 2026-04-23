@@ -14,12 +14,102 @@ import type {
 import { createAutoReplyLanguageRule } from './autoReplyLanguageRule';
 import {
 	defaultAgentCustomization,
+	isAnyDiskImportedSkill,
+	isGlobalDiskImportedSkill,
 	isPluginImportedCommand,
 	isPluginImportedSkill,
 	isWorkspaceDiskImportedSkill,
 } from './agentSettingsTypes';
 import { VoidSelect } from './VoidSelect';
 import { buildSlashCommandListRows } from './composerSlashCommands';
+
+/** Skill 快速模板 */
+export type SkillTemplate = {
+	id: string;
+	name: string;
+	slug: string;
+	description: string;
+	content: string;
+};
+
+export const SKILL_TEMPLATES: SkillTemplate[] = [
+	{
+		id: 'review-pr',
+		name: 'Review PR',
+		slug: 'review-pr',
+		description: 'Review a pull request by analyzing diff, checking style, and providing feedback.',
+		content: `## Review Pull Request
+
+1. Read the PR description and linked issues
+2. Run git diff to see all changes
+3. For each changed file:
+   - Check code style and formatting
+   - Look for potential bugs or edge cases
+   - Verify test coverage
+   - Check for security issues
+4. Provide a summary with:
+   - Overall assessment (approve / request changes / comment)
+   - Key findings (positive and negative)
+   - Specific suggestions with line references
+   - Action items for the author`,
+	},
+	{
+		id: 'write-tests',
+		name: 'Write Tests',
+		slug: 'write-tests',
+		description: 'Generate comprehensive test cases for the given code or feature.',
+		content: `## Write Tests
+
+1. Read the target file(s) to understand the code
+2. Identify the public API surface (functions, classes, methods)
+3. For each public unit:
+   - Write happy path tests
+   - Write edge case tests (null, empty, boundary values)
+   - Write error case tests (exceptions, invalid inputs)
+4. Use the existing test framework and conventions in the project
+5. Ensure tests are independent and can run in any order
+6. Add descriptive test names that explain the scenario`,
+	},
+	{
+		id: 'refactor',
+		name: 'Refactor',
+		slug: 'refactor',
+		description: 'Refactor code to improve readability, performance, and maintainability.',
+		content: `## Refactor Code
+
+1. Read the target file(s) carefully
+2. Identify code smells:
+   - Long functions / classes
+   - Duplicate code
+   - Deep nesting
+   - Magic numbers / strings
+   - Tight coupling
+3. Apply appropriate refactorings:
+   - Extract functions / methods
+   - Rename for clarity
+   - Simplify conditionals
+   - Remove dead code
+4. Ensure all existing tests still pass
+5. Do NOT change behavior — only structure`,
+	},
+	{
+		id: 'commit-message',
+		name: 'Commit Message',
+		slug: 'commit',
+		description: 'Generate a conventional commit message from staged changes.',
+		content: `## Generate Commit Message
+
+1. Run git diff --staged to see the changes
+2. Analyze the scope and intent of the changes
+3. Write a commit message following conventional commits format:
+   - type(scope): subject
+   - Optional body explaining why and how
+   - Optional footer for breaking changes or issue references
+4. Types: feat, fix, docs, style, refactor, test, chore, perf, ci
+5. Keep the subject line under 72 characters
+6. Use imperative mood in the subject`,
+	},
+];
 
 function newId(): string {
 	return globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -122,6 +212,8 @@ type Props = {
 	onOpenWorkspaceSkillFile?: (relPath: string) => void | Promise<void>;
 	/** 删除磁盘技能目录（整夹）；返回是否成功 */
 	onDeleteWorkspaceSkillDisk?: (skillMdRelPath: string) => Promise<boolean>;
+	/** 重新扫描磁盘技能 */
+	onRefreshDiskSkills?: () => void;
 };
 
 function itemMatchesLibraryFilter(item: { origin?: AgentItemOrigin }, filter: AgentLibraryFilter): boolean {
@@ -139,6 +231,7 @@ export function SettingsAgentPanel({
 	onOpenSkillCreator,
 	onOpenWorkspaceSkillFile,
 	onDeleteWorkspaceSkillDisk,
+	onRefreshDiskSkills,
 }: Props) {
 	const { t } = useI18n();
 	const v = { ...defaultAgentCustomization(), ...value };
@@ -164,6 +257,9 @@ export function SettingsAgentPanel({
 	const [collapsedSubs, setCollapsedSubs] = useState<Set<string>>(new Set());
 	const [collapsedCmds, setCollapsedCmds] = useState<Set<string>>(new Set());
 	const [diskSkillDeletingId, setDiskSkillDeletingId] = useState<string | null>(null);
+	const [importOpen, setImportOpen] = useState(false);
+	const [importText, setImportText] = useState('');
+	const [importError, setImportError] = useState<string | null>(null);
 
 	const toggleCollapse = (set: Set<string>, setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => {
 		const next = new Set(set);
@@ -208,20 +304,71 @@ export function SettingsAgentPanel({
 		const cur = skills.find((x) => x.id === id);
 		if (cur && (isWorkspaceDiskImportedSkill(cur) || isPluginImportedSkill(cur))) return;
 		const nextEditable = editableSkills.map((x) => (x.id === id ? { ...x, ...p } : x));
-		patch({ skills: [...pluginSkills, ...diskSkillsInWorkspace, ...nextEditable] });
+		patch({ skills: [...pluginSkills, ...diskSkillsAll, ...nextEditable] });
 	};
 	const removeSkill = (id: string) => {
 		const cur = skills.find((x) => x.id === id);
 		if (cur && (isWorkspaceDiskImportedSkill(cur) || isPluginImportedSkill(cur))) return;
-		patch({ skills: [...pluginSkills, ...diskSkillsInWorkspace, ...editableSkills.filter((x) => x.id !== id)] });
+		patch({ skills: [...pluginSkills, ...diskSkillsAll, ...editableSkills.filter((x) => x.id !== id)] });
 	};
 
 	const pluginSkills = skills.filter((s) => isPluginImportedSkill(s));
-	const diskSkillsInWorkspace = skills.filter((s) => isWorkspaceDiskImportedSkill(s) && s.skillSourceRelPath);
-	const editableSkills = skills.filter((s) => !isWorkspaceDiskImportedSkill(s) && !isPluginImportedSkill(s));
+	const diskSkillsAll = skills.filter((s) => isAnyDiskImportedSkill(s));
+	const diskWorkspaceSkills = diskSkillsAll.filter((s) => isWorkspaceDiskImportedSkill(s));
+	const diskGlobalSkills = diskSkillsAll.filter((s) => isGlobalDiskImportedSkill(s));
+	const editableSkills = skills.filter((s) => !isAnyDiskImportedSkill(s) && !isPluginImportedSkill(s));
 	const skillsDrag = useDragReorder(editableSkills, (nextEditable) =>
-		patch({ skills: [...pluginSkills, ...diskSkillsInWorkspace, ...nextEditable] })
+		patch({ skills: [...pluginSkills, ...diskSkillsAll, ...nextEditable] })
 	);
+
+	const toggleDiskSkill = (s: AgentSkill) => {
+		const overrides = { ...(v.diskSkillEnabledOverrides ?? {}) };
+		const slug = s.slug.trim().toLowerCase();
+		const current = s.enabled !== false;
+		overrides[slug] = !current;
+		patch({ diskSkillEnabledOverrides: overrides });
+	};
+
+	const addSkillFromTemplate = (template: SkillTemplate) => {
+		const id = newId();
+		const s: AgentSkill = {
+			id,
+			name: template.name,
+			slug: template.slug,
+			description: template.description,
+			content: template.content,
+			enabled: true,
+			origin: originForNewItem(),
+		};
+		patch({ skills: [...skills, s] });
+	};
+
+	const importSkillFromMarkdown = (markdown: string) => {
+		const trimmed = markdown.trim();
+		if (!trimmed.startsWith('---')) return false;
+		const end = trimmed.indexOf('\n---', 3);
+		if (end < 0) return false;
+		const yaml = trimmed.slice(3, end).trim();
+		const body = trimmed.slice(end + 4).trim();
+		const meta: Record<string, string> = {};
+		for (const line of yaml.split('\n')) {
+			const m = line.match(/^([a-zA-Z0-9_-]+)\s*:\s*(.*)$/);
+			if (m) meta[m[1]] = (m[2] ?? '').replace(/^["']|["']$/g, '').trim();
+		}
+		const slug = (meta.slug ?? meta.name ?? 'unnamed').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+		if (!slug) return false;
+		const s: AgentSkill = {
+			id: newId(),
+			name: meta.name || slug,
+			slug,
+			description: meta.description || '',
+			content: body,
+			enabled: true,
+			origin: originForNewItem(),
+		};
+		patch({ skills: [...skills, s] });
+		return true;
+	};
 
 	const deleteDiskSkill = async (s: AgentSkill) => {
 		const rel = s.skillSourceRelPath;
@@ -555,18 +702,97 @@ export function SettingsAgentPanel({
 							<IconInfo />
 						</span>
 					</h2>
-					<div className="ref-settings-agent-head-actions">
-						{onOpenSkillCreator ? (
-							<button type="button" className="ref-settings-agent-new-btn" onClick={() => void onOpenSkillCreator()}>
-								{t('agentSettings.skillsNew')}
-							</button>
-						) : null}
-					</div>
+						<div className="ref-settings-agent-head-actions">
+							<div className="ref-settings-agent-template-dropdown">
+								<button type="button" className="ref-settings-agent-new-btn ref-settings-agent-new-btn--secondary" title="From template">
+									{t('agentSettings.skillsTemplate')}
+								</button>
+								<div className="ref-settings-agent-template-menu">
+									{SKILL_TEMPLATES.map((tmpl) => (
+										<button
+											key={tmpl.id}
+											type="button"
+											onClick={() => addSkillFromTemplate(tmpl)}
+											className="ref-settings-agent-template-item"
+										>
+											<div className="ref-settings-agent-template-name">{tmpl.name}</div>
+											<div className="ref-settings-agent-template-desc">{tmpl.description}</div>
+										</button>
+									))}
+								</div>
+							</div>
+							<button
+								type="button"
+								className="ref-settings-agent-new-btn ref-settings-agent-new-btn--secondary"
+								onClick={() => {
+									setImportOpen((v) => !v);
+									setImportError(null);
+								}}
+								>
+									{t('agentSettings.skillsImport')}
+								</button>
+									{onRefreshDiskSkills ? (
+										<button
+											type="button"
+											className="ref-settings-agent-new-btn ref-settings-agent-new-btn--secondary"
+											onClick={() => onRefreshDiskSkills()}
+											title={t("agentSettings.skillsRefreshTitle") || "Rescan disk skills"}
+										>
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 4 }}><path d="M23 4v6h-6M1 20v-6h6" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" strokeLinecap="round" strokeLinejoin="round"/></svg>
+											{t("agentSettings.skillsRefresh")}
+										</button>
+									) : null}
+							{onOpenSkillCreator ? (
+								<button type="button" className="ref-settings-agent-new-btn" onClick={() => void onOpenSkillCreator()}>
+									{t('agentSettings.skillsNew')}
+								</button>
+							) : null}
+						</div>
 				</div>
 				<p className="ref-settings-agent-section-desc">{t('agentSettings.skillsDesc')}</p>
+				{importOpen && (
+					<div className="ref-settings-agent-import-box">
+						<label className="ref-settings-field">
+							<span>{t('agentSettings.skillsImportPrompt')}</span>
+							<textarea
+								rows={6}
+								value={importText}
+								onChange={(e) => { setImportText(e.target.value); setImportError(null); }}
+								placeholder="---\nname: My Skill\nslug: my-skill\ndescription: ...\n---\n\n## Steps\n1. ..."
+							/>
+						</label>
+						{importError ? (
+							<p className="ref-settings-agent-import-error">{importError}</p>
+						) : null}
+						<div className="ref-settings-agent-import-actions">
+							<button
+								type="button"
+								className="ref-settings-agent-new-btn"
+								onClick={() => {
+									if (importSkillFromMarkdown(importText)) {
+										setImportOpen(false);
+										setImportText('');
+										setImportError(null);
+									} else {
+										setImportError(t('agentSettings.skillsImportError') || 'Failed to parse SKILL.md, please check format');
+									}
+								}}
+								>
+									{t('common.confirm')}
+								</button>
+							<button
+								type="button"
+								className="ref-settings-agent-new-btn ref-settings-agent-new-btn--secondary"
+								onClick={() => { setImportOpen(false); setImportText(''); setImportError(null); }}
+								>
+									{t('common.cancel')}
+								</button>
+						</div>
+					</div>
+				)}
 				{(() => {
 					const pluginFiltered = pluginSkills.filter((s) => itemMatchesLibraryFilter(s, libraryFilter));
-					const diskFiltered = diskSkillsInWorkspace.filter((s) => itemMatchesLibraryFilter(s, libraryFilter));
+					const diskFiltered = diskSkillsAll.filter((s) => itemMatchesLibraryFilter(s, libraryFilter));
 					const editableFiltered = editableSkills.filter((s) => itemMatchesLibraryFilter(s, libraryFilter));
 					const visibleSkillCount = pluginFiltered.length + diskFiltered.length + editableFiltered.length;
 					return (
@@ -603,35 +829,61 @@ export function SettingsAgentPanel({
 								<>
 									<ul className="ref-settings-agent-skill-disk-list">
 										{diskFiltered.map((s) => {
-											const rel = s.skillSourceRelPath!;
+											const rel = s.skillSourceRelPath;
 											const busy = diskSkillDeletingId === s.id;
-											const canOpen = !!onOpenWorkspaceSkillFile;
+											const canOpen = !!onOpenWorkspaceSkillFile && !!rel;
+											const enabled = s.enabled !== false;
 											return (
-												<li key={s.id} className="ref-settings-agent-skill-disk-card">
-													<button
-														type="button"
-														className={`ref-settings-agent-skill-disk-main ${canOpen ? 'is-clickable' : ''}`}
-														disabled={!canOpen || busy}
-														onClick={() => onDiskCardOpenClick(rel)}
-														aria-label={t('agentSettings.skillDiskOpenAria', { name: s.name })}
-													>
-														<div className="ref-settings-agent-skill-disk-title">{s.name}</div>
-														<div className="ref-settings-agent-skill-disk-desc">{s.description}</div>
-														<div className="ref-settings-agent-skill-disk-path" title={rel}>
-															{rel}
-														</div>
-													</button>
-													<button
-														type="button"
-														className="ref-settings-agent-skill-disk-trash"
-														disabled={busy || !onDeleteWorkspaceSkillDisk}
-														title={t('agentSettings.skillDiskDeleteTitle')}
-														aria-label={t('agentSettings.skillDiskDeleteTitle')}
-														onClick={() => void deleteDiskSkill(s)}
-													>
-														<IconTrash />
-													</button>
-												</li>
+															<li key={s.id} className="ref-settings-agent-skill-disk-card">
+																<button
+																	type="button"
+																	className={`ref-settings-agent-skill-disk-main ${canOpen ? 'is-clickable' : ''}`}
+																	disabled={!canOpen || busy}
+																	onClick={() => rel && onDiskCardOpenClick(rel)}
+																	aria-label={t('agentSettings.skillDiskOpenAria', { name: s.name })}
+																>
+																	<div className="ref-settings-agent-skill-disk-title">
+																		{s.name}
+																		{isGlobalDiskImportedSkill(s) ? (
+																			<span className="ref-settings-agent-origin-badge ref-settings-agent-origin-badge--user">
+																				{t('agentSettings.originUser')}
+																			</span>
+																		) : (
+																			<span className="ref-settings-agent-origin-badge ref-settings-agent-origin-badge--project">
+																				{t('agentSettings.originProject')}
+																			</span>
+																		)}
+																	</div>
+																	<div className="ref-settings-agent-skill-disk-desc">{s.description}</div>
+																	<div className="ref-settings-agent-skill-disk-path" title={rel ?? (isGlobalDiskImportedSkill(s) ? '~/.claude/skills/' : '')}>
+																		{rel ?? (isGlobalDiskImportedSkill(s) ? '~/.claude/skills/' : '')}
+																	</div>
+																</button>
+																<div className="ref-settings-agent-skill-disk-actions">
+																	<button
+																		type="button"
+																		className={`ref-settings-toggle ref-settings-toggle--sm ${enabled ? 'is-on' : ''}`}
+																		role="switch"
+																		aria-checked={enabled}
+																		title={enabled ? t('settings.enabled') : t('settings.disabled')}
+																		onClick={() => toggleDiskSkill(s)}
+																	>
+																		<span className="ref-settings-toggle-knob" />
+																	</button>
+																	{!isGlobalDiskImportedSkill(s) && (
+																		<button
+																			type="button"
+																			className="ref-settings-agent-skill-disk-trash"
+																			disabled={busy || !onDeleteWorkspaceSkillDisk}
+																			title={t('agentSettings.skillDiskDeleteTitle')}
+																			aria-label={t('agentSettings.skillDiskDeleteTitle')}
+																			onClick={() => void deleteDiskSkill(s)}
+																		>
+																			<IconTrash />
+																		</button>
+																	)}
+																</div>
+															</li>
 											);
 										})}
 									</ul>

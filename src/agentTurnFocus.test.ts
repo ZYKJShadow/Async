@@ -6,6 +6,7 @@ import {
 	findLatestTurnStartUserIndex,
 	findStickyUserIndexForViewport,
 	resolveStickyUserIndex,
+	shouldEnableLatestTurnSpacer,
 	type MeasuredTurnFocusRow,
 } from './agentTurnFocus';
 import type { ChatMessage } from './threadTypes';
@@ -41,6 +42,13 @@ describe('agentTurnFocus', () => {
 		expect(buildConversationRenderKey('thread-1', 'agent')).not.toBe(
 			buildConversationRenderKey('thread-1', 'team')
 		);
+	});
+
+	it('allows the latest turn spacer whenever non-team mode may need geometric补高', () => {
+		expect(shouldEnableLatestTurnSpacer('agent')).toBe(true);
+		expect(shouldEnableLatestTurnSpacer('plan')).toBe(true);
+		expect(shouldEnableLatestTurnSpacer('ask')).toBe(true);
+		expect(shouldEnableLatestTurnSpacer('team')).toBe(false);
 	});
 
 	it('keeps turn focus on the latest user message even after a short assistant reply finishes', () => {
@@ -112,6 +120,7 @@ describe('agentTurnFocus', () => {
 			viewportHeight: 600,
 			topPadding: 8,
 			bottomPadding: 100,
+			stickyTopPx: 8,
 			activeTurnStartUserIndex: 2,
 			renderedRows: [
 				row({
@@ -149,7 +158,7 @@ describe('agentTurnFocus', () => {
 			],
 		});
 
-		expect(spacer).toBe(350);
+		expect(spacer).toBe(342);
 	});
 
 	it('includes team rows in the active turn section height', () => {
@@ -157,6 +166,7 @@ describe('agentTurnFocus', () => {
 			viewportHeight: 600,
 			topPadding: 8,
 			bottomPadding: 100,
+			stickyTopPx: 8,
 			activeTurnStartUserIndex: 2,
 			renderedRows: [
 				row({
@@ -183,7 +193,7 @@ describe('agentTurnFocus', () => {
 			],
 		});
 
-		expect(spacer).toBe(70);
+		expect(spacer).toBe(62);
 	});
 
 	it('returns zero when the active turn already fills the available viewport height', () => {
@@ -191,6 +201,7 @@ describe('agentTurnFocus', () => {
 			viewportHeight: 600,
 			topPadding: 8,
 			bottomPadding: 100,
+			stickyTopPx: 8,
 			activeTurnStartUserIndex: 2,
 			renderedRows: [
 				row({
@@ -432,6 +443,50 @@ describe('agentTurnFocus', () => {
 				latestTurnSpacerPx: 320,
 			})
 		).toBe(0);
+	});
+
+	it('releases sticky when the latest turn row has fully scrolled out of viewport', () => {
+		expect(
+			findStickyUserIndexForViewport({
+				renderedRows: [
+					row({
+						rowId: 'u1',
+						messageIndex: 0,
+						turnOwnerUserIndex: 0,
+						isTurnStart: true,
+						stickyUserIndex: 0,
+						top: -200,
+						height: 50,
+					}),
+					row({
+						rowId: 'a1',
+						messageIndex: 1,
+						turnOwnerUserIndex: 0,
+						top: -120,
+						height: 60,
+					}),
+					row({
+						rowId: 'u2',
+						messageIndex: 2,
+						turnOwnerUserIndex: 2,
+						isTurnStart: true,
+						stickyUserIndex: 2,
+						top: -100,
+						height: 48,
+					}),
+					row({
+						rowId: 'a2',
+						messageIndex: 3,
+						turnOwnerUserIndex: 2,
+						top: -30,
+						height: 20,
+					}),
+				],
+				stickyTopPx: 0,
+				latestTurnStartUserIndex: 2,
+				latestTurnSpacerPx: 400,
+			})
+		).toBeNull();
 	});
 
 	it('keeps sticky output after candidate selection', () => {

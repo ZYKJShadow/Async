@@ -113,6 +113,47 @@ export function loadClaudeWorkspaceSkills(workspaceRoot: string | null): AgentSk
 	return [...claude, ...cursor, ...asyncShell];
 }
 
+/** 获取用户主目录路径（跨平台） */
+function getUserHomeDir(): string | null {
+	// Windows: 优先 USERPROFILE（原生路径），避免 Git Bash 的 HOME（/c/Users/...）导致 fs 失败
+	if (process.platform === 'win32') {
+		const fromEnv = process.env.USERPROFILE || process.env.HOME;
+		if (fromEnv) return fromEnv;
+		try {
+			const { homedir } = require('node:os');
+			return homedir();
+		} catch {
+			/* ignore */
+		}
+		return null;
+	}
+	return process.env.HOME || null;
+}
+
+/**
+ * 从全局目录加载磁盘技能（用户主目录级别）：
+ * - `~/.claude/skills/<slug>/SKILL.md`
+ * - `~/.async/skills/<slug>/SKILL.md`
+ * 优先级：`.async` > `.claude`
+ */
+export function loadGlobalSkills(): AgentSkill[] {
+	const home = getUserHomeDir();
+	if (!home) {
+		return [];
+	}
+	const claude = scanSkillsDirectory(home, ['.claude', 'skills'], 'claude');
+	const asyncShell = scanSkillsDirectory(home, ['.async', 'skills'], 'async');
+	// 标记为全局来源
+	const markGlobal = (skills: AgentSkill[], sourceLabel: string): AgentSkill[] =>
+		skills.map((s) => ({
+			...s,
+			id: `global-skill-${sourceLabel}:${s.slug}`,
+			origin: 'user' as const,
+			skillSourceRelPath: undefined,
+		}));
+	return [...markGlobal(claude, 'claude'), ...markGlobal(asyncShell, 'async')];
+}
+
 /**
  * 扫描磁盘子 Agent 配置（兼容 Claude Code `.claude/agents/<name>.md` 约定）：
  * - `.claude/agents/<name>.md`
@@ -514,7 +555,9 @@ export function prepareUserTurnForChat(
 	const { userText: afterCmd, slashSystemBlock } = applySlashCommands(rawText, agent?.commands);
 	const { userText: afterManual, manualBlocks } = applyManualRuleInvocations(afterCmd, agent?.rules);
 	const wsSkills = workspaceRoot ? loadClaudeWorkspaceSkills(workspaceRoot) : [];
-	const mergedSkills = mergeSkillsBySlug(agent?.skills, wsSkills);
+	const globalSkills = loadGlobalSkills();
+	const diskSkills = mergeSkillsBySlug(globalSkills, wsSkills);
+	const mergedSkills = mergeSkillsBySlug(agent?.skills, diskSkills);
 	const wsSubagents = workspaceRoot ? loadClaudeWorkspaceSubagents(workspaceRoot) : [];
 	const mergedSubagents = mergeSubagentsByName(agent?.subagents, wsSubagents);
 	const agentWithDisk: AgentCustomization | undefined = agent

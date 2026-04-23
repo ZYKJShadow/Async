@@ -4,6 +4,7 @@ import {
 	derivePinnedBottomIntent,
 	deriveShowScrollToBottomButton,
 	measureMessagesScroll,
+	resolveContentBottomScroll,
 } from './useMessagesScroll';
 
 describe('useMessagesScroll helpers', () => {
@@ -58,5 +59,30 @@ describe('useMessagesScroll helpers', () => {
 			nearBottom: true,
 			canJumpToBottom: true,
 		});
+	});
+
+	it('resolves the bottom scroll target from the last rendered message row', () => {
+		const viewport = {
+			scrollHeight: 2000,
+			clientHeight: 400,
+			scrollTop: 120,
+			ownerDocument: {
+				defaultView: {
+					getComputedStyle: () => ({
+						paddingBottom: '96px',
+					}),
+				},
+			},
+			getBoundingClientRect: () => ({ top: 100 } as DOMRect),
+		} as unknown as HTMLElement;
+		const track = {
+			querySelectorAll: () =>
+				[
+					{ getBoundingClientRect: () => ({ bottom: 360 } as DOMRect) },
+					{ getBoundingClientRect: () => ({ bottom: 940 } as DOMRect) },
+				] as unknown as NodeListOf<HTMLElement>,
+		} as unknown as HTMLElement;
+
+		expect(resolveContentBottomScroll(viewport, track)).toBe(656);
 	});
 });

@@ -162,4 +162,6 @@ export type AgentCustomization = {
 	memoryExtraction?: AgentMemoryExtractionSettings;
 	/** 控制是否启用自动 Skill 创建及阈值 */
 	skillExtraction?: AgentSkillExtractionSettings;
+	/** 磁盘扫描 skill（工作区 + 全局）的启用/禁用覆盖（key 为 slug） */
+	diskSkillEnabledOverrides?: Record<string, boolean>;
 };

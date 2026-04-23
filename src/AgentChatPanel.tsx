@@ -55,6 +55,7 @@ import {
 	findLatestTurnStartUserIndex,
 	findStickyUserIndexForViewport,
 	resolveStickyUserIndex,
+	shouldEnableLatestTurnSpacer,
 	type MeasuredTurnFocusRow,
 	type TurnFocusRow,
 } from './agentTurnFocus';
@@ -636,6 +637,11 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		() => findLatestTurnStartUserIndex(displayMessages, composerMode, hasTeamSupplementalRows),
 		[displayMessages, composerMode, hasTeamSupplementalRows]
 	);
+	const latestTurnSpacerEnabled = useMemo(
+		() => shouldEnableLatestTurnSpacer(composerMode),
+		[composerMode]
+	);
+	const effectiveActiveTurnSpacerPx = latestTurnSpacerEnabled ? activeTurnSpacerPx : 0;
 	const lastDisplayedMessage = len > 0 ? displayMessages[len - 1] : undefined;
 	const lastMessageLayoutSig = useMemo(
 		() =>
@@ -668,7 +674,15 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				 */
 				const rowRect = rowEl.getBoundingClientRect();
 				const top = rowRect.top - viewportRect.top;
-				const height = Math.max(0, Math.ceil(rowRect.height) || rowEl.offsetHeight);
+				const turnFocusFillPx = Array.from(
+					rowEl.querySelectorAll<HTMLElement>('[data-turn-focus-fill-px]')
+				).reduce((sum, el) => {
+					const raw = el.dataset.turnFocusFillPx;
+					const px = raw == null ? 0 : Number(raw);
+					return sum + (Number.isFinite(px) ? Math.max(0, px) : 0);
+				}, 0);
+				const rawHeight = Math.max(0, Math.ceil(rowRect.height) || rowEl.offsetHeight);
+				const height = Math.max(0, rawHeight - turnFocusFillPx);
 				return {
 					rowId: meta.rowId,
 					messageIndex: meta.messageIndex,
@@ -872,7 +886,12 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	}, [messageStartIndex, displayMessages.length]);
 
 	useLayoutEffect(() => {
-		if (!hasConversation || latestTurnStartUserIndex == null || shouldUseStableTeamLiveLayout) {
+		if (
+			!hasConversation ||
+			!latestTurnSpacerEnabled ||
+			latestTurnStartUserIndex == null ||
+			shouldUseStableTeamLiveLayout
+		) {
 			setActiveTurnSpacerPx((prev) => (prev === 0 ? prev : 0));
 			return;
 		}
@@ -888,6 +907,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			viewportHeight: viewport.clientHeight,
 			topPadding,
 			bottomPadding,
+			stickyTopPx: stickyUserTopPx,
 			renderedRows,
 			activeTurnStartUserIndex: latestTurnStartUserIndex,
 		});
@@ -895,6 +915,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		setActiveTurnSpacerPx((prev) => (Math.abs(prev - nextSpacer) <= 1 ? prev : nextSpacer));
 	}, [
 		hasConversation,
+		latestTurnSpacerEnabled,
 		latestTurnStartUserIndex,
 		shouldUseStableTeamLiveLayout,
 		lastMessageLayoutSig,
@@ -902,6 +923,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		conversationRenderKey,
 		collectMeasuredTurnRows,
 		messagesViewportRef,
+		stickyUserTopPx,
 	]);
 
 	/**
@@ -978,12 +1000,12 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			renderedRows,
 			stickyTopPx: stickyUserTopPx,
 			latestTurnStartUserIndex,
-			latestTurnSpacerPx: activeTurnSpacerPx,
+			latestTurnSpacerPx: effectiveActiveTurnSpacerPx,
 		});
 		const shouldSuppressPinnedTeamSticky =
 			composerMode === 'team' &&
 			isAtBottom &&
-			activeTurnSpacerPx > 0 &&
+			effectiveActiveTurnSpacerPx > 0 &&
 			nextStickyIndex === latestTurnStartUserIndex;
 		const resolvedStickyIndex = resolveStickyUserIndex(
 			shouldSuppressPinnedTeamSticky ? null : nextStickyIndex
@@ -1037,7 +1059,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	}, [
 		hasConversation,
 		lastMessageLayoutSig,
-		activeTurnSpacerPx,
+		effectiveActiveTurnSpacerPx,
 		stickyUserTopPx,
 		latestTurnStartUserIndex,
 		messageStartIndex,
@@ -1173,6 +1195,12 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			}
 			const convoKey = conversationRenderKey;
 			const { isLast, agentOrPlanStreaming, liveThoughtMeta } = computeAssistantRuntime(i);
+			const assistantTurnFocusFillPx =
+				m.role === 'assistant' &&
+				i === lastAssistantMessageIndex &&
+				i === displayMessages.length - 1
+					? effectiveActiveTurnSpacerPx
+					: 0;
 
 			const pendingEmptyAssistant =
 				m.role === 'assistant' &&
@@ -1242,11 +1270,21 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				<div key={`a-${convoKey}-${i}`} className="ref-msg-slot ref-msg-slot--assistant">
 					<div className="ref-msg-assistant-body">
 						{pendingEmptyAssistant ? (
-							<span className="ref-bubble-pending" aria-hidden>
-								<span className="ref-bubble-pending-dot" />
-								<span className="ref-bubble-pending-dot" />
-								<span className="ref-bubble-pending-dot" />
-							</span>
+							<>
+								<span className="ref-bubble-pending" aria-hidden>
+									<span className="ref-bubble-pending-dot" />
+									<span className="ref-bubble-pending-dot" />
+									<span className="ref-bubble-pending-dot" />
+								</span>
+								{assistantTurnFocusFillPx > 0 ? (
+									<div
+										className="ref-md-root ref-md-root--agent-chat"
+										data-turn-focus-fill-px={String(assistantTurnFocusFillPx)}
+										style={{ paddingBottom: `${assistantTurnFocusFillPx}px` }}
+										aria-hidden
+									/>
+								) : null}
+							</>
 						) : (
 							<ChatMarkdown
 								content={m.content}
@@ -1277,6 +1315,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 								skipPlanTodo
 								renderMode={chatRenderMode}
 								typewriter={isLast && awaitingReply}
+								turnFocusFillPx={assistantTurnFocusFillPx}
 							/>
 						)}
 					</div>
@@ -1712,21 +1751,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			</div>
 		);
 	});
-	const tailSpacerNode =
-		activeTurnSpacerPx > 0 ? (
-			<div
-				key={`row-${conversationRenderKey}-turn-focus-tail`}
-				className="ref-messages-tail-spacer"
-				style={{ height: `${activeTurnSpacerPx}px` }}
-				aria-hidden
-			/>
-		) : null;
-
 	/* 按 turn 分组：同一轮次的消息包在一个 ref-turn-container 内，
 	   容器之间用 padding-bottom 提供 assistant → 下一条 user 的安全距离。
-	   tail spacer 放在所有 turn 容器之后，不参与 turn 分组。
-	   滚动位置由 useMessagesScroll.ts 基于“最后内容行底部”计算，
-	   不受容器 padding 或 tail spacer 影响。 */
+	   最新一轮若需要额外补高，会把空间补进最后一条 assistant 的内容容器内部，
+	   这样自动置底就以消息容器底部为准，而不是 track 尾部的额外空白。 */
 	const renderTurnContainers = (): ReactNode[] => {
 		const containers: ReactNode[] = [];
 		let currentTurnNodes: ReactNode[] = [];
@@ -1774,10 +1802,6 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 					{currentTurnNodes}
 				</div>
 			);
-		}
-
-		if (tailSpacerNode) {
-			containers.push(tailSpacerNode);
 		}
 
 		return containers;

@@ -198,6 +198,8 @@ type Props = {
 	skipPlanTodo?: boolean;
 	/** 启用打字机效果：流式输出时对 markdown 文本做平滑逐字揭示 */
 	typewriter?: boolean;
+	/** 为最后一轮短回复补出的容器底部高度；挂在 markdown root 上，便于自动置底以容器底为准 */
+	turnFocusFillPx?: number;
 	/**
 	 * 渲染范围：
 	 * - `'all'`（默认，兼容老调用方）：preflight + outcome 都在本组件渲染（整段一起）。
@@ -399,6 +401,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	skipPlanTodo = false,
 	renderMode = 'all',
 	typewriter = false,
+	turnFocusFillPx = 0,
 }: Props) {
 	const { t } = useI18n();
 
@@ -518,6 +521,10 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 			streamingToolPreview != null ||
 			(liveAgentBlocksState?.blocks.length ?? 0) > 0
 		);
+	const rootTurnFocusFillPxAttr =
+		turnFocusFillPx > 0 ? String(Math.max(0, turnFocusFillPx)) : undefined;
+	const rootTurnFocusFillStyle =
+		turnFocusFillPx > 0 ? { paddingBottom: `${Math.max(0, turnFocusFillPx)}px` } : undefined;
 
 	if (!agentMarkdown) {
 		const plainClass =
@@ -525,7 +532,11 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 				? `ref-md-root ref-md-root--chat-error${agentUi ? ' ref-md-root--agent-chat' : ''}`
 				: 'ref-md-root';
 		return (
-			<div className={plainClass}>
+			<div
+				className={plainClass}
+				data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+				style={rootTurnFocusFillStyle}
+			>
 				<TypewriterMd text={content} enabled={typewriter} />
 			</div>
 		);
@@ -737,7 +748,11 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	if (renderMode === 'preflight') {
 		if (!hasPreflight) return null;
 		return (
-			<div className={agentRootClass}>
+			<div
+				className={agentRootClass}
+				data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+				style={rootTurnFocusFillStyle}
+			>
 				<AgentPreflightShell
 					liveTurn={showAgentWorking}
 					hasOutcome={hasOutcome}
@@ -752,17 +767,31 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 
 	if (renderMode === 'outcome') {
 		if (!hasOutcome) {
-			return <div className={agentRootClass} />;
+			return (
+				<div
+					className={agentRootClass}
+					data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+					style={rootTurnFocusFillStyle}
+				/>
+			);
 		}
 		if (outcome.length === 1 && outcome[0]!.type === 'markdown') {
 			return (
-				<div className={agentRootClass}>
+				<div
+					className={agentRootClass}
+					data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+					style={rootTurnFocusFillStyle}
+				>
 					<TypewriterMd text={outcome[0]!.text} enabled={typewriter} />
 				</div>
 			);
 		}
 		return (
-			<div className={agentRootClass}>
+			<div
+				className={agentRootClass}
+				data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+				style={rootTurnFocusFillStyle}
+			>
 				{outcome.map((seg, i) => renderUnitNode(seg, i))}
 			</div>
 		);
@@ -771,22 +800,42 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	if (renderUnits.length === 0) {
 		if (content.trim()) {
 			return (
-				<div className={agentRootClass}>
+				<div
+					className={agentRootClass}
+					data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+					style={rootTurnFocusFillStyle}
+				>
 					<TypewriterMd text={content} enabled={typewriter} />
 				</div>
 			);
 		}
-		return <div className={agentRootClass} />;
+		return (
+			<div
+				className={agentRootClass}
+				data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+				style={rootTurnFocusFillStyle}
+			/>
+		);
 	}
 	if (renderUnits.length === 1 && renderUnits[0]!.type === 'markdown') {
 		return (
-			<div className={agentRootClass}>
+			<div
+				className={agentRootClass}
+				data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+				style={rootTurnFocusFillStyle}
+			>
 				<TypewriterMd text={renderUnits[0]!.text} enabled={typewriter} />
 			</div>
 		);
 	}
 
 	return (
-		<div className={agentRootClass}>{renderUnits.map((seg, i) => renderUnitNode(seg, i))}</div>
+		<div
+			className={agentRootClass}
+			data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
+			style={rootTurnFocusFillStyle}
+		>
+			{renderUnits.map((seg, i) => renderUnitNode(seg, i))}
+		</div>
 	);
 });
