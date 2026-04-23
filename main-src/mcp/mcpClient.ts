@@ -230,8 +230,8 @@ export class McpClient extends EventEmitter<McpClientEvents> implements McpClien
 		}
 	}
 
-	disconnect(): void {
-		void this.closeSdk();
+	async disconnect(): Promise<void> {
+		await this.closeSdk();
 		this.setStatus('disconnected');
 	}
 

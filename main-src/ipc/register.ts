@@ -52,6 +52,7 @@ import {
 	removeRecentWorkspace,
 	getMcpServerConfigs,
 	patchMcpServerConfigs,
+	addMcpServerConfig,
 	removeMcpServerConfig,
 	type UserLlmProvider,
 } from '../settingsStore.js';
@@ -3802,7 +3803,7 @@ ipcMain.handle(
 	/** 添加或更新 MCP 服务器配置 */
 	ipcMain.handle('mcp:saveServer', (event, config: McpServerConfig) => {
 		try {
-			patchMcpServerConfigs([config]);
+			addMcpServerConfig(config);
 			const manager = getMcpManager();
 			manager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), senderWorkspaceRoot(event)));
 			return { ok: true as const, server: config };
@@ -3837,10 +3838,10 @@ ipcMain.handle(
 	});
 
 	/** 停止 MCP 服务器 */
-	ipcMain.handle('mcp:stopServer', (_e, id: string) => {
+	ipcMain.handle('mcp:stopServer', async (_e, id: string) => {
 		try {
 			const manager = getMcpManager();
-			manager.stopServer(id);
+			await manager.stopServer(id);
 			return { ok: true as const };
 		} catch (e) {
 			return { ok: false as const, error: String(e) };

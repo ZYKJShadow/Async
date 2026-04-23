@@ -124,6 +124,11 @@ export class McpManager extends EventEmitter<McpManagerEvents> {
 				this.clients.delete(id);
 				continue;
 			}
+			const clientStatus = client.getServerStatus().status;
+			// 保护正在连接中的 client，避免并发操作导致状态混乱
+			if (clientStatus === 'connecting') {
+				continue;
+			}
 			if (!next.enabled || !mcpConfigsEquivalent(client.config, next)) {
 				client.destroy();
 				this.clients.delete(id);
@@ -176,16 +181,16 @@ export class McpManager extends EventEmitter<McpManagerEvents> {
 	}
 
 	/** 停止单个服务器 */
-	stopServer(id: string): void {
+	async stopServer(id: string): Promise<void> {
 		const client = this.clients.get(id);
 		if (client) {
-			client.disconnect();
+			await client.disconnect();
 		}
 	}
 
 	/** 重启服务器 */
 	async restartServer(id: string): Promise<void> {
-		this.stopServer(id);
+		await this.stopServer(id);
 		await this.startServer(id);
 	}
 

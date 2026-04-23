@@ -3378,6 +3378,20 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	flex-shrink: 0;
 }
 
+
+
+.ref-turn-container {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 22px;
+	width: 100%;
+}
+
+.ref-turn-container:not(:last-child) {
+	padding-bottom: 50px;
+}
+
 .ref-messages-tail-spacer {
 	width: 100%;
 	flex-shrink: 0;
@@ -3411,7 +3425,19 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	}
 }
 
-/* ?????????? .ref-messages ???????????????????? */
+/* sticky 用户气泡：保持在 .ref-messages 视口顶部。
+ *
+ * 注意：这里不能放任何 padding/margin（特别是 margin-top）。
+ * 父容器是 flex column + gap:22；如果给本 row 设 margin-top: -4，
+ * 整行的 flex outer-top 会随之上移 4px，下一条 row（user 气泡正下方
+ * 的 preflight「正在分析」容器）也会跟着上移 4px，导致：
+ *   - 第一条（无 sticky 包装）：气泡 ↔ preflight = gap22 + preflightMargin(-8) = 14px
+ *   - 第二条（有 sticky 包装）：气泡 ↔ preflight = (22-4) - 8 = 10px
+ * 出现「从第二条气泡开始，正在分析容器贴得更近」的视觉差异。
+ *
+ * 视口顶部和气泡之间的安全区由 --ref-sticky-user-top（即 viewport 的
+ * padding-top）提供，不需要在 wrap 上再额外加 padding-top。
+ */
 .ref-msg-sticky-user-wrap {
 	position: sticky;
 	top: var(--ref-sticky-user-top, 0px);
@@ -3420,17 +3446,22 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	width: min(100%, 720px);
 	max-width: min(100%, 720px);
 	box-sizing: border-box;
-	padding-top: 4px;
-	margin-top: -4px;
-	/* 勿在气泡下垫�?padding：背景为 void-bg-0，比气泡更暗，会像气泡底部一条黑�?*/
-	padding-bottom: 0;
-	margin-bottom: 0;
 	overflow: visible;
 }
 
 /* ?????????????? */
 .ref-center--chat .ref-msg-sticky-user-wrap {
 	/*background: var(--void-bg-0);*/
+}
+
+/*
+ * Editor 右栏里 sticky user 气泡在 Chromium / Electron 下更容易出现滚动重绘闪烁。
+ * 只提升实际气泡，避免 sticky wrapper 自身参与额外变换。
+ */
+.ref-right--editor-chat .ref-msg-sticky-user-wrap .ref-msg-user {
+	transform: translateZ(0);
+	backface-visibility: hidden;
+	-webkit-backface-visibility: hidden;
 }
 
 .ref-msg-sticky-user-wrap--team {
@@ -13226,15 +13257,15 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-plus-mcp-status--ok {
-	color: #4ade80;
+	color: var(--void-status-success);
 }
 
 .ref-plus-mcp-status--warn {
-	color: #facc15;
+	color: var(--void-status-warning);
 }
 
 .ref-plus-mcp-status--err {
-	color: #f87171;
+	color: var(--void-status-error);
 }
 
 .ref-plus-mcp-item-error {
@@ -18422,7 +18453,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-server-row:hover {
-	border-color: rgba(255, 255, 255, 0.1);
+	border-color: color-mix(in srgb, var(--void-fg-0) 10%, transparent);
 }
 
 .ref-mcp-server-row--disabled {
@@ -18462,7 +18493,7 @@ select.ref-settings-native-select:focus {
 	color: var(--void-fg-3);
 	padding: 2px 6px;
 	border-radius: 4px;
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
 
 .ref-mcp-server-actions {
@@ -18478,7 +18509,7 @@ select.ref-settings-native-select:focus {
 	min-height: 28px;
 	padding: 0 8px;
 	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 	color: var(--void-fg-2);
 	font-size: 11px;
 }
@@ -18508,7 +18539,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-server-action:hover {
-	background: rgba(255, 255, 255, 0.08);
+	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 	color: var(--void-fg-1);
 }
 
@@ -18531,34 +18562,34 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-status--connected {
-	color: #86efac;
-	background: rgba(34, 197, 94, 0.12);
+	color: var(--void-status-success);
+	background: var(--void-status-success-soft);
 }
 
 .ref-mcp-status--not-started {
 	color: var(--void-fg-2);
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
 
 .ref-mcp-status--connecting {
-	color: #fcd34d;
-	background: rgba(250, 204, 21, 0.12);
+	color: var(--void-status-warning);
+	background: var(--void-status-warning-soft);
 	animation: ref-mcp-status-pulse 1.5s ease-in-out infinite;
 }
 
 .ref-mcp-status--stopped {
-	color: #fdba74;
-	background: rgba(251, 146, 60, 0.12);
+	color: var(--void-status-orange);
+	background: var(--void-status-orange-soft);
 }
 
 .ref-mcp-status--error {
-	color: #fca5a5;
-	background: rgba(248, 113, 113, 0.12);
+	color: var(--void-status-error);
+	background: var(--void-status-error-soft);
 }
 
 .ref-mcp-status--disabled {
-	color: rgba(255, 255, 255, 0.45);
-	background: rgba(255, 255, 255, 0.03);
+	color: var(--void-fg-3);
+	background: color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 
 @keyframes ref-mcp-status-pulse {
@@ -18588,7 +18619,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-server-tools-expand:hover {
-	background: rgba(255, 255, 255, 0.06);
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 	color: var(--void-fg-2);
 }
 
@@ -18607,7 +18638,7 @@ select.ref-settings-native-select:focus {
 	gap: 2px;
 	padding: 6px 8px;
 	border-radius: 6px;
-	background: rgba(255, 255, 255, 0.02);
+	background: color-mix(in srgb, var(--void-fg-0) 2%, transparent);
 }
 
 .ref-mcp-server-tool-name {
@@ -18688,7 +18719,7 @@ select.ref-settings-native-select:focus {
 	padding: 10px 12px;
 	border-radius: 10px;
 	border: 1px dashed var(--void-border-soft);
-	background: rgba(255, 255, 255, 0.02);
+	background: color-mix(in srgb, var(--void-fg-0) 2%, transparent);
 }
 
 .ref-mcp-edit-example-title {
@@ -18805,7 +18836,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-edit-expand-btn:hover {
-	background: rgba(255, 255, 255, 0.06);
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 }
 
 .ref-mcp-edit-expand-count {
@@ -18824,7 +18855,7 @@ select.ref-settings-native-select:focus {
 	height: 24px;
 	border: none;
 	border-radius: 5px;
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 	color: var(--void-fg-3);
 	cursor: pointer;
 	transition: background 0.1s, color 0.1s;
@@ -18901,7 +18932,7 @@ select.ref-settings-native-select:focus {
 	padding: 10px 12px;
 	border-radius: 10px;
 	border: 1px solid var(--void-border-soft);
-	background: rgba(255, 255, 255, 0.02);
+	background: color-mix(in srgb, var(--void-fg-0) 2%, transparent);
 }
 
 .ref-mcp-edit-command-preview-label {
@@ -18956,7 +18987,7 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-mcp-edit-cancel:hover {
-	background: rgba(255, 255, 255, 0.04);
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 	border-color: var(--void-fg-3);
 }
 
@@ -18980,7 +19011,7 @@ select.ref-settings-native-select:focus {
 	padding: 12px;
 	border-radius: 8px;
 	border: 1px solid var(--void-border-soft);
-	background: rgba(255, 255, 255, 0.015);
+	background: color-mix(in srgb, var(--void-fg-0) 1.5%, transparent);
 	font-size: 12px;
 	color: var(--void-fg-3);
 }
@@ -18996,6 +19027,152 @@ select.ref-settings-native-select:focus {
 
 .ref-settings-mcp-doc a:hover {
 	text-decoration: underline;
+}
+
+/* MCP JSON Editor */
+.ref-settings-mcp-mode-switch {
+	display: inline-flex;
+	gap: 0;
+	margin-left: auto;
+	border-radius: 6px;
+	border: 1px solid var(--void-border-soft);
+	overflow: hidden;
+}
+
+.ref-settings-mcp-mode-switch button {
+	padding: 4px 10px;
+	font-size: 11px;
+	background: transparent;
+	color: var(--void-fg-3);
+	border: none;
+	border-radius: 0;
+	cursor: pointer;
+}
+
+.ref-settings-mcp-mode-switch button:hover {
+	background: color-mix(in srgb, var(--void-fg-0) 4%, transparent);
+}
+
+.ref-settings-mcp-mode-switch button.ref-settings-mcp-mode--active {
+	background: rgba(129, 140, 248, 0.15);
+	color: #a5b4fc;
+}
+
+.ref-mcp-json-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 8px;
+}
+
+.ref-mcp-json-toolbar {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ref-mcp-json-actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.ref-mcp-json-btn {
+	padding: 5px 10px;
+	font-size: 11px;
+	border-radius: 6px;
+	border: 1px solid var(--void-border-soft);
+	background: transparent;
+	color: var(--void-fg-2);
+	cursor: pointer;
+}
+
+.ref-mcp-json-btn:hover {
+	background: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
+}
+
+.ref-mcp-json-templates {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.ref-mcp-json-templates-label {
+	font-size: 11px;
+	color: var(--void-fg-3);
+}
+
+.ref-mcp-json-template-chip {
+	padding: 3px 8px;
+	font-size: 11px;
+	border-radius: 4px;
+	border: 1px solid var(--void-border-soft);
+	background: transparent;
+	color: var(--void-fg-2);
+	cursor: pointer;
+}
+
+.ref-mcp-json-template-chip:hover {
+	background: rgba(129, 140, 248, 0.1);
+	border-color: rgba(129, 140, 248, 0.3);
+}
+
+.ref-mcp-json-textarea {
+	width: 100%;
+	min-height: 320px;
+	padding: 12px;
+	font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	border-radius: 8px;
+	border: 1px solid var(--void-border-soft);
+	background: var(--void-bg-1);
+	color: var(--void-fg-1);
+	resize: vertical;
+	box-sizing: border-box;
+}
+
+.ref-mcp-json-textarea:focus {
+	outline: none;
+	border-color: rgba(129, 140, 248, 0.5);
+}
+
+.ref-mcp-json-textarea--error {
+	border-color: rgba(248, 113, 113, 0.6);
+}
+
+.ref-mcp-json-error {
+	padding: 8px 10px;
+	border-radius: 6px;
+	background: rgba(248, 113, 113, 0.08);
+	border: 1px solid rgba(248, 113, 113, 0.2);
+	font-size: 12px;
+	color: #fca5a5;
+}
+
+.ref-mcp-json-hint {
+	font-size: 11px;
+	color: var(--void-fg-3);
+}
+
+.ref-mcp-server-error {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 6px;
+	padding: 6px 10px;
+	border-radius: 6px;
+	background: rgba(248, 113, 113, 0.08);
+	border: 1px solid rgba(248, 113, 113, 0.2);
+	font-size: 12px;
+	color: #fca5a5;
+}
+
+.ref-mcp-server-error svg {
+	flex-shrink: 0;
+	width: 14px;
+	height: 14px;
 }
 
 /* —— 设置：统计与用量 —— */

@@ -24,7 +24,7 @@ function row(params: Partial<MeasuredTurnFocusRow> & Pick<MeasuredTurnFocusRow, 
 }
 
 describe('agentTurnFocus', () => {
-	it('targets the latest user turn only when there is earlier replied history', () => {
+	it('targets the latest user turn so every new prompt becomes the active sticky anchor', () => {
 		const displayMessages: ChatMessage[] = [
 			{ role: 'user', content: '第一轮提问' },
 			{ role: 'assistant', content: '第一轮回复' },
@@ -57,7 +57,9 @@ describe('agentTurnFocus', () => {
 		).toBe(2);
 	});
 
-	it('does not enable turn focus for the first turn or team bootstrapping without supplemental rows', () => {
+	it('keeps the first non-team prompt anchored as soon as a user bubble exists', () => {
+		// 让第一轮也参与 spacer / sticky 机制：assistant 流式增长时不会再把
+		// 用户气泡推出视口或与气泡顶部叠加。
 		expect(
 			findLatestTurnStartUserIndex(
 				[
@@ -66,17 +68,7 @@ describe('agentTurnFocus', () => {
 				],
 				'ask'
 			)
-		).toBeNull();
-
-		expect(
-			findLatestTurnStartUserIndex(
-				[
-					{ role: 'user', content: 'team 消息' },
-					{ role: 'assistant', content: '流式中' },
-				],
-				'team'
-			)
-		).toBeNull();
+		).toBe(0);
 
 		expect(
 			findLatestTurnStartUserIndex(
@@ -85,6 +77,19 @@ describe('agentTurnFocus', () => {
 					{ role: 'assistant', content: '普通回复' },
 				],
 				'agent'
+			)
+		).toBe(0);
+	});
+
+	it('still skips turn focus for team bootstrapping when no supplemental row appeared yet', () => {
+		// team 模式下用户气泡之后会被 leader/plan 卡片接管布局，没有补充行时仍然不锚定。
+		expect(
+			findLatestTurnStartUserIndex(
+				[
+					{ role: 'user', content: 'team 消息' },
+					{ role: 'assistant', content: '流式中' },
+				],
+				'team'
 			)
 		).toBeNull();
 	});

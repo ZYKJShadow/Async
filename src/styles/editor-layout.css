@@ -1570,7 +1570,6 @@
 	flex: 1;
 	min-height: 0;
 	height: 100%;
-	overflow: hidden;
 }
 
 /* Cursor ?????????? + ?????? */
@@ -1591,13 +1590,18 @@
 	gap: 4px;
 	flex: 1;
 	min-width: 0;
-	overflow: hidden;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.ref-editor-chat-tabs-scroll::-webkit-scrollbar {
+	display: none;
 }
 
 .ref-editor-chat-tab-shell {
 	display: flex;
 	align-items: stretch;
-	flex: 0 1 auto;
+	flex: 0 0 auto;
 	width: max-content;
 	max-width: 200px;
 	min-width: 0;
@@ -1835,6 +1839,7 @@
 	flex: 1;
 	min-height: 0;
 	overflow: hidden;
+	isolation: isolate;
 }
 
 .ref-editor-rail-message-spring {
@@ -1960,9 +1965,13 @@
 	padding-left: 16px;
 	padding-right: 16px;
 	box-sizing: border-box;
+	position: relative;
+	isolation: isolate;
 	/* ? .ref-center--chat .ref-messages ??????????????????????????? */
 	scrollbar-color: rgba(58, 58, 66, 0) transparent;
 	transition: scrollbar-color 0.35s var(--void-ease-out-expo);
+	/* ??? agent ?????????? overflow-anchor: none ??? */
+	overflow-anchor: none;
 }
 
 .ref-right--editor-chat .ref-messages:hover {
@@ -1977,9 +1986,6 @@
 	background: transparent;
 	border: 2px solid transparent;
 	background-clip: padding-box;
-	transition:
-		background 0.35s var(--void-ease-out-expo),
-		border-color 0.35s var(--void-ease-out-expo);
 }
 
 .ref-right--editor-chat .ref-messages:hover::-webkit-scrollbar-thumb {
@@ -2022,6 +2028,11 @@
 
 .ref-right--editor-chat .ref-msg-sticky-user-wrap {
 	background: transparent;
+}
+
+/* ??? editor ????? hover ???????????????? */
+.ref-right--editor-chat .ref-msg-user {
+	transition: none;
 }
 
 @media (max-width: 960px) {
@@ -2082,4 +2093,3 @@
 	background: rgba(0, 0, 0, 0.06);
 	color: var(--void-fg-0);
 }
-

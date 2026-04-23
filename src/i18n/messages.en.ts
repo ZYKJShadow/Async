@@ -2105,6 +2105,13 @@ export const messagesEn: Record<string, string> = {
 	'mcp.lastConnected': 'Last connected',
 	'mcp.neverConnected': 'Never connected',
 	'mcp.connectionError': 'Connection error',
+	'mcp.jsonMode': 'JSON',
+	'mcp.visualMode': 'Visual',
+	'mcp.jsonInvalid': 'Invalid JSON',
+	'mcp.importJson': 'Import JSON',
+	'mcp.exportJson': 'Export JSON',
+	'mcp.copyJson': 'Copy JSON',
+	'mcp.jsonHint': 'Edit the server array directly, or paste a Claude Desktop { mcpServers: {} } config to import.',
 
 	// common additions
 	'common.yes': 'Yes',
