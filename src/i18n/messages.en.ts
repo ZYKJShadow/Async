@@ -1643,6 +1643,8 @@ export const messagesEn: Record<string, string> = {
 	'agentSettings.skillsImportPrompt': 'Paste SKILL.md content (with frontmatter):',
 	'agentSettings.skillsImportSuccess': 'Skill imported successfully',
 	'agentSettings.skillsImportError': 'Failed to parse SKILL.md, please check format',
+	'agentSettings.skillsRefresh': 'Refresh',
+	'agentSettings.skillsRefreshTitle': 'Rescan disk skills',
 	'agentSettings.skillCreatorThreadTitle': 'Skill creator',
 	'agentSettings.skillCreatorHelp':
 		'The composer shows a blue `/create-skill` chip; type your request after it. Before send you pick scope, and the app injects a built-in system brief for SKILL.md-style output—no long prompt paste needed.',
@@ -1718,8 +1720,7 @@ export const messagesEn: Record<string, string> = {
 	'agentSettings.rulesTitle': 'Rules',
 	'agentSettings.rulesInfo': 'Inject by scope into system prompt',
 	'agentSettings.new': 'New',
-	'agentSettings.rulesDesc':
-		'Always: every chat. Glob: when @ paths match your pattern. Manual: when the message contains @rule:name or @rule:uuid (markers are stripped).',
+	'agentSettings.rulesDesc': 'Auto-injected into system prompt by scope.',
 	'agentSettings.ruleNameAria': 'Rule name',
 	'agentSettings.autoLanguageRuleBadge': 'Auto',
 	'agentSettings.autoLanguageRuleHint':
@@ -1734,8 +1735,7 @@ export const messagesEn: Record<string, string> = {
 	'agentSettings.rulesEmpty': 'No rules yet. Click New to add one.',
 	'agentSettings.skillsTitle': 'Skills',
 	'agentSettings.skillsInfo': 'Create in chat; or add SKILL.md on disk; ./slug in input',
-	'agentSettings.skillsDesc':
-		'Specialized capabilities. Use “+ New” to create in chat, or add `.cursor/skills/<name>/SKILL.md` (and the same under `.claude` / `.async`). You can also start a message with ./slug.',
+	'agentSettings.skillsDesc': 'Editable items merge with disk-scanned items by slug; enabled ones are injected into system prompt.',
 	'agentSettings.pluginSkillsTitle': 'Plugin skills',
 	'agentSettings.skillNameAria': 'Skill name',
 	'agentSettings.slugLabel': 'slug (without ./)',

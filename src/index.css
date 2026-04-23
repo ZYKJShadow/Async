@@ -15039,17 +15039,27 @@ select.ref-settings-native-select:focus {
 
 .ref-settings-agent-origin-badge {
 	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	font-size: 10px;
 	font-weight: 600;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
-	padding: 3px 8px;
+	line-height: 1;
+	padding: 4px 9px;
 	border-radius: 6px;
 	border: 1px solid var(--void-border-soft);
 	max-width: 7rem;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	vertical-align: middle;
+}
+
+/* 开关与来源徽章之间略增距，避免与左侧控件挤在一起 */
+.ref-settings-agent-item-head > .ref-settings-toggle + .ref-settings-agent-origin-badge {
+	margin-left: 6px;
 }
 
 .ref-settings-agent-origin-badge--user {
@@ -15425,11 +15435,20 @@ select.ref-settings-native-select:focus {
 }
 
 .ref-settings-agent-skill-disk-title {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	column-gap: 10px;
+	row-gap: 6px;
 	font-size: 14px;
 	font-weight: 700;
 	color: var(--void-fg-0);
 	line-height: 1.35;
 	margin: 0;
+}
+
+.ref-settings-agent-skill-disk-title > .ref-settings-agent-origin-badge {
+	flex-shrink: 0;
 }
 
 .ref-settings-agent-skill-disk-desc {

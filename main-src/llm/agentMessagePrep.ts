@@ -115,18 +115,19 @@ export function loadClaudeWorkspaceSkills(workspaceRoot: string | null): AgentSk
 
 /** 获取用户主目录路径（跨平台） */
 function getUserHomeDir(): string | null {
-	const home = process.env.HOME || process.env.USERPROFILE;
-	if (home) return home;
-	try {
-		// Windows fallback
-		if (process.platform === 'win32') {
+	// Windows: 优先 USERPROFILE（原生路径），避免 Git Bash 的 HOME（/c/Users/...）导致 fs 失败
+	if (process.platform === 'win32') {
+		const fromEnv = process.env.USERPROFILE || process.env.HOME;
+		if (fromEnv) return fromEnv;
+		try {
 			const { homedir } = require('node:os');
 			return homedir();
+		} catch {
+			/* ignore */
 		}
-	} catch {
-		/* ignore */
+		return null;
 	}
-	return null;
+	return process.env.HOME || null;
 }
 
 /**

@@ -212,6 +212,8 @@ type Props = {
 	onOpenWorkspaceSkillFile?: (relPath: string) => void | Promise<void>;
 	/** 删除磁盘技能目录（整夹）；返回是否成功 */
 	onDeleteWorkspaceSkillDisk?: (skillMdRelPath: string) => Promise<boolean>;
+	/** 重新扫描磁盘技能 */
+	onRefreshDiskSkills?: () => void;
 };
 
 function itemMatchesLibraryFilter(item: { origin?: AgentItemOrigin }, filter: AgentLibraryFilter): boolean {
@@ -229,6 +231,7 @@ export function SettingsAgentPanel({
 	onOpenSkillCreator,
 	onOpenWorkspaceSkillFile,
 	onDeleteWorkspaceSkillDisk,
+	onRefreshDiskSkills,
 }: Props) {
 	const { t } = useI18n();
 	const v = { ...defaultAgentCustomization(), ...value };
@@ -728,6 +731,17 @@ export function SettingsAgentPanel({
 								>
 									{t('agentSettings.skillsImport')}
 								</button>
+									{onRefreshDiskSkills ? (
+										<button
+											type="button"
+											className="ref-settings-agent-new-btn ref-settings-agent-new-btn--secondary"
+											onClick={() => onRefreshDiskSkills()}
+											title={t("agentSettings.skillsRefreshTitle") || "Rescan disk skills"}
+										>
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 4 }}><path d="M23 4v6h-6M1 20v-6h6" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" strokeLinecap="round" strokeLinejoin="round"/></svg>
+											{t("agentSettings.skillsRefresh")}
+										</button>
+									) : null}
 							{onOpenSkillCreator ? (
 								<button type="button" className="ref-settings-agent-new-btn" onClick={() => void onOpenSkillCreator()}>
 									{t('agentSettings.skillsNew')}

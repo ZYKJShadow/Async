@@ -3865,6 +3865,7 @@ function AppMainWorkspaceInner() {
 			onOpenSkillCreator: startSkillCreatorFlow,
 			onOpenWorkspaceSkillFile: handleOpenWorkspaceSkillFile,
 			onDeleteWorkspaceSkillDisk: handleDeleteWorkspaceSkillDisk,
+			onRefreshDiskSkills: refreshWorkspaceDiskSkills,
 			colorMode,
 			onChangeColorMode: (m, origin) => void onChangeColorMode(m, origin),
 			effectiveColorScheme: effectiveScheme,
