@@ -12,6 +12,8 @@ import type { ChatMessage } from '../threadTypes';
 export const MESSAGES_FOLLOW_BOTTOM_BUFFER_PX = 120;
 const MESSAGES_MIN_SCROLLABLE_OVERFLOW_PX = 120;
 export const MESSAGES_SCROLL_TO_BOTTOM_BUTTON_DISTANCE_PX = 180;
+const MESSAGES_THREAD_OPEN_SETTLE_DELAY_MS = 420;
+const MESSAGES_THREAD_OPEN_SETTLE_MID_DELAY_MS = 180;
 
 export type MessagesScrollSnapshot = {
 	scrollTop: number;
@@ -52,19 +54,30 @@ export type UseMessagesScrollResult = {
 
 /** 计算滚动位置时，以「最后一条内容行（带 data-msg-index）的底部」为准，
  *  而不是 track 的 scrollHeight 底部。这样 turn 容器 padding、tail spacer 等
- *  纯装饰性高度不会把视口顶下去，避免消息被 sticky bubble 遮挡。 */
-function resolveContentBottomScroll(
+ *  纯装饰性高度不会把视口顶下去；同时保留 messages viewport 自己的
+ *  padding-bottom，让最后一条消息与底部输入区之间仍有安全呼吸感。 */
+function resolveViewportBottomInset(viewport: HTMLElement): number {
+	const view = viewport.ownerDocument?.defaultView;
+	if (!view?.getComputedStyle) {
+		return 0;
+	}
+	const styles = view.getComputedStyle(viewport);
+	const paddingBottom = Number.parseFloat(styles.paddingBottom || '0') || 0;
+	return Math.max(0, Math.min(paddingBottom, Math.max(0, viewport.clientHeight - 1)));
+}
+
+export function resolveContentBottomScroll(
 	viewport: HTMLElement,
 	track: HTMLElement | null
 ): number {
+	const bottomInset = resolveViewportBottomInset(viewport);
 	if (!track) {
-		return Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+		return Math.max(0, viewport.scrollHeight - viewport.clientHeight - bottomInset);
 	}
-	const lastContentRow = track.querySelector<HTMLElement>(
-		'.ref-msg-row-measure[data-msg-index]:last-of-type'
-	);
+	const messageRows = track.querySelectorAll<HTMLElement>('.ref-msg-row-measure[data-msg-index]');
+	const lastContentRow = messageRows[messageRows.length - 1] ?? null;
 	if (!lastContentRow) {
-		return Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+		return Math.max(0, viewport.scrollHeight - viewport.clientHeight - bottomInset);
 	}
 	/* 必须用 getBoundingClientRect 而非 offsetTop，因为 offsetParent
 	   在 editor-rail 等布局下可能是外层 ref-chat-drop-zone（position:relative），
@@ -72,7 +85,10 @@ function resolveContentBottomScroll(
 	const rowRect = lastContentRow.getBoundingClientRect();
 	const viewportRect = viewport.getBoundingClientRect();
 	const rowBottomInViewport = rowRect.bottom - viewportRect.top;
-	return Math.max(0, viewport.scrollTop + rowBottomInViewport - viewport.clientHeight);
+	return Math.max(
+		0,
+		viewport.scrollTop + rowBottomInViewport - (viewport.clientHeight - bottomInset)
+	);
 }
 
 export function measureMessagesScroll(
@@ -220,6 +236,25 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		syncMessagesScrollState('layout');
 	}, [syncMessagesScrollState]);
 
+	const applyResolvedBottomScroll = useCallback(
+		(behavior: ScrollBehavior = 'auto') => {
+			const el = messagesViewportRef.current;
+			if (!el) {
+				return false;
+			}
+			const track = messagesTrackRef.current;
+			const targetScroll = resolveContentBottomScroll(el, track);
+			if (behavior === 'auto') {
+				el.scrollTop = targetScroll;
+			} else {
+				el.scrollTo({ top: targetScroll, behavior });
+			}
+			syncMessagesScrollState('programmatic');
+			return true;
+		},
+		[syncMessagesScrollState]
+	);
+
 	const onMessagesScroll = useCallback(() => {
 		syncMessagesScrollState('user');
 	}, [syncMessagesScrollState]);
@@ -244,12 +279,9 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				clearScrollToBottomButtonSuppression();
 			}
 			setShowScrollToBottomButton(false);
-			const track = messagesTrackRef.current;
-			const targetScroll = resolveContentBottomScroll(el, track);
-			el.scrollTo({ top: targetScroll, behavior });
-			syncMessagesScrollState('programmatic');
+			applyResolvedBottomScroll(behavior);
 		},
-		[clearScrollToBottomButtonSuppression, syncMessagesScrollState]
+		[applyResolvedBottomScroll, clearScrollToBottomButtonSuppression]
 	);
 
 	const scheduleMessagesScrollToBottom = useCallback(() => {
@@ -261,15 +293,12 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		}
 		messagesScrollToBottomRafRef.current = requestAnimationFrame(() => {
 			messagesScrollToBottomRafRef.current = null;
-			const el = messagesViewportRef.current;
-			if (!el || !pinMessagesToBottomRef.current) {
+			if (!pinMessagesToBottomRef.current) {
 				return;
 			}
-			const track = messagesTrackRef.current;
-			el.scrollTop = resolveContentBottomScroll(el, track);
-			syncMessagesScrollState('programmatic');
+			applyResolvedBottomScroll('auto');
 		});
-	}, [syncMessagesScrollState]);
+	}, [applyResolvedBottomScroll]);
 
 	useLayoutEffect(() => {
 		pendingMessagesScrollRestoreRef.current = currentId;
@@ -291,22 +320,78 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		if (pendingMessagesScrollRestoreRef.current !== currentId) {
 			return;
 		}
-		const rafId = requestAnimationFrame(() => {
-			if (pendingMessagesScrollRestoreRef.current !== currentId) {
-				return;
+		let rafId1 = 0;
+		let rafId2 = 0;
+		let rafId3 = 0;
+		let timeoutId1 = 0;
+		let timeoutId2 = 0;
+		const restoreBottom = (clearPending = false) => {
+			if (
+				pendingMessagesScrollRestoreRef.current !== currentId &&
+				currentIdRef.current !== currentId
+			) {
+				return false;
 			}
-			const el = messagesViewportRef.current;
-			if (!el) {
-				return;
+			if (
+				currentIdRef.current !== currentId ||
+				messagesThreadIdRef.current !== currentId
+			) {
+				return false;
 			}
 			pinMessagesToBottomRef.current = true;
-			const track = messagesTrackRef.current;
-			el.scrollTop = resolveContentBottomScroll(el, track);
-			pendingMessagesScrollRestoreRef.current = null;
-			syncMessagesScrollState('programmatic');
+			const didScroll = applyResolvedBottomScroll('auto');
+			if (didScroll && clearPending) {
+				pendingMessagesScrollRestoreRef.current = null;
+			}
+			return didScroll;
+		};
+		rafId1 = requestAnimationFrame(() => {
+			if (!restoreBottom(true)) {
+				return;
+			}
+			rafId2 = requestAnimationFrame(() => {
+				if (!pinMessagesToBottomRef.current) {
+					return;
+				}
+				if (!restoreBottom()) {
+					return;
+				}
+				rafId3 = requestAnimationFrame(() => {
+					if (!pinMessagesToBottomRef.current) {
+						return;
+					}
+					restoreBottom();
+				});
+			});
 		});
-		return () => cancelAnimationFrame(rafId);
-	}, [hasConversation, currentId, messagesThreadId, messages.length, syncMessagesScrollState]);
+		timeoutId1 = window.setTimeout(() => {
+			if (!pinMessagesToBottomRef.current) {
+				return;
+			}
+			restoreBottom();
+		}, MESSAGES_THREAD_OPEN_SETTLE_MID_DELAY_MS);
+		timeoutId2 = window.setTimeout(() => {
+			if (!pinMessagesToBottomRef.current) {
+				return;
+			}
+			restoreBottom();
+		}, MESSAGES_THREAD_OPEN_SETTLE_DELAY_MS);
+		return () => {
+			cancelAnimationFrame(rafId1);
+			cancelAnimationFrame(rafId2);
+			cancelAnimationFrame(rafId3);
+			window.clearTimeout(timeoutId1);
+			window.clearTimeout(timeoutId2);
+		};
+	}, [
+		hasConversation,
+		currentId,
+		currentIdRef,
+		messages.length,
+		messagesThreadId,
+		messagesThreadIdRef,
+		applyResolvedBottomScroll,
+	]);
 
 	useLayoutEffect(() => {
 		const len = messages.length;
@@ -343,7 +428,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			return;
 		}
 		scheduleMessagesScrollToBottom();
-	}, [hasConversation, messages.length, currentId, scheduleMessagesScrollToBottom]);
+	}, [hasConversation, messages.length, currentId, messagesThreadId, scheduleMessagesScrollToBottom]);
 
 	useLayoutEffect(() => {
 		if (!hasConversation) {
@@ -354,7 +439,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			syncMessagesScrollState('layout');
 		});
 		return () => cancelAnimationFrame(rafId);
-	}, [hasConversation, messages.length, currentId, syncMessagesScrollState]);
+	}, [hasConversation, messages.length, currentId, messagesThreadId, syncMessagesScrollState]);
 
 	useEffect(() => {
 		if (!hasConversation) {
@@ -367,6 +452,10 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		}
 		messagesTrackScrollHeightRef.current = track.scrollHeight;
 		messagesViewportClientHeightRef.current = outer.clientHeight;
+		if (pinMessagesToBottomRef.current) {
+			scheduleMessagesScrollToBottom();
+		}
+		syncMessagesScrollState('layout');
 		const ro = new ResizeObserver(() => {
 			const nextTrackHeight = track.scrollHeight;
 			const nextViewportHeight = outer.clientHeight;
@@ -394,10 +483,40 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	}, [
 		hasConversation,
 		currentId,
+		messagesThreadId,
 		scheduleMessagesScrollToBottom,
 		syncMessagesScrollState,
 		clearScrollToBottomButtonSuppression,
 	]);
+
+	useEffect(() => {
+		if (!hasConversation) {
+			return;
+		}
+		const track = messagesTrackRef.current;
+		if (!track) {
+			return;
+		}
+		const onMessageAnimationEnd = (event: Event) => {
+			if (!pinMessagesToBottomRef.current) {
+				return;
+			}
+			const target = event.target;
+			if (
+				!(target instanceof HTMLElement) ||
+				!target.closest('.ref-msg-slot--user, .ref-msg-slot--assistant')
+			) {
+				return;
+			}
+			scheduleMessagesScrollToBottom();
+		};
+		track.addEventListener('animationend', onMessageAnimationEnd);
+		track.addEventListener('animationcancel', onMessageAnimationEnd);
+		return () => {
+			track.removeEventListener('animationend', onMessageAnimationEnd);
+			track.removeEventListener('animationcancel', onMessageAnimationEnd);
+		};
+	}, [hasConversation, currentId, messagesThreadId, messages.length, scheduleMessagesScrollToBottom]);
 
 	return {
 		messagesViewportRef,

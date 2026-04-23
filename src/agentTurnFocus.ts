@@ -24,6 +24,17 @@ export function buildConversationRenderKey(
 	return `${threadId ?? 'no-thread'}:${composerMode}`;
 }
 
+/**
+ * 是否允许最新一轮使用 tail spacer。
+ * 真正是否补高度由 computeTurnSectionSpacerPx 的几何结果决定：
+ * 只有当最后一轮内容过短、无法把最新 user 气泡推到置顶位时，才会得到正值 spacer。
+ */
+export function shouldEnableLatestTurnSpacer(
+	composerMode: ComposerMode
+): boolean {
+	return composerMode !== 'team';
+}
+
 export function findLatestTurnStartUserIndex(
 	displayMessages: ChatMessage[],
 	composerMode: ComposerMode,
@@ -58,6 +69,7 @@ export function computeTurnSectionSpacerPx(params: {
 	viewportHeight: number;
 	topPadding: number;
 	bottomPadding: number;
+	stickyTopPx: number;
 	renderedRows: MeasuredTurnFocusRow[];
 	activeTurnStartUserIndex: number | null;
 }): number {
@@ -65,6 +77,7 @@ export function computeTurnSectionSpacerPx(params: {
 		viewportHeight,
 		topPadding,
 		bottomPadding,
+		stickyTopPx,
 		renderedRows,
 		activeTurnStartUserIndex,
 	} = params;
@@ -89,6 +102,7 @@ export function computeTurnSectionSpacerPx(params: {
 			viewportHeight -
 				Math.max(0, topPadding) -
 				Math.max(0, bottomPadding) -
+				Math.max(0, stickyTopPx) -
 				activeRowHeight -
 				belowContentHeight
 		)
@@ -116,7 +130,8 @@ export function findStickyUserIndexForViewport(params: {
 	 * 只有当它还没有自然到达顶部之前，才短暂抑制旧轮次接管。
 	 */
 	if (latestTurnSpacerPx > 0 && latestTurnRow) {
-		if (latestTurnRow.top <= stickyBoundaryPx) {
+		const latestTurnBottom = latestTurnRow.top + Math.max(0, latestTurnRow.height);
+		if (latestTurnRow.top <= stickyBoundaryPx && latestTurnBottom > stickyBoundaryPx) {
 			return latestTurnRow.stickyUserIndex;
 		}
 		if (latestTurnRow.top < stickyBoundaryPx + Math.max(0, latestTurnRow.height)) {

@@ -1637,6 +1637,12 @@ export const messagesEn: Record<string, string> = {
 	'agentSettings.newSkillChat': 'Create in chat',
 	'agentSettings.newSkillManual': 'Add manually',
 	'agentSettings.skillsNew': '+ New',
+	'agentSettings.skillsTemplate': 'Templates',
+	'agentSettings.skillsTemplateTitle': 'Create skill from template',
+	'agentSettings.skillsImport': 'Import',
+	'agentSettings.skillsImportPrompt': 'Paste SKILL.md content (with frontmatter):',
+	'agentSettings.skillsImportSuccess': 'Skill imported successfully',
+	'agentSettings.skillsImportError': 'Failed to parse SKILL.md, please check format',
 	'agentSettings.skillCreatorThreadTitle': 'Skill creator',
 	'agentSettings.skillCreatorHelp':
 		'The composer shows a blue `/create-skill` chip; type your request after it. Before send you pick scope, and the app injects a built-in system brief for SKILL.md-style output—no long prompt paste needed.',

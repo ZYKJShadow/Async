@@ -4677,7 +4677,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 /* assistant 气泡中 ChatMarkdown(renderMode='outcome') 在 outcome 段尚为空时返回空容器；
  * 这里让其不占间距，避免气泡"空着"留白。 */
-.ref-msg-assistant-body > .ref-md-root--agent-chat:empty {
+.ref-msg-assistant-body > .ref-md-root--agent-chat:empty:not([data-turn-focus-fill-px]) {
 	display: none;
 }
 
@@ -15481,6 +15481,99 @@ select.ref-settings-native-select:focus {
 .ref-settings-agent-skill-disk-trash:disabled {
 	opacity: 0.4;
 	cursor: not-allowed;
+}
+
+.ref-settings-agent-skill-disk-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 14px;
+	border-top: 1px solid var(--void-border-soft);
+	background: var(--void-bg-1);
+}
+
+.ref-settings-agent-template-dropdown {
+	position: relative;
+	display: inline-block;
+}
+
+.ref-settings-agent-template-menu {
+	display: none;
+	position: absolute;
+	right: 0;
+	top: 100%;
+	margin-top: 4px;
+	min-width: 220px;
+	max-height: 280px;
+	overflow-y: auto;
+	background: var(--void-bg-1);
+	border: 1px solid var(--void-border-soft);
+	border-radius: 10px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+	z-index: 100;
+	padding: 6px;
+}
+
+.ref-settings-agent-template-dropdown:hover .ref-settings-agent-template-menu,
+.ref-settings-agent-template-dropdown:focus-within .ref-settings-agent-template-menu {
+	display: block;
+}
+
+.ref-settings-agent-template-item {
+	width: 100%;
+	text-align: left;
+	padding: 8px 10px;
+	border-radius: 8px;
+	border: none;
+	background: transparent;
+	color: var(--void-fg-1);
+	cursor: pointer;
+	transition: background 0.15s;
+}
+
+.ref-settings-agent-template-item:hover {
+	background: var(--void-bg-2);
+}
+
+.ref-settings-agent-template-name {
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.ref-settings-agent-template-desc {
+	font-size: 11px;
+	color: var(--void-fg-3);
+	margin-top: 2px;
+	line-height: 1.4;
+}
+
+.ref-settings-agent-new-btn--secondary {
+	background: var(--void-bg-2);
+	color: var(--void-fg-2);
+}
+
+.ref-settings-agent-new-btn--secondary:hover {
+	background: var(--void-bg-3);
+}
+
+.ref-settings-agent-import-box {
+	border: 1px solid var(--void-border-soft);
+	border-radius: 12px;
+	padding: 14px;
+	margin-bottom: 14px;
+	background: var(--void-bg-1);
+}
+
+.ref-settings-agent-import-error {
+	color: #ef4444;
+	font-size: 12px;
+	margin: 6px 0 0;
+}
+
+.ref-settings-agent-import-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 10px;
 }
 
 .ref-settings-agent-item {

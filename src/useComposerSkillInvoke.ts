@@ -60,11 +60,12 @@ export function useComposerSkillInvoke(
 		(root: HTMLElement, slot: AtComposerSlot) => {
 			skillSlotRef.current = slot;
 			const segs = readSegmentsFromRoot(root);
-			if (segs.length !== 1 || segs[0]?.kind !== 'text' || !segs[0].text.startsWith('./')) {
+			const firstText = segs[0]?.text ?? '';
+			const isSkillPrefix = firstText.startsWith('./') || (firstText.startsWith('/') && !firstText.startsWith('//'));
+			if (segs.length !== 1 || segs[0]?.kind !== 'text' || !isSkillPrefix) {
 				closeSkillMenu();
 				return;
 			}
-			const firstText = segs[0].text;
 			const plainPrefix = textBeforeCaretForAt(root);
 			const q = getLeadingSkillInvokeQuery(firstText, plainPrefix);
 			if (q === null) {
@@ -100,7 +101,9 @@ export function useComposerSkillInvoke(
 				return;
 			}
 			const segs = readSegmentsFromRoot(r);
-			if (segs.length !== 1 || segs[0]?.kind !== 'text' || !segs[0].text.startsWith('./')) {
+			const firstText2 = segs[0]?.text ?? '';
+				const isSkillPrefix2 = firstText2.startsWith('./') || (firstText2.startsWith('/') && !firstText2.startsWith('//'));
+				if (segs.length !== 1 || segs[0]?.kind !== 'text' || !isSkillPrefix2) {
 				closeSkillMenu();
 				return;
 			}
@@ -166,13 +169,15 @@ export function useComposerSkillInvoke(
 				return;
 			}
 			const segs = readSegmentsFromRoot(root);
-			if (segs.length !== 1 || segs[0]?.kind !== 'text' || !segs[0].text.startsWith('./')) {
+			const firstText2 = segs[0]?.text ?? '';
+				const isSkillPrefix2 = firstText2.startsWith('./') || (firstText2.startsWith('/') && !firstText2.startsWith('//'));
+				if (segs.length !== 1 || segs[0]?.kind !== 'text' || !isSkillPrefix2) {
 				closeSkillMenu();
 				return;
 			}
 			const t = segs[0].text;
-			const skillTok = t.match(/^\.\/\S*/);
-			const skillLen = skillTok ? skillTok[0]!.length : 2;
+			const skillTok = t.match(/^\.\/\S*/) || t.match(/^\/\S*/);
+			const skillLen = skillTok ? skillTok[0]!.length : (t.startsWith('./') ? 2 : 1);
 			const tail = t.slice(skillLen);
 			const setSeg = getSegmentsSetter(skillSlotRef.current);
 			setSeg([

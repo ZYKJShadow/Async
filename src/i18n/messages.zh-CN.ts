@@ -1619,6 +1619,12 @@ export const messagesZhCN: Record<string, string> = {
 	'agentSettings.newSkillChat': '对话创建',
 	'agentSettings.newSkillManual': '手动添加',
 	'agentSettings.skillsNew': '+ 新建',
+	'agentSettings.skillsTemplate': '模板',
+	'agentSettings.skillsTemplateTitle': '从模板快速创建 Skill',
+	'agentSettings.skillsImport': '导入',
+	'agentSettings.skillsImportPrompt': '粘贴 SKILL.md 内容（包含 frontmatter）：',
+	'agentSettings.skillsImportSuccess': 'Skill 导入成功',
+	'agentSettings.skillsImportError': '解析 SKILL.md 失败，请检查格式',
 	'agentSettings.skillCreatorThreadTitle': 'Skill 创建向导',
 	'agentSettings.skillCreatorHelp':
 		'输入框会显示蓝色 `/create-skill` 标签，其后填写说明；发送前会询问适用范围，内置系统提示会引导模型按 SKILL.md 规范输出（无需自行粘贴长提示词）。',
