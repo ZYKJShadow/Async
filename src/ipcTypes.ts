@@ -130,6 +130,11 @@ type ChatStreamPayloadCore =
 	  }
 	| {
 			threadId: string;
+			type: 'thread_title_updated';
+			title: string;
+	  }
+	| {
+			threadId: string;
 			type: 'agent_session_sync';
 			session: AgentSessionSnapshot;
 	  }

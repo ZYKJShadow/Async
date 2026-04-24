@@ -111,6 +111,7 @@ import { AppProvider } from './AppContext';
 import { ComposerActionsProvider } from './ComposerActionsContext';
 import { AgentBrowserWindowSurface } from './AgentRightSidebar';
 import { TerminalWindowSurface } from './TerminalWindowSurface';
+import { displayThreadTitle } from './app/threadRowUi';
 import {
 	loadTerminalSettings,
 	subscribeTerminalSettings,
@@ -1241,9 +1242,9 @@ function AppMainWorkspaceInner() {
 	);
 
 	const currentThreadTitle = useMemo(() => {
-		const t = threads.find((x) => x.id === currentId);
-		return t?.title ?? workspaceBasename;
-	}, [threads, currentId, workspaceBasename]);
+		const thread = threads.find((x) => x.id === currentId);
+		return thread ? displayThreadTitle(thread.title, t('app.threadUntitled')) : workspaceBasename;
+	}, [threads, currentId, workspaceBasename, t]);
 
 	const pendingAgentPatches = useMemo(() => {
 		if (!currentId) {
@@ -3673,6 +3674,7 @@ function AppMainWorkspaceInner() {
 					hasConversation={hasConversation}
 					workspace={workspace}
 					workspaceBasename={workspaceBasename}
+					currentThreadTitle={currentThreadTitle}
 					onPlanNewIdea={onPlanNewIdea}
 					hasAgentPlanSidebarContent={hasAgentPlanSidebarContent}
 					agentRightSidebarOpen={agentRightSidebarOpen}
@@ -4178,4 +4180,3 @@ function AppMainWorkspaceInner() {
 }
 
 const AppMainWorkspace = memo(AppMainWorkspaceInner);
-

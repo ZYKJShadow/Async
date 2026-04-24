@@ -743,6 +743,7 @@ export const messagesEn: Record<string, string> = {
 	'app.planNewIdea': 'Plan new idea',
 	'app.quickTerminal': 'Terminal',
 	'app.threadEdited': 'Edited {{names}}',
+	'app.threadUntitled': 'New chat',
 	'app.threadFilesOne': '{{n}} file',
 	'app.threadFilesMany': '{{n}} files',
 	'app.draftPrefix': 'Draft: {{title}}',

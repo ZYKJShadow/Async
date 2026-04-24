@@ -729,6 +729,7 @@ export const messagesZhCN: Record<string, string> = {
 	'app.planNewIdea': '规划新想法',
 	'app.quickTerminal': '终端',
 	'app.threadEdited': '已编辑 {{names}}',
+	'app.threadUntitled': '新对话',
 	'app.threadFilesOne': '{{n}} 个文件',
 	'app.threadFilesMany': '{{n}} 个文件',
 	'app.draftPrefix': '草稿：{{title}}',

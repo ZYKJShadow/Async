@@ -13,6 +13,7 @@ export type AgentAgentCenterColumnProps = {
 	hasConversation: boolean;
 	workspace: string | null;
 	workspaceBasename: string;
+	currentThreadTitle: string;
 	onPlanNewIdea: (e: KeyboardEvent) => void;
 	hasAgentPlanSidebarContent: boolean;
 	agentRightSidebarOpen: boolean;
@@ -23,12 +24,20 @@ export type AgentAgentCenterColumnProps = {
 	chatPanelProps: Omit<AgentChatPanelProps, 'layout'>;
 };
 
+function truncateHeaderTitle(input: string, maxCodePoints = 18): string {
+	const chars = Array.from(input.trim());
+	return chars.length <= maxCodePoints
+		? input.trim()
+		: `${chars.slice(0, Math.max(1, maxCodePoints - 1)).join('')}…`;
+}
+
 /** Agent 布局中间列：上下文条 + 右侧栏切换 + 对话面板；memo 以便在 Git 等兄弟域重渲染时跳过本列 reconciliation */
 export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 	t,
 	hasConversation,
 	workspace,
 	workspaceBasename,
+	currentThreadTitle,
 	onPlanNewIdea,
 	hasAgentPlanSidebarContent,
 	agentRightSidebarOpen,
@@ -41,6 +50,7 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 	const threadMessagesPending =
 		chatPanelProps.currentId != null &&
 		chatPanelProps.messagesThreadId !== chatPanelProps.currentId;
+	const headerTitle = truncateHeaderTitle(currentThreadTitle);
 
 	if (import.meta.env.DEV) {
 		console.log(
@@ -58,10 +68,17 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 		>
 			<div className="ref-context-block ref-context-block--agent">
 				<div className="ref-context-line">
-					<span className="ref-agent-context-pill">
-						<IconDoc className="ref-context-icon" />
-						<span className="ref-context-title">{workspace ? workspaceBasename : t('app.noWorkspace')}</span>
-					</span>
+					<div className="ref-agent-context-pill">
+						<span className="ref-agent-context-heading" title={currentThreadTitle}>
+							{headerTitle}
+						</span>
+						<span
+							className="ref-agent-context-workspace"
+							title={workspace ? workspaceBasename : t('app.noWorkspace')}
+						>
+							{workspace ? workspaceBasename : t('app.noWorkspace')}
+						</span>
+					</div>
 				</div>
 			</div>
 
@@ -129,6 +146,7 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 		prev.hasConversation === next.hasConversation &&
 		prev.workspace === next.workspace &&
 		prev.workspaceBasename === next.workspaceBasename &&
+		prev.currentThreadTitle === next.currentThreadTitle &&
 		prev.hasAgentPlanSidebarContent === next.hasAgentPlanSidebarContent &&
 		prev.agentRightSidebarOpen === next.agentRightSidebarOpen &&
 		prev.agentRightSidebarView === next.agentRightSidebarView &&

@@ -527,6 +527,10 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 		const unsub = shell.subscribeChat((raw: unknown) => {
 			const rt = runtimeRef.current;
 			const payload = raw as ChatStreamPayload;
+			if (payload.type === 'thread_title_updated') {
+				void rt.refreshThreads();
+				return;
+			}
 			if (payload.type === 'agent_session_sync') {
 				rt.restoreAgentSession(payload.threadId, payload.session);
 				if (payload.threadId === rt.currentIdRef.current) {
