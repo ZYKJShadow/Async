@@ -144,6 +144,7 @@ import { ShellWorkspaceGrid } from './app/ShellWorkspaceGrid';
 import { ThreadItem } from './app/ThreadItem';
 import { AgentSidebarThreadItem } from './app/AgentSidebarThreadItem';
 import {
+	readStoredWorkspaceLauncher,
 	type WorkspaceLauncherTool,
 	workspaceLauncherLabel,
 } from './app/workspaceLaunchers';
@@ -1741,13 +1742,21 @@ function AppMainWorkspaceInner() {
 	}, [layoutMode, toggleAgentRightSidebarView]);
 
 	const launchWorkspaceWithTool = useCallback(
-		async (tool: WorkspaceLauncherTool) => {
+		async (
+			tool: WorkspaceLauncherTool,
+			options?: { relPath?: string; revealLine?: number; revealEndLine?: number }
+		) => {
 			if (!shell || !workspace) {
 				flashComposerAttachErr(t('app.noWorkspace'));
 				return;
 			}
 			try {
-				const r = (await shell.invoke('workspace:openInExternalTool', { tool })) as {
+				const r = (await shell.invoke('workspace:openInExternalTool', {
+					tool,
+					relPath: options?.relPath,
+					revealLine: options?.revealLine,
+					revealEndLine: options?.revealEndLine,
+				})) as {
 					ok?: boolean;
 					code?: string;
 					error?: string;
@@ -1772,6 +1781,13 @@ function AppMainWorkspaceInner() {
 			}
 		},
 		[shell, workspace, flashComposerAttachErr, t]
+	);
+
+	const openAgentFilePreviewInWorkspaceLauncher = useCallback(
+		(relPath: string, revealLine?: number, revealEndLine?: number) => {
+			void launchWorkspaceWithTool(readStoredWorkspaceLauncher(), { relPath, revealLine, revealEndLine });
+		},
+		[launchWorkspaceWithTool]
 	);
 
 	const {
@@ -3588,7 +3604,7 @@ function AppMainWorkspaceInner() {
 		onPlanAddTodoCancel,
 		onPlanTodoToggle,
 		agentFilePreview,
-		openFileInTab,
+		openFileInTab: openAgentFilePreviewInWorkspaceLauncher,
 		onAcceptAgentFilePreviewHunk,
 		onRevertAgentFilePreviewHunk,
 		agentFilePreviewBusyPatch,

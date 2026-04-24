@@ -638,7 +638,9 @@ async function spawnDetachedLaunch(
 
 async function launchWorkspaceInExternalEditor(
 	tool: Extract<ExternalWorkspaceTool, 'vscode' | 'cursor' | 'antigravity'>,
-	workspaceRoot: string
+	workspaceRoot: string,
+	targetPath?: string,
+	revealLine?: number
 ): Promise<boolean> {
 	const commandCandidates = {
 		vscode: ['code'],
@@ -652,7 +654,9 @@ async function launchWorkspaceInExternalEditor(
 	if (!resolved) {
 		return false;
 	}
-	await spawnDetachedLaunch(resolved.command, ['-n', workspaceRoot], {
+	const target = targetPath ?? workspaceRoot;
+	const targetArg = targetPath && Number.isFinite(revealLine) && revealLine > 0 ? `${targetPath}:${Math.floor(revealLine)}` : target;
+	await spawnDetachedLaunch(resolved.command, ['-n', targetArg], {
 		cwd: workspaceRoot,
 		useShell: resolved.useShell,
 		windowsHide: true,
@@ -1312,13 +1316,29 @@ export function registerIpc(): void {
 		if (!root) {
 			return { ok: false as const, code: 'no-workspace' as const };
 		}
-		const tool = (payload as { tool?: unknown } | null | undefined)?.tool;
+		const input = payload as
+			| { tool?: unknown; relPath?: unknown; revealLine?: unknown; revealEndLine?: unknown }
+			| null
+			| undefined;
+		const tool = input?.tool;
 		if (!isExternalWorkspaceTool(tool)) {
 			return { ok: false as const, code: 'unsupported-tool' as const, error: 'unsupported tool' };
 		}
+		const relPath = typeof input?.relPath === 'string' ? input.relPath.trim() : '';
+		let targetPath: string | undefined;
+		if (relPath) {
+			const normalizedRel = relPath.replace(/\\/g, '/');
+			const resolvedTarget = path.resolve(root, normalizedRel);
+			const relativeToRoot = path.relative(root, resolvedTarget);
+			if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+				return { ok: false as const, code: 'outside-workspace' as const, error: 'path is outside workspace' };
+			}
+			targetPath = resolvedTarget;
+		}
+		const revealLine = typeof input?.revealLine === 'number' ? input.revealLine : undefined;
 		try {
 			if (tool === 'explorer') {
-				const err = await shell.openPath(root);
+				const err = await shell.openPath(targetPath ?? root);
 				return err
 					? ({ ok: false as const, code: 'launch-failed' as const, error: err } as const)
 					: ({ ok: true as const } as const);
@@ -1329,7 +1349,7 @@ export function registerIpc(): void {
 					? ({ ok: true as const } as const)
 					: ({ ok: false as const, code: 'tool-unavailable' as const } as const);
 			}
-			const ok = await launchWorkspaceInExternalEditor(tool, root);
+			const ok = await launchWorkspaceInExternalEditor(tool, root, targetPath, revealLine);
 			return ok
 				? ({ ok: true as const } as const)
 				: ({ ok: false as const, code: 'tool-unavailable' as const } as const);
