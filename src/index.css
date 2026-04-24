@@ -3670,7 +3670,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	margin: 0;
 	padding: 12px 20px;
 	border: 1px solid var(--void-border-soft);
-	border-radius: 18px;
+	border-radius: 14px;
 	background: var(--void-bg-3);
 	color: var(--void-fg-0);
 	font-size: var(--void-user-composer-font-size);
@@ -5948,6 +5948,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-command-stack {
+	position: relative;
 	flex-shrink: 0;
 	width: 100%;
 	max-width: 720px;
@@ -18247,6 +18248,23 @@ select.ref-settings-native-select:focus {
 	margin-bottom: 6px;
 	overflow: hidden;
 	background: var(--void-bg-1);
+}
+
+.ref-fcp-slot {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: calc(100% + 6px);
+	z-index: 9;
+	transition:
+		opacity 0.16s var(--void-ease-out-expo),
+		transform 0.16s var(--void-ease-out-expo);
+}
+
+.ref-fcp-slot.is-reserved {
+	opacity: 0;
+	transform: translateY(4px);
+	pointer-events: none;
 }
 
 .ref-fcp-header {

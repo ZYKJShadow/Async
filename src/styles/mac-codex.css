@@ -829,7 +829,7 @@
 :root[data-ui-style='mac-codex'] .ref-msg-user {
 	background: var(--surface-bubble-user);
 	border-color: color-mix(in srgb, var(--color-accent) 16%, var(--surface-glass-stroke));
-	border-radius: 22px;
+	border-radius: 16px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-msg-user:hover:not(:disabled) {

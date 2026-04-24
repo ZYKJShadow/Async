@@ -2032,21 +2032,22 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			{hasConversation &&
 			(composerMode === 'agent' || composerMode === 'team') &&
 			agentFileChanges.length > 0 &&
-			!awaitingReply &&
 			!fileChangesDismissed ? (
-				<AgentFileChangesPanel
-					files={agentFileChanges}
-					onOpenFile={(rel, line, end, options) =>
-						onOpenAgentConversationFile(rel, line, end, {
-							...options,
-							allowReviewActions: true,
-						})
-					}
-					onKeepAll={onKeepAllEdits}
-					onRevertAll={() => void onRevertAllEdits()}
-					onKeepFile={(rel) => void onKeepFileEdit(rel)}
-					onRevertFile={(rel) => void onRevertFileEdit(rel)}
-				/>
+				<div className={`ref-fcp-slot ${awaitingReply ? 'is-reserved' : ''}`}>
+					<AgentFileChangesPanel
+						files={agentFileChanges}
+						onOpenFile={(rel, line, end, options) =>
+							onOpenAgentConversationFile(rel, line, end, {
+								...options,
+								allowReviewActions: true,
+							})
+						}
+						onKeepAll={onKeepAllEdits}
+						onRevertAll={() => void onRevertAllEdits()}
+						onKeepFile={(rel) => void onKeepFileEdit(rel)}
+						onRevertFile={(rel) => void onRevertFileEdit(rel)}
+					/>
+				</div>
 			) : null}
 			{hasConversation ? (
 				<div
