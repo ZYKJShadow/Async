@@ -67,6 +67,7 @@ function macCodexBuiltinPreviewVarsDark(): Record<string, string> {
 		'--void-scrollbar-thumb': 'rgba(108, 122, 134, 0.42)',
 		'--void-scrollbar-thumb-hover': 'rgba(132, 148, 162, 0.56)',
 		'--void-scrollbar-thumb-active': 'rgba(164, 178, 191, 0.64)',
+		'--void-settings-root-bg': '#151C22',
 		'--ref-menubar-chrome-bg': '#161d24',
 		'--void-sidebar-fill': '#161d24',
 		'--void-accent-cool': '#37d6d4',
@@ -103,6 +104,7 @@ function macCodexBuiltinPreviewVarsLight(): Record<string, string> {
 		'--void-scrollbar-thumb': 'rgba(123, 137, 160, 0.38)',
 		'--void-scrollbar-thumb-hover': 'rgba(98, 113, 139, 0.5)',
 		'--void-scrollbar-thumb-active': 'rgba(82, 96, 120, 0.58)',
+		'--void-settings-root-bg': '#F5F7FA',
 		'--ref-menubar-chrome-bg': '#EFF3F9',
 		'--void-sidebar-fill': '#EFF3F9',
 		'--void-accent-cool': '#418eff',
@@ -187,6 +189,8 @@ const APPEARANCE_CHROME_CSS_VAR_KEYS: string[] = [
 	'--void-appearance-shell-bg',
 	'--void-appearance-shell-border',
 	'--void-appearance-shell-shadow',
+	'--void-appearance-theme-editor-head-bg',
+	'--void-appearance-settings-seg-bg',
 	'--void-shadow-card',
 	'--void-shadow-soft',
 	'--void-thought-meta',
@@ -717,14 +721,16 @@ function opaqueHexForNativeChrome(cssColor: string, blendOntoHex: string): strin
  */
 export function nativeWindowChromeFromAppearance(
 	settings: AppAppearanceSettings,
-	colorScheme: 'light' | 'dark'
+	colorScheme: 'light' | 'dark',
+	options?: { settingsPageOpen?: boolean }
 ): { backgroundColor: string; titleBarColor: string; symbolColor: string } {
 	const vars = resolveAppearanceChromeColorVars(settings, colorScheme);
 	const bg0 = vars['--void-bg-0'] ?? '#11171c';
-	const menubar = vars['--ref-menubar-chrome-bg'] ?? bg0;
+	const settingsRootBg = vars['--void-settings-root-bg'] ?? vars['--void-bg-1'] ?? bg0;
+	const titleSurface = options?.settingsPageOpen ? settingsRootBg : (vars['--ref-menubar-chrome-bg'] ?? bg0);
 	const fg1 = vars['--void-fg-1'] ?? '#ced7dc';
 	const bg0Hex = opaqueHexForNativeChrome(bg0, bg0);
-	const titleHex = opaqueHexForNativeChrome(menubar, bg0Hex);
+	const titleHex = opaqueHexForNativeChrome(titleSurface, bg0Hex);
 	const symbolToken = vars['--void-titlebar-symbol-color']?.trim() ?? '';
 	const symbolHex =
 		/^#[0-9a-fA-F]{6}$/i.test(symbolToken) ? normalizeHexColor(symbolToken, titleHex) : opaqueHexForNativeChrome(fg1, titleHex);
@@ -800,6 +806,8 @@ export function appearanceSettingsColorVars(settings: AppAppearanceSettings): Re
 					'--void-settings-root-bg': CURSOR_DARK_CHAT_BG,
 					'--void-settings-sidebar-bg': CURSOR_DARK_SIDEBAR_BG,
 					'--void-settings-main-bg': CURSOR_DARK_CHAT_BG,
+					'--void-appearance-theme-editor-head-bg': CURSOR_DARK_CHAT_BG,
+					'--void-appearance-settings-seg-bg': CURSOR_DARK_CHAT_BG,
 					'--void-btn-primary-bg': accent,
 					'--void-btn-primary-border': 'none',
 					'--void-btn-primary-shadow': 'none',
@@ -818,7 +826,7 @@ export function appearanceSettingsColorVars(settings: AppAppearanceSettings): Re
 					'--shadow-floating': `0 10px 28px ${hexToRgba('#000000', 0.32)}`,
 					'--shadow-popover': `0 14px 36px ${hexToRgba('#000000', 0.38)}`,
 					'--shadow-accent': 'none',
-					'--void-appearance-shell-bg': hexToRgba(mixHex(CURSOR_DARK_CHAT_BG, fg0, 0.05), 1),
+					'--void-appearance-shell-bg': CURSOR_DARK_CHAT_BG,
 					'--void-appearance-shell-border': hexToRgba(fg0, 0.12),
 					'--void-appearance-shell-shadow': `0 8px 22px ${hexToRgba('#000000', 0.28)}`,
 					'--surface-bubble-user': CURSOR_DARK_COMPOSER_USER_BUBBLE_BG,
@@ -863,6 +871,8 @@ export function appearanceSettingsColorVars(settings: AppAppearanceSettings): Re
 					'--void-settings-root-bg': '#FFFFFF',
 					'--void-settings-sidebar-bg': CURSOR_LIGHT_SIDEBAR_MENUBAR_BG,
 					'--void-settings-main-bg': '#FFFFFF',
+					'--void-appearance-theme-editor-head-bg': '#FFFFFF',
+					'--void-appearance-settings-seg-bg': '#FFFFFF',
 					'--void-btn-primary-bg': accent,
 					'--void-btn-primary-border': 'none',
 					'--void-btn-primary-shadow': 'none',

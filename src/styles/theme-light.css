@@ -38,6 +38,7 @@
 	--void-scrollbar-thumb: color-mix(in srgb, var(--void-fg-3) 38%, transparent);
 	--void-scrollbar-thumb-hover: color-mix(in srgb, var(--void-fg-2) 50%, transparent);
 	--void-scrollbar-thumb-active: color-mix(in srgb, var(--void-fg-2) 58%, transparent);
+	--void-settings-root-bg: #F5F7FA;
 	--ref-menubar-chrome-bg: #EFF3F9;
 	--void-sidebar-fill: #EFF3F9;
 	--void-shadow-card: 0 24px 72px color-mix(in srgb, var(--void-fg-0) 14%, transparent);

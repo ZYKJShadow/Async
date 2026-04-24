@@ -1379,8 +1379,15 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-appearance-theme-editor-head {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 56%, transparent);
+	background: var(
+		--void-appearance-theme-editor-head-bg,
+		color-mix(in srgb, var(--surface-panel-bg-soft) 56%, transparent)
+	);
 	border-bottom-color: color-mix(in srgb, var(--void-fg-0) 5%, transparent);
+}
+
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-panel--appearance .ref-appearance-seg {
+	background: var(--void-appearance-settings-seg-bg, var(--void-input-bg));
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-appearance-code-preview {

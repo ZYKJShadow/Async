@@ -14239,7 +14239,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-settings-panel--appearance .ref-appearance-seg {
-	background: color-mix(in srgb, var(--void-bg-2) 88%, var(--void-accent-soft));
+	background: var(
+		--void-appearance-settings-seg-bg,
+		color-mix(in srgb, var(--void-bg-2) 88%, var(--void-accent-soft))
+	);
 }
 
 .ref-settings-panel--appearance .ref-appearance-seg-btn:hover {
@@ -14342,7 +14345,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	gap: 14px;
 	padding: 16px;
 	border-bottom: 1px solid var(--void-border-soft);
-	background: color-mix(in srgb, var(--void-accent-soft) 34%, var(--void-bg-2));
+	background: var(
+		--void-appearance-theme-editor-head-bg,
+		color-mix(in srgb, var(--void-accent-soft) 34%, var(--void-bg-2))
+	);
 }
 
 .ref-appearance-theme-editor-title {
