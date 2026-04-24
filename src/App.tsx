@@ -3357,6 +3357,9 @@ function AppMainWorkspaceInner() {
 		setWorkspacePickerOpen,
 		openQuickOpen,
 		openSettingsPage,
+		openUniversalTerminal: () => {
+			void shell?.invoke('terminalWindow:open', { startPage: true });
+		},
 	});
 
 	/** 未打开工作区时：Agent / Editor 均显示同一套欢迎页（打开项目、最近项目等） */

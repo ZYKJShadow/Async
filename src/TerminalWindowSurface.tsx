@@ -23,6 +23,7 @@ import {
 	TerminalSettingsPanel,
 	type TerminalSettingsPanelOpenProfileRequest,
 } from './terminalWindow/TerminalSettingsPanel';
+import { TerminalPortsPanel } from './terminalWindow/TerminalPortsPanel';
 import { TerminalSftpPanel } from './terminalWindow/TerminalSftpPanel';
 import { TerminalStartPage, type TerminalStartPageProfile } from './terminalWindow/TerminalStartPage';
 import {
@@ -132,8 +133,28 @@ type TabHeaderContextMenuState = {
 	y: number;
 };
 
+type TerminalSplitOrientation = 'horizontal' | 'vertical';
+
+type TerminalSplitLayout = {
+	enabled: boolean;
+	orientation: TerminalSplitOrientation;
+	secondaryId: string | null;
+	ratio: number;
+};
+
 type RestorableTerminalTab = {
 	profileId: string;
+};
+
+type RestorableTerminalSnapshot = {
+	tabs: RestorableTerminalTab[];
+	activeIndex?: number;
+	split?: {
+		enabled: boolean;
+		orientation: TerminalSplitOrientation;
+		secondaryIndex: number;
+		ratio: number;
+	};
 };
 
 const TERMINAL_TAB_SNAPSHOT_KEY = 'void-shell:terminal:window-tabs';
@@ -665,6 +686,12 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	const shell = window.asyncShell;
 	const [sessions, setSessions] = useState<SessionInfo[]>([]);
 	const [activeId, setActiveId] = useState<string | null>(null);
+	const [splitLayout, setSplitLayout] = useState<TerminalSplitLayout>({
+		enabled: false,
+		orientation: 'horizontal',
+		secondaryId: null,
+		ratio: 0.5,
+	});
 	const [exitByTab, setExitByTab] = useState<Record<string, number | null>>({});
 	const [sessionProfiles, setSessionProfiles] = useState<Record<string, string>>({});
 	const [builtinProfiles, setBuiltinProfiles] = useState<TerminalProfile[]>(() => getBuiltinTerminalProfiles());
@@ -681,13 +708,15 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		useState<TerminalSettingsPanelOpenProfileRequest | null>(null);
 	const [sftpPanelOpenBySession, setSftpPanelOpenBySession] = useState<Record<string, boolean>>({});
 	const [sftpPanelPathBySession, setSftpPanelPathBySession] = useState<Record<string, string>>({});
+	const [portsPanelOpenBySession, setPortsPanelOpenBySession] = useState<Record<string, boolean>>({});
 	const [toolbarPinned, setToolbarPinned] = useState(() => loadTerminalToolbarPinned());
 	const [toolbarRevealed, setToolbarRevealed] = useState(() => loadTerminalToolbarPinned());
 	const creatingRef = useRef(false);
 	const initialListLoadedRef = useRef(false);
-	const createSessionRef = useRef<(profileId?: string) => Promise<void>>(async () => {});
+	const createSessionRef = useRef<(profileId?: string, options?: { activate?: boolean }) => Promise<string | null>>(async () => null);
 	const builtinProfilesRef = useRef<TerminalProfile[]>(builtinProfiles);
 	const menuWrapRef = useRef<HTMLDivElement>(null);
+	const panesRef = useRef<HTMLDivElement>(null);
 	const runtimeControlsRef = useRef<Record<string, TerminalRuntimeControls>>({});
 	const toolbarHideTimerRef = useRef<number | null>(null);
 	builtinProfilesRef.current = builtinProfiles;
@@ -760,11 +789,26 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 
 	const restoreSavedTabs = useCallback(async () => {
 		const snapshot = loadTerminalTabSnapshot();
-		if (!snapshot.length) {
+		if (!snapshot.tabs.length) {
 			return false;
 		}
-		for (const tab of snapshot) {
-			await createSessionRef.current(tab.profileId);
+		const restoredIds: string[] = [];
+		for (const [index, tab] of snapshot.tabs.entries()) {
+			const id = await createSessionRef.current(tab.profileId, { activate: index === snapshot.activeIndex });
+			if (id) {
+				restoredIds.push(id);
+			}
+		}
+		if (snapshot.split?.enabled) {
+			const secondaryId = restoredIds[snapshot.split.secondaryIndex];
+			if (secondaryId) {
+				setSplitLayout({
+					enabled: true,
+					orientation: snapshot.split.orientation,
+					secondaryId,
+					ratio: snapshot.split.ratio,
+				});
+			}
 		}
 		return true;
 	}, []);
@@ -835,9 +879,9 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	}, [forceStartPage, reloadBuiltinProfiles, restoreSavedTabs, shell, terminalSettings.autoOpen, terminalSettings.restoreTabs]);
 
 	const createSession = useCallback(
-		async (profileId?: string) => {
+		async (profileId?: string, options?: { activate?: boolean }): Promise<string | null> => {
 			if (!shell || creatingRef.current) {
-				return;
+				return null;
 			}
 			creatingRef.current = true;
 			try {
@@ -857,13 +901,16 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 						rememberTerminalProfileLaunch(profile.id);
 					}
 					setSessions((prev) => (prev.some((session) => session.id === result.session.id) ? prev : [...prev, result.session]));
-					setActiveId(result.session.id);
+					if (options?.activate !== false) {
+						setActiveId(result.session.id);
+					}
 					setSettingsOpen(false);
 					setProfileSelectorOpen(false);
 					setMenuOpen(false);
 					setContextMenu(null);
 					setTabHeaderContextMenu(null);
 				}
+				return result.ok ? result.session.id : null;
 			} finally {
 				creatingRef.current = false;
 			}
@@ -874,9 +921,16 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	createSessionRef.current = createSession;
 
 	const closeSession = useCallback(
-		async (id: string) => {
+		async (id: string, options?: { force?: boolean }) => {
 			if (!shell) {
 				return;
+			}
+			const session = sessions.find((item) => item.id === id);
+			if (!options?.force && session?.alive) {
+				const confirmed = window.confirm(`Close terminal "${session.title}"? Running processes will be terminated.`);
+				if (!confirmed) {
+					return;
+				}
 			}
 			await shell.invoke('term:sessionKill', id).catch(() => {
 				/* ignore */
@@ -907,8 +961,66 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 				return next;
 			});
 		},
-		[shell]
+		[sessions, shell]
 	);
+
+	const duplicateSession = useCallback(
+		async (id: string, options?: { activate?: boolean }) => {
+			const profileId = sessionProfiles[id] ?? terminalSettings.defaultProfileId;
+			await createSession(profileId, options);
+		},
+		[createSession, sessionProfiles, terminalSettings.defaultProfileId]
+	);
+
+	const reorderSession = useCallback((sourceId: string, targetId: string) => {
+		if (sourceId === targetId) {
+			return;
+		}
+		setSessions((prev) => {
+			const sourceIndex = prev.findIndex((session) => session.id === sourceId);
+			const targetIndex = prev.findIndex((session) => session.id === targetId);
+			if (sourceIndex < 0 || targetIndex < 0) {
+				return prev;
+			}
+			const next = [...prev];
+			const [moved] = next.splice(sourceIndex, 1);
+			next.splice(targetIndex, 0, moved);
+			return next;
+		});
+	}, []);
+
+	const splitSession = useCallback(
+		async (id: string, orientation: TerminalSplitOrientation) => {
+			await duplicateSession(id);
+			setSplitLayout({ enabled: true, orientation, secondaryId: id, ratio: 0.5 });
+		},
+		[duplicateSession]
+	);
+
+	const closeSplit = useCallback(() => {
+		setSplitLayout((current) => ({ ...current, enabled: false, secondaryId: null, ratio: 0.5 }));
+	}, []);
+
+	const beginSplitResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+		const panes = panesRef.current;
+		if (!panes || !splitLayout.enabled) {
+			return;
+		}
+		event.preventDefault();
+		const rect = panes.getBoundingClientRect();
+		const update = (clientX: number, clientY: number) => {
+			const raw = splitLayout.orientation === 'horizontal' ? (clientX - rect.left) / rect.width : (clientY - rect.top) / rect.height;
+			const ratio = Math.max(0.2, Math.min(0.8, raw));
+			setSplitLayout((current) => ({ ...current, ratio }));
+		};
+		const onPointerMove = (moveEvent: PointerEvent) => update(moveEvent.clientX, moveEvent.clientY);
+		const onPointerUp = () => {
+			document.removeEventListener('pointermove', onPointerMove);
+			document.removeEventListener('pointerup', onPointerUp);
+		};
+		document.addEventListener('pointermove', onPointerMove);
+		document.addEventListener('pointerup', onPointerUp);
+	}, [splitLayout.enabled, splitLayout.orientation]);
 
 	useEffect(() => {
 		void refreshList();
@@ -948,18 +1060,43 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 
 	useEffect(() => {
 		if (!terminalSettings.restoreTabs) {
-			saveTerminalTabSnapshot([]);
+			saveTerminalTabSnapshot({ tabs: [] });
 			return;
 		}
-		saveTerminalTabSnapshot(
-			sessions
-				.map((session) => {
-					const profileId = sessionProfiles[session.id] ?? terminalSettings.defaultProfileId;
-					return profileId ? { profileId } : null;
-				})
-				.filter((tab): tab is RestorableTerminalTab => Boolean(tab))
-		);
-	}, [sessions, sessionProfiles, terminalSettings.defaultProfileId, terminalSettings.restoreTabs]);
+		const tabs = sessions
+			.map((session) => {
+				const profileId = sessionProfiles[session.id] ?? terminalSettings.defaultProfileId;
+				return profileId ? { profileId } : null;
+			})
+			.filter((tab): tab is RestorableTerminalTab => Boolean(tab));
+		const activeIndex = activeId ? sessions.findIndex((session) => session.id === activeId) : undefined;
+		const secondaryIndex = splitLayout.secondaryId
+			? sessions.findIndex((session) => session.id === splitLayout.secondaryId)
+			: -1;
+		saveTerminalTabSnapshot({
+			tabs,
+			activeIndex: typeof activeIndex === 'number' && activeIndex >= 0 ? activeIndex : undefined,
+			split:
+				splitLayout.enabled && secondaryIndex >= 0
+					? {
+							enabled: true,
+							orientation: splitLayout.orientation,
+							secondaryIndex,
+							ratio: splitLayout.ratio,
+						}
+					: undefined,
+		});
+	}, [
+		activeId,
+		sessions,
+		sessionProfiles,
+		splitLayout.enabled,
+		splitLayout.orientation,
+		splitLayout.ratio,
+		splitLayout.secondaryId,
+		terminalSettings.defaultProfileId,
+		terminalSettings.restoreTabs,
+	]);
 
 	useEffect(() => {
 		if (!menuOpen) {
@@ -1069,6 +1206,26 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		() => sessions.find((session) => session.id === activeId) ?? sessions[0] ?? null,
 		[sessions, activeId]
 	);
+	const splitSecondarySession = useMemo(
+		() => sessions.find((session) => session.id === splitLayout.secondaryId && session.id !== activeSession?.id) ?? null,
+		[activeSession?.id, sessions, splitLayout.secondaryId]
+	);
+	const visibleTerminalSessions = useMemo(() => {
+		if (splitLayout.enabled && activeSession && splitSecondarySession) {
+			return [activeSession, splitSecondarySession];
+		}
+		return activeSession ? [activeSession] : [];
+	}, [activeSession, splitLayout.enabled, splitSecondarySession]);
+
+	useEffect(() => {
+		if (!splitLayout.enabled) {
+			return;
+		}
+		if (splitLayout.secondaryId && sessions.some((session) => session.id === splitLayout.secondaryId)) {
+			return;
+		}
+		setSplitLayout((current) => ({ ...current, enabled: false, secondaryId: null }));
+	}, [sessions, splitLayout.enabled, splitLayout.secondaryId]);
 
 	const displayBuiltinProfiles = useMemo(
 		() => builtinProfiles.map((profile) => withTerminalWindowProfileLabel(profile, t)),
@@ -1204,8 +1361,9 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		(): CSSProperties =>
 			({
 				'--ref-uterm-body-opacity': String(terminalSettings.opacity),
+				'--ref-uterm-split-ratio': `${Math.round(splitLayout.ratio * 100)}%`,
 			}) as CSSProperties,
-		[terminalSettings.opacity]
+		[splitLayout.ratio, terminalSettings.opacity]
 	);
 
 	const contextRuntime = contextMenu ? runtimeControlsRef.current[contextMenu.sessionId] ?? null : null;
@@ -1305,10 +1463,27 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		setSftpPanelPathBySession((prev) => ({ ...prev, [sessionId]: nextPath }));
 	}, []);
 
+	const openPortsPanel = useCallback(
+		(sessionId: string) => {
+			setPortsPanelOpenBySession((prev) => ({ ...prev, [sessionId]: true }));
+			revealTerminalToolbar();
+		},
+		[revealTerminalToolbar]
+	);
+
+	const closePortsPanel = useCallback((sessionId: string) => {
+		setPortsPanelOpenBySession((prev) => {
+			if (!prev[sessionId]) {
+				return prev;
+			}
+			return { ...prev, [sessionId]: false };
+		});
+	}, []);
+
 	const reconnectSession = useCallback(
 		async (sessionId: string) => {
 			const profileId = resolvedSessionProfiles[sessionId]?.id;
-			await closeSession(sessionId);
+			await closeSession(sessionId, { force: true });
 			await createSession(profileId);
 			revealTerminalToolbar();
 		},
@@ -1396,6 +1571,14 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 							}}
 							onClose={() => void closeSession(session.id)}
 							onContextMenu={(event) => onTabStripContextMenu(session.id, event)}
+							onDragStart={(event) => event.dataTransfer.setData('application/x-ref-terminal-session', session.id)}
+							onDragOver={(event) => event.preventDefault()}
+							onDrop={(event) => {
+							const sourceId = event.dataTransfer.getData('application/x-ref-terminal-session');
+							if (sourceId) {
+								reorderSession(sourceId, session.id);
+							}
+						}}
 						/>
 					))}
 					<div className="ref-uterm-tabstrip-tail">
@@ -1574,6 +1757,56 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 					>
 						{t('app.universalTerminalTabHeader.newTerminal')}
 					</button>
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const id = tabHeaderContextMenu.sessionId;
+							closeTabHeaderContextMenu();
+							void duplicateSession(id);
+						}}
+					>
+						{t('app.universalTerminalTabHeader.duplicateTerminal')}
+					</button>
+					<div className="ref-uterm-dropdown-sep" role="separator" />
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const id = tabHeaderContextMenu.sessionId;
+							closeTabHeaderContextMenu();
+							void splitSession(id, 'horizontal');
+						}}
+					>
+						{t('app.universalTerminalTabHeader.splitRight')}
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const id = tabHeaderContextMenu.sessionId;
+							closeTabHeaderContextMenu();
+							void splitSession(id, 'vertical');
+						}}
+					>
+						{t('app.universalTerminalTabHeader.splitDown')}
+					</button>
+					<div className="ref-uterm-dropdown-sep" role="separator" />
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const id = tabHeaderContextMenu.sessionId;
+							closeTabHeaderContextMenu();
+							void closeSession(id);
+						}}
+					>
+						{t('app.universalTerminalCloseTab')}
+					</button>
 				</div>
 			) : null}
 
@@ -1605,23 +1838,44 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 						/>
 					) : (
 						<>
-							<div className="ref-uterm-panes">
+							<div
+								ref={panesRef}
+								className={`ref-uterm-panes ${splitLayout.enabled && splitSecondarySession ? `is-split is-split-${splitLayout.orientation}` : ''}`}
+							>
+								{splitLayout.enabled && splitSecondarySession ? (
+									<div
+										className="ref-uterm-split-resizer"
+										role="separator"
+										aria-orientation={splitLayout.orientation === 'horizontal' ? 'vertical' : 'horizontal'}
+										onPointerDown={beginSplitResize}
+									/>
+								) : null}
 								{sessions.map((session) => {
+									const isVisible = visibleTerminalSessions.some((visibleSession) => visibleSession.id === session.id);
 									const isActive = session.id === activeSession?.id;
 									const exitCode = exitByTab[session.id];
 									const sessionProfile = resolvedSessionProfiles[session.id] ?? null;
-									const paneActive = !settingsOpen && isActive;
+									const paneActive = !settingsOpen && isVisible;
 									const showSshToolbar = paneActive && sessionProfile?.kind === 'ssh';
 									const sftpPanelOpen = Boolean(sftpPanelOpenBySession[session.id]);
+					const portsPanelOpen = Boolean(portsPanelOpenBySession[session.id]);
 									const renderSftpPanel = sessionProfile?.kind === 'ssh' && sftpPanelOpen;
+					const renderPortsPanel = sessionProfile?.kind === 'ssh' && portsPanelOpen;
 									return (
 										<div
 											key={session.id}
-											className={`ref-uterm-pane ${paneActive ? 'is-active' : ''}`}
+											className={`ref-uterm-pane ${paneActive ? 'is-active' : ''} ${isActive ? 'is-focused' : ''}`}
 											aria-hidden={!paneActive}
+											onMouseDown={() => setActiveId(session.id)}
 											onMouseEnter={showSshToolbar ? revealTerminalToolbar : undefined}
 											onMouseLeave={showSshToolbar ? hideTerminalToolbar : undefined}
 										>
+											{paneActive && splitLayout.enabled ? (
+												<div className="ref-uterm-pane-controls">
+													<button type="button" className="ref-uterm-pane-control" onClick={closeSplit}>{t('app.universalTerminalPane.unsplit')}</button>
+													<button type="button" className="ref-uterm-pane-control" onClick={() => void closeSession(session.id)}>{t('app.universalTerminalPane.close')}</button>
+												</div>
+											) : null}
 											{showSshToolbar ? (
 												<TerminalSessionToolbar
 													t={t}
@@ -1632,14 +1886,14 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 													onPinToggle={toggleTerminalToolbarPinned}
 													onReconnect={() => void reconnectSession(session.id)}
 													onOpenSftp={() => openSftpPanel(session.id)}
-													onOpenPorts={() => openProfileSettingsFromToolbar(sessionProfile, 'ports')}
+													onOpenPorts={() => openPortsPanel(session.id)}
 													onMouseEnter={revealTerminalToolbar}
 													onMouseLeave={hideTerminalToolbar}
 												/>
 											) : null}
 											<MemoTerminalTabView
 												sessionId={session.id}
-												active={!settingsOpen && isActive}
+												active={!settingsOpen && paneActive && isActive}
 												shell={shell}
 												theme={getProfileThemeColors(sessionProfile, themeColors)}
 												appSettings={terminalSettings}
@@ -1653,6 +1907,15 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 												onReconnect={() => void reconnectSession(session.id)}
 												onDisconnect={() => void closeSession(session.id)}
 											/>
+							{renderPortsPanel ? (
+								<TerminalPortsPanel
+									t={t}
+									profile={sessionProfile}
+									onClose={() => closePortsPanel(session.id)}
+									onCopy={(text) => void window.asyncShell?.invoke('clipboard:writeText', text)}
+									onOpenSettings={() => openProfileSettingsFromToolbar(sessionProfile, 'ports')}
+								/>
+							) : null}
 											{renderSftpPanel ? (
 												<TerminalSftpPanel
 													t={t}
@@ -1741,6 +2004,9 @@ function TerminalTabButton({
 	onSelect,
 	onClose,
 	onContextMenu,
+	onDragStart,
+	onDragOver,
+	onDrop,
 }: {
 	active: boolean;
 	icon: React.ReactNode;
@@ -1750,10 +2016,17 @@ function TerminalTabButton({
 	onSelect(): void;
 	onClose(): void;
 	onContextMenu?(event: ReactMouseEvent<HTMLDivElement>): void;
+	onDragStart?(event: React.DragEvent<HTMLDivElement>): void;
+	onDragOver?(event: React.DragEvent<HTMLDivElement>): void;
+	onDrop?(event: React.DragEvent<HTMLDivElement>): void;
 }) {
 	return (
 		<div
 			className={`ref-uterm-tab ${active ? 'is-active' : ''} ${exited ? 'is-exited' : ''}`}
+			draggable={Boolean(onDragStart)}
+			onDragStart={onDragStart}
+			onDragOver={onDragOver}
+			onDrop={onDrop}
 			role="tab"
 			aria-selected={active}
 			onContextMenu={
@@ -1842,38 +2115,60 @@ function TerminalSessionToolbar({
 	);
 }
 
-function loadTerminalTabSnapshot(): RestorableTerminalTab[] {
+function loadTerminalTabSnapshot(): RestorableTerminalSnapshot {
+	const empty: RestorableTerminalSnapshot = { tabs: [] };
 	if (typeof window === 'undefined') {
-		return [];
+		return empty;
 	}
 	try {
 		const raw = window.localStorage.getItem(TERMINAL_TAB_SNAPSHOT_KEY);
 		if (!raw) {
-			return [];
+			return empty;
 		}
 		const parsed = JSON.parse(raw);
-		if (!Array.isArray(parsed)) {
-			return [];
-		}
-		return parsed.filter(
-			(item): item is RestorableTerminalTab =>
+		const rawTabs = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.tabs) ? parsed.tabs : [];
+		const tabs = rawTabs.filter(
+			(item: unknown): item is RestorableTerminalTab =>
 				Boolean(item) && typeof item === 'object' && typeof (item as RestorableTerminalTab).profileId === 'string'
 		);
+		const activeIndex =
+			typeof parsed?.activeIndex === 'number' && parsed.activeIndex >= 0 && parsed.activeIndex < tabs.length
+				? Math.floor(parsed.activeIndex)
+				: undefined;
+		const rawSplit = parsed?.split;
+		const split =
+			rawSplit &&
+			rawSplit.enabled === true &&
+			(rawSplit.orientation === 'horizontal' || rawSplit.orientation === 'vertical') &&
+			typeof rawSplit.secondaryIndex === 'number' &&
+			rawSplit.secondaryIndex >= 0 &&
+			rawSplit.secondaryIndex < tabs.length
+				? {
+					enabled: true,
+					orientation: rawSplit.orientation as TerminalSplitOrientation,
+					secondaryIndex: Math.floor(rawSplit.secondaryIndex),
+					ratio:
+						typeof rawSplit.ratio === 'number'
+							? Math.max(0.2, Math.min(0.8, rawSplit.ratio))
+							: 0.5,
+				}
+				: undefined;
+		return { tabs, activeIndex, split };
 	} catch {
-		return [];
+		return empty;
 	}
 }
 
-function saveTerminalTabSnapshot(tabs: RestorableTerminalTab[]): void {
+function saveTerminalTabSnapshot(snapshot: RestorableTerminalSnapshot): void {
 	if (typeof window === 'undefined') {
 		return;
 	}
 	try {
-		if (tabs.length === 0) {
+		if (snapshot.tabs.length === 0) {
 			window.localStorage.removeItem(TERMINAL_TAB_SNAPSHOT_KEY);
 			return;
 		}
-		window.localStorage.setItem(TERMINAL_TAB_SNAPSHOT_KEY, JSON.stringify(tabs));
+		window.localStorage.setItem(TERMINAL_TAB_SNAPSHOT_KEY, JSON.stringify(snapshot));
 	} catch {
 		/* ignore */
 	}

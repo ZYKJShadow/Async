@@ -13,7 +13,9 @@ type Props = {
 };
 
 type BannerKind = 'success' | 'error' | 'info';
-type ToastState = { key: number; kind: BannerKind; text: string } | null;
+type ToastState = { key: number; kind: BannerKind; text: string; visible: boolean } | null;
+
+const PLUGIN_TOAST_EXIT_MS = 220;
 
 function IconRefresh({ className }: { className?: string }) {
 	return (
@@ -88,6 +90,7 @@ export function SettingsPluginsPanel({ shell, workspaceOpen }: Props) {
 	const [expandedByMarketplace, setExpandedByMarketplace] = useState<Record<string, boolean>>({});
 	const [installScope, setInstallScope] = useState<PluginInstallScope>('user');
 	const toastTimerRef = useRef<number | null>(null);
+	const toastExitTimerRef = useRef<number | null>(null);
 
 	useEffect(() => {
 		if (!workspaceOpen && installScope === 'project') {
@@ -100,6 +103,18 @@ export function SettingsPluginsPanel({ shell, workspaceOpen }: Props) {
 			window.clearTimeout(toastTimerRef.current);
 			toastTimerRef.current = null;
 		}
+		if (toastExitTimerRef.current !== null) {
+			window.clearTimeout(toastExitTimerRef.current);
+			toastExitTimerRef.current = null;
+		}
+	}, []);
+
+	const hideToast = useCallback(() => {
+		setToast((current) => (current ? { ...current, visible: false } : current));
+		toastExitTimerRef.current = window.setTimeout(() => {
+			setToast(null);
+			toastExitTimerRef.current = null;
+		}, PLUGIN_TOAST_EXIT_MS);
 	}, []);
 
 	const setToastText = useCallback(
@@ -113,13 +128,14 @@ export function SettingsPluginsPanel({ shell, workspaceOpen }: Props) {
 				key: (prev?.key ?? 0) + 1,
 				kind,
 				text,
+				visible: true,
 			}));
 			toastTimerRef.current = window.setTimeout(() => {
-				setToast(null);
 				toastTimerRef.current = null;
+				hideToast();
 			}, kind === 'error' ? 4200 : 2600);
 		},
-		[clearToastTimer]
+		[clearToastTimer, hideToast]
 	);
 
 	const loadState = useCallback(async () => {
@@ -834,7 +850,7 @@ export function SettingsPluginsPanel({ shell, workspaceOpen }: Props) {
 				? createPortal(
 					<div
 						key={toast.key}
-						className={`ref-settings-plugins-toast ref-settings-plugins-toast--${toast.kind}`}
+						className={`ref-settings-plugins-toast ref-settings-plugins-toast--${toast.kind}${toast.visible ? ' is-visible' : ''}`}
 						role={toast.kind === 'error' ? 'alert' : 'status'}
 						aria-live="polite"
 					>

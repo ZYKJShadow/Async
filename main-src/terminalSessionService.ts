@@ -17,6 +17,7 @@ import { appendTerminalAuthPromptTail, detectTerminalAuthPrompt, type TerminalSe
 
 const MAX_BUFFER_BYTES = 256 * 1024;
 const MAX_PASSWORD_AUTOFILL_ATTEMPTS = 1;
+const MAX_BROADCAST_CHUNK_CHARS = 64 * 1024;
 
 export type TerminalSessionCreateOpts = {
 	cwd?: string;
@@ -65,6 +66,8 @@ type Session = {
 	passwordAutofillCount: number;
 	recentOutputTail: string;
 	pendingAuthPrompt: TerminalSessionAuthPrompt | null;
+	pendingBroadcast: string;
+	broadcastScheduled: boolean;
 };
 
 const sessions = new Map<string, Session>();
@@ -104,6 +107,29 @@ function appendBuffer(s: Session, chunk: string): void {
 	} else {
 		s.buffer = merged.slice(merged.length - MAX_BUFFER_BYTES);
 	}
+}
+
+function flushPendingBroadcast(s: Session): void {
+	s.broadcastScheduled = false;
+	if (!s.pendingBroadcast) {
+		return;
+	}
+	const data = s.pendingBroadcast;
+	s.pendingBroadcast = '';
+	broadcastToSubscribers(s, 'term:data', s.id, data, s.seq);
+}
+
+function queueDataBroadcast(s: Session, chunk: string): void {
+	s.pendingBroadcast += chunk;
+	if (s.pendingBroadcast.length >= MAX_BROADCAST_CHUNK_CHARS) {
+		flushPendingBroadcast(s);
+		return;
+	}
+	if (s.broadcastScheduled) {
+		return;
+	}
+	s.broadcastScheduled = true;
+	setImmediate(() => flushPendingBroadcast(s));
 }
 
 function resolveShell(requested?: string): { shell: string; args: string[] } {
@@ -154,13 +180,15 @@ export function createTerminalSession(opts: TerminalSessionCreateOpts = {}): Ter
 		passwordAutofillCount: 0,
 		recentOutputTail: '',
 		pendingAuthPrompt: null,
+		pendingBroadcast: '',
+		broadcastScheduled: false,
 	};
 	sessions.set(id, session);
 	proc.onData((data) => {
 		session.seq += 1;
 		appendBuffer(session, data);
 		const authPrompt = maybeHandleAuthPrompt(session, data);
-		broadcastToSubscribers(session, 'term:data', id, data, session.seq);
+		queueDataBroadcast(session, data);
 		if (authPrompt) {
 			broadcastToSubscribers(session, 'term:authPrompt', id, authPrompt);
 		}
@@ -169,6 +197,7 @@ export function createTerminalSession(opts: TerminalSessionCreateOpts = {}): Ter
 		session.alive = false;
 		session.exitCode = typeof exitCode === 'number' ? exitCode : null;
 		session.pendingAuthPrompt = null;
+		flushPendingBroadcast(session);
 		broadcastToSubscribers(session, 'term:exit', id, session.exitCode);
 		broadcastListChanged();
 	});

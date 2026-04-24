@@ -13899,7 +13899,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	position: fixed;
 	left: 50%;
 	bottom: 40px;
-	transform: translateX(-50%);
+	transform: translateX(-50%) translateY(10px) scale(0.98);
 	max-width: min(560px, calc(100vw - 32px));
 	padding: 10px 16px;
 	border-radius: 10px;
@@ -13911,7 +13911,16 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	color: var(--void-fg-1);
 	z-index: 10020;
 	pointer-events: none;
-	animation: ref-toast-in 0.2s ease;
+	opacity: 0;
+	transition:
+		opacity 0.18s ease,
+		transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+	will-change: opacity, transform;
+}
+
+.ref-settings-plugins-toast.is-visible {
+	opacity: 1;
+	transform: translateX(-50%) translateY(0) scale(1);
 }
 
 .ref-settings-plugins-toast--success {
@@ -19986,6 +19995,13 @@ select.ref-settings-native-select:focus {
 @keyframes ref-toast-out {
 	from { opacity: 1; }
 	to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-settings-plugins-toast {
+		transition-duration: 0.01ms;
+		transform: translateX(-50%) translateY(0) scale(1);
+	}
 }
 
 .ref-sub-agent-bg-toast {
