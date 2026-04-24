@@ -1053,6 +1053,11 @@ export function applyAppearanceSettingsToDom(settings: AppAppearanceSettings, co
 		}
 	} else {
 		const vars = appearanceSettingsColorVars(normalizeAppearanceSettings(settings, colorScheme));
+		for (const key of APPEARANCE_CHROME_CSS_VAR_KEYS) {
+			if (!(key in vars)) {
+				root.style.removeProperty(key);
+			}
+		}
 		for (const [key, val] of Object.entries(vars)) {
 			root.style.setProperty(key, val);
 		}
