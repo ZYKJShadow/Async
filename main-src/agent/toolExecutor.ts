@@ -10,8 +10,6 @@ import * as http from 'node:http';
 import * as https from 'node:https';
 import { getThread } from '../threadStore.js';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { resolveWorkspacePath, isPathInsideRoot } from '../workspace.js';
 import { formatSymbolSearchResults, searchWorkspaceSymbols, ensureSymbolIndexLoaded } from '../workspaceSymbolIndex.js';
 import type { ToolCall, ToolResult } from './agentTools.js';
@@ -28,7 +26,7 @@ import { executeTeamEscalateToLeadTool } from './teamEscalateTool.js';
 import { executeTeamPeerRequestTool } from './teamPeerRequestTool.js';
 import { executeTeamReplyToPeerTool } from './teamReplyToPeerTool.js';
 import { shouldRunAgentInBackground } from './agentForkPolicy.js';
-import { windowsPowerShellUtf8Command } from '../winUtf8.js';
+import { executeShellCommand } from '../shell/commandExecutor.js';
 import { setTodos, type TodoItem } from './todoStore.js';
 import { minimatch } from 'minimatch';
 import * as gitService from '../gitService.js';
@@ -128,8 +126,6 @@ function coerceAgentDelegateArgs(call: ToolCall): {
 
 const BACKGROUND_AGENT_TOOL_RESULT =
 	'[Background] Sub-agent started. Nested activity streams above; you will get a UI notice when it finishes. / 后台子 Agent 已启动，过程见上方嵌套区域，结束后会弹出提示。';
-
-const execFileAsync = promisify(execFile);
 
 /** Single Read call: max lines returned. */
 const MAX_READ_LINES_PER_CALL = 2000;
@@ -2409,12 +2405,6 @@ async function executeCommand(
 		}
 	}
 
-	const isWin = process.platform === 'win32';
-	const shell = isWin ? 'powershell.exe' : '/bin/bash';
-	const psCommand = isWin ? windowsPowerShellUtf8Command(command) : command;
-	const args = isWin
-		? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psCommand]
-		: ['-lc', command];
 	const timeoutMsRaw = Number(call.arguments.timeout_ms);
 	const timeoutMs =
 		Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0
@@ -2423,31 +2413,28 @@ async function executeCommand(
 	const beforeGitState = await captureBashGitDirtyState(root);
 
 	try {
-		const { stdout, stderr } = await execFileAsync(shell, args, {
+		const res = await executeShellCommand(command, {
 			cwd: root,
-			windowsHide: true,
-			maxBuffer: 5 * 1024 * 1024,
-			timeout: timeoutMs,
-			encoding: 'utf8',
 			signal: execCtx.signal,
+			timeoutMs,
 		});
 		await recordBashWorkspaceSnapshots(root, hooks, beforeGitState);
-		let output = '';
-		if (stdout) output += stdout;
-		if (stderr) output += (output ? '\n--- stderr ---\n' : '') + stderr;
+		let output = res.output;
 		if (!output.trim()) output = '(command completed with no output)';
-		return { toolCallId: call.id, name: call.name, content: output, isError: false };
+		const header = res.truncated ? '[output truncated]\n' : '';
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: header + output,
+			isError: res.timedOut || (res.exitCode !== 0 && res.exitCode !== null),
+		};
 	} catch (e: unknown) {
 		if (e instanceof Error && e.name === 'AbortError') {
 			throw e;
 		}
 		await recordBashWorkspaceSnapshots(root, hooks, beforeGitState);
-		const err = e as { stdout?: string; stderr?: string; message?: string; code?: number };
-		let output = '';
-		if (err.stdout) output += err.stdout;
-		if (err.stderr) output += (output ? '\n--- stderr ---\n' : '') + err.stderr;
-		if (!output.trim()) output = err.message ?? String(e);
-		return { toolCallId: call.id, name: call.name, content: `Exit code ${err.code ?? 'unknown'}\n${output}`, isError: true };
+		const output = e instanceof Error ? e.message : String(e);
+		return { toolCallId: call.id, name: call.name, content: output, isError: true };
 	}
 }
 
@@ -2700,32 +2687,17 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 						isError: false,
 					};
 				}
-				const res = await svc.runOneShotCommand({
-					command,
+				const res = await executeShellCommand(command, {
 					cwd: resolveTerminalCwd(args.cwd, execCtx),
 					shell: typeof args.shell === 'string' && args.shell.trim() ? args.shell.trim() : undefined,
 					timeoutMs,
-					cols: typeof args.cols === 'number' ? args.cols : undefined,
-					rows: typeof args.rows === 'number' ? args.rows : undefined,
-					preserveOnTimeout: true,
+					signal: execCtx.signal,
 				});
-				if (res.timedOut && res.sessionKept) {
-					return {
-						toolCallId: call.id,
-						name: call.name,
-						content: formatPreservedTerminalSessionResult({
-							sessionId: res.id,
-							output: res.output,
-							command,
-						}),
-						isError: false,
-					};
-				}
 				const header = `exit_code=${res.exitCode ?? 'null'} timed_out=${res.timedOut}\n---\n`;
 				return {
 					toolCallId: call.id,
 					name: call.name,
-					content: header + res.output,
+					content: header + (res.truncated ? '[output truncated]\n' : '') + res.output,
 					isError: res.timedOut || (res.exitCode !== 0 && res.exitCode !== null),
 				};
 			}
@@ -2790,55 +2762,21 @@ async function executeTerminalTool(call: ToolCall, execCtx: ToolExecutionContext
 						isError: false,
 					};
 				}
-				const res = await svc.runTerminalSessionToExit({
-					createOpts: {
-						...resolved.createOpts,
-						cwd: resolved.createOpts.cwd
-							? resolveTerminalCwd(resolved.createOpts.cwd, execCtx)
-							: resolved.createOpts.cwd,
-						cols: typeof args.cols === 'number' ? args.cols : resolved.createOpts.cols,
-						rows: typeof args.rows === 'number' ? args.rows : resolved.createOpts.rows,
-						title:
-							typeof args.title === 'string' && args.title.trim()
-								? args.title
-								: resolved.createOpts.title,
-					},
+				const res = await executeShellCommand(command, {
+					shell: resolved.createOpts.shell,
+					args: resolved.createOpts.args,
+					cwd: resolved.createOpts.cwd
+						? resolveTerminalCwd(resolved.createOpts.cwd, execCtx)
+						: resolved.createOpts.cwd,
+					env: resolved.createOpts.env,
 					timeoutMs,
-					preserveOnTimeout: true,
-					preserveOnAuthPrompt: true,
+					signal: execCtx.signal,
 				});
-				if (res.authPrompt) {
-					return {
-						toolCallId: call.id,
-						name: call.name,
-						content: formatPreservedTerminalSessionResult({
-							sessionId: res.id,
-							output: res.output,
-							command,
-							profileName: resolved.profile.name,
-							authPrompt: res.authPrompt.prompt,
-						}),
-						isError: true,
-					};
-				}
-				if (res.timedOut && res.sessionKept) {
-					return {
-						toolCallId: call.id,
-						name: call.name,
-						content: formatPreservedTerminalSessionResult({
-							sessionId: res.id,
-							output: res.output,
-							command,
-							profileName: resolved.profile.name,
-						}),
-						isError: false,
-					};
-				}
 				const header = `profile=${resolved.profile.name} exit_code=${res.exitCode ?? 'null'} timed_out=${res.timedOut}\n---\n`;
 				return {
 					toolCallId: call.id,
 					name: call.name,
-					content: header + res.output,
+					content: header + (res.truncated ? '[output truncated]\n' : '') + res.output,
 					isError: res.timedOut || (res.exitCode !== 0 && res.exitCode !== null),
 				};
 			}

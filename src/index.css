@@ -5076,13 +5076,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-preflight-shell-collapse {
-	display: grid;
-	grid-template-rows: 0fr;
-	transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+	max-height: 0;
+	overflow: hidden;
+	transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ref-preflight-shell-collapse.is-open {
-	grid-template-rows: 1fr;
+	max-height: 216px;
 }
 
 .ref-preflight-shell-body {
@@ -5093,11 +5093,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	min-height: 0;
 }
 
-.ref-preflight-shell-collapse.is-open > .ref-preflight-shell-body {
+.ref-preflight-shell-collapse > .ref-preflight-shell-body {
 	border-top: none;
 	/* 水平 padding 设为 0 让 body 内容与父 .ref-md-root--agent-chat 左右边缘对齐。
 	   首行（如「已思考 X.Xs」）需要与壳头部留出呼吸距离，否则在流式底部遮罩存在时容易被遮 */
 	padding: 10px 0 6px;
+	height: 200px;
+	max-height: 200px;
 	overflow-y: auto;
 	/* 细滚动条：默认完全透明，鼠标进入 body 时渐入；离开时渐出。
 	   thumb 在显现 / hover thumb / 拖动期间均保持同一颜色，避免任何颜色跳变。
@@ -5151,7 +5153,6 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 .ref-preflight-shell[data-state='expanded']
 	.ref-preflight-shell-collapse.is-open
 	> .ref-preflight-shell-body {
-	height: 200px;
 	overflow-y: auto;
 	transition: -webkit-mask-image 0.28s var(--void-ease-out-expo),
 		mask-image 0.28s var(--void-ease-out-expo);
