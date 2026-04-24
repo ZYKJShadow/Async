@@ -140,6 +140,7 @@ type StreamingSubscriptionRuntime = {
 	loadMessages: (threadId: string) => Promise<unknown>;
 	refreshThreads: () => Promise<unknown> | void;
 	applyTeamPayload: (payload: ChatStreamPayload) => void;
+	markThreadUnread: (threadId: string) => void;
 };
 
 function escapeSubAgentXmlText(s: string): string {
@@ -834,6 +835,9 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 				rt.applyTeamPayload(payload);
 			} else if (payload.type === 'done') {
 				rt.recordThoughtSeconds(payload.threadId, 0.5);
+				if (!visible) {
+					rt.markThreadUnread(payload.threadId);
+				}
 				if (payload.usage) {
 					rt.setLastTurnUsage(payload.usage);
 				}
@@ -934,6 +938,9 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 				void rt.refreshThreads();
 			} else if (payload.type === 'error') {
 				rt.recordThoughtSeconds(payload.threadId, 0.3);
+				if (!visible) {
+					rt.markThreadUnread(payload.threadId);
+				}
 				rt.planBuildPendingMarkerRef.current = null;
 				delete rt.offThreadStreamDraftsRef.current[payload.threadId];
 				rt.ipcInFlightChatThreadIdRef.current = null;

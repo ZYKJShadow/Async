@@ -3,25 +3,24 @@ import type * as React from 'react';
 
 export interface AsyncShellAPI {
 	invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+	setUnreadBadgeCount?(count: number): Promise<unknown>;
 	getPathForFile?(file: File): string | null;
 	subscribeChat(callback: (payload: unknown) => void): () => void;
-	/** 窗口移动 / 缩放时触发，用于重算 fixed 浮层锚点 */
+	/** 绐楀彛绉诲姩 / 缂╂斁鏃惰Е鍙戯紝鐢ㄤ簬閲嶇畻 fixed 娴眰閿氱偣 */
 	subscribeLayout?(callback: () => void): () => void;
 	subscribeThemeMode?(callback: (payload: unknown) => void): () => void;
-	/** 工作区目录内文件在磁盘上增删改（外部编辑器保存等），主进程经 chokidar 防抖后广播 */
+	/** 宸ヤ綔鍖虹洰褰曞唴鏂囦欢鍦ㄧ鐩樹笂澧炲垹鏀癸紙澶栭儴缂栬緫鍣ㄤ繚瀛樼瓑锛夛紝涓昏繘绋嬬粡 chokidar 闃叉姈鍚庡箍鎾?*/
 	subscribeWorkspaceFsTouched?(callback: () => void): () => void;
-	/** 工作区文件索引首次全量扫描完成（与当前窗口 root 比对由订阅方完成） */
+	/** 宸ヤ綔鍖烘枃浠剁储寮曢娆″叏閲忔壂鎻忓畬鎴愶紙涓庡綋鍓嶇獥鍙?root 姣斿鐢辫闃呮柟瀹屾垚锛?*/
 	subscribeWorkspaceFileIndexReady?(callback: (workspaceRootNorm: string) => void): () => void;
-	/** 已安装插件变化（安装、卸载、启停、切换插件目录） */
+	/** 宸插畨瑁呮彃浠跺彉鍖栵紙瀹夎銆佸嵏杞姐€佸惎鍋溿€佸垏鎹㈡彃浠剁洰褰曪級 */
 	subscribePluginsChanged?(callback: () => void): () => void;
-	/** PTY 终端输出（按 session id 区分） */
-	subscribeTerminalPtyData?(callback: (id: string, data: string) => void): () => void;
-	subscribeTerminalPtyExit?(callback: (id: string, code: unknown) => void): () => void;
-	/** webview 请求打开新窗口（由主进程 web-contents-created 钩子转发） */
+	/** PTY 缁堢杈撳嚭锛堟寜 session id 鍖哄垎锛?*/
+	/** webview 璇锋眰鎵撳紑鏂扮獥鍙ｏ紙鐢变富杩涚▼ web-contents-created 閽╁瓙杞彂锛?*/
 	subscribeBrowserNewWindow?(callback: (payload: { url: string; disposition?: string }) => void): () => void;
-	/** 主进程转发给内置浏览器面板的控制命令 */
+	/** 涓昏繘绋嬭浆鍙戠粰鍐呯疆娴忚鍣ㄩ潰鏉跨殑鎺у埗鍛戒护 */
 	subscribeBrowserControl?(callback: (payload: unknown) => void): () => void;
-	/** 全能终端会话输出（跨窗口共享；订阅后才会广播） */
+	/** 鍏ㄨ兘缁堢浼氳瘽杈撳嚭锛堣法绐楀彛鍏变韩锛涜闃呭悗鎵嶄細骞挎挱锛?*/
 	subscribeTerminalSessionData?(callback: (id: string, data: string, seq: number) => void): () => void;
 	subscribeTerminalSessionAuthPrompt?(
 		callback: (
@@ -31,10 +30,10 @@ export interface AsyncShellAPI {
 	): () => void;
 	subscribeTerminalSessionExit?(callback: (id: string, code: unknown) => void): () => void;
 	subscribeTerminalSessionListChanged?(callback: () => void): () => void;
-	/** 查询全能终端设置页可显示的内置 Shell / 连接模板 */
-	/** 主进程请求主窗口打开设置并切换到指定侧栏项（如从独立浏览器窗口唤起） */
+	/** 鏌ヨ鍏ㄨ兘缁堢璁剧疆椤靛彲鏄剧ず鐨勫唴缃?Shell / 杩炴帴妯℃澘 */
+	/** 涓昏繘绋嬭姹備富绐楀彛鎵撳紑璁剧疆骞跺垏鎹㈠埌鎸囧畾渚ф爮椤癸紙濡備粠鐙珛娴忚鍣ㄧ獥鍙ｅ敜璧凤級 */
 	subscribeOpenSettingsNav?(callback: (nav: string) => void): () => void;
-	/** 自动更新状态推送（checking / available / downloading / downloaded / error 等） */
+	/** 鑷姩鏇存柊鐘舵€佹帹閫侊紙checking / available / downloading / downloaded / error 绛夛級 */
 	subscribeAutoUpdateStatus?(callback: (payload: { state: string } & Record<string, unknown>) => void): () => void;
 }
 declare global {
@@ -65,7 +64,7 @@ interface AsyncShellWebviewElement extends HTMLElement {
 
 	interface Window {
 		asyncShell?: AsyncShellAPI;
-		/** 调试：标签/删除等（见 tabCloseDebug.ts） */
+		/** 璋冭瘯锛氭爣绛?鍒犻櫎绛夛紙瑙?tabCloseDebug.ts锛?*/
 		__voidShellTabCloseLog?: Array<{ iso: string; tag: string; detail: Record<string, unknown> }>;
 	}
 }

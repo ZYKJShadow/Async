@@ -12,8 +12,10 @@ import {
 import { resolveStreamTimeouts, createStreamTimeoutManager } from './streamTimeouts.js';
 import {
 	addAnthropicCacheBreakpoints,
+	type AnthropicCacheBreakpointDecision,
 	buildAnthropicSystemForApi,
 	isAnthropicPromptCachingEnabled,
+	observeAnthropicPromptCacheUsage,
 } from './anthropicPromptCache.js';
 import { llmSdkResponseHeadTimeoutMs } from './sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from './llmTransportRetry.js';
@@ -98,10 +100,14 @@ export async function streamAnthropic(
 		},
 		promptCaching
 	);
+	let cacheDecision: AnthropicCacheBreakpointDecision | undefined;
 	const anthropicMessages = addAnthropicCacheBreakpoints(
 		toAnthropicMessages(messages),
 		promptCaching,
-		false
+		{
+			strategy: 'stable-prefix',
+			onDecision: (decision) => { cacheDecision = decision; },
+		}
 	);
 	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
@@ -200,6 +206,13 @@ export async function streamAnthropic(
 			}
 		}
 		timeoutMgr.stop();
+		observeAnthropicPromptCacheUsage({
+			source: `chat:${options.mode}`,
+			model,
+			usage,
+			decision: cacheDecision,
+			system,
+		});
 		handlers.onDone(full, usage);
 	} catch (e: unknown) {
 		timeoutMgr.stop();

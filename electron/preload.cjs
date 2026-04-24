@@ -5,6 +5,7 @@ const INVOKE_CHANNELS = new Set([
 	'async-shell:ping',
 	'app:getPaths',
 	'app:getVersion',
+	'app:setUnreadBadgeCount',
 	'workspace:pickFolder',
 	'workspace:openPath',
 	'workspace:openInExternalTool',
@@ -319,6 +320,10 @@ contextBridge.exposeInMainWorld('asyncShell', {
 			throw new Error(`async-shell: blocked IPC channel "${channel}"`);
 		}
 		return ipcRenderer.invoke(channel, ...args);
+	},
+	setUnreadBadgeCount(count) {
+		const safe = Math.max(0, Math.min(999, Math.floor(Number(count) || 0)));
+		return ipcRenderer.invoke('app:setUnreadBadgeCount', safe);
 	},
 	getPathForFile(file) {
 		try {

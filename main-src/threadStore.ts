@@ -6,6 +6,7 @@ import { syncThreadMessages } from './sessionDb.js';
 import { appendSuffixToStructuredAssistant, isStructuredAssistantMessage } from '../src/agentStructuredMessage.js';
 import type { AgentSessionSnapshot } from '../src/agentSessionTypes.js';
 import type { ToolResultReplacementState } from './agent/toolResultBudget.js';
+import type { AgentContextCompactState } from './agent/agentConversationContext.js';
 import {
 	THREAD_SCHEMA_VERSION_CURRENT,
 	THREAD_SCHEMA_VERSION_LEGACY,
@@ -103,6 +104,7 @@ export type ThreadRecord = {
 	deferredToolState?: DeferredToolState;
 	discoveredDeferredToolNames?: string[];
 	toolResultReplacementState?: ToolResultReplacementState;
+	contextCompactState?: AgentContextCompactState;
 	plan?: ThreadPlan;
 	executedPlanFileKeys?: string[];
 	teamSession?: TeamSessionSnapshot;
@@ -678,6 +680,32 @@ export function saveSummary(threadId: string, summary: string, coversCount: numb
 	}
 	thread.summary = summary;
 	thread.summaryCoversMessageCount = coversCount;
+	save();
+}
+
+export function getContextCompactState(threadId: string): AgentContextCompactState {
+	const thread = getThread(threadId);
+	const state = thread?.contextCompactState;
+	return {
+		...(state?.lastBoundaryId ? { lastBoundaryId: String(state.lastBoundaryId) } : {}),
+		...(state?.lastSummary ? { lastSummary: String(state.lastSummary) } : {}),
+		failureCount: Math.max(0, Math.floor(Number(state?.failureCount ?? 0) || 0)),
+		...(state?.lastCompactedAt ? { lastCompactedAt: Math.max(0, Math.floor(Number(state.lastCompactedAt) || 0)) } : {}),
+	};
+}
+
+export function saveContextCompactState(threadId: string, state: AgentContextCompactState): void {
+	const thread = getThread(threadId);
+	if (!thread) {
+		return;
+	}
+	thread.contextCompactState = {
+		...(state.lastBoundaryId ? { lastBoundaryId: String(state.lastBoundaryId) } : {}),
+		...(state.lastSummary ? { lastSummary: String(state.lastSummary) } : {}),
+		failureCount: Math.max(0, Math.floor(Number(state.failureCount ?? 0) || 0)),
+		...(state.lastCompactedAt ? { lastCompactedAt: Math.max(0, Math.floor(Number(state.lastCompactedAt) || 0)) } : {}),
+	};
+	thread.updatedAt = Date.now();
 	save();
 }
 

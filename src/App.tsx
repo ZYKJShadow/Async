@@ -517,6 +517,35 @@ function AppMainWorkspaceInner() {
 	/** onSelectThread 内读取最新值：工作区打开路径已 loadMessages 后避免同线程重复 IPC */
 	const messagesThreadIdRef = useRef(messagesThreadId);
 	messagesThreadIdRef.current = messagesThreadId;
+	const [unreadAgentThreadIds, setUnreadAgentThreadIds] = useState<Set<string>>(() => new Set());
+	const markAgentThreadUnread = useCallback((threadId: string) => {
+		setUnreadAgentThreadIds((prev) => {
+			if (prev.has(threadId)) {
+				return prev;
+			}
+			const next = new Set(prev);
+			next.add(threadId);
+			return next;
+		});
+	}, []);
+	const clearAgentThreadUnread = useCallback((threadId: string) => {
+		setUnreadAgentThreadIds((prev) => {
+			if (!prev.has(threadId)) {
+				return prev;
+			}
+			const next = new Set(prev);
+			next.delete(threadId);
+			return next;
+		});
+	}, []);
+	useEffect(() => {
+		const shellApi = window.asyncShell;
+		if (!shellApi) {
+			return;
+		}
+		const count = unreadAgentThreadIds.size;
+		void (shellApi.setUnreadBadgeCount?.(count) ?? shellApi.invoke('app:setUnreadBadgeCount', count)).catch(() => {});
+	}, [unreadAgentThreadIds]);
 
 	// 开发环境：记录阻塞主线程 ≥50ms 的任务（与窗口拖动卡顿强相关）
 	useEffect(() => {
@@ -840,6 +869,7 @@ function AppMainWorkspaceInner() {
 		refreshThreads,
 		restoreAgentSession,
 		applyTeamPayload,
+		markThreadUnread: markAgentThreadUnread,
 	});
 
 	const [layoutMode, setLayoutMode] = useState<LayoutMode>(() =>
@@ -3305,6 +3335,7 @@ function AppMainWorkspaceInner() {
 				threadListWorkspace={threadListWorkspace}
 				workspace={workspace}
 				currentId={currentId}
+				hasUnreadAgentReply={unreadAgentThreadIds.has(th.id)}
 				editingThreadId={editingThreadId}
 				editingThreadTitleDraft={editingThreadTitleDraft}
 				setEditingThreadTitleDraft={setEditingThreadTitleDraft}
@@ -3313,7 +3344,10 @@ function AppMainWorkspaceInner() {
 				commitThreadTitleEdit={commitThreadTitleEdit}
 				cancelThreadTitleEdit={cancelThreadTitleEdit}
 				beginThreadTitleEdit={beginThreadTitleEdit}
-				onSelectThread={onSelectThread}
+				onSelectThread={async (id, root) => {
+					clearAgentThreadUnread(id);
+					await onSelectThread(id, root);
+				}}
 				confirmDeleteId={confirmDeleteId}
 				onDeleteThread={onDeleteThread}
 				t={t}
@@ -3321,6 +3355,7 @@ function AppMainWorkspaceInner() {
 		),
 		[
 			currentId,
+			unreadAgentThreadIds,
 			editingThreadId,
 			editingThreadTitleDraft,
 			t,
@@ -3330,6 +3365,7 @@ function AppMainWorkspaceInner() {
 			commitThreadTitleEdit,
 			cancelThreadTitleEdit,
 			beginThreadTitleEdit,
+			clearAgentThreadUnread,
 			onSelectThread,
 			confirmDeleteId,
 			onDeleteThread,

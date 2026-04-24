@@ -66,7 +66,8 @@ type Session = {
 	passwordAutofillCount: number;
 	recentOutputTail: string;
 	pendingAuthPrompt: TerminalSessionAuthPrompt | null;
-	pendingBroadcast: string;
+	pendingBroadcastChunks: string[];
+	pendingBroadcastChars: number;
 	broadcastScheduled: boolean;
 };
 
@@ -111,17 +112,19 @@ function appendBuffer(s: Session, chunk: string): void {
 
 function flushPendingBroadcast(s: Session): void {
 	s.broadcastScheduled = false;
-	if (!s.pendingBroadcast) {
+	if (s.pendingBroadcastChars === 0) {
 		return;
 	}
-	const data = s.pendingBroadcast;
-	s.pendingBroadcast = '';
+	const data = s.pendingBroadcastChunks.join('');
+	s.pendingBroadcastChunks = [];
+	s.pendingBroadcastChars = 0;
 	broadcastToSubscribers(s, 'term:data', s.id, data, s.seq);
 }
 
 function queueDataBroadcast(s: Session, chunk: string): void {
-	s.pendingBroadcast += chunk;
-	if (s.pendingBroadcast.length >= MAX_BROADCAST_CHUNK_CHARS) {
+	s.pendingBroadcastChunks.push(chunk);
+	s.pendingBroadcastChars += chunk.length;
+	if (s.pendingBroadcastChars >= MAX_BROADCAST_CHUNK_CHARS) {
 		flushPendingBroadcast(s);
 		return;
 	}
@@ -180,7 +183,8 @@ export function createTerminalSession(opts: TerminalSessionCreateOpts = {}): Ter
 		passwordAutofillCount: 0,
 		recentOutputTail: '',
 		pendingAuthPrompt: null,
-		pendingBroadcast: '',
+		pendingBroadcastChunks: [],
+		pendingBroadcastChars: 0,
 		broadcastScheduled: false,
 	};
 	sessions.set(id, session);
