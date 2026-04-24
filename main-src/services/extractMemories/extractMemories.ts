@@ -50,7 +50,7 @@ const MAX_SOURCE_CHARS = 16_000;
 const inFlight = new Map<string, Promise<void>>();
 const rerunRequested = new Set<string>();
 
-/** 默认数量级设置（此处用消�?工具计数近似�?*/
+/** Default threshold settings (approximated by message and tool-call counts). */
 const DEFAULT_MIN_NON_SYSTEM_BEFORE_FIRST = 4;
 const DEFAULT_MIN_NON_SYSTEM_BETWEEN = 3;
 const DEFAULT_MIN_TOOL_CALLS_BETWEEN = 3;
@@ -68,7 +68,7 @@ function lastAssistantMessageUsedTools(messages: ChatMessage[]): boolean {
 }
 
 /**
- * 是否应排队后台记忆抽取（对齐 CC `shouldExtractMemory`：消息间�?�?(工具次数 �?末轮无工�?）�? */
+ * Whether to queue background memory extraction (aligned with CC `shouldExtractMemory`: message interval and enough tool calls or no tools in the last turn). */
 export function shouldRunMemoryExtractionForThread(threadId: string, settings: ShellSettings): boolean {
 	const cfg = settings.agent?.memoryExtraction;
 	if (cfg?.enabled === false) return false;
@@ -214,7 +214,7 @@ export function renderMemoryFile(draft: ExtractedMemoryDraft): string {
 function memoryIndexLine(header: MemoryHeader): string {
 	const title = header.title?.trim() || path.basename(header.filename, '.md');
 	const hook = header.description?.trim() || 'memory note';
-	return `- [${title}](${header.filename.replace(/\\/g, '/')}) �?${hook}`;
+	return `- [${title}](${header.filename.replace(/\\/g, '/')}) - ${hook}`;
 }
 
 export function buildMemoryEntrypoint(headers: MemoryHeader[]): string {
@@ -242,7 +242,7 @@ function buildUserProfileEntrypoint(userMemories: MemoryHeader[]): string {
 		for (const m of userMemories) {
 			const title = m.title?.trim() || m.filename;
 			const hook = m.description?.trim() || 'memory note';
-			lines.push(`- [${title}](${m.filename.replace(/\\/g, '/')}) �?${hook}`);
+			lines.push(`- [${title}](${m.filename.replace(/\\/g, '/')}) - ${hook}`);
 		}
 	}
 	return lines.join('\n');

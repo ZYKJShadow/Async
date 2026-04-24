@@ -1,4 +1,4 @@
-﻿/* 结构�?token（不随亮暗切换） */
+﻿/* structure tokens (independent of light/dark mode) */
 :root {
 	--void-ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
 	--void-ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
@@ -18,7 +18,7 @@
 	font-family: var(--void-ui-font-family);
 }
 
-/* 默认未设�?data-color-scheme 时视为暗色（首屏与旧行为一致） */
+/* Default to dark when data-color-scheme is not set (matches first paint and legacy behavior). */
 :root:not([data-color-scheme]),
 :root[data-color-scheme='dark'] {
 	color-scheme: dark;
@@ -3461,8 +3461,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 /*
- * Portaled 下拉（ComposerSlashMenu / @ 菜单等）使用 z-index ~20001�?
- * 对话区内嵌的向导与面板在文档流中，默认层叠低�?fixed 浮层，会导致点击被截获�?
+ * Portaled dropdowns (ComposerSlashMenu / @ menu, etc.) use z-index ~20001.
+ * Inline wizards and panels in the conversation flow stack below fixed overlays, otherwise clicks may be intercepted.
  */
 .ref-center--chat .ref-skill-scope,
 .ref-center--chat .ref-plan-q,
@@ -3739,7 +3739,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	z-index: 1;
 }
 
-/* 用户气泡默认可视块高 �?内边�?+ 两行正文；最大高度为两倍，超出部分在气泡内滚动 */
+/* User bubble default visible block height = padding + two text lines; max height is doubled, overflow scrolls inside the bubble. */
 .ref-msg-user {
 	--ref-user-bubble-unit: calc(24px + 2 * 1.5em);
 	--ref-user-bubble-max-h: calc(2 * var(--ref-user-bubble-unit));
@@ -3823,7 +3823,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	box-shadow: 0 0 0 1px color-mix(in srgb, #38bdf8 18%, transparent);
 }
 
-/* 气泡�?chip 与正文同字号，避免预览里正文 14px、chip �?13px */
+/* Bubble chip uses the same font size as body text, avoiding 14px body vs 13px chip in previews. */
 .ref-msg-user .ref-inline-file-chip,
 .ref-msg-user .ref-inline-slash-chip,
 .ref-msg-user .ref-inline-skill-chip {
@@ -4444,7 +4444,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	animation: ref-seg-enter 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* 流式未闭合围栏：�?.ref-md-root pre 对齐，避免等闭合 ``` 才出现代码块 */
+/* Streaming unclosed fence: align with .ref-md-root pre, avoiding waiting for closing ``` before a code block appears. */
 .ref-agent-streaming-fence {
 	display: flex;
 	flex-direction: column;
@@ -6402,7 +6402,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 .ref-followup-bar-row {
 	display: flex;
 	flex-direction: row;
-	/* stretch：左/�?右同高，再在各自 flex 容器�?align-items:center，避�?Editor 侧中间文字与右侧模型条视觉上偏上 */
+	/* stretch: keep left/right equal height, then center each flex container to avoid Editor-side text looking higher than the model bar. */
 	align-items: stretch;
 	flex-wrap: nowrap;
 	gap: 4px 8px;
@@ -6442,7 +6442,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	align-items: center;
 }
 
-/* follow-up：中间列在整行高度内垂直居中；对�?padding，占位符与正文字�?行高一�?*/
+/* follow-up: center the middle column vertically within the row; align padding, placeholder, font, and line height. */
 .ref-capsule--followup-bar .ref-composer-rich-wrap {
 	width: 100%;
 	min-width: 0;
@@ -6453,7 +6453,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	width: 100%;
 	min-height: 34px;
 	max-height: 132px;
-	/* 略加重上内边距，抵消 contenteditable 首行基线偏上的观�?*/
+	/* Slightly increase top padding to offset contenteditable first-line baseline appearing too high. */
 	padding: 8px 10px 5px;
 	font-size: var(--void-user-composer-font-size);
 	line-height: var(--void-user-composer-line-height);
@@ -6526,7 +6526,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	box-shadow: 0 20px 64px rgba(0, 0, 0, 0.42);
 }
 
-/* 堆叠胶囊输入：少留白、偏�?min-height，避免可编辑区与外壳「空一大块�?*/
+/* Stacked pill input: reduce whitespace and min-height so the editable area does not leave a large empty gap in the shell. */
 .ref-capsule--stacked-chat .ref-composer-rich-input.ref-capsule-input--stacked-chat {
 	box-sizing: border-box;
 	min-height: 34px;
@@ -6611,17 +6611,17 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	background: color-mix(in srgb, var(--void-scrollbar-thumb-hover) 72%, transparent);
 }
 
-/* 与透明 track 一致：否则继承全局 *::-webkit-scrollbar-corner（深色）会在右下角露出一块方�?*/
+/* Match the transparent track; otherwise global *::-webkit-scrollbar-corner (dark) leaks as a square in the bottom-right corner. */
 .ref-composer-rich-input::-webkit-scrollbar-corner {
 	background: transparent;
 }
 
-/* 占位符不占文档流，避免光标被顶到伪元素右侧；inset 对齐内容区左上角（含 padding 内缘�?*/
+/* Placeholder does not occupy document flow, keeping the cursor from being pushed right of the pseudo-element; inset aligns to content top-left including padding. */
 .ref-composer-rich-input.ref-composer-rich-input--ph {
 	position: relative;
 }
 
-/* 绝对定位避免�?contenteditable 被塞�?<br> 后占位符失效；不占文档流，光标始终在行首 */
+/* Absolute positioning avoids placeholder failure after contenteditable receives an inserted <br>; it does not occupy flow, so the cursor stays at line start. */
 .ref-composer-rich-input.ref-composer-rich-input--ph:before {
 	content: attr(data-placeholder);
 	position: absolute;
@@ -6638,14 +6638,14 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	white-space: pre-wrap;
 	word-break: break-word;
 	overflow: hidden;
-	/* 相对左上角略向右、略向下，贴近常�?placeholder 观感 */
+	/* Offset slightly right/down from top-left to match common placeholder appearance. */
 	padding-inline-start: 5px;
 	padding-block-start: 4px;
 }
 
 /*
- * 与常�?Web 输入框一致：失焦且为空时显示提示；聚焦准备输入时隐藏，避免与 I 型光标叠字，
- * 且不�?:focus 上改 padding/位移（否则每点一下占位符会横向跳动）�?
+ * Match common Web inputs: show hint when blurred and empty; hide it on focus before typing to avoid overlapping the I-beam cursor,
+ * and do not change padding/offset on :focus (otherwise the placeholder jumps horizontally on click).
  */
 .ref-composer-rich-input.ref-composer-rich-input--ph:focus:before {
 	opacity: 0;
@@ -13210,7 +13210,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	min-width: 0;
 }
 
-/* 无对勾时仅「编辑」，整组贴行末；有对勾时对勾最右、编辑在其左�?*/
+/* Without a check mark show only "Edit" at row end; with a check mark, keep it rightmost and Edit to its left. */
 .ref-model-dd-check {
 	width: 18px;
 	display: flex;
@@ -13617,7 +13617,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	background: var(--void-bg-0);
 	border-radius: 0;
 	box-shadow: none;
-	/* 避免触控长按、拖动调整侧栏或滚动时误选界面文�?*/
+	/* Avoid accidental UI text selection during touch long-press, sidebar dragging, or scrolling. */
 	user-select: none;
 	-webkit-user-select: none;
 	-webkit-touch-callout: none;
@@ -15029,8 +15029,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 /*
- * 原生 void 下拉：请�?<select> 上加 class="ref-settings-native-select"�?
- * Win/Electron 下仅�?.ref-settings-field select 仍可能保留系统箭头，故用元素+类名 + !important�?
+ * Native void dropdown: add class="ref-settings-native-select" to <select>.
+ * On Win/Electron, .ref-settings-field select alone may keep the system arrow, so use element+class plus !important.
  */
 select.ref-settings-native-select {
 	-webkit-appearance: none !important;
@@ -15080,7 +15080,7 @@ select.ref-settings-native-select:focus {
 	width: 100%;
 }
 
-/* 自绘下拉（VoidSelect）：不依赖原�?<select>，Electron/Win 下样式稳�?*/
+/* Custom dropdown (VoidSelect): does not rely on native <select>, keeping styles stable on Electron/Win. */
 .ref-void-select {
 	width: 100%;
 	min-width: 0;
@@ -17138,7 +17138,7 @@ select.ref-settings-native-select:focus {
 	border-color: #3b82f6;
 }
 
-/* �?Rule / Skill / Subagent 向导�?role=radio 的选中项一致，需始终可见（不�?hover�?*/
+/* Match selected role=radio items in Rule / Skill / Subagent wizards; selection must stay visible without relying on hover. */
 .ref-skill-scope-opt.is-active {
 	background: rgba(59, 130, 246, 0.14);
 	border-color: #3b82f6;

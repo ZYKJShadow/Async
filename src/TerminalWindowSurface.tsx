@@ -2249,7 +2249,7 @@ function TerminalTabButton({
 				<span className="ref-uterm-tab-label">{label}</span>
 			</button>
 			<button type="button" className="ref-uterm-tab-close" onClick={onClose} aria-label={label}>
-				脳
+				×
 			</button>
 		</div>
 	);
