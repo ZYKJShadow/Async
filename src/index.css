@@ -3539,14 +3539,60 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-context-workspace {
+	appearance: none;
+	position: relative;
 	flex: 0 0 auto;
 	min-width: 0;
 	max-width: none;
+	padding: 0;
+	border: 0;
+	background: transparent;
 	font-size: 12px;
 	font-weight: 500;
 	line-height: 1.2;
-	color: var(--void-fg-3);
+	color: color-mix(in srgb, var(--void-fg-3) 58%, transparent);
 	white-space: nowrap;
+	cursor: pointer;
+	font: inherit;
+	transition: color 120ms ease;
+}
+
+.ref-agent-context-workspace:not(:disabled):hover,
+.ref-agent-context-workspace:not(:disabled):focus-visible {
+	color: var(--void-fg-0);
+}
+
+.ref-agent-context-workspace:disabled {
+	cursor: default;
+}
+
+.ref-agent-context-workspace[data-tooltip]::before {
+	content: attr(data-tooltip);
+	position: absolute;
+	z-index: 120;
+	left: 50%;
+	top: calc(100% + 10px);
+	transform: translateX(-50%) translateY(2px);
+	max-width: min(520px, calc(100vw - 32px));
+	padding: 8px 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 78%, #fff 8%);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--void-bg-2) 92%, #fff 6%);
+	box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+	color: var(--void-fg-0);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1.25;
+	white-space: nowrap;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.ref-agent-context-workspace[data-tooltip]:hover::before,
+.ref-agent-context-workspace[data-tooltip]:focus-visible::before {
+	opacity: 1;
+	transform: translateX(-50%) translateY(0);
 }
 
 .ref-hero-spacer {

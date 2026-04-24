@@ -3559,7 +3559,12 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-agent-context-workspace {
-	color: var(--color-text-secondary);
+	color: color-mix(in srgb, var(--color-text-secondary) 52%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-agent-context-workspace:not(:disabled):hover,
+:root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-agent-context-workspace:not(:disabled):focus-visible {
+	color: var(--color-text-primary);
 }
 
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-command-stack,
