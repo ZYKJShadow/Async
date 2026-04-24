@@ -3539,14 +3539,60 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-context-workspace {
+	appearance: none;
+	position: relative;
 	flex: 0 0 auto;
 	min-width: 0;
 	max-width: none;
+	padding: 0;
+	border: 0;
+	background: transparent;
 	font-size: 12px;
 	font-weight: 500;
 	line-height: 1.2;
-	color: var(--void-fg-3);
+	color: color-mix(in srgb, var(--void-fg-3) 58%, transparent);
 	white-space: nowrap;
+	cursor: pointer;
+	font: inherit;
+	transition: color 120ms ease;
+}
+
+.ref-agent-context-workspace:not(:disabled):hover,
+.ref-agent-context-workspace:not(:disabled):focus-visible {
+	color: var(--void-fg-0);
+}
+
+.ref-agent-context-workspace:disabled {
+	cursor: default;
+}
+
+.ref-agent-context-workspace[data-tooltip]::before {
+	content: attr(data-tooltip);
+	position: absolute;
+	z-index: 120;
+	left: 50%;
+	top: calc(100% + 10px);
+	transform: translateX(-50%) translateY(2px);
+	max-width: min(520px, calc(100vw - 32px));
+	padding: 8px 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 78%, #fff 8%);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--void-bg-2) 92%, #fff 6%);
+	box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+	color: var(--void-fg-0);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1.25;
+	white-space: nowrap;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.ref-agent-context-workspace[data-tooltip]:hover::before,
+.ref-agent-context-workspace[data-tooltip]:focus-visible::before {
+	opacity: 1;
+	transform: translateX(-50%) translateY(0);
 }
 
 .ref-hero-spacer {
@@ -4234,6 +4280,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-md-root li {
 	margin: 0.25em 0;
+}
+
+.ref-md-root hr.ref-md-hr {
+	height: 1px;
+	margin: 0.85em 0;
+	border: 0;
+	background: var(--void-border-soft);
 }
 
 /* 流式未闭合 ``` 使用 .ref-agent-streaming-fence-pre，单独一套样式，避免与下面通用 pre 规则抢优先级 */
@@ -5023,13 +5076,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-preflight-shell-collapse {
-	display: grid;
-	grid-template-rows: 0fr;
-	transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+	max-height: 0;
+	overflow: hidden;
+	transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ref-preflight-shell-collapse.is-open {
-	grid-template-rows: 1fr;
+	max-height: 216px;
 }
 
 .ref-preflight-shell-body {
@@ -5040,11 +5093,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	min-height: 0;
 }
 
-.ref-preflight-shell-collapse.is-open > .ref-preflight-shell-body {
+.ref-preflight-shell-collapse > .ref-preflight-shell-body {
 	border-top: none;
 	/* 水平 padding 设为 0 让 body 内容与父 .ref-md-root--agent-chat 左右边缘对齐。
 	   首行（如「已思考 X.Xs」）需要与壳头部留出呼吸距离，否则在流式底部遮罩存在时容易被遮 */
 	padding: 10px 0 6px;
+	height: 200px;
+	max-height: 200px;
 	overflow-y: auto;
 	/* 细滚动条：默认完全透明，鼠标进入 body 时渐入；离开时渐出。
 	   thumb 在显现 / hover thumb / 拖动期间均保持同一颜色，避免任何颜色跳变。
@@ -5098,7 +5153,6 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 .ref-preflight-shell[data-state='expanded']
 	.ref-preflight-shell-collapse.is-open
 	> .ref-preflight-shell-body {
-	height: 200px;
 	overflow-y: auto;
 	transition: -webkit-mask-image 0.28s var(--void-ease-out-expo),
 		mask-image 0.28s var(--void-ease-out-expo);

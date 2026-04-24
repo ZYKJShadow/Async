@@ -8,6 +8,7 @@
  */
 
 import { BrowserWindow, type WebContents } from 'electron';
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -135,18 +136,51 @@ function queueDataBroadcast(s: Session, chunk: string): void {
 	setImmediate(() => flushPendingBroadcast(s));
 }
 
+function powerShellInteractiveArgs(): string[] {
+	return [
+		'-NoLogo',
+		'-NoExit',
+		'-NoProfile',
+		'-ExecutionPolicy',
+		'Bypass',
+		'-Command',
+		'[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
+	];
+}
+
+function isPowerShellShell(shell: string): boolean {
+	return /(?:^|[\\/])(pwsh|powershell)(?:\.exe)?$/i.test(shell) || /^(pwsh|powershell)(?:\.exe)?$/i.test(shell);
+}
+
 function resolveShell(requested?: string): { shell: string; args: string[] } {
 	const win = isWindows();
 	if (requested && requested.trim()) {
 		const trimmed = requested.trim();
 		return {
 			shell: trimmed,
-			args: win ? ['/k', 'chcp 65001>nul'] : ['-i'],
+			args: win ? (isPowerShellShell(trimmed) ? powerShellInteractiveArgs() : ['/k', 'chcp 65001>nul']) : ['-i'],
 		};
 	}
-	const shell = win ? process.env.ComSpec || 'cmd.exe' : process.env.SHELL || '/bin/bash';
-	const args = win ? ['/k', 'chcp 65001>nul'] : ['-i'];
+	const shell = win ? findPowerShellSync() || process.env.ComSpec || 'cmd.exe' : process.env.SHELL || '/bin/bash';
+	const args = win ? (isPowerShellShell(shell) ? powerShellInteractiveArgs() : ['/k', 'chcp 65001>nul']) : ['-i'];
 	return { shell, args };
+}
+
+function findPowerShellSync(): string | null {
+	try {
+		return execFileSyncPowerShellProbe('pwsh.exe') ? 'pwsh.exe' : execFileSyncPowerShellProbe('powershell.exe') ? 'powershell.exe' : null;
+	} catch {
+		return null;
+	}
+}
+
+function execFileSyncPowerShellProbe(command: string): boolean {
+	try {
+		execFileSync(command, ['-Version'], { timeout: 1000, stdio: 'ignore', windowsHide: true });
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 export function createTerminalSession(opts: TerminalSessionCreateOpts = {}): TerminalSessionInfo {

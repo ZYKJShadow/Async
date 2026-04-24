@@ -19,6 +19,7 @@ export type AgentAgentCenterColumnProps = {
 	agentRightSidebarOpen: boolean;
 	agentRightSidebarView: AgentRightSidebarView;
 	toggleAgentRightSidebarView: (view: AgentRightSidebarView) => void;
+	onOpenWorkspaceFolder: (path: string) => void;
 	onOpenBrowserWindow: () => void;
 	onLaunchWorkspaceWithTool: (tool: WorkspaceLauncherTool) => void;
 	chatPanelProps: Omit<AgentChatPanelProps, 'layout'>;
@@ -43,6 +44,7 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 	agentRightSidebarOpen,
 	agentRightSidebarView,
 	toggleAgentRightSidebarView,
+	onOpenWorkspaceFolder,
 	onOpenBrowserWindow,
 	onLaunchWorkspaceWithTool,
 	chatPanelProps,
@@ -72,12 +74,20 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 						<span className="ref-agent-context-heading" title={currentThreadTitle}>
 							{headerTitle}
 						</span>
-						<span
+						<button
+							type="button"
 							className="ref-agent-context-workspace"
-							title={workspace ? workspaceBasename : t('app.noWorkspace')}
+							disabled={!workspace}
+							aria-label={workspace ? `${t('ws.openFolder')} ${workspace}` : t('app.noWorkspace')}
+							data-tooltip={workspace ? `${t('ws.openFolder')}  ${workspace}` : undefined}
+							onClick={() => {
+								if (workspace) {
+									onOpenWorkspaceFolder(workspace);
+								}
+							}}
 						>
 							{workspace ? workspaceBasename : t('app.noWorkspace')}
-						</span>
+						</button>
 					</div>
 				</div>
 			</div>
@@ -150,6 +160,7 @@ export const AgentAgentCenterColumn = memo(function AgentAgentCenterColumn({
 		prev.hasAgentPlanSidebarContent === next.hasAgentPlanSidebarContent &&
 		prev.agentRightSidebarOpen === next.agentRightSidebarOpen &&
 		prev.agentRightSidebarView === next.agentRightSidebarView &&
+		prev.onOpenWorkspaceFolder === next.onOpenWorkspaceFolder &&
 		prev.chatPanelProps === next.chatPanelProps // 引用比较，由 useAgentChatPanelProps 的 useMemo 保证
 	);
 });

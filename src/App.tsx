@@ -3735,6 +3735,7 @@ function AppMainWorkspaceInner() {
 					agentRightSidebarOpen={agentRightSidebarOpen}
 					agentRightSidebarView={agentRightSidebarView}
 					toggleAgentRightSidebarView={toggleAgentRightSidebarView}
+					onOpenWorkspaceFolder={revealWorkspaceInOs}
 					onOpenBrowserWindow={() => {
 						void shell?.invoke('browser:openWindow').catch(() => {
 							/* ignore */
@@ -3771,6 +3772,7 @@ function AppMainWorkspaceInner() {
 		workspace,
 		workspaceBasename,
 		onPlanNewIdea,
+		revealWorkspaceInOs,
 		hasAgentPlanSidebarContent,
 		agentRightSidebarOpen,
 		agentRightSidebarView,

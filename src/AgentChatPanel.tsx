@@ -1376,6 +1376,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 							revertedChangeKeys={revertedChangeKeys}
 							skipPlanTodo
 							renderMode="preflight"
+							preserveLivePreflight
 							typewriter={agentOrPlanStreaming && awaitingReply}
 						/>
 					</div>

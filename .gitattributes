@@ -1,0 +1,8 @@
+﻿# Auto-detect text files and normalize to LF in the repo
+* text=auto eol=lf working-tree-encoding=UTF-8
+
+# Specific patterns that must stay as-is
+*.png binary
+*.ico binary
+*.icns binary
+

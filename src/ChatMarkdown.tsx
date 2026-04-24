@@ -58,7 +58,7 @@ function hasVisibleMarkdownNode(node: ReactNode): boolean {
 		return false;
 	}
 	const element = node as ReactElement<{ children?: ReactNode }>;
-	if (typeof node.type === 'string' && ['img', 'video', 'audio', 'svg'].includes(node.type)) {
+	if (typeof node.type === 'string' && ['img', 'video', 'audio', 'svg', 'hr'].includes(node.type)) {
 		return true;
 	}
 	return hasVisibleMarkdownNode(element.props.children);
@@ -89,6 +89,7 @@ const markdownComponents: MarkdownComponents = {
 		}
 		return <li {...props}>{children}</li>;
 	},
+	hr: ({ ...props }) => <hr {...props} className="ref-md-hr" />,
 };
 
 function thinkingGroupRenderMeta(
@@ -207,6 +208,7 @@ type Props = {
 	 * - `'outcome'`：仅渲染结果区（file_edit / diff / 收尾总结）等，用于 assistant 气泡正文。
 	 */
 	renderMode?: 'all' | 'preflight' | 'outcome';
+	preserveLivePreflight?: boolean;
 };
 
 function InlineChevron({ open }: { open: boolean }) {
@@ -400,6 +402,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	allowAgentFileActions = false,
 	skipPlanTodo = false,
 	renderMode = 'all',
+	preserveLivePreflight = false,
 	typewriter = false,
 	turnFocusFillPx = 0,
 }: Props) {
@@ -510,9 +513,10 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	// 注意：以下 useMemo 必须在所有条件 return 之前调用，否则违反 Hooks 顺序。
 	// 流式期间 markdown 永远留在 preflight，回合结束（liveTurn=false）才一次性切到 outcome。
 	// 这避免了「文字外置→收回」的视觉抖动 —— 任意 unit 在流式期间不会在 preflight ↔ outcome 之间反向迁移。
+	const splitAsLiveTurn = showAgentWorking || preserveLivePreflight;
 	const { preflight, outcome } = useMemo(
-		() => splitPreflightAndOutcome(renderUnits, { liveTurn: showAgentWorking }),
-		[renderUnits, showAgentWorking]
+		() => splitPreflightAndOutcome(renderUnits, { liveTurn: splitAsLiveTurn }),
+		[renderUnits, splitAsLiveTurn]
 	);
 	const hidePendingActivityTextCluster =
 		showAgentWorking &&

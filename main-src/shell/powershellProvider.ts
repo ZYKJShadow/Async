@@ -14,6 +14,29 @@ import { execFileSync } from 'node:child_process';
 import type { ShellProvider, ShellCommandResult, ShellCommandOptions } from './shellProvider';
 import { windowsPowerShellUtf8Command } from '../winUtf8';
 
+/**
+ * PowerShell expects -EncodedCommand content as UTF-16LE Base64.
+ * Passing the command this way avoids extra quoting/parsing layers corrupting
+ * quotes, newlines, `$?`, `!`, and pipeline-heavy commands.
+ */
+function encodePowerShellCommand(command: string): string {
+  return Buffer.from(command, 'utf16le').toString('base64');
+}
+
+/**
+ * PowerShell invocation flags shared by non-interactive command execution.
+ */
+function buildPowerShellArgs(command: string): string[] {
+  return [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-EncodedCommand',
+    encodePowerShellCommand(command),
+  ];
+}
+
 /** PowerShell Shell Provider 实现 */
 export class PowerShellProvider implements ShellProvider {
   readonly type = 'powershell' as const;
@@ -40,17 +63,11 @@ export class PowerShellProvider implements ShellProvider {
    */
   buildCommand(userCommand: string, _options?: ShellCommandOptions): ShellCommandResult {
     const utf8Command = windowsPowerShellUtf8Command(userCommand);
+    const command = `${utf8Command}; $_asyncExitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } elseif ($?) { 0 } else { 1 }; exit $_asyncExitCode`;
     
     return {
       command: this.shellPath,
-      args: [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-Command',
-        utf8Command,
-      ],
+      args: buildPowerShellArgs(command),
     };
   }
 
@@ -64,7 +81,7 @@ export class PowerShellProvider implements ShellProvider {
    * -NoExit: 执行命令后不退出
    */
   getInteractiveArgs(): string[] {
-    return ['-NoExit'];
+    return ['-NoLogo', '-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', windowsPowerShellUtf8Command('')];
   }
 }
 
