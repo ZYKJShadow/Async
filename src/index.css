@@ -4689,12 +4689,14 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-agent-activity-text {
 	min-width: 0;
-	white-space: pre-line;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 /* read_file ?????????????????????? Cursor Agent? */
 .ref-agent-activity-ref-link {
-	display: inline;
+	display: inline-block;
 	max-width: 100%;
 	margin: 0;
 	padding: 0;
@@ -4704,7 +4706,9 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font: inherit;
 	text-align: left;
 	cursor: pointer;
-	white-space: pre-line;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	text-decoration: none;
 	border-radius: 4px;
 }

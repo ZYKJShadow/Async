@@ -617,6 +617,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const prevDisplayMessagesLenRef = useRef(displayMessages.length);
 	const prevConversationForLenRef = useRef<string | null>(null);
 	const lastLayoutMeasureSigRef = useRef('');
+	const layoutMeasureSettleTimerRef = useRef<number | null>(null);
 
 	const getRowHeightForBudget = useCallback(
 		(i: number) => messageRowHeightsRef.current.get(i) ?? ESTIMATED_MESSAGE_ROW_PX,
@@ -934,6 +935,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	useEffect(() => {
 		if (!hasConversation) {
 			lastLayoutMeasureSigRef.current = '';
+			if (layoutMeasureSettleTimerRef.current !== null) {
+				window.clearTimeout(layoutMeasureSettleTimerRef.current);
+				layoutMeasureSettleTimerRef.current = null;
+			}
 			return;
 		}
 		const viewport = messagesViewportRef.current;
@@ -942,6 +947,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			return;
 		}
 		let rafId = 0;
+		let lastCommittedAt = 0;
 		const flush = () => {
 			rafId = 0;
 			const nextSig = [
@@ -954,7 +960,19 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				return;
 			}
 			lastLayoutMeasureSigRef.current = nextSig;
-			setLayoutMeasureVersion((v) => v + 1);
+			const now = performance.now();
+			if (now - lastCommittedAt >= 120) {
+				lastCommittedAt = now;
+				setLayoutMeasureVersion((v) => v + 1);
+			}
+			if (layoutMeasureSettleTimerRef.current !== null) {
+				window.clearTimeout(layoutMeasureSettleTimerRef.current);
+			}
+			layoutMeasureSettleTimerRef.current = window.setTimeout(() => {
+				layoutMeasureSettleTimerRef.current = null;
+				lastCommittedAt = performance.now();
+				setLayoutMeasureVersion((v) => v + 1);
+			}, 140);
 		};
 		const schedule = () => {
 			if (rafId !== 0) {
@@ -970,6 +988,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			resizeObserver.disconnect();
 			if (rafId !== 0) {
 				window.cancelAnimationFrame(rafId);
+			}
+			if (layoutMeasureSettleTimerRef.current !== null) {
+				window.clearTimeout(layoutMeasureSettleTimerRef.current);
+				layoutMeasureSettleTimerRef.current = null;
 			}
 		};
 	}, [hasConversation, conversationRenderKey, messagesViewportRef, messagesTrackRef]);
