@@ -9,7 +9,9 @@ import {
 	IconPlugin,
 	IconSearch,
 	IconSettings,
-	IconTerminal,
+	IconSparkles,
+	IconAutomation,
+	IconNewItem,
 } from './icons';
 
 export type AgentSidebarWorkspace = {
@@ -43,7 +45,8 @@ export type AgentLeftSidebarProps = {
 	openQuickOpen: () => void;
 	openPluginSettings: () => void;
 	openGeneralSettings: () => void;
-	openUniversalTerminal: () => void;
+	openSkillsSettings?: () => void;
+	openAutomationSettings?: () => void;
 };
 
 export const AgentLeftSidebar = memo(function AgentLeftSidebar({
@@ -66,7 +69,8 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 	openQuickOpen,
 	openPluginSettings,
 	openGeneralSettings,
-	openUniversalTerminal,
+	openSkillsSettings,
+	openAutomationSettings,
 }: AgentLeftSidebarProps) {
 	return (
 		<div className="ref-left-agent-nest">
@@ -77,19 +81,31 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 							<IconPlus className="ref-agent-nav-item-icon" />
 							<span>{t('app.newAgent')}</span>
 						</button>
+						<button type="button" className="ref-agent-nav-item" onClick={openQuickOpen}>
+							<IconSearch className="ref-agent-nav-item-icon" />
+							<span>{t('common.search')}</span>
+						</button>
+						{openSkillsSettings ? (
+							<button type="button" className="ref-agent-nav-item" onClick={openSkillsSettings}>
+								<IconSparkles className="ref-agent-nav-item-icon" />
+								<span>{t('app.skills')}</span>
+							</button>
+						) : null}
 						<button type="button" className="ref-agent-nav-item" onClick={openPluginSettings}>
 							<IconPlugin className="ref-agent-nav-item-icon" />
 							<span>{t('settings.nav.plugins')}</span>
 						</button>
-						<button type="button" className="ref-agent-nav-item" onClick={openUniversalTerminal}>
-							<IconTerminal className="ref-agent-nav-item-icon" />
-							<span>{t('app.universalTerminal')}</span>
-						</button>
+						{openAutomationSettings ? (
+							<button type="button" className="ref-agent-nav-item" onClick={openAutomationSettings}>
+								<IconAutomation className="ref-agent-nav-item-icon" />
+								<span>{t('app.automation')}</span>
+							</button>
+						) : null}
 					</nav>
 
 					<div className="ref-agent-sidebar-section">
 						<div className="ref-agent-sidebar-section-head">
-							<span className="ref-agent-sidebar-section-title">{t('app.sidebarThreads')}</span>
+							<span className="ref-agent-sidebar-section-title">{t('app.sidebarProjects')}</span>
 							<div className="ref-agent-sidebar-section-actions">
 								<button
 									type="button"
@@ -108,6 +124,15 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 									onClick={openQuickOpen}
 								>
 									<IconSearch />
+								</button>
+								<button
+									type="button"
+									className="ref-agent-sidebar-icon-btn"
+									title={t('app.newAgent')}
+									aria-label={t('app.newAgent')}
+									onClick={onNewThread}
+								>
+									<IconNewItem />
 								</button>
 							</div>
 						</div>
@@ -133,7 +158,8 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 								</div>
 							) : (
 								agentSidebarWorkspaces.map((ws) => {
-									const hasThreads = ws.threadCount > 0;
+									const allThreads = [...ws.todayThreads, ...ws.archivedThreads];
+									const hasThreads = allThreads.length > 0;
 									const showThreads = !ws.isCollapsed;
 									const isEditingWorkspace = editingWorkspacePath === ws.path;
 									return (
@@ -177,9 +203,6 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 																}}
 																onBlur={commitWorkspaceAliasEdit}
 															/>
-															<span className="ref-agent-workspace-row-subtitle" title={ws.parent || ws.path}>
-																{ws.parent || ws.path}
-															</span>
 														</span>
 														{ws.threadCount > 0 ? (
 															<span className="ref-agent-workspace-row-badge">{ws.threadCount}</span>
@@ -206,9 +229,6 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 														<span className="ref-agent-workspace-row-copy">
 															<span className="ref-agent-workspace-row-label" title={ws.path}>
 																{ws.name}
-															</span>
-															<span className="ref-agent-workspace-row-subtitle" title={ws.parent || ws.path}>
-																{ws.parent || ws.path}
 															</span>
 														</span>
 														{ws.threadCount > 0 ? (
@@ -257,25 +277,8 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 											<div className={`ref-collapse-grid ${showThreads ? 'is-open' : ''}`}>
 												<div className="ref-collapse-inner">
 													{hasThreads ? (
-														<div className="ref-agent-thread-tree" aria-hidden={!showThreads}>
-															<div className="ref-agent-thread-cluster">
-																<div className="ref-thread-section-label ref-thread-section-label--nested">
-																	{t('app.today')}
-																</div>
-																<div className="ref-thread-list ref-thread-list--nested">
-																	{ws.todayThreads.map((th) => renderThreadItem(th, ws.path))}
-																</div>
-															</div>
-															{ws.archivedThreads.length > 0 ? (
-																<div className="ref-agent-thread-cluster">
-																	<div className="ref-thread-section-label ref-thread-section-label--archived ref-thread-section-label--nested">
-																		{t('app.archived')}
-																	</div>
-																	<div className="ref-thread-list ref-thread-list--nested">
-																		{ws.archivedThreads.map((th) => renderThreadItem(th, ws.path))}
-																	</div>
-																</div>
-															) : null}
+														<div className="ref-agent-thread-list" aria-hidden={!showThreads}>
+															{allThreads.map((th) => renderThreadItem(th, ws.path))}
 														</div>
 													) : (
 														<div className="ref-agent-workspace-empty" aria-hidden={!showThreads}>

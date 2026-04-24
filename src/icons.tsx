@@ -6,6 +6,47 @@ export function IconArrowUp({ className }: { className?: string }) {
 	);
 }
 
+/** Sparkles / magic wand — Skills */
+export function IconSparkles({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M12 3L14.5 8.5L20 11L14.5 13.5L12 19L9.5 13.5L4 11L9.5 8.5Z" />
+			<path d="M5 3L5.5 4.5L7 5L5.5 5.5L5 7L4.5 5.5L3 5L4.5 4.5Z" />
+			<path d="M19 15L19.5 16.5L21 17L19.5 17.5L19 19L18.5 17.5L17 17L18.5 16.5Z" />
+		</svg>
+	);
+}
+
+/** Clock / automation loop — Automation */
+export function IconAutomation({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" />
+			<path d="M12 7v5l3 2" />
+			<path d="M3 12h2M19 12h2" />
+		</svg>
+	);
+}
+
+/** List filter / sort — sidebar section action */
+export function IconListFilter({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M4 6h16M8 12h8M6 18h12" />
+		</svg>
+	);
+}
+
+/** New item / compose — sidebar section action */
+export function IconNewItem({ className }: { className?: string }) {
+	return (
+		<svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M12 5v14M5 12h14" />
+			<path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" opacity="0" />
+		</svg>
+	);
+}
+
 export function IconArrowDown({ className }: { className?: string }) {
 	return (
 		<svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

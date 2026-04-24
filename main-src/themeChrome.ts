@@ -3,18 +3,18 @@ import { BrowserWindow } from 'electron';
 /** Keep native window chrome aligned with renderer theme tokens. */
 export const THEME_CHROME = {
 	light: {
-		backgroundColor: '#edf2f8',
+		backgroundColor: '#e8edf5',
 		titleBarOverlay: {
-			color: '#eef3f8',
-			symbolColor: '#1e2936',
+			color: '#EFF3F9',
+			symbolColor: '#18202e',
 			height: 44,
 		},
 	},
 	dark: {
-		backgroundColor: '#10161b',
+		backgroundColor: '#111111',
 		titleBarOverlay: {
-			color: '#141b22',
-			symbolColor: '#d1dde1',
+			color: '#161D24',
+			symbolColor: '#BBBBBB',
 			height: 44,
 		},
 	},

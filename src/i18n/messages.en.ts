@@ -528,7 +528,10 @@ export const messagesEn: Record<string, string> = {
 	'app.searchAgentsPlaceholder': 'Search chats…',
 	'app.searchAgentsAria': 'Search chats',
 	'app.sidebarThreads': 'Threads',
+	'app.sidebarProjects': 'Projects',
 	'app.noThreads': 'No threads',
+	'app.skills': 'Skills',
+	'app.automation': 'Automation',
 	'app.today': 'Today',
 	'app.archived': 'Archived',
 	'app.openWorkspace': 'Open Workspace',
@@ -2124,4 +2127,12 @@ export const messagesEn: Record<string, string> = {
 	'common.no': 'No',
 	'common.edit': 'Edit',
 	'common.loading': 'Loading…',
+
+	// relative time
+	'time.justNow': 'Just now',
+	'time.minutesAgo': '{{count}}m',
+	'time.hoursAgo': '{{count}}h',
+	'time.daysAgo': '{{count}}d',
+	'time.monthsAgo': '{{count}}mo',
+	'time.yearsAgo': '{{count}}y',
 };

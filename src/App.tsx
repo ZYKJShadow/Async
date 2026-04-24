@@ -141,6 +141,7 @@ import { AppShellOverlays } from './app/AppShellOverlays';
 import type { ShellLeftRailGroupProps, ShellCenterRightGroupProps } from './app/ShellWorkspaceColumns';
 import { ShellWorkspaceGrid } from './app/ShellWorkspaceGrid';
 import { ThreadItem } from './app/ThreadItem';
+import { AgentSidebarThreadItem } from './app/AgentSidebarThreadItem';
 import {
 	type WorkspaceLauncherTool,
 	workspaceLauncherLabel,
@@ -2432,15 +2433,6 @@ function AppMainWorkspaceInner() {
 		setQuickOpenOpen(true);
 	}, []);
 
-	const openUniversalTerminal = useCallback(() => {
-		if (!shell) {
-			return;
-		}
-		void shell.invoke('terminalWindow:open', { startPage: true }).catch(() => {
-			/* ignore */
-		});
-	}, [shell]);
-
 	const focusSearchSidebarFromQuickOpen = useCallback((q: string) => {
 		setSidebarSearchDraft(q);
 		setQuickOpenSeed(`%${q}`);
@@ -3304,10 +3296,50 @@ function AppMainWorkspaceInner() {
 		]
 	);
 
+	const renderAgentSidebarThreadItem = useCallback(
+		(th: ThreadInfo, threadListWorkspace?: string | null) => (
+			<AgentSidebarThreadItem
+				key={th.id}
+				th={th}
+				threadListWorkspace={threadListWorkspace}
+				workspace={workspace}
+				currentId={currentId}
+				editingThreadId={editingThreadId}
+				editingThreadTitleDraft={editingThreadTitleDraft}
+				setEditingThreadTitleDraft={setEditingThreadTitleDraft}
+				threadTitleDraftRef={threadTitleDraftRef}
+				threadTitleInputRef={threadTitleInputRef}
+				commitThreadTitleEdit={commitThreadTitleEdit}
+				cancelThreadTitleEdit={cancelThreadTitleEdit}
+				beginThreadTitleEdit={beginThreadTitleEdit}
+				onSelectThread={onSelectThread}
+				confirmDeleteId={confirmDeleteId}
+				onDeleteThread={onDeleteThread}
+				t={t}
+			/>
+		),
+		[
+			currentId,
+			editingThreadId,
+			editingThreadTitleDraft,
+			t,
+			setEditingThreadTitleDraft,
+			threadTitleDraftRef,
+			threadTitleInputRef,
+			commitThreadTitleEdit,
+			cancelThreadTitleEdit,
+			beginThreadTitleEdit,
+			onSelectThread,
+			confirmDeleteId,
+			onDeleteThread,
+			workspace,
+		]
+	);
+
 	const agentLeftSidebarProps = useAgentLeftSidebarProps({
 		t,
 		agentSidebarWorkspaces,
-		renderThreadItem,
+		renderThreadItem: renderAgentSidebarThreadItem,
 		editingWorkspacePath,
 		editingWorkspaceNameDraft,
 		setEditingWorkspaceNameDraft,
@@ -3324,7 +3356,6 @@ function AppMainWorkspaceInner() {
 		setWorkspacePickerOpen,
 		openQuickOpen,
 		openSettingsPage,
-		openUniversalTerminal,
 	});
 
 	/** 未打开工作区时：Agent / Editor 均显示同一套欢迎页（打开项目、最近项目等） */

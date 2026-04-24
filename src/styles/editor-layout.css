@@ -1275,7 +1275,7 @@
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
-	background: #0e0e11;
+	background: var(--void-bg-1);
 }
 
 .ref-editor-md-mode-toggle {
@@ -1313,11 +1313,11 @@
 	overflow: auto;
 	padding: 16px 22px 24px;
 	box-sizing: border-box;
-	background: #121214;
+	background: var(--void-bg-1);
 }
 
 .ref-editor-pane.ref-editor-pane--md-preview {
-	background: #121214;
+	background: var(--void-bg-1);
 }
 
 .ref-editor-plan-chrome {

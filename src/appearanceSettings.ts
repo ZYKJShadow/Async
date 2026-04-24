@@ -68,7 +68,7 @@ function macCodexBuiltinPreviewVarsDark(): Record<string, string> {
 		'--void-scrollbar-thumb-hover': 'rgba(132, 148, 162, 0.56)',
 		'--void-scrollbar-thumb-active': 'rgba(164, 178, 191, 0.64)',
 		'--ref-menubar-chrome-bg': '#161d24',
-		'--void-sidebar-fill': 'rgba(19, 25, 31, 0.98)',
+		'--void-sidebar-fill': '#161d24',
 		'--void-accent-cool': '#37d6d4',
 		'--void-accent-warm': '#ff9d59',
 		'--void-accent-assist': '#8aa8ff',
@@ -103,8 +103,8 @@ function macCodexBuiltinPreviewVarsLight(): Record<string, string> {
 		'--void-scrollbar-thumb': 'rgba(123, 137, 160, 0.38)',
 		'--void-scrollbar-thumb-hover': 'rgba(98, 113, 139, 0.5)',
 		'--void-scrollbar-thumb-active': 'rgba(82, 96, 120, 0.58)',
-		'--ref-menubar-chrome-bg': 'rgba(240, 244, 250, 0.86)',
-		'--void-sidebar-fill': 'rgba(245, 247, 251, 0.78)',
+		'--ref-menubar-chrome-bg': '#EFF3F9',
+		'--void-sidebar-fill': '#EFF3F9',
 		'--void-accent-cool': '#418eff',
 		'--void-accent-warm': '#f97316',
 		'--void-accent-assist': '#3d62c4',
@@ -211,10 +211,10 @@ const APPEARANCE_CHROME_CSS_VAR_KEYS: string[] = [
 	'--void-composer-send-hover-transform',
 ];
 
-/** Cursor 暗色：对话区、侧栏、输入框与用户消息气泡（与 Cursor 客户端对齐） */
-const CURSOR_DARK_CHAT_BG = '#181818';
-const CURSOR_DARK_SIDEBAR_BG = '#141414';
-const CURSOR_DARK_COMPOSER_USER_BUBBLE_BG = '#1F1F1F';
+/** Cursor 暗色：对话区、侧栏、输入框与用户消息气泡（统一中性灰色系） */
+const CURSOR_DARK_CHAT_BG = '#111111';
+const CURSOR_DARK_SIDEBAR_BG = '#202020';
+const CURSOR_DARK_COMPOSER_USER_BUBBLE_BG = '#1c1c1c';
 /** 顶栏与 Windows 标题栏按钮符号、发送按钮（未禁用）图标色 */
 const CURSOR_DARK_CHROME_MUTED_FG = '#BBBBBB';
 
@@ -783,9 +783,9 @@ export function appearanceSettingsColorVars(settings: AppAppearanceSettings): Re
 		? scheme === 'dark'
 			? {
 					'--void-bg-0': CURSOR_DARK_CHAT_BG,
-					'--void-bg-1': CURSOR_DARK_SIDEBAR_BG,
+					'--void-bg-1': '#161616',
 					'--void-bg-2': CURSOR_DARK_COMPOSER_USER_BUBBLE_BG,
-					'--void-bg-3': mixHex(CURSOR_DARK_COMPOSER_USER_BUBBLE_BG, '#FFFFFF', 0.07),
+					'--void-bg-3': '#242424',
 					'--void-git-added': '#00A240',
 					'--void-git-deleted': '#E02E2A',
 					'--void-git-untracked': mixHex('#00A240', accent, 0.22),

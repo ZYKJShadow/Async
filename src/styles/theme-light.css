@@ -38,8 +38,8 @@
 	--void-scrollbar-thumb: color-mix(in srgb, var(--void-fg-3) 38%, transparent);
 	--void-scrollbar-thumb-hover: color-mix(in srgb, var(--void-fg-2) 50%, transparent);
 	--void-scrollbar-thumb-active: color-mix(in srgb, var(--void-fg-2) 58%, transparent);
-	--ref-menubar-chrome-bg: color-mix(in srgb, var(--void-bg-1) 86%, transparent);
-	--void-sidebar-fill: color-mix(in srgb, var(--void-bg-1) 78%, transparent);
+	--ref-menubar-chrome-bg: #EFF3F9;
+	--void-sidebar-fill: #EFF3F9;
 	--void-shadow-card: 0 24px 72px color-mix(in srgb, var(--void-fg-0) 14%, transparent);
 	--void-shadow-soft: inset 0 1px 0 color-mix(in srgb, var(--void-bg-0) 94%, var(--void-fg-0) 6%);
 
