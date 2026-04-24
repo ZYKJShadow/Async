@@ -1061,6 +1061,22 @@ function AppMainWorkspaceInner() {
 		};
 	}, [openSettingsPage, settingsNavIdSet]);
 
+	useEffect(() => {
+		const unsub = window.asyncShell?.subscribeTrayCommand?.((payload) => {
+			const command = payload?.command;
+			if (command === 'newThread') {
+				void onNewThreadRef.current();
+				return;
+			}
+			if (command === 'openSettings') {
+				openSettingsPage('general');
+			}
+		});
+		return () => {
+			unsub?.();
+		};
+	}, [openSettingsPage]);
+
 	const openBrowserSettingsPage = useCallback(() => {
 		openSettingsPage('browser');
 	}, [openSettingsPage]);

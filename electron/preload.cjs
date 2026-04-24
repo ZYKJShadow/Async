@@ -304,10 +304,23 @@ ipcRenderer.on('async-shell:browserControl', (_event, payload) => {
 const openSettingsNavHandlers = new Map();
 let openSettingsNavSeq = 0;
 
+const trayCommandHandlers = new Map();
+let trayCommandSeq = 0;
+
 ipcRenderer.on('async-shell:openSettingsNav', (_event, nav) => {
 	for (const fn of openSettingsNavHandlers.values()) {
 		try {
 			fn(nav);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:trayCommand', (_event, payload) => {
+	for (const fn of trayCommandHandlers.values()) {
+		try {
+			fn(payload);
 		} catch (e) {
 			console.error(e);
 		}
@@ -423,5 +436,10 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++openSettingsNavSeq;
 		openSettingsNavHandlers.set(id, callback);
 		return () => openSettingsNavHandlers.delete(id);
+	},
+	subscribeTrayCommand(callback) {
+		const id = ++trayCommandSeq;
+		trayCommandHandlers.set(id, callback);
+		return () => trayCommandHandlers.delete(id);
 	},
 });
