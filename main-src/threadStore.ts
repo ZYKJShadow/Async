@@ -13,6 +13,10 @@ import {
 	type ThreadSchemaVersion,
 	type UserMessagePart,
 } from '../src/messageParts.js';
+import {
+	deriveFallbackThreadTitle,
+	THREAD_TITLE_PLACEHOLDER,
+} from './threadTitle.js';
 
 export type { UserMessagePart } from '../src/messageParts.js';
 
@@ -74,6 +78,7 @@ export type DeferredToolState = {
 export type ThreadRecord = {
 	id: string;
 	title: string;
+	titleSource?: ThreadTitleSource;
 	createdAt: number;
 	updatedAt: number;
 	/**
@@ -138,10 +143,12 @@ type LegacyStoreFile = {
 };
 
 const GLOBAL_BUCKET_KEY = '__global__';
-const DEFAULT_THREAD_TITLE = '???';
+const DEFAULT_THREAD_TITLE = THREAD_TITLE_PLACEHOLDER;
 const SYSTEM_PROMPT =
 	'You are Async, a concise coding assistant. Use markdown for code. The user workspace is open in the app.';
 const MAX_THREAD_TITLE_LEN = 200;
+
+export type ThreadTitleSource = 'placeholder' | 'fallback' | 'auto' | 'manual';
 
 let storePath = '';
 let data: StoreFile = { version: 2, buckets: {} };
@@ -208,10 +215,23 @@ function inferThreadSchemaVersion(thread: ThreadRecord): ThreadSchemaVersion {
 		: THREAD_SCHEMA_VERSION_LEGACY;
 }
 
+function inferThreadTitleSource(thread: ThreadRecord): ThreadTitleSource {
+	if (
+		thread.titleSource === 'placeholder' ||
+		thread.titleSource === 'fallback' ||
+		thread.titleSource === 'auto' ||
+		thread.titleSource === 'manual'
+	) {
+		return thread.titleSource;
+	}
+	return thread.title === DEFAULT_THREAD_TITLE ? 'placeholder' : 'manual';
+}
+
 function normalizeLoadedThread(thread: ThreadRecord): ThreadRecord {
 	return {
 		...thread,
 		schemaVersion: inferThreadSchemaVersion(thread),
+		titleSource: inferThreadTitleSource(thread),
 	};
 }
 
@@ -346,6 +366,7 @@ export function createThread(
 	const thread: ThreadRecord = {
 		id,
 		title: DEFAULT_THREAD_TITLE,
+		titleSource: 'placeholder',
 		createdAt: now,
 		updatedAt: now,
 		schemaVersion: THREAD_SCHEMA_VERSION_CURRENT,
@@ -389,7 +410,34 @@ export function setThreadTitle(workspaceRoot: string | null | undefined, id: str
 	if (!trimmed) {
 		return false;
 	}
+	if (thread.title === trimmed && thread.titleSource === 'manual') {
+		return false;
+	}
 	thread.title = trimmed;
+	thread.titleSource = 'manual';
+	thread.updatedAt = Date.now();
+	save();
+	return true;
+}
+
+export function setThreadGeneratedTitle(threadId: string, title: string): boolean {
+	const located = findBucketByThreadId(threadId);
+	if (!located) {
+		return false;
+	}
+	const { thread } = located;
+	if (thread.titleSource === 'manual') {
+		return false;
+	}
+	const trimmed = title.trim().slice(0, MAX_THREAD_TITLE_LEN);
+	if (!trimmed) {
+		return false;
+	}
+	if (thread.title === trimmed && thread.titleSource === 'auto') {
+		return false;
+	}
+	thread.title = trimmed;
+	thread.titleSource = 'auto';
 	thread.updatedAt = Date.now();
 	save();
 	return true;
@@ -407,8 +455,19 @@ export function appendMessage(threadId: string, msg: ChatMessage): ThreadRecord 
 	if (normalized.parts && normalized.parts.length > 0) {
 		thread.schemaVersion = THREAD_SCHEMA_VERSION_CURRENT;
 	}
-	if (normalized.role === 'user' && thread.messages.filter((m) => m.role === 'user').length === 1) {
-		thread.title = normalized.content.slice(0, 48) + (normalized.content.length > 48 ? '?' : '');
+	if (
+		normalized.role === 'user' &&
+		thread.titleSource !== 'manual' &&
+		thread.messages.filter((m) => m.role === 'user').length === 1
+	) {
+		const fallbackTitle = deriveFallbackThreadTitle(normalized.content);
+		if (fallbackTitle) {
+			thread.title = fallbackTitle;
+			thread.titleSource = 'fallback';
+		} else {
+			thread.title = DEFAULT_THREAD_TITLE;
+			thread.titleSource = 'placeholder';
+		}
 	}
 	save();
 	// 同步到 SQLite FTS5
@@ -555,8 +614,15 @@ export function replaceFromUserVisibleIndex(
 	if (replacement.parts && replacement.parts.length > 0) {
 		thread.schemaVersion = THREAD_SCHEMA_VERSION_CURRENT;
 	}
-	if (visibleIndex === 0) {
-		thread.title = replacement.content.slice(0, 48) + (replacement.content.length > 48 ? '?' : '');
+	if (visibleIndex === 0 && thread.titleSource !== 'manual') {
+		const fallbackTitle = deriveFallbackThreadTitle(replacement.content);
+		if (fallbackTitle) {
+			thread.title = fallbackTitle;
+			thread.titleSource = 'fallback';
+		} else {
+			thread.title = DEFAULT_THREAD_TITLE;
+			thread.titleSource = 'placeholder';
+		}
 	}
 	save();
 	return thread;

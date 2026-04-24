@@ -5,12 +5,12 @@
 </p>
 
 <p align="center">
-  <strong>An open-source AI IDE Shell — Cursor alternative: Agent, Editor, Git, Terminal, all in one place.</strong><br/>
-  Bring the Cursor workflow to your own machine with a fully open-source tech stack.
+  <strong>An open-source, agent-first desktop workspace — Agent, Editor, Git, Terminal, all in one place.</strong><br/>
+  Own your AI workflow: local-first, BYOK, and fully hackable.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Cursor%20Alternative-Open%20Source-818cf8?style=flat-square" alt="Cursor Alternative & Open Source" />
+  <img src="https://img.shields.io/badge/Agent%20First-Open%20Source-818cf8?style=flat-square" alt="Agent First & Open Source" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/Electron-41-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron" />
   <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -24,26 +24,19 @@
 
 ---
 
-## Cursor Alternative, Open Source
+## Why Async?
 
-The goal is simple: **match [Cursor](https://cursor.com) in features and experience** — the AI-native IDE shell with Agent, Monaco editor, workspace tools, diff review, and terminal all integrated — **but delivered as open source**: **Apache 2.0** license, **BYOK** model access, and **local-first** conversations and configuration.
+Async IDE is built around a simple idea: **the agent should be the center of gravity**, not a chat panel bolted onto the side of an editor. Everything — workspace access, tool execution, diff review, terminal operations — revolves around a transparent **Think → Plan → Execute → Observe** loop that you can see, steer, and interrupt at any time.
 
-You can think of it as an AI-native desktop workspace: Agent, Monaco editor, Git, diff/review flow, and terminal are all in one place, but the stack underneath is transparent and hackable. The project uses **Apache 2.0** license, **BYOK** for model access, and keeps threads, settings, and plans **local-first** by default.
+It is also **built from scratch** on Electron + React + Monaco — not a fork of VS Code. That means a smaller, fully hackable codebase, faster iteration, and no baggage from an editor you never asked for.
 
-
-| Aspect                 | **Cursor**                              | **Async IDE**                                                           |
-| ---------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| **License / delivery** | Proprietary product                     | **Open source** codebase you can inspect and fork                       |
-| **Model access**       | Product billing / built-in integrations | **BYOK** for OpenAI, Anthropic, Gemini, and compatible APIs             |
-| **Storage model**      | Product-managed workflow                | **Local-first** threads, settings, and plans                            |
-| **Focus**              | Full IDE product                        | Desktop **shell** centered on agent workflow, editor, Git, and terminal |
-
+The project is **Apache 2.0**, **BYOK** for model access, and **local-first** by default: your threads, settings, and plans live on your machine, not in someone else's cloud.
 
 ---
 
 ## What is Async IDE?
 
-Async IDE is an open-source AI-native desktop application designed as your command center for working with coding agents. Rather than being a chat plugin bolted onto the side of an editor, it starts from the **Agent Loop** and brings multi-model conversations, autonomous tool execution, and review workflows into a single workspace.
+Async IDE is an open-source AI-native desktop application designed as your command center for working with coding agents. It starts from the **Agent Loop** and brings multi-model conversations, autonomous tool execution, and review workflows into a single workspace.
 
 ### Why use Async?
 
@@ -53,7 +46,7 @@ Async IDE is an open-source AI-native desktop application designed as your comma
 - **Git-native** — Status, diffs, and agent-driven changes stay in sync with your actual repository.
 - **Four Composer modes** — **Agent** (autonomous execution), **Plan** (review first, then run), **Ask** (read-only Q&A), and **Debug** (systematic troubleshooting), covering various development scenarios.
 - **IM bot bridge** — Wire **Telegram**, **Slack**, **Discord**, and **Feishu (Lark)** into the same Agent / **Team** toolchain as the desktop app, with per-integration model, workspace roots, allowlists, optional HTTP proxy, and streaming replies where the platform supports it.
-- **Lean shell** — Electron + React with **Agent / Editor** dual layout, Monaco + embedded terminal, following the same philosophy as Cursor but with a more focused codebase.
+- **Lean shell, built from scratch** — Electron + React + Monaco, **Agent / Editor** dual layout, embedded terminal. Not a VS Code fork — smaller surface area, fewer abstractions to fight, and every line is yours to change.
 
 ---
 
@@ -76,10 +69,10 @@ Async IDE is an open-source AI-native desktop application designed as your comma
   <img src="docs/assets/setting_2.png" width="1829" alt="Async Appearance Color Palette" />
 </p>
 
-#### Cursor Theme
+#### Mac Codex Theme
 
 <p align="center">
-  <img src="docs/assets/setting_3.png" width="1829" alt="Async Cursor Theme" />
+  <img src="docs/assets/setting_3.png" width="1829" alt="Async Mac Codex Theme" />
 </p>
 
 ### Browser tool invocation (with customizable request headers)
@@ -191,7 +184,7 @@ For a deeper module-level walkthrough, see the maintainer-oriented notes under [
 | **MCP SDK** | ^1.29.0 | Model Context Protocol |
 | **node-pty** | ^1.1.0 | PTY terminal support |
 
-- **Main / renderer IPC** via Electron `contextBridge` and `ipcMain`.
+- **Built from scratch** on Electron + React + Monaco — not a VS Code fork. The architecture is intentionally lean: two processes (main + renderer), clear IPC boundaries, and no inherited extension ecosystem to maintain.
 - `**agentLoop.ts`** handles multi-round tool calls, partial JSON streaming, tool repair, and aborts.
 - **Structured assistant messages** are persisted locally and expanded to provider-native tool formats when needed.
 - **Local persistence** stores threads, settings, and plans as JSON / Markdown under user data.
@@ -318,7 +311,7 @@ This will rasterize `docs/assets/async-logo.svg` into `resources/icons/icon.png`
 
 ## Acknowledgements
 
-We genuinely need to thank Claude Code for its "open-source moment" — Async IDE as an open-source alternative is, in a way, an indirect beneficiary of that.
+We are grateful to the open-source community and projects like Claude Code that helped demonstrate the power of agent-driven development — Async IDE builds on that momentum with its own take on transparent, local-first AI workflows.
 
 ---
 

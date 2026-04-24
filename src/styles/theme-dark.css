@@ -40,8 +40,9 @@
 	--void-scrollbar-thumb: color-mix(in srgb, var(--void-fg-2) 42%, transparent);
 	--void-scrollbar-thumb-hover: color-mix(in srgb, var(--void-fg-1) 56%, transparent);
 	--void-scrollbar-thumb-active: color-mix(in srgb, var(--void-fg-1) 64%, transparent);
-	--ref-menubar-chrome-bg: color-mix(in srgb, var(--void-bg-0) 45%, var(--void-bg-1) 55%);
-	--void-sidebar-fill: color-mix(in srgb, var(--void-bg-1) 98%, transparent);
+	--void-settings-root-bg: #151C22;
+	--ref-menubar-chrome-bg: #161D24;
+	--void-sidebar-fill: #161D24;
 	--void-shadow-card: 0 20px 44px color-mix(in srgb, black 26%, transparent);
 	--void-shadow-soft: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 
@@ -49,8 +50,8 @@
 	--surface-panel-bg-strong: color-mix(in srgb, var(--void-bg-0) 98.5%, transparent);
 	--surface-panel-bg-soft: color-mix(in srgb, var(--void-bg-3) 98%, transparent);
 	--surface-glass-stroke: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
-	--surface-tint-soft: color-mix(in srgb, var(--void-accent-cool) 5%, transparent);
-	--surface-tint-strong: color-mix(in srgb, var(--void-accent-cool) 9%, transparent);
+	--surface-tint-soft: color-mix(in srgb, var(--void-fg-0) 5%, transparent);
+	--surface-tint-strong: color-mix(in srgb, var(--void-fg-0) 9%, transparent);
 	--surface-search-bg: color-mix(in srgb, var(--void-bg-2) 97%, transparent);
 	--shadow-floating: 0 18px 38px color-mix(in srgb, black 20%, transparent);
 	--shadow-toolbar: 0 1px 0 color-mix(in srgb, var(--void-fg-0) 2.8%, transparent);
@@ -79,40 +80,8 @@
 		transparent
 	);
 	--surface-code-bg: color-mix(in srgb, var(--void-bg-0) 96%, transparent);
-	--surface-bubble-user: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--void-bg-3) 98%, transparent) 0%,
-		color-mix(in srgb, var(--void-bg-2) 98%, transparent) 100%
-	);
-	--surface-card-bg: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--void-bg-1) 98%, transparent) 0%,
-		color-mix(in srgb, var(--void-bg-0) 98%, transparent) 100%
-	);
-	--surface-card-bg-soft: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--void-bg-3) 98%, transparent) 0%,
-		color-mix(in srgb, var(--void-bg-1) 98%, transparent) 100%
-	);
-	--app-backdrop:
-		radial-gradient(
-			circle at top center,
-			color-mix(in srgb, var(--void-accent-cool) 8%, transparent) 0%,
-			transparent 28%
-		),
-		radial-gradient(
-			circle at 84% 12%,
-			color-mix(in srgb, var(--void-accent-warm) 8%, transparent) 0%,
-			transparent 22%
-		),
-		radial-gradient(
-			circle at 14% 18%,
-			color-mix(in srgb, var(--void-accent-assist) 6%, transparent) 0%,
-			transparent 24%
-		),
-		linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--void-bg-1) 62%, var(--void-bg-0) 38%) 0%,
-			var(--void-bg-0) 100%
-		);
+	--surface-bubble-user: var(--void-bg-2);
+	--surface-card-bg: var(--void-bg-1);
+	--surface-card-bg-soft: var(--void-bg-2);
+	--app-backdrop: var(--void-bg-0);
 }

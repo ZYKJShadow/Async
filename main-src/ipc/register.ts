@@ -88,6 +88,7 @@ import {
 	threadHasUserMessages,
 	replaceFromUserVisibleIndex,
 	selectThread,
+	setThreadGeneratedTitle,
 	setThreadTitle,
 	updateLastAssistant,
 	appendToLastAssistant,
@@ -153,7 +154,12 @@ import {
 	abortTeamPlanApprovalForThread,
 	resolveTeamPlanApproval,
 } from '../agent/teamPlanApprovalTool.js';
-import { loadClaudeWorkspaceSkills, loadGlobalSkills, prepareUserTurnForChat } from '../llm/agentMessagePrep.js';
+import {
+	buildThreadTitleRuleAppend,
+	loadClaudeWorkspaceSkills,
+	loadGlobalSkills,
+	prepareUserTurnForChat,
+} from '../llm/agentMessagePrep.js';
 import {
 	buildSkillCreatorSystemAppend,
 	formatSkillCreatorUserBubble,
@@ -220,6 +226,7 @@ import {
 	openBrowserWindowForHostId,
 } from '../browser/browserController.js';
 import { syncBrowserCaptureBindingsForHostId } from '../browser/browserCapture.js';
+import { generateThreadTitle } from '../threadTitle.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -371,10 +378,62 @@ async function appendMemoryAndRetrievalContext(params: {
 const abortByThread = new Map<string, AbortController>();
 const preflightAbortByThread = new Map<string, AbortController>();
 const agentRevertSnapshotsByThread = new Map<string, Map<string, string | null>>();
+const threadTitleGenerationVersion = new Map<string, number>();
 /** 工具执行前用户确认：approvalId → resolve(allowed) */
 const toolApprovalWaiters = new Map<string, (approved: boolean) => void>();
 /** 连续失败后恢复：recoveryId → resolve(decision) */
 const mistakeLimitWaiters = new Map<string, (d: MistakeLimitDecision) => void>();
+
+function queueThreadTitleGeneration(params: {
+	sender: WebContents;
+	threadId: string;
+	description: string;
+	settings: ReturnType<typeof getSettings>;
+	modelSelection: string;
+	ruleContext?: string;
+}): void {
+	const description = String(params.description ?? '').trim();
+	if (!description) {
+		return;
+	}
+	const version = (threadTitleGenerationVersion.get(params.threadId) ?? 0) + 1;
+	threadTitleGenerationVersion.set(params.threadId, version);
+	void generateThreadTitle(
+		params.settings,
+		params.modelSelection,
+		description,
+		params.ruleContext ?? ''
+	)
+		.then((title) => {
+			if (!title) {
+				return;
+			}
+			if (threadTitleGenerationVersion.get(params.threadId) !== version) {
+				return;
+			}
+			if (!setThreadGeneratedTitle(params.threadId, title)) {
+				return;
+			}
+			try {
+				params.sender.send('async-shell:chat', {
+					type: 'thread_title_updated',
+					threadId: params.threadId,
+					title,
+				});
+			} catch {
+				/* ignore */
+			}
+		})
+		.catch(() => {
+			/* ignore */
+		})
+		.finally(() => {
+			if (threadTitleGenerationVersion.get(params.threadId) === version) {
+				threadTitleGenerationVersion.delete(params.threadId);
+			}
+		});
+}
+
 function activeUsageStatsDir(): string | null {
 	return resolveUsageStatsDataDir(getSettings());
 }
@@ -2546,6 +2605,12 @@ export function registerIpc(): void {
 					mergeAgentWithProjectSlice(settings.agent, projectAgent),
 					root
 				);
+				const lang = settings.language === 'en' ? 'en' : 'zh-CN';
+				const threadTitleRuleContext = buildThreadTitleRuleAppend({
+					agent: agentForTurn,
+					workspaceRoot: root,
+					uiLanguage: lang,
+				});
 
 			const skillIn = payload.skillCreator;
 			if (skillIn && typeof skillIn.userNote === 'string') {
@@ -2555,8 +2620,7 @@ export function registerIpc(): void {
 				if (scope === 'project' && !root) {
 					return { ok: false as const, error: 'no-workspace' as const };
 				}
-				const prepared = prepareUserTurnForChat(skillIn.userNote, agentForTurn, root, workspaceFiles);
-				const lang = settings.language === 'en' ? 'en' : 'zh-CN';
+				const prepared = prepareUserTurnForChat(skillIn.userNote, agentForTurn, root, workspaceFiles, lang);
 				const visible = formatSkillCreatorUserBubble(scope, lang, skillIn.userNote);
 				const skillBlock = buildSkillCreatorSystemAppend(scope, lang, root);
 				let finalSystemAppend = prepared.agentSystemAppend
@@ -2572,6 +2636,16 @@ export function registerIpc(): void {
 				throwIfAbortRequested(preflightAc.signal, threadId, 'skillCreator preflight');
 				finalSystemAppend = appendPlanExecuteToSystem(finalSystemAppend, payload.planExecute, root);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
+				if (t.titleSource !== 'manual' && t.messages.filter((message) => message.role === 'user').length === 1) {
+					queueThreadTitleGeneration({
+						sender: event.sender,
+						threadId,
+						description: visible,
+						settings,
+						modelSelection,
+						ruleContext: threadTitleRuleContext,
+					});
+				}
 				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
 				return { ok: true as const };
 			}
@@ -2581,8 +2655,7 @@ export function registerIpc(): void {
 				const creatorAgentMode: ComposerMode = 'agent';
 				const ruleScope: AgentRuleScope =
 					ruleIn.ruleScope === 'glob' || ruleIn.ruleScope === 'manual' ? ruleIn.ruleScope : 'always';
-				const prepared = prepareUserTurnForChat(ruleIn.userNote, agentForTurn, root, workspaceFiles);
-				const lang = settings.language === 'en' ? 'en' : 'zh-CN';
+				const prepared = prepareUserTurnForChat(ruleIn.userNote, agentForTurn, root, workspaceFiles, lang);
 				const visible = formatRuleCreatorUserBubble(ruleScope, ruleIn.globPattern, lang, ruleIn.userNote);
 				const ruleBlock = buildRuleCreatorSystemAppend(ruleScope, ruleIn.globPattern, lang, root);
 				let finalSystemAppend = prepared.agentSystemAppend
@@ -2603,6 +2676,16 @@ export function registerIpc(): void {
 					Boolean(root)
 				);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
+				if (t.titleSource !== 'manual' && t.messages.filter((message) => message.role === 'user').length === 1) {
+					queueThreadTitleGeneration({
+						sender: event.sender,
+						threadId,
+						description: visible,
+						settings,
+						modelSelection,
+						ruleContext: threadTitleRuleContext,
+					});
+				}
 				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
 				return { ok: true as const };
 			}
@@ -2614,8 +2697,7 @@ export function registerIpc(): void {
 				if (scope === 'project' && !root) {
 					return { ok: false as const, error: 'no-workspace' as const };
 				}
-				const prepared = prepareUserTurnForChat(subIn.userNote, agentForTurn, root, workspaceFiles);
-				const lang = settings.language === 'en' ? 'en' : 'zh-CN';
+				const prepared = prepareUserTurnForChat(subIn.userNote, agentForTurn, root, workspaceFiles, lang);
 				const visible = formatSubagentCreatorUserBubble(scope, lang, subIn.userNote);
 				const subBlock = buildSubagentCreatorSystemAppend(scope, lang, root);
 				let finalSystemAppend = prepared.agentSystemAppend
@@ -2631,6 +2713,16 @@ export function registerIpc(): void {
 				throwIfAbortRequested(preflightAc.signal, threadId, 'subagentCreator preflight');
 				finalSystemAppend = appendPlanExecuteToSystem(finalSystemAppend, payload.planExecute, root);
 				const t = appendMessage(threadId, { role: 'user', content: visible });
+				if (t.titleSource !== 'manual' && t.messages.filter((message) => message.role === 'user').length === 1) {
+					queueThreadTitleGeneration({
+						sender: event.sender,
+						threadId,
+						description: visible,
+						settings,
+						modelSelection,
+						ruleContext: threadTitleRuleContext,
+					});
+				}
 				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
 				return { ok: true as const };
 			}
@@ -2639,7 +2731,8 @@ export function registerIpc(): void {
 				text,
 				agentForTurn,
 				root,
-				workspaceFiles
+				workspaceFiles,
+				lang
 			);
 
 			let finalSystemAppend = agentSystemAppend;
@@ -2664,6 +2757,16 @@ export function registerIpc(): void {
 					? { role: 'user', content: userText, parts: userParts }
 					: { role: 'user', content: userText }
 			);
+			if (t.titleSource !== 'manual' && t.messages.filter((message) => message.role === 'user').length === 1) {
+				queueThreadTitleGeneration({
+					sender: event.sender,
+					threadId,
+					description: userText,
+					settings,
+					modelSelection,
+					ruleContext: threadTitleRuleContext,
+				});
+			}
 			logChatPipelineLatency('chat:ipc', threadId, chatSendLatencyT0, 'before runChatStream (IPC returns soon)', {
 				persistedMsgCount: t.messages.length,
 			});
@@ -2736,7 +2839,19 @@ export function registerIpc(): void {
 					mergeAgentWithProjectSlice(settings.agent, projectAgent),
 					root
 				);
-				const { userText, agentSystemAppend } = prepareUserTurnForChat(trimmed, agentForTurn, root, workspaceFiles);
+				const lang = settings.language === 'en' ? 'en' : 'zh-CN';
+				const threadTitleRuleContext = buildThreadTitleRuleAppend({
+					agent: agentForTurn,
+					workspaceRoot: root,
+					uiLanguage: lang,
+				});
+				const { userText, agentSystemAppend } = prepareUserTurnForChat(
+					trimmed,
+					agentForTurn,
+					root,
+					workspaceFiles,
+					lang
+				);
 
 				let finalSystemAppend = agentSystemAppend;
 				finalSystemAppend = await appendMemoryAndRetrievalContext({
@@ -2750,6 +2865,16 @@ export function registerIpc(): void {
 
 				const editParts = sanitizeUserMessagePartsPayload(payload.parts);
 				const t = replaceFromUserVisibleIndex(threadId, visibleIndex, userText, editParts);
+				if (visibleIndex === 0 && t.titleSource !== 'manual') {
+					queueThreadTitleGeneration({
+						sender: event.sender,
+						threadId,
+						description: userText,
+						settings,
+						modelSelection,
+						ruleContext: threadTitleRuleContext,
+					});
+				}
 				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend, streamNonce);
 				return { ok: true as const };
 			} catch (e) {

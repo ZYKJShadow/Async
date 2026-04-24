@@ -2,10 +2,24 @@ import type { ReactNode } from 'react';
 import type { TFunction } from '../i18n';
 import type { ThreadInfo } from '../threadTypes';
 
+export const THREAD_TITLE_PLACEHOLDER = '???';
+
 export function threadFileBasename(rel: string): string {
 	const n = rel.replace(/\\/g, '/');
 	const i = n.lastIndexOf('/');
 	return i >= 0 ? n.slice(i + 1) : n;
+}
+
+export function isPlaceholderThreadTitle(title: string): boolean {
+	return title.trim() === THREAD_TITLE_PLACEHOLDER;
+}
+
+export function displayThreadTitle(title: string, fallback: string): string {
+	const trimmed = title.trim();
+	if (!trimmed || isPlaceholderThreadTitle(trimmed)) {
+		return fallback;
+	}
+	return trimmed;
 }
 
 export function formatThreadRowSubtitle(tr: TFunction, t: ThreadInfo, isActive: boolean): ReactNode {
@@ -46,10 +60,11 @@ export function formatThreadRowSubtitle(tr: TFunction, t: ThreadInfo, isActive: 
 }
 
 export function threadRowTitle(tr: TFunction, t: ThreadInfo): string {
+	const title = displayThreadTitle(t.title, tr('app.threadUntitled'));
 	if (t.isAwaitingReply) {
-		return t.title.startsWith('Draft:') || t.title.startsWith('草稿：')
-			? t.title
-			: tr('app.draftPrefix', { title: t.title });
+		return title.startsWith('Draft:') || title.startsWith('草稿：')
+			? title
+			: tr('app.draftPrefix', { title });
 	}
-	return t.title;
+	return title;
 }

@@ -466,6 +466,31 @@ export function buildAgentGlobalRuleAppend(
 	return parts.join('\n\n');
 }
 
+export function buildThreadTitleRuleAppend(opts: {
+	agent: AgentCustomization | undefined;
+	workspaceRoot: string | null;
+	uiLanguage: 'zh-CN' | 'en';
+}): string {
+	const parts: string[] = [];
+	const importedRules = [
+		loadThirdPartyAgentRules(opts.workspaceRoot),
+		loadClaudeProjectRulesMarkdown(opts.workspaceRoot),
+	]
+		.filter((block) => block.trim().length > 0)
+		.join('\n\n---\n\n');
+
+	if (importedRules) {
+		parts.push(
+			`#### Imported project rules\n${importedRules}`
+		);
+	}
+
+	parts.push(...buildEnabledAlwaysRuleBlocks(opts.agent));
+	parts.push(buildAutoReplyLanguageRuleBlock(opts.uiLanguage, opts.uiLanguage));
+
+	return parts.join('\n\n');
+}
+
 export function buildAgentSystemAppend(opts: {
 	agent: AgentCustomization | undefined;
 	userText: string;

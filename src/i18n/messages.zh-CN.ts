@@ -515,7 +515,10 @@ export const messagesZhCN: Record<string, string> = {
 	'app.searchAgentsPlaceholder': '搜索会话…',
 	'app.searchAgentsAria': '\u641c\u7d22\u5bf9\u8bdd',
 	'app.sidebarThreads': '\u5bf9\u8bdd',
+	'app.sidebarProjects': '\u9879\u76ee',
 	'app.noThreads': '\u6682\u65e0\u5bf9\u8bdd',
+	'app.skills': '\u6280\u80fd',
+	'app.automation': '\u81ea\u52a8\u5316',
 	'app.today': '今天',
 	'app.archived': '更早',
 	'app.openWorkspace': '打开工作区',
@@ -726,6 +729,7 @@ export const messagesZhCN: Record<string, string> = {
 	'app.planNewIdea': '规划新想法',
 	'app.quickTerminal': '终端',
 	'app.threadEdited': '已编辑 {{names}}',
+	'app.threadUntitled': '新对话',
 	'app.threadFilesOne': '{{n}} 个文件',
 	'app.threadFilesMany': '{{n}} 个文件',
 	'app.draftPrefix': '草稿：{{title}}',
@@ -2106,4 +2110,12 @@ export const messagesZhCN: Record<string, string> = {
 	'agent.commandPermission.askEvery': '每次询问',
 	'agent.commandPermission.settingsHint':
 		'与设置 →「执行与安全」中的 Shell 三档权限一致。细粒度允许/拒绝在同一页的「工具权限规则」中配置。',
+
+	// relative time
+	'time.justNow': '刚刚',
+	'time.minutesAgo': '{{count}} 分钟',
+	'time.hoursAgo': '{{count}} 小时',
+	'time.daysAgo': '{{count}} 天',
+	'time.monthsAgo': '{{count}} 个月',
+	'time.yearsAgo': '{{count}} 年',
 };

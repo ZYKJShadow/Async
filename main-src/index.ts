@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeTheme } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { initWindowsConsoleUtf8 } from './winUtf8.js';
@@ -8,6 +8,10 @@ import { registerIpc } from './ipc/register.js';
 import { getMcpManager } from './mcp/index.js';
 import { getEffectiveMcpServerConfigs } from './plugins/pluginRuntimeService.js';
 import { configureAppWindowIcon, createAppWindow } from './appWindow.js';
+import {
+	nativeWindowChromeFromAppearance,
+	normalizeAppearanceSettings,
+} from '../src/appearanceSettings.js';
 import { initAutoUpdate } from './autoUpdate.js';
 import { disposeBotController, initBotController, syncBotControllerFromSettings } from './bots/botController.js';
 import { flushBotSessionStore, initBotSessionStore } from './bots/botSessionStore.js';
@@ -123,9 +127,20 @@ app.whenReady().then(() => {
 		lap('MCP auto-start done');
 	});
 
+	const settings = getSettings();
+	const ui = (settings.ui ?? {}) as Partial<Record<string, unknown>>;
+	const colorMode =
+		ui.colorMode === 'light' || ui.colorMode === 'dark' || ui.colorMode === 'system'
+			? ui.colorMode
+			: 'system';
+	const scheme = colorMode === 'system' ? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light') : colorMode;
+	const appearance = normalizeAppearanceSettings(ui, scheme);
+	const chromeOverride = nativeWindowChromeFromAppearance(appearance, scheme);
+
 	createAppWindow({
 		surface: 'agent',
 		initialWorkspace: restoredUsable,
+		initialThemeChrome: { scheme, override: chromeOverride },
 	});
 	lap('window created');
 
@@ -138,7 +153,13 @@ app.whenReady().then(() => {
 
 	app.on('activate', () => {
 		if (BrowserWindow.getAllWindows().length === 0) {
-			createAppWindow({ surface: 'agent' });
+			const schemeNow = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+			const appearanceNow = normalizeAppearanceSettings(ui, schemeNow);
+			const chromeNow = nativeWindowChromeFromAppearance(appearanceNow, schemeNow);
+			createAppWindow({
+				surface: 'agent',
+				initialThemeChrome: { scheme: schemeNow, override: chromeNow },
+			});
 		}
 	});
 });

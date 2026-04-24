@@ -71,33 +71,29 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-strong) 94%, transparent) 0%, var(--surface-panel-bg) 100%);
+	background: var(--surface-panel-bg);
 }
 
 :root[data-ui-style='mac-codex'] .ref-center {
-	background:
-		radial-gradient(circle at top center, var(--surface-tint-soft) 0%, transparent 36%),
-		linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-strong) 94%, transparent) 0%, var(--surface-panel-bg) 100%);
+	background: var(--surface-panel-bg-strong);
 }
 
 :root[data-ui-style='mac-codex'] .ref-right {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-strong) 92%, transparent) 0%, var(--surface-panel-bg-soft) 100%);
+	background: var(--surface-panel-bg-soft);
 }
 
 :root[data-ui-style='mac-codex'] .ref-resize-handle {
-	background: color-mix(in srgb, var(--surface-panel-bg) 88%, transparent);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'] .ref-resize-handle::after {
-	background: color-mix(in srgb, var(--color-border-subtle) 78%, transparent);
+	background: color-mix(in srgb, var(--color-border-subtle) 50%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-resize-handle:hover,
 :root[data-ui-style='mac-codex'] .ref-resize-handle:active,
 :root[data-ui-style='mac-codex'] .ref-settings-resize-handle:hover {
-	background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'] .ref-agent-search-wrap,
@@ -143,6 +139,10 @@
 	background:
 		radial-gradient(circle at top center, color-mix(in srgb, var(--surface-tint-soft) 78%, transparent) 0%, transparent 34%),
 		linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-strong) 98%, transparent) 0%, color-mix(in srgb, var(--surface-panel-bg) 96%, transparent) 100%);
+}
+
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-browser-window-root {
+	background: var(--void-bg-0);
 }
 
 :root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-agent-review-shell {
@@ -829,7 +829,7 @@
 :root[data-ui-style='mac-codex'] .ref-msg-user {
 	background: var(--surface-bubble-user);
 	border-color: color-mix(in srgb, var(--color-accent) 16%, var(--surface-glass-stroke));
-	border-radius: 22px;
+	border-radius: 16px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-msg-user:hover:not(:disabled) {
@@ -923,20 +923,29 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-menubar {
-	background: var(
-		--void-menubar-bg,
-		linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--ref-menubar-chrome-bg) 96%, var(--void-bg-0)) 0%,
-			color-mix(in srgb, var(--void-bg-1) 94%, var(--void-bg-0)) 100%
-		)
-	);
+	background: var(--void-menubar-bg, var(--ref-menubar-chrome-bg));
 	border-bottom: 1px solid var(--void-border-soft);
 	box-shadow:
 		0 1px 0 color-mix(in srgb, var(--void-fg-0) 4%, transparent),
 		0 18px 42px color-mix(in srgb, black 24%, transparent);
 	backdrop-filter: none;
 	-webkit-backdrop-filter: none;
+}
+
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-menubar .ref-menu-item:hover {
+	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
+	border-color: transparent;
+}
+
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-menubar .ref-menu-item.is-active {
+	background: color-mix(in srgb, var(--void-fg-0) 12%, transparent);
+	border-color: transparent;
+	box-shadow: none;
+}
+
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-menubar .ref-global-search-btn:hover {
+	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
+	border-color: color-mix(in srgb, var(--void-fg-0) 14%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body {
@@ -955,47 +964,24 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left {
-	background:
-		radial-gradient(
-			circle at top left,
-			color-mix(in srgb, var(--void-accent-cool, var(--void-accent)) 12%, transparent) 0%,
-			transparent 30%
-		),
-		linear-gradient(180deg, var(--void-bg-2) 0%, var(--void-bg-1) 100%);
+	background: var(--void-sidebar-fill);
 	border-right: 1px solid var(--void-border-soft);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-center,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body.ref-body--editor-home,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-editor-welcome {
-	background:
-		radial-gradient(
-			circle at top center,
-			color-mix(in srgb, var(--void-accent-cool, var(--void-accent)) 9%, transparent) 0%,
-			transparent 30%
-		),
-		radial-gradient(
-			circle at 88% 10%,
-			color-mix(in srgb, var(--void-accent-warm) 10%, transparent) 0%,
-			transparent 20%
-		),
-		var(--void-bg-0);
+	background: var(--void-bg-0);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-right {
-	background:
-		radial-gradient(
-			circle at top right,
-			color-mix(in srgb, var(--void-accent-warm) 9%, transparent) 0%,
-			transparent 24%
-		),
-		linear-gradient(180deg, var(--void-bg-2) 0%, var(--void-bg-1) 100%);
+	background: var(--void-bg-1);
 	border-left: 1px solid var(--void-border-soft);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left-scroll {
 	padding: 10px 10px 14px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 48%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 0%, transparent) 100%);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-project-block--editor {
@@ -1003,7 +989,7 @@
 	margin: 6px 6px 14px;
 	border: 1px solid color-mix(in srgb, var(--void-fg-3) 18%, transparent);
 	border-radius: 20px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 99%, transparent) 100%);
+	background: var(--void-bg-1);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent), 0 18px 36px color-mix(in srgb, black 18%, transparent);
 	overflow: hidden;
 }
@@ -1013,9 +999,7 @@
 	position: absolute;
 	inset: 0 0 auto 0;
 	height: 72px;
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 12%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 0%, transparent) 100%),
-		radial-gradient(circle at 85% 0%, color-mix(in srgb, var(--void-accent-warm) 14%, transparent) 0%, transparent 45%);
+	background: transparent;
 	pointer-events: none;
 	opacity: 0.8;
 }
@@ -1032,7 +1016,7 @@
 	padding: 12px 14px;
 	border: 1px solid color-mix(in srgb, var(--void-fg-3) 18%, transparent);
 	border-radius: 16px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 92%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 86%, transparent) 100%);
+	background: var(--void-bg-2);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 
@@ -1051,7 +1035,7 @@
 	padding: 8px 0 12px;
 	border: 1px solid color-mix(in srgb, var(--void-fg-3) 18%, transparent);
 	border-radius: 16px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 92%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 98%, transparent) 100%);
+	background: var(--void-bg-0);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 2%, transparent);
 }
 
@@ -1067,11 +1051,7 @@
 	top: 8px;
 	bottom: 8px;
 	width: 1px;
-	background: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--void-accent-cool, var(--void-accent)) 10%, transparent) 0%,
-		color-mix(in srgb, var(--void-accent-warm) 6%, transparent) 100%
-	);
+	background: color-mix(in srgb, var(--void-fg-3) 20%, transparent);
 	pointer-events: none;
 	opacity: 0.8;
 }
@@ -1084,7 +1064,7 @@
 	padding-right: 10px;
 	border: 1px solid transparent;
 	border-radius: 12px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-fg-0) 1%, transparent) 0%, color-mix(in srgb, var(--void-fg-0) 0%, transparent) 100%);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-row:hover {
@@ -1116,11 +1096,7 @@
 	bottom: 6px;
 	width: 3px;
 	border-radius: 999px;
-	background: linear-gradient(
-		180deg,
-		var(--void-accent-cool, var(--void-accent)) 0%,
-		var(--void-accent-warm) 100%
-	);
+	background: var(--void-accent-cool, var(--void-accent));
 	box-shadow: 0 0 16px color-mix(in srgb, var(--void-accent-cool, var(--void-accent)) 35%, transparent);
 }
 
@@ -1225,7 +1201,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-ctx-menu {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 99%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 100%, transparent) 100%);
+	background: var(--void-bg-1);
 	border-color: color-mix(in srgb, var(--void-fg-3) 20%, transparent);
 	box-shadow: 0 24px 54px color-mix(in srgb, black 34%, transparent);
 }
@@ -1235,7 +1211,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-ctx-item:hover:not(.is-disabled):not(:disabled) {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 10%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 4%, transparent) 100%);
+	background: var(--void-bg-3);
 	border-color: transparent;
 	color: var(--void-fg-0);
 }
@@ -1256,20 +1232,20 @@
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left-footer--editor {
 	padding: 10px 12px 12px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 0%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 86%, transparent) 44%, color-mix(in srgb, var(--void-bg-0) 98%, transparent) 100%);
+	background: transparent;
 	border-top: 1px solid color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-open-workspace {
 	border-radius: 14px;
 	border-color: color-mix(in srgb, var(--void-accent-cool) 22%, transparent);
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 18%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 26%, transparent) 100%);
+	background: var(--void-bg-3);
 	color: color-mix(in srgb, var(--void-fg-0) 78%, var(--void-accent-cool) 22%);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 4%, transparent), 0 12px 24px color-mix(in srgb, var(--void-bg-0) 24%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-open-workspace:hover {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 24%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 30%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 28%, transparent);
 }
 
@@ -1291,35 +1267,28 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-backdrop {
-	background: var(--void-settings-backdrop-bg,
-		radial-gradient(circle at top center, color-mix(in srgb, var(--void-accent-cool) 8%, transparent) 0%, transparent 26%),
-		radial-gradient(circle at 86% 10%, color-mix(in srgb, var(--void-accent-warm) 5%, transparent) 0%, transparent 18%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 100%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 100%, transparent) 100%));
+	background: var(--void-settings-backdrop-bg, var(--void-bg-0));
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-root {
-	background: var(--void-settings-root-bg, linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 100%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 100%, transparent) 100%));
+	background: var(--void-settings-root-bg, var(--void-bg-1));
 	border-color: transparent;
 	box-shadow: none;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-sidebar {
-	background: var(--void-settings-sidebar-bg, linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 98%, transparent) 100%));
+	background: var(--void-settings-sidebar-bg, var(--void-bg-2));
 	border-right: 1px solid color-mix(in srgb, var(--void-fg-0) 5%, transparent);
 	backdrop-filter: none;
 	-webkit-backdrop-filter: none;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-main {
-	background: var(--void-settings-main-bg,
-		radial-gradient(circle at top center, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 34%),
-		radial-gradient(circle at 84% 14%, color-mix(in srgb, var(--void-accent-warm) 4%, transparent) 0%, transparent 18%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 98%, transparent) 100%));
+	background: var(--void-settings-main-bg, var(--void-bg-1));
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-open-loading {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 96%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 	box-shadow:
 		0 18px 44px color-mix(in srgb, black 28%, transparent),
@@ -1333,8 +1302,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-skeleton-card {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 96%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
@@ -1352,8 +1320,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-layout-switch-loading-card {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 96%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 	box-shadow:
 		0 20px 52px color-mix(in srgb, black 30%, transparent),
@@ -1366,10 +1333,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-quick-open-backdrop {
-	background:
-		radial-gradient(circle at top center, color-mix(in srgb, var(--void-accent-cool) 12%, transparent) 0%, transparent 28%),
-		radial-gradient(circle at 84% 12%, color-mix(in srgb, var(--void-accent-warm) 8%, transparent) 0%, transparent 18%),
-		color-mix(in srgb, var(--void-bg-0) 46%, transparent);
+	background: color-mix(in srgb, var(--void-bg-0) 46%, transparent);
 	backdrop-filter: blur(18px) saturate(120%);
 	-webkit-backdrop-filter: blur(18px) saturate(120%);
 }
@@ -1409,21 +1373,21 @@
 /* 外观页大卡片：与模型设置里的 provider 卡片同一套青灰面板（index.css 里仅用 void 渐变，进不了上面控件条） */
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-appearance-shell-card,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-appearance-subcard {
-	background: var(
-		--void-appearance-shell-bg,
-		linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--void-bg-3) 96%, transparent) 0%,
-			color-mix(in srgb, var(--void-bg-3) 96%, transparent) 100%
-		)
-	);
+	background: var(--void-appearance-shell-bg, var(--void-bg-3));
 	border-color: var(--void-appearance-shell-border, color-mix(in srgb, var(--void-fg-0) 7%, transparent));
 	box-shadow: var(--void-appearance-shell-shadow, 0 12px 28px color-mix(in srgb, black 18%, transparent));
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-appearance-theme-editor-head {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 56%, transparent);
+	background: var(
+		--void-appearance-theme-editor-head-bg,
+		color-mix(in srgb, var(--surface-panel-bg-soft) 56%, transparent)
+	);
 	border-bottom-color: color-mix(in srgb, var(--void-fg-0) 5%, transparent);
+}
+
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-settings-panel--appearance .ref-appearance-seg {
+	background: var(--void-appearance-settings-seg-bg, var(--void-input-bg));
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-appearance-code-preview {
@@ -1431,7 +1395,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-appearance-code-pane {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 98%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 }
 
@@ -1451,7 +1415,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-appearance-toolbar-btn:disabled:hover {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-3) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-3) 96%, transparent) 100%);
+	background: var(--void-bg-3);
 	border-color: color-mix(in srgb, var(--void-fg-0) 7%, transparent);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
@@ -1474,7 +1438,7 @@
 	padding: 10px 12px;
 	border-radius: 12px;
 	border-color: color-mix(in srgb, var(--void-accent-cool) 22%, transparent);
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 14%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 28%, transparent) 100%);
+	background: var(--void-bg-3);
 	color: color-mix(in srgb, var(--void-fg-0) 78%, var(--void-accent-cool) 22%);
 	font-size: 13px;
 	font-weight: 600;
@@ -1482,7 +1446,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-agent-new-btn:hover {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 20%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 34%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 28%, transparent);
 }
 
@@ -1610,7 +1574,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-msg-user:hover:not(:disabled) {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-3) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-3) 98%, transparent) 100%);
+	background: var(--void-bg-3);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='light'] .ref-msg-user,
@@ -1637,28 +1601,25 @@
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-welcome-action-card,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-welcome-recent-card {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 94%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 96%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-fg-0) 6%, transparent);
 	box-shadow: none;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-welcome-action-card:hover:not(:disabled),
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-welcome-recent-card:hover {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-3) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 98%, transparent) 100%);
+	background: var(--void-bg-3);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 12%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-welcome-action-card--primary {
-	background:
-		radial-gradient(circle at top left, color-mix(in srgb, var(--void-accent-cool) 16%, transparent) 0%, transparent 38%),
-		radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--void-accent-warm) 12%, transparent) 0%, transparent 28%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 98%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 14%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-welcome-action-icon,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-welcome-recent-card-icon {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 12%, transparent) 0%, color-mix(in srgb, var(--void-accent-warm) 8%, transparent) 100%);
+	background: var(--void-bg-3);
 	color: color-mix(in srgb, var(--void-fg-0) 80%, var(--void-accent-cool) 20%);
 }
 
@@ -1956,9 +1917,7 @@
 	position: absolute;
 	inset: 0 0 auto 0;
 	height: 88px;
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 11%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 0%, transparent) 100%),
-		radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--void-accent-warm) 12%, transparent) 0%, transparent 44%);
+	background: transparent;
 	pointer-events: none;
 	opacity: 0.75;
 }
@@ -1968,7 +1927,7 @@
 	padding: 12px 14px;
 	border: 1px solid color-mix(in srgb, var(--void-fg-3) 16%, transparent);
 	border-radius: 16px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 90%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 82%, transparent) 100%);
+	background: var(--void-bg-2);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 
@@ -1978,12 +1937,12 @@
 	padding: 8px 0 12px;
 	border: 1px solid color-mix(in srgb, var(--void-fg-3) 16%, transparent);
 	border-radius: 16px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 90%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 96%, transparent) 100%);
+	background: var(--void-bg-0);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 2%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-preview-tree {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 99%, transparent) 100%);
+	background: var(--void-bg-1);
 	border-color: color-mix(in srgb, var(--void-fg-3) 16%, transparent);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 2%, transparent), 0 14px 30px color-mix(in srgb, black 14%, transparent);
 }
@@ -1991,7 +1950,7 @@
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-preview-tree .ref-explorer-head {
 	padding: 12px 14px;
 	border-bottom-color: color-mix(in srgb, var(--void-fg-3) 16%, transparent);
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 88%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 80%, transparent) 100%);
+	background: var(--void-bg-2);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-preview-tree .ref-explorer-body {
@@ -1999,16 +1958,14 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-preview-editor {
-	background:
-		radial-gradient(circle at top center, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 28%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 99%, transparent) 100%);
+	background: var(--void-bg-1);
 	border-color: color-mix(in srgb, var(--void-fg-3) 16%, transparent);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 2%, transparent), 0 16px 34px color-mix(in srgb, black 16%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-editor-toolbar,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-editor-toolbar--workspace {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 90%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 80%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-bottom-color: color-mix(in srgb, var(--void-fg-3) 16%, transparent);
 }
 
@@ -2017,19 +1974,17 @@
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-editor-pane.ref-editor-pane--md-preview,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-monaco-fill,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-editor-empty {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 99%, transparent) 100%);
+	background: var(--void-bg-0);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-editor-md-preview-scroll {
-	background:
-		radial-gradient(circle at top center, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 28%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 99%, transparent) 100%);
+	background: var(--void-bg-1);
 }
 
 /* Phase 7: lighter integrated explorer + stronger mode-chip feedback */
 :root[data-ui-style='mac-codex'] .ref-left-scroll {
 	padding: 6px 8px 10px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-soft) 26%, transparent) 0%, transparent 100%);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'] .ref-project-block--editor {
@@ -2051,9 +2006,7 @@
 	position: absolute;
 	inset: 0 0 auto 0;
 	height: 78px;
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--surface-tint-soft) 94%, transparent) 0%, transparent 100%),
-		radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--void-accent-warm) 12%, transparent) 0%, transparent 42%);
+	background: transparent;
 	pointer-events: none;
 	opacity: 0.78;
 }
@@ -2393,13 +2346,11 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-project-block--editor {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 56%, transparent) 0%, color-mix(in srgb, var(--void-bg-2) 8%, transparent) 100%);
+	background: var(--void-bg-2);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-project-block--editor::before {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 8%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 0%, transparent) 100%),
-		radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--void-accent-warm) 8%, transparent) 0%, transparent 40%);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-kicker {
@@ -2407,16 +2358,16 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-tree-wrap::before {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-fg-0) 8%, transparent) 0%, color-mix(in srgb, var(--void-fg-0) 0%, transparent) 100%);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-row:hover {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 84%, transparent) 0%, color-mix(in srgb, var(--void-bg-2) 78%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 10%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-row.is-selected {
-	background: linear-gradient(90deg, color-mix(in srgb, var(--void-accent-cool) 11%, transparent) 0%, color-mix(in srgb, var(--void-bg-2) 92%, transparent) 84%);
+	background: var(--void-bg-3);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 14%, transparent);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
@@ -2439,7 +2390,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-right-panel-view {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 94%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 90%, transparent) 100%);
+	background: var(--void-bg-1);
 	border-color: color-mix(in srgb, var(--void-fg-0) 7%, transparent);
 }
 
@@ -2596,10 +2547,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left::before {
-	background:
-		radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 28%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 20%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 0%, transparent) 100%),
-		linear-gradient(90deg, color-mix(in srgb, var(--void-bg-1) 54%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 18%, transparent) 74%, color-mix(in srgb, var(--void-bg-1) 0%, transparent) 100%);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left-scroll {
@@ -2608,16 +2556,12 @@
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left-scroll::after {
 	border-color: color-mix(in srgb, var(--void-fg-0) 5%, transparent);
-	background:
-		radial-gradient(circle at top left, color-mix(in srgb, var(--void-accent-cool) 4%, transparent) 0%, transparent 26%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 44%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 16%, transparent) 100%);
+	background: transparent;
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-project-block--editor {
-	background:
-		radial-gradient(circle at top left, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 30%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 18%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 4%, transparent) 100%);
+	background: var(--void-bg-0);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-project-block--editor::before {
@@ -2767,7 +2711,7 @@
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-kicker::before,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-head--editor::after,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left-footer--editor::before {
-	background: linear-gradient(90deg, color-mix(in srgb, var(--void-fg-0) 8%, transparent) 0%, color-mix(in srgb, var(--void-fg-0) 0%, transparent) 100%);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-explorer-title {
@@ -2791,16 +2735,14 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left-footer--editor .ref-open-workspace {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 92%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 94%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-fg-0) 7%, transparent);
 	color: var(--void-thought-body);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left-footer--editor .ref-open-workspace:hover {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-2) 98%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 10%, transparent);
 	color: color-mix(in srgb, var(--void-fg-0) 88%, var(--void-accent-cool) 12%);
 }
@@ -2868,24 +2810,23 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--editor-shell .ref-resize-handle {
-	background: color-mix(in srgb, var(--surface-panel-bg) 88%, transparent);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--editor-shell .ref-resize-handle::after {
 	width: 1px;
-	background: color-mix(in srgb, var(--surface-glass-stroke) 90%, transparent);
+	background: color-mix(in srgb, var(--surface-glass-stroke) 50%, transparent);
 	opacity: 0.94;
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--editor-shell .ref-resize-handle:hover,
 :root[data-ui-style='mac-codex'] .ref-body--editor-shell .ref-resize-handle:active {
-	background: color-mix(in srgb, var(--surface-tint-soft) 34%, transparent);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--editor-shell .ref-resize-handle:hover::after,
 :root[data-ui-style='mac-codex'] .ref-body--editor-shell .ref-resize-handle:active::after {
-	background:
-		linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--color-accent) 52%, transparent) 12%, color-mix(in srgb, var(--color-accent) 52%, transparent) 88%, transparent 100%);
+	background: color-mix(in srgb, var(--surface-glass-stroke) 80%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-left-editor-nest {
@@ -3040,51 +2981,48 @@
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell {
 	border: none;
-	background:
-		radial-gradient(circle at top center, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 32%),
-		radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--void-accent-warm) 5%, transparent) 0%, transparent 20%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 98%, transparent) 100%);
+	background: var(--void-bg-0);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell::before {
-	background:
-		radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 24%),
-		radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--void-accent-warm) 5%, transparent) 0%, transparent 20%);
+	background: transparent;
 	opacity: 0.84;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell > .ref-left--editor-embedded {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 34%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 0%, transparent) 100%);
+	background: var(--void-bg-1);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell > .ref-center--editor-shell {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 18%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 0%, transparent) 100%);
+	background: var(--void-bg-0);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell > .ref-right--editor-shell {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 28%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 0%, transparent) 100%);
+	background: var(--void-bg-1);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell .ref-resize-handle::after {
 	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 }
 
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell .ref-resize-handle:hover::after,
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--editor-shell .ref-resize-handle:active::after {
+	background: color-mix(in srgb, var(--void-fg-0) 14%, transparent);
+}
+
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left--editor-embedded .ref-project-block--editor::before {
-	background:
-		radial-gradient(circle at top left, color-mix(in srgb, var(--void-accent-cool) 6%, transparent) 0%, transparent 34%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, color-mix(in srgb, var(--void-accent-cool) 0%, transparent) 100%);
+	background: transparent;
 	opacity: 0.26;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left--editor-embedded .ref-explorer-tree-wrap::before {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-fg-0) 7%, transparent) 0%, color-mix(in srgb, var(--void-fg-0) 0%, transparent) 100%);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-center--editor-shell .ref-editor-split-bottom {
 	border-top-color: transparent;
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 22%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 42%, transparent) 100%);
+	background: var(--void-bg-0);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-center--editor-shell .ref-editor-center-split {
@@ -3113,8 +3051,7 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-right--editor-shell .ref-editor-chat-tab-shell.is-active {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-3) 84%, transparent) 0%, color-mix(in srgb, var(--void-bg-2) 76%, transparent) 100%);
+	background: var(--void-bg-3);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 12%, transparent);
 }
 
@@ -3244,7 +3181,7 @@
 	content: '';
 	position: absolute;
 	inset: 0;
-	background: var(--void-agent-shell-glow, radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--surface-tint-soft) 84%, transparent) 0%, transparent 24%), radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--void-accent-warm) 10%, transparent) 0%, transparent 18%));
+	background: transparent;
 	pointer-events: none;
 	opacity: 0.9;
 }
@@ -3266,31 +3203,28 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell > .ref-left--agent-layout {
-	background: var(--void-agent-sidebar-bg, linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-soft) 22%, transparent) 0%, transparent 100%));
+	background: var(--void-agent-sidebar-bg, var(--void-sidebar-fill));
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell > .ref-center--agent-layout {
-	background: var(--void-agent-center-bg, linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-strong) 8%, transparent) 0%, transparent 100%));
+	background: var(--void-agent-center-bg, var(--void-bg-0));
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell > .ref-right--agent-layout {
-	background: var(
-		--void-agent-right-bg,
-		var(--void-agent-sidebar-bg, linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-soft) 18%, transparent) 0%, transparent 100%))
-	);
+	background: var(--void-agent-right-bg, var(--void-bg-1));
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle {
-	background: color-mix(in srgb, var(--surface-panel-bg) 88%, transparent);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle::after {
-	background: color-mix(in srgb, var(--surface-glass-stroke) 90%, transparent);
+	background: color-mix(in srgb, var(--surface-glass-stroke) 40%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle:hover,
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle:active {
-	background: color-mix(in srgb, var(--surface-tint-soft) 24%, transparent);
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle.is-collapsed {
@@ -3313,14 +3247,15 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-nav-list {
-	gap: 4px;
-	margin-bottom: 18px;
+	gap: 2px;
+	margin-bottom: 14px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-nav-item {
-	padding: 8px 10px;
-	border-radius: 10px;
+	padding: 6px 8px;
+	border-radius: 8px;
 	color: var(--color-text-secondary);
+	font-weight: 500;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-nav-item:hover {
@@ -3336,14 +3271,14 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-sidebar-section-head {
-	padding: 2px 4px 8px;
+	padding: 2px 0 8px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-sidebar-section-title {
-	font-size: 10px;
-	font-weight: 700;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: none;
 	color: color-mix(in srgb, var(--color-text-tertiary) 94%, transparent);
 }
 
@@ -3352,7 +3287,7 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-sidebar-icon-btn {
-	border-radius: 7px;
+	border-radius: 6px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-sidebar-icon-btn:hover {
@@ -3360,12 +3295,12 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-stack {
-	gap: 7px;
+	gap: 4px;
 	padding-right: 3px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-group {
-	gap: 5px;
+	gap: 2px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-shell::before {
@@ -3375,9 +3310,10 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row {
-	padding: 8px 9px 8px 7px;
-	border-radius: 12px;
+	padding: 6px 8px 6px 6px;
+	border-radius: 9px;
 	color: var(--color-text-secondary);
+	font-weight: 500;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row.is-active,
@@ -3398,19 +3334,18 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-icon {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 84%, transparent);
-	border-color: color-mix(in srgb, var(--surface-glass-stroke) 76%, transparent);
-	color: var(--color-text-secondary);
+	background: transparent;
+	border-color: transparent;
+	color: var(--color-text-tertiary);
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-shell:hover .ref-agent-workspace-row-icon,
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-shell.is-active .ref-agent-workspace-row-icon {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 96%, var(--surface-tint-soft));
-	border-color: color-mix(in srgb, var(--surface-glass-stroke) 84%, var(--color-accent) 16%);
-	color: var(--color-text-primary);
+	background: transparent;
+	border-color: transparent;
+	color: var(--color-text-secondary);
 }
 
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-subtitle,
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-empty,
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-empty-workspace,
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-action-btn,
@@ -3420,9 +3355,9 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-badge {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 86%, transparent);
-	border-color: color-mix(in srgb, var(--surface-glass-stroke) 76%, transparent);
-	color: var(--color-text-secondary);
+	background: transparent;
+	border-color: transparent;
+	color: var(--color-text-tertiary);
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-action-btn:hover,
@@ -3486,64 +3421,64 @@
 	border-color: color-mix(in srgb, var(--color-accent) 20%, var(--surface-glass-stroke));
 }
 
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-tree {
-	padding: 2px 0 2px 14px;
-	gap: 9px;
+/* Flat thread list for mac-codex agent sidebar */
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-list {
+	padding: 2px 0 2px 22px;
+	gap: 2px;
 }
 
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-tree::before {
-	left: 7px;
-	top: 8px;
-	bottom: 10px;
-	background: linear-gradient(180deg, color-mix(in srgb, var(--surface-glass-stroke) 86%, transparent) 0%, transparent 100%);
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item {
+	border-radius: 7px;
 }
 
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-cluster {
-	padding-left: 11px;
-}
-
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-cluster::before {
-	top: 13px;
-	width: 10px;
-	background: color-mix(in srgb, var(--surface-glass-stroke) 84%, transparent);
-}
-
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-thread-section-label--nested {
-	padding: 0 0 5px 8px;
-	font-size: 9px;
-	font-weight: 700;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
-}
-
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-thread-list--nested {
-	gap: 5px;
-}
-
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-thread-list--nested .ref-thread-item {
-	border-radius: 12px;
-}
-
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-thread-list--nested .ref-thread-item:hover {
-	transform: translateX(0);
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item:hover {
 	background: color-mix(in srgb, var(--surface-panel-bg-soft) 78%, transparent);
 }
 
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-thread-list--nested .ref-thread-item.is-active {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--surface-tint-strong) 68%, transparent) 0%, color-mix(in srgb, var(--surface-panel-bg-soft) 82%, transparent) 100%);
-	box-shadow:
-		inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 20%, transparent),
-		0 10px 24px color-mix(in srgb, black 14%, transparent);
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-active {
+	background: color-mix(in srgb, var(--surface-panel-bg-soft) 92%, var(--surface-tint-soft));
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
 
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-thread-list--nested .ref-thread-row {
-	padding: 8px 4px 8px 10px;
-	border-radius: 12px;
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-row {
+	padding: 5px 6px 5px 8px;
+	border-radius: 7px;
+	color: var(--color-text-secondary);
 }
 
-:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-thread-list--nested .ref-thread-row-actions {
-	padding-right: 6px;
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item:hover .ref-agent-thread-row,
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-active .ref-agent-thread-row {
+	color: var(--color-text-primary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-row-time {
+	color: var(--color-text-tertiary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-active .ref-agent-thread-row-time {
+	color: var(--color-text-secondary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-title-input {
+	margin: 3px 3px 3px 20px;
+	background: color-mix(in srgb, var(--surface-panel-bg-soft) 94%, transparent);
+	border-color: color-mix(in srgb, var(--surface-glass-stroke) 84%, transparent);
+	color: var(--color-text-primary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-action {
+	color: var(--color-text-tertiary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-action:hover {
+	background: color-mix(in srgb, var(--surface-panel-bg-soft) 80%, transparent);
+	color: var(--color-text-primary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-action--confirm {
+	background: color-mix(in srgb, rgba(239, 68, 68) 18%, transparent);
+	border-color: color-mix(in srgb, rgba(239, 68, 68) 28%, transparent);
+	color: #fca5a5;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-left-footer--agent {
@@ -3558,8 +3493,10 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-settings-link {
-	border-radius: 10px;
+	border-radius: 8px;
 	color: var(--color-text-secondary);
+	font-weight: 500;
+	padding: 6px 8px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-settings-link:hover {
@@ -3594,7 +3531,7 @@
 
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-context-block--agent {
 	margin-bottom: 10px;
-	padding: 0 4px;
+	padding: 0 min(188px, 42vw) 0 4px;
 }
 
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout.ref-center--chat .ref-context-block--agent {
@@ -3602,15 +3539,20 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-agent-context-pill {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 84%, transparent);
-	border-color: color-mix(in srgb, var(--surface-glass-stroke) 82%, transparent);
-	box-shadow:
-		inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent),
-		0 12px 24px color-mix(in srgb, black 12%, transparent);
+	background: transparent;
+	border-color: transparent;
+	box-shadow: none;
+}
+
+:root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-agent-context-heading {
+	color: var(--color-text-primary);
+}
+
+:root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-agent-context-workspace {
+	color: var(--color-text-secondary);
 }
 
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-command-stack,
-:root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-context-block--agent,
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-msg-slot,
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout .ref-msg-sticky-user-wrap {
 	max-width: min(100%, 760px);
@@ -3715,32 +3657,24 @@
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell {
 	border: none;
-	background: var(
-		--void-agent-shell-bg,
-		radial-gradient(circle at top center, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 34%),
-		radial-gradient(circle at 96% 0%, color-mix(in srgb, var(--void-accent-warm) 4%, transparent) 0%, transparent 18%),
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 98%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 98%, transparent) 100%)
-	);
+	background: var(--void-agent-shell-bg, var(--void-bg-0));
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-agent-rail-toggle {
 	border-color: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 92%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 88%, transparent) 100%);
+	background: var(--void-bg-1);
 	box-shadow:
 		0 18px 42px color-mix(in srgb, black 34%, transparent),
 		inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 4%, transparent);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-agent-rail-toggle:hover {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-3) 96%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 92%, transparent) 100%);
+	background: var(--void-bg-3);
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-agent-rail-toggle.is-open {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-accent-assist) 94%, transparent) 0%, color-mix(in srgb, var(--void-bg-2) 96%, transparent) 100%);
+	background: var(--void-bg-2);
 	border-color: color-mix(in srgb, var(--void-accent-cool) 24%, transparent);
 	box-shadow:
 		0 18px 44px color-mix(in srgb, var(--void-accent-assist) 44%, transparent),
@@ -3748,44 +3682,37 @@
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell::before {
-	background: var(--void-agent-shell-glow, radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--void-accent-cool) 5%, transparent) 0%, transparent 24%), radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--void-accent-warm) 5%, transparent) 0%, transparent 18%));
+	background: transparent;
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell > .ref-left--agent-layout {
-	background: var(--void-agent-sidebar-bg, linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 34%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 0%, transparent) 100%));
+	background: var(--void-agent-sidebar-bg, var(--void-sidebar-fill));
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell > .ref-center--agent-layout {
-	background: var(--void-agent-center-bg, linear-gradient(180deg, color-mix(in srgb, var(--void-bg-0) 16%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 0%, transparent) 100%));
+	background: var(--void-agent-center-bg, var(--void-bg-0));
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell > .ref-right--agent-layout {
-	background: var(
-		--void-agent-right-bg,
-		var(--void-agent-sidebar-bg, linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 26%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 0%, transparent) 100%))
-	);
+	background: var(--void-agent-right-bg, var(--void-bg-1));
 }
 
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell .ref-resize-handle::after {
 	background: color-mix(in srgb, var(--void-fg-0) 8%, transparent);
 }
 
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell .ref-resize-handle:hover::after,
+:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-body--agent-shell .ref-resize-handle:active::after {
+	background: color-mix(in srgb, var(--void-fg-0) 14%, transparent);
+}
+
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-left--agent-layout .ref-agent-empty-workspace,
-:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-center--agent-layout .ref-agent-context-pill,
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-right--agent-layout .ref-right-panel-view--agent {
 	border-color: color-mix(in srgb, var(--void-fg-0) 7%, transparent);
 }
 
-:root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-center--agent-layout .ref-agent-context-pill {
-	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-3) 86%, transparent) 0%, color-mix(in srgb, var(--void-bg-1) 78%, transparent) 100%);
-	box-shadow:
-		inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent),
-		0 12px 28px color-mix(in srgb, black 22%, transparent);
-}
-
 :root[data-ui-style='mac-codex'][data-color-scheme='dark'] .ref-right--agent-layout .ref-right-panel-view--agent {
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--void-bg-1) 90%, transparent) 0%, color-mix(in srgb, var(--void-bg-0) 84%, transparent) 100%);
+	background: var(--void-bg-1);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--void-fg-0) 3%, transparent);
 }
 

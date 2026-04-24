@@ -159,14 +159,16 @@ export function useAppShellSlices(params: UseAppShellSlicesParams): UseAppShellS
 		if (!shell) {
 			return;
 		}
-		const c = nativeWindowChromeFromAppearance(appearanceSettings, effectiveScheme);
+		const c = nativeWindowChromeFromAppearance(appearanceSettings, effectiveScheme, {
+			settingsPageOpen: settings.settingsPageOpen,
+		});
 		void shell.invoke('theme:applyChrome', {
 			scheme: effectiveScheme,
 			backgroundColor: c.backgroundColor,
 			titleBarColor: c.titleBarColor,
 			symbolColor: c.symbolColor,
 		});
-	}, [shell, colorMode, appearanceSettings, effectiveScheme]);
+	}, [shell, colorMode, appearanceSettings, effectiveScheme, settings.settingsPageOpen]);
 
 	const [ipcOk, setIpcOk] = useState<string>('…');
 
