@@ -11,6 +11,7 @@ import {
 	type FileFilter,
 	type WebContents,
 } from 'electron';
+import net from 'node:net';
 import path from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { getWorkspaceRootForWebContents, resolveWorkspacePath } from './workspace.js';
@@ -107,6 +108,25 @@ function cleanupTerminalWindowMapping(rendererId: number): void {
 		terminalWindowRendererByHost.delete(host);
 	}
 	terminalWindowHostByRenderer.delete(rendererId);
+}
+
+function checkLocalPort(host: string, port: number): Promise<{ listening: boolean; error?: string }> {
+	return new Promise((resolve) => {
+		const socket = net.connect({ host, port });
+		const timer = setTimeout(() => {
+			socket.destroy();
+			resolve({ listening: false, error: 'timeout' });
+		}, 800);
+		socket.once('connect', () => {
+			clearTimeout(timer);
+			socket.end();
+			resolve({ listening: true });
+		});
+		socket.once('error', (error) => {
+			clearTimeout(timer);
+			resolve({ listening: false, error: error instanceof Error ? error.message : 'connect-failed' });
+		});
+	});
 }
 
 function resolveCwdForSender(sender: WebContents, cwdRaw?: unknown): string | undefined {
@@ -371,6 +391,24 @@ export function registerTerminalSessionIpc(): void {
 		return {
 			ok: clearTerminalProfilePassword(profileId),
 		};
+	});
+
+	ipcMain.handle('term:portCheck', async (_event, rawForward: unknown) => {
+		const forward = rawForward && typeof rawForward === 'object' ? (rawForward as Record<string, unknown>) : null;
+		if (!forward) {
+			return { ok: false as const, error: 'invalid-args' as const };
+		}
+		const type = forward.type === 'remote' || forward.type === 'dynamic' ? forward.type : 'local';
+		const port = typeof forward.port === 'number' ? Math.floor(forward.port) : Number.NaN;
+		if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+			return { ok: false as const, error: 'invalid-port' as const };
+		}
+		if (type === 'remote') {
+			return { ok: true as const, status: 'remote-unchecked' as const };
+		}
+		const host = typeof forward.host === 'string' && forward.host.trim() ? forward.host.trim() : '127.0.0.1';
+		const result = await checkLocalPort(host, port);
+		return { ok: true as const, status: result.listening ? 'listening' as const : 'closed' as const, error: result.error };
 	});
 
 	ipcMain.handle('term:pickPath', async (event, rawOpts: unknown) => {

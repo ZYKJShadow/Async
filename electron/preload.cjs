@@ -115,6 +115,7 @@ const INVOKE_CHANNELS = new Set([
 	'term:profilePasswordSet',
 	'term:profilePasswordCacheSet',
 	'term:profilePasswordClear',
+	'term:portCheck',
 	'term:pickPath',
 	'term:pickSavePath',
 	'term:sessionInfo',

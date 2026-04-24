@@ -1,4 +1,4 @@
-﻿/** English UI copy */
+/** English UI copy */
 export const messagesEn: Record<string, string> = {
 	'common.truncatedSuffix': '\n… (truncated)',
 	'common.soon': 'Soon',
@@ -163,6 +163,11 @@ export const messagesEn: Record<string, string> = {
 	'app.universalTerminalPorts.type.local': 'Local',
 	'app.universalTerminalPorts.type.remote': 'Remote',
 	'app.universalTerminalPorts.type.dynamic': 'Dynamic',
+	'app.universalTerminalPorts.status.checking': 'Checking',
+	'app.universalTerminalPorts.status.listening': 'Listening',
+	'app.universalTerminalPorts.status.closed': 'Not listening',
+	'app.universalTerminalPorts.status.remote-unchecked': 'Remote',
+	'app.universalTerminalPorts.status.unknown': 'Unknown',
 	'app.universalTerminalToolbarPin': 'Pin',
 	'app.universalTerminalToolbarUnpin': 'Unpin',
 	'app.universalTerminalSftpFilter': 'Filter',

@@ -1,6 +1,8 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import type { TFunction } from '../i18n';
 import type { TerminalPortForward, TerminalProfile } from './terminalSettings';
+
+type PortCheckStatus = 'checking' | 'listening' | 'closed' | 'remote-unchecked' | 'unknown';
 
 type Props = {
 	t: TFunction;
@@ -12,6 +14,38 @@ type Props = {
 
 export const TerminalPortsPanel = memo(function TerminalPortsPanel({ t, profile, onClose, onCopy, onOpenSettings }: Props) {
 	const forwards = profile.sshForwardedPorts ?? [];
+	const [statusById, setStatusById] = useState<Record<string, PortCheckStatus>>({});
+
+	useEffect(() => {
+		let cancelled = false;
+		setStatusById(Object.fromEntries(forwards.map((forward) => [forward.id, 'checking' as PortCheckStatus])));
+		void Promise.allSettled(
+			forwards.map(async (forward) => {
+				try {
+					const result = (await window.asyncShell?.invoke('term:portCheck', forward)) as
+						| { ok: true; status: PortCheckStatus }
+						| { ok: false }
+						| undefined;
+					return [forward.id, result?.ok ? result.status : 'unknown'] as const;
+				} catch {
+					return [forward.id, 'unknown'] as const;
+				}
+			})
+		).then((results) => {
+			if (!cancelled) {
+				const entries = [];
+				for (const r of results) {
+					if (r.status === 'fulfilled') {
+						entries.push(r.value);
+					}
+				}
+				setStatusById(Object.fromEntries(entries));
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [forwards]);
 	return (
 		<aside className="ref-uterm-ports-panel" aria-label={t('app.universalTerminalPorts.title')}>
 			<div className="ref-uterm-ports-head">
@@ -27,10 +61,14 @@ export const TerminalPortsPanel = memo(function TerminalPortsPanel({ t, profile,
 				<div className="ref-uterm-ports-list">
 					{forwards.map((forward) => {
 						const summary = formatForwardSummary(forward);
+						const status = statusById[forward.id] ?? 'unknown';
 						return (
 							<div key={forward.id} className="ref-uterm-port-card">
 								<div className="ref-uterm-port-card-main">
-									<span className="ref-uterm-port-badge">{t(`app.universalTerminalPorts.type.${forward.type}`)}</span>
+									<div className="ref-uterm-port-badge-row">
+										<span className="ref-uterm-port-badge">{t(`app.universalTerminalPorts.type.${forward.type}`)}</span>
+										<span className={`ref-uterm-port-status is-${status}`}>{t(`app.universalTerminalPorts.status.${status}`)}</span>
+									</div>
 									<strong className="ref-uterm-port-summary">{summary}</strong>
 									{forward.description ? <span className="ref-uterm-port-description">{forward.description}</span> : null}
 								</div>

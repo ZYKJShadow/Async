@@ -997,12 +997,15 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		[duplicateSession]
 	);
 
-	const closeSplit = useCallback(() => {
-		setSplitLayout((current) => ({ ...current, enabled: false, secondaryId: null, ratio: 0.5 }));
-	}, []);
-
-	const beginSplitResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-		const panes = panesRef.current;
+		const closeSplit = useCallback(() => {
+			const secondaryId = splitLayout.secondaryId;
+			setSplitLayout({ enabled: false, orientation: 'horizontal', secondaryId: null, ratio: 0.5 });
+			if (secondaryId) {
+				shell?.invoke('term:sessionKill', secondaryId).catch(() => {});
+				setSessions((prev) => prev.filter((s) => s.id !== secondaryId));
+			}
+		}, [shell, splitLayout.secondaryId]);
+		const beginSplitResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
 		if (!panes || !splitLayout.enabled) {
 			return;
 		}

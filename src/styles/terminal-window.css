@@ -4478,3 +4478,36 @@
 	max-width: 280px;
 	text-align: center;
 }
+
+.ref-uterm-port-badge-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.ref-uterm-port-status {
+	padding: 3px 7px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--void-bg-2) 70%, transparent);
+	color: var(--void-fg-2);
+	font-size: 10px;
+	font-weight: 800;
+	text-transform: uppercase;
+}
+
+.ref-uterm-port-status.is-listening {
+	background: color-mix(in srgb, #22c55e 16%, transparent);
+	color: #86efac;
+}
+
+.ref-uterm-port-status.is-closed {
+	background: color-mix(in srgb, #f97316 16%, transparent);
+	color: #fdba74;
+}
+
+.ref-uterm-port-status.is-remote-unchecked,
+.ref-uterm-port-status.is-unknown {
+	background: color-mix(in srgb, var(--void-border) 32%, transparent);
+	color: var(--void-fg-2);
+}
