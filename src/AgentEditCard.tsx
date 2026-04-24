@@ -112,9 +112,10 @@ export const AgentEditCard = memo(function AgentEditCard({ edit, isReverted = fa
 
 	const canExpand = !edit.isStreaming && previewLines.length > collapsedHead.length;
 	// 流式：固定行数尾部，不用 pretext 像素裁切，避免高度忽高忽低；完成后：折叠态头部 / 展开全文。
+	const previewShouldAnimateHeight = canExpand && !edit.isStreaming;
 	const visibleLines = edit.isStreaming
 		? previewLines.slice(-STREAMING_PREVIEW_MAX_LINES)
-		: expanded
+		: previewShouldAnimateHeight || expanded
 			? previewLines
 			: collapsedHead;
 	/** JSON 尚未解析出 old/new 时预览区为空，仍要占位避免「整块空白像卡住」 */
@@ -171,7 +172,16 @@ export const AgentEditCard = memo(function AgentEditCard({ edit, isReverted = fa
 					ref={previewScrollWrapRef}
 					className={`ref-edit-card-preview-wrap ${edit.isStreaming ? 'ref-edit-card-preview-wrap--streaming-scroll' : ''}`}
 				>
-					<div ref={previewMeasureRef} className="ref-edit-card-preview">
+					<div
+						ref={previewMeasureRef}
+						className={[
+							'ref-edit-card-preview',
+							previewShouldAnimateHeight && 'ref-edit-card-preview--animated-height',
+							previewShouldAnimateHeight && expanded && 'ref-edit-card-preview--expanded',
+						]
+							.filter(Boolean)
+							.join(' ')}
+					>
 						{showStreamingEmptyHint ? (
 							<div className="ref-edit-card-streaming-placeholder" role="status">
 								{t('agent.edit.streamingPlaceholder')}

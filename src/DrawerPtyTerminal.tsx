@@ -18,19 +18,19 @@ export function DrawerPtyTerminal({ placeholder }: Props) {
 			if (!sh) {
 				return;
 			}
-			const r = (await sh.invoke('terminal:ptyCreate')) as { ok: boolean; id?: string };
-			if (cancelled || !r.ok || !r.id) {
+			const r = (await sh.invoke('term:sessionCreate')) as { ok: boolean; session?: { id: string } };
+			if (cancelled || !r.ok || !r.session?.id) {
 				return;
 			}
-			idRef.current = r.id;
-			setSessionId(r.id);
+			idRef.current = r.session.id;
+			setSessionId(r.session.id);
 		})();
 		return () => {
 			cancelled = true;
 			const killId = idRef.current;
 			idRef.current = null;
 			if (killId) {
-				void window.asyncShell?.invoke('terminal:ptyKill', killId);
+				void window.asyncShell?.invoke('term:sessionKill', killId);
 			}
 		};
 	}, []);

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, webContents, type WebContents } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, webContents, nativeImage, type WebContents } from 'electron';
 import { createAppWindow, findAppWindowBySurface, focusAppWindow, type AppWindowSurface } from '../appWindow.js';
 import { applyThemeChromeToWindow, type NativeChromeOverride, type ThemeChromeScheme } from '../themeChrome.js';
 import { applyPatch, formatPatch, parsePatch, reversePatch } from 'diff';
@@ -43,6 +43,27 @@ setWorkspaceFileIndexReadyBroadcaster((rootNorm) => {
 		}
 	}
 });
+
+function createWindowsUnreadOverlayIcon(count: number) {
+	const label = count > 99 ? '99+' : String(count);
+	const fontSize = label.length >= 3 ? 54 : label.length === 2 ? 66 : 78;
+	const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <circle cx="160" cy="96" r="92" fill="#ef4444"/>
+  <circle cx="160" cy="96" r="82" fill="#ef4444" stroke="white" stroke-width="14"/>
+  <text x="160" y="118" text-anchor="middle" dominant-baseline="middle" font-family="Segoe UI, Arial, sans-serif" font-size="${fontSize}" font-weight="800" fill="white">${label}</text>
+</svg>`;
+	return nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+}
+
+function applyUnreadBadgeToWindow(win: BrowserWindow, count: number): void {
+	const safeCount = Math.max(0, Math.min(999, Math.floor(Number.isFinite(count) ? count : 0)));
+	if (process.platform === 'win32') {
+		win.setOverlayIcon(safeCount > 0 ? createWindowsUnreadOverlayIcon(safeCount) : null, safeCount > 0 ? `${safeCount} unread replies` : '');
+		return;
+	}
+	app.setBadgeCount(safeCount);
+}
 import {
 	getSettings,
 	patchSettings,
@@ -99,9 +120,11 @@ import {
 	getExecutedPlanFileKeys,
 	markPlanFileExecuted,
 	incrementThreadAgentToolCallCount,
+	getContextCompactState,
 	getDeferredToolState,
 	saveDeferredToolState,
 	getToolResultReplacementState,
+	saveContextCompactState,
 	saveToolResultReplacementState,
 	saveTeamSession,
 	getAgentSession,
@@ -183,7 +206,6 @@ import {
 	type WorkspaceAgentProjectSlice,
 } from '../workspaceAgentStore.js';
 import { summarizeThreadForSidebar, isTimestampToday, pruneSummaryCache } from '../threadListSummary.js';
-import { registerTerminalPtyIpc } from '../terminalPty.js';
 import { registerTerminalSessionIpc } from '../terminalSessionIpc.js';
 
 import {
@@ -1005,6 +1027,9 @@ function runChatStream(
 						toolResultReplacementState,
 						onToolResultReplacementStateChange: (state) =>
 							saveToolResultReplacementState(threadId, state),
+						contextCompactState: getContextCompactState(threadId),
+						onContextCompactStateChange: (state) =>
+							saveContextCompactState(threadId, state),
 						toolHooks: {
 							beforeWrite: ({ path, previousContent }) => {
 								const snapshots = agentRevertSnapshotsByThread.get(threadId);
@@ -1202,7 +1227,6 @@ function appendPlanExecuteToSystem(
 }
 
 export function registerIpc(): void {
-	registerTerminalPtyIpc();
 	registerTerminalSessionIpc();
 
 	setWorkspaceFsTouchNotifier(() => {
@@ -1226,6 +1250,16 @@ export function registerIpc(): void {
 		chrome: process.versions.chrome ?? '',
 		node: process.versions.node ?? '',
 	}));
+
+	ipcMain.handle('app:setUnreadBadgeCount', (event, rawCount: unknown) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || win.isDestroyed()) {
+			return { ok: false as const };
+		}
+		const count = typeof rawCount === 'number' ? rawCount : Number(rawCount ?? 0);
+		applyUnreadBadgeToWindow(win, count);
+		return { ok: true as const };
+	});
 
 	ipcMain.handle('workspace:pickFolder', async (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
@@ -2948,6 +2982,8 @@ export function registerIpc(): void {
 		}
 		options.deferredToolState = getDeferredToolState(threadId);
 		options.onDeferredToolStateChange = (state) => saveDeferredToolState(threadId, state);
+		options.contextCompactState = getContextCompactState(threadId);
+		options.onContextCompactStateChange = (state) => saveContextCompactState(threadId, state);
 		options.toolResultReplacementState = getToolResultReplacementState(threadId);
 		options.onToolResultReplacementStateChange = (state) =>
 			saveToolResultReplacementState(threadId, state);
@@ -3002,6 +3038,8 @@ export function registerIpc(): void {
 		}
 		options.deferredToolState = getDeferredToolState(threadId);
 		options.onDeferredToolStateChange = (state) => saveDeferredToolState(threadId, state);
+		options.contextCompactState = getContextCompactState(threadId);
+		options.onContextCompactStateChange = (state) => saveContextCompactState(threadId, state);
 		options.toolResultReplacementState = getToolResultReplacementState(threadId);
 		options.onToolResultReplacementStateChange = (state) =>
 			saveToolResultReplacementState(threadId, state);

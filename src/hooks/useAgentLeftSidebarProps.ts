@@ -24,6 +24,7 @@ export type UseAgentLeftSidebarPropsParams = {
 	setWorkspacePickerOpen: Dispatch<SetStateAction<boolean>>;
 	openQuickOpen: (seed?: string) => void;
 	openSettingsPage: (nav: SettingsNavId) => void;
+	openUniversalTerminal: () => void;
 	showSkillsNav?: boolean;
 	showAutomationNav?: boolean;
 };
@@ -53,9 +54,9 @@ export function useAgentLeftSidebarProps(p: UseAgentLeftSidebarPropsParams): Age
 		p.openSettingsPage('rules');
 	}, [p.openSettingsPage]);
 
-	const openAutomationSettings = useCallback(() => {
-		p.openSettingsPage('plan');
-	}, [p.openSettingsPage]);
+	const openUniversalTerminal = useCallback(() => {
+		p.openUniversalTerminal();
+	}, [p.openUniversalTerminal]);
 
 	const onNewThread = useCallback(() => {
 		void p.onNewThread();
@@ -94,7 +95,7 @@ export function useAgentLeftSidebarProps(p: UseAgentLeftSidebarPropsParams): Age
 			openPluginSettings,
 			openGeneralSettings,
 			openSkillsSettings: p.showSkillsNav !== false ? openSkillsSettings : undefined,
-			openAutomationSettings: p.showAutomationNav !== false ? openAutomationSettings : undefined,
+			openUniversalTerminal: p.showAutomationNav !== false ? openUniversalTerminal : undefined,
 		}),
 		[
 			p.t,
@@ -117,7 +118,7 @@ export function useAgentLeftSidebarProps(p: UseAgentLeftSidebarPropsParams): Age
 			openPluginSettings,
 			openGeneralSettings,
 			openSkillsSettings,
-			openAutomationSettings,
+			openUniversalTerminal,
 			p.showSkillsNav,
 			p.showAutomationNav,
 		]

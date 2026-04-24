@@ -92,6 +92,14 @@
 	opacity: 0.7;
 }
 
+.ref-uterm-tab[draggable='true'] {
+	cursor: grab;
+}
+
+.ref-uterm-tab[draggable='true']:active {
+	cursor: grabbing;
+}
+
 .ref-uterm-tab-select {
 	-webkit-app-region: no-drag;
 	flex: 1 1 auto;
@@ -1710,6 +1718,16 @@
 	position: relative;
 	flex: 1 1 auto;
 	min-height: 0;
+	display: grid;
+	gap: 1px;
+}
+
+.ref-uterm-panes.is-split-horizontal {
+	grid-template-columns: minmax(0, var(--ref-uterm-split-ratio, 50%)) minmax(0, 1fr);
+}
+
+.ref-uterm-panes.is-split-vertical {
+	grid-template-rows: minmax(0, var(--ref-uterm-split-ratio, 50%)) minmax(0, 1fr);
 }
 
 .ref-uterm-pane {
@@ -1718,11 +1736,29 @@
 	display: flex;
 	flex-direction: column;
 	visibility: hidden;
+	min-width: 0;
+	min-height: 0;
 	padding: 6px 12px 12px;
+}
+
+.ref-uterm-panes.is-split .ref-uterm-pane:not(.is-active) {
+	display: none;
+}
+
+.ref-uterm-panes.is-split .ref-uterm-pane {
+	position: relative;
+	inset: auto;
+	border: 1px solid color-mix(in srgb, var(--void-border) 55%, transparent);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--void-bg-0) 60%, transparent);
 }
 
 .ref-uterm-pane.is-active {
 	visibility: visible;
+}
+
+.ref-uterm-pane.is-focused {
+	border-color: color-mix(in srgb, var(--void-accent-cool) 55%, transparent);
 }
 
 .ref-uterm-viewport {
@@ -4325,4 +4361,153 @@
 	.ref-uterm-settings-profile-list-item-side {
 		margin-left: 0;
 	}
+}
+
+.ref-uterm-ports-panel {
+	position: absolute;
+	top: 52px;
+	right: 16px;
+	bottom: 16px;
+	z-index: 9;
+	width: min(420px, calc(100% - 32px));
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 16px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	border-radius: 18px;
+	background: color-mix(in srgb, var(--void-bg-0) 94%, transparent);
+	box-shadow: 0 20px 46px rgba(0, 0, 0, 0.34);
+	backdrop-filter: blur(18px);
+}
+
+.ref-uterm-ports-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.ref-uterm-ports-kicker {
+	font-size: 10px;
+	font-weight: 800;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--void-accent-cool);
+}
+
+.ref-uterm-ports-title {
+	margin: 4px 0 0;
+	font-size: 16px;
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-ports-close,
+.ref-uterm-ports-settings,
+.ref-uterm-port-copy {
+	border: 1px solid color-mix(in srgb, var(--void-border) 70%, transparent);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--void-bg-1) 80%, transparent);
+	color: var(--void-fg-1);
+	font: inherit;
+	font-size: 12px;
+	padding: 6px 10px;
+	cursor: pointer;
+}
+
+.ref-uterm-ports-close:hover,
+.ref-uterm-ports-settings:hover,
+.ref-uterm-port-copy:hover {
+	border-color: color-mix(in srgb, var(--void-accent-cool) 52%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-uterm-ports-list {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	overflow: auto;
+	padding-right: 2px;
+}
+
+.ref-uterm-port-card {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 58%, transparent);
+	border-radius: 14px;
+	background: color-mix(in srgb, var(--void-bg-1) 62%, transparent);
+}
+
+.ref-uterm-port-card-main {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.ref-uterm-port-badge {
+	width: fit-content;
+	padding: 3px 7px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--void-accent-cool) 14%, transparent);
+	color: var(--void-accent-cool);
+	font-size: 10px;
+	font-weight: 800;
+	text-transform: uppercase;
+}
+
+.ref-uterm-port-summary {
+	font-size: 13px;
+	color: var(--void-fg-0);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ref-uterm-port-description,
+.ref-uterm-ports-empty {
+	font-size: 12px;
+	color: var(--void-fg-2);
+}
+
+.ref-uterm-ports-empty {
+	margin: auto;
+	max-width: 280px;
+	text-align: center;
+}
+
+.ref-uterm-port-badge-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.ref-uterm-port-status {
+	padding: 3px 7px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--void-bg-2) 70%, transparent);
+	color: var(--void-fg-2);
+	font-size: 10px;
+	font-weight: 800;
+	text-transform: uppercase;
+}
+
+.ref-uterm-port-status.is-listening {
+	background: color-mix(in srgb, #22c55e 16%, transparent);
+	color: #86efac;
+}
+
+.ref-uterm-port-status.is-closed {
+	background: color-mix(in srgb, #f97316 16%, transparent);
+	color: #fdba74;
+}
+
+.ref-uterm-port-status.is-remote-unchecked,
+.ref-uterm-port-status.is-unknown {
+	background: color-mix(in srgb, var(--void-border) 32%, transparent);
+	color: var(--void-fg-2);
 }

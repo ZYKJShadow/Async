@@ -419,21 +419,21 @@ export function useFileOperations(p: UseFileOperationsParams) {
 			editorTerminalCreateLockRef.current = true;
 			try {
 				const r = (await shell.invoke(
-					'terminal:ptyCreate',
-					opts?.cwdRel != null && opts.cwdRel !== '' ? { cwdRel: opts.cwdRel } : undefined
+					'term:sessionCreate',
+					opts?.cwdRel != null && opts.cwdRel !== '' ? { cwd: opts.cwdRel } : undefined
 				)) as {
 					ok: boolean;
-					id?: string;
+					session?: { id: string };
 					error?: string;
 				};
-				if (!r.ok || !r.id) {
+				if (!r.ok || !r.session?.id) {
 					return;
 				}
 				setEditorTerminalSessions((prev) => {
 					const n = prev.length + 1;
-					return [...prev, { id: r.id!, title: t('app.terminalTabN', { n: String(n) }) }];
+					return [...prev, { id: r.session!.id, title: t('app.terminalTabN', { n: String(n) }) }];
 				});
-				setActiveEditorTerminalId(r.id);
+				setActiveEditorTerminalId(r.session.id);
 			} finally {
 				editorTerminalCreateLockRef.current = false;
 			}
@@ -444,7 +444,7 @@ export function useFileOperations(p: UseFileOperationsParams) {
 	const closeEditorTerminalPanel = useCallback(() => {
 		setEditorTerminalSessions((prev) => {
 			for (const s of prev) {
-				void shell?.invoke('terminal:ptyKill', s.id);
+				void shell?.invoke('term:sessionKill', s.id);
 			}
 			return [];
 		});
@@ -630,7 +630,7 @@ export function useFileOperations(p: UseFileOperationsParams) {
 
 	const closeEditorTerminalSession = useCallback(
 		(id: string) => {
-			void shell?.invoke('terminal:ptyKill', id);
+			void shell?.invoke('term:sessionKill', id);
 			setEditorTerminalSessions((prev) => {
 				const next = prev.filter((s) => s.id !== id);
 				if (next.length === 0) {

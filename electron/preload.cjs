@@ -5,6 +5,7 @@ const INVOKE_CHANNELS = new Set([
 	'async-shell:ping',
 	'app:getPaths',
 	'app:getVersion',
+	'app:setUnreadBadgeCount',
 	'workspace:pickFolder',
 	'workspace:openPath',
 	'workspace:openInExternalTool',
@@ -115,6 +116,7 @@ const INVOKE_CHANNELS = new Set([
 	'term:profilePasswordSet',
 	'term:profilePasswordCacheSet',
 	'term:profilePasswordClear',
+	'term:portCheck',
 	'term:pickPath',
 	'term:pickSavePath',
 	'term:sessionInfo',
@@ -302,10 +304,23 @@ ipcRenderer.on('async-shell:browserControl', (_event, payload) => {
 const openSettingsNavHandlers = new Map();
 let openSettingsNavSeq = 0;
 
+const trayCommandHandlers = new Map();
+let trayCommandSeq = 0;
+
 ipcRenderer.on('async-shell:openSettingsNav', (_event, nav) => {
 	for (const fn of openSettingsNavHandlers.values()) {
 		try {
 			fn(nav);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:trayCommand', (_event, payload) => {
+	for (const fn of trayCommandHandlers.values()) {
+		try {
+			fn(payload);
 		} catch (e) {
 			console.error(e);
 		}
@@ -318,6 +333,10 @@ contextBridge.exposeInMainWorld('asyncShell', {
 			throw new Error(`async-shell: blocked IPC channel "${channel}"`);
 		}
 		return ipcRenderer.invoke(channel, ...args);
+	},
+	setUnreadBadgeCount(count) {
+		const safe = Math.max(0, Math.min(999, Math.floor(Number(count) || 0)));
+		return ipcRenderer.invoke('app:setUnreadBadgeCount', safe);
 	},
 	getPathForFile(file) {
 		try {
@@ -417,5 +436,10 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++openSettingsNavSeq;
 		openSettingsNavHandlers.set(id, callback);
 		return () => openSettingsNavHandlers.delete(id);
+	},
+	subscribeTrayCommand(callback) {
+		const id = ++trayCommandSeq;
+		trayCommandHandlers.set(id, callback);
+		return () => trayCommandHandlers.delete(id);
 	},
 });

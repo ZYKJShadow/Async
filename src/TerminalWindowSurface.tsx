@@ -1,4 +1,5 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
+import type * as React from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from './i18n';
 import { Terminal as XTerm } from '@xterm/xterm';
@@ -23,6 +24,7 @@ import {
 	TerminalSettingsPanel,
 	type TerminalSettingsPanelOpenProfileRequest,
 } from './terminalWindow/TerminalSettingsPanel';
+import { TerminalPortsPanel } from './terminalWindow/TerminalPortsPanel';
 import { TerminalSftpPanel } from './terminalWindow/TerminalSftpPanel';
 import { TerminalStartPage, type TerminalStartPageProfile } from './terminalWindow/TerminalStartPage';
 import {
@@ -132,8 +134,28 @@ type TabHeaderContextMenuState = {
 	y: number;
 };
 
+type TerminalSplitOrientation = 'horizontal' | 'vertical';
+
+type TerminalSplitLayout = {
+	enabled: boolean;
+	orientation: TerminalSplitOrientation;
+	secondaryId: string | null;
+	ratio: number;
+};
+
 type RestorableTerminalTab = {
 	profileId: string;
+};
+
+type RestorableTerminalSnapshot = {
+	tabs: RestorableTerminalTab[];
+	activeIndex?: number;
+	split?: {
+		enabled: boolean;
+		orientation: TerminalSplitOrientation;
+		secondaryIndex: number;
+		ratio: number;
+	};
 };
 
 const TERMINAL_TAB_SNAPSHOT_KEY = 'void-shell:terminal:window-tabs';
@@ -176,307 +198,67 @@ function TerminalTabView({
 	onReconnectRef.current = onReconnect;
 	onDisconnectRef.current = onDisconnect;
 
-	useEffect(() => {
-		const el = containerRef.current;
-		if (!el || !shell?.subscribeTerminalSessionData || !active) {
-			return;
-		}
-		const settings = appSettingsRef.current;
-		const term = new XTerm({
-			theme: {
-				background: theme.background,
-				foreground: theme.foreground,
-				cursor: theme.cursor,
-				cursorAccent: theme.background,
-				selectionBackground: theme.selectionBackground,
-				black: theme.black,
-				brightBlack: theme.brightBlack,
-			},
-			fontFamily: settings.fontFamily,
-			fontSize: settings.fontSize,
-			fontWeight: settings.fontWeight,
-			fontWeightBold: settings.fontWeightBold,
-			lineHeight: settings.lineHeight,
-			cursorBlink: settings.cursorBlink,
-			cursorStyle: settings.cursorStyle,
-			scrollback: settings.scrollback,
-			minimumContrastRatio: settings.minimumContrastRatio,
-			drawBoldTextInBrightColors: settings.drawBoldTextInBrightColors,
-			scrollOnUserInput: settings.scrollOnInput,
-			wordSeparator: settings.wordSeparator,
-			ignoreBracketedPasteMode: !settings.bracketedPaste,
-			allowProposedApi: true,
-		});
-		const fit = new FitAddon();
-		term.loadAddon(fit);
-		term.open(el);
-		termRef.current = term;
-		fitRef.current = fit;
+	const terminalControlsRef = useRef<TerminalRuntimeControls | null>(null);
+	const profileRef = useLatestRef(profile);
+	const tRef = useLatestRef(t);
+	const onAuthPromptRef = useLatestRef(onAuthPrompt);
+	const onRequestContextMenuRef = useLatestRef(onRequestContextMenu);
+	const registerRuntimeRef = useLatestRef(registerRuntime);
 
-		const confirmMultilinePaste = async (preview: string) =>
-			window.confirm(`${t('app.universalTerminalPasteMultipleLines')}\n\n${preview.slice(0, 1000)}`);
-
-		const pasteText = async (text: string): Promise<boolean> => {
-			const next = await prepareTerminalPasteText(
-				text,
-				appSettingsRef.current,
-				isTerminalAlternateScreen(term),
-				confirmMultilinePaste
-			);
-			if (!next) {
-				return false;
-			}
-			term.paste(next);
-			return true;
-		};
-
-		const pasteFromClipboard = async (): Promise<boolean> => {
-			try {
-				const raw = await shell.invoke('clipboard:readText');
-				const text = typeof raw === 'string' ? raw : '';
-				if (!text) {
-					return false;
-				}
-				return pasteText(text);
-			} catch {
-				return false;
-			}
-		};
-
-		const copySelection = async (): Promise<boolean> => {
-			const selection = term.getSelection();
-			if (!selection) {
-				return false;
-			}
-			try {
-				await shell.invoke('clipboard:writeText', selection);
-				return true;
-			} catch {
-				return false;
-			}
-		};
-
-		registerRuntime(sessionId, {
-			copySelection,
-			pasteFromClipboard,
-			selectAll: () => term.selectAll(),
-			clear: () => term.clear(),
-			focus: () => term.focus(),
-			hasSelection: () => term.hasSelection(),
-		});
-
-		let cancelled = false;
-		let resizeQueued = false;
-		const subscribeAndReplay = async () => {
-			try {
-				const sub = (await shell.invoke('term:sessionSubscribe', sessionId)) as
-					| { ok: true; slice: BufferSlice }
-					| { ok: false };
-				if (cancelled || !sub.ok) {
-					return;
-				}
-				seenSeqRef.current = sub.slice.seq;
-				if (sub.slice.content) {
-					term.write(sub.slice.content);
-				}
-				if (sub.slice.authPrompt) {
-					onAuthPrompt(sessionId, sub.slice.authPrompt);
-				}
-				if (!sub.slice.alive) {
-					onExitRef.current?.(sub.slice.exitCode);
-				}
-			} catch {
-				/* ignore */
-			}
-		};
-		void subscribeAndReplay();
-
-		const loginScriptsState = profile?.loginScripts.map((script) => ({ ...script })) ?? [];
-		void maybeRunLoginScripts(shell, sessionId, '', loginScriptsState);
-
-		const unsubData = shell.subscribeTerminalSessionData((id, data, seq) => {
-			if (id !== sessionId) {
-				return;
-			}
-			if (seq && seq <= seenSeqRef.current) {
-				return;
-			}
-			seenSeqRef.current = seq || seenSeqRef.current + 1;
-			term.write(data);
-			void maybeRunLoginScripts(shell, sessionId, data, loginScriptsState);
-		});
-		const unsubExit =
-			shell.subscribeTerminalSessionExit?.((id, code) => {
-				if (id === sessionId) {
-					onExitRef.current?.(typeof code === 'number' ? code : null);
-				}
-			}) ?? (() => {});
-
-		const inputDisposer = term.onData((data) => {
-			void shell.invoke('term:sessionWrite', sessionId, applyInputBackspaceMode(data, profile?.inputBackspace));
-		});
-
-		const selectionDisposer = term.onSelectionChange(() => {
-			if (!appSettingsRef.current.copyOnSelect || !term.hasSelection()) {
-				return;
-			}
-			void copySelection();
-		});
-
-		const bellDisposer = term.onBell(() => {
-			if (appSettingsRef.current.bell === 'visual') {
-				el.classList.add('ref-uterm-bell-flash');
-				window.setTimeout(() => el.classList.remove('ref-uterm-bell-flash'), 160);
-				return;
-			}
-			if (appSettingsRef.current.bell === 'audible') {
-				playAudibleTerminalBell();
-			}
-		});
-
-		const onContextMenu = (event: MouseEvent) => {
-			const action = appSettingsRef.current.rightClickAction;
-			if (action === 'off') {
-				return;
-			}
-			event.preventDefault();
-			if (action === 'menu') {
-				onRequestContextMenu({
-					sessionId,
-					x: event.clientX,
-					y: event.clientY,
-				});
-				return;
-			}
-			if (action === 'clipboard' && term.hasSelection()) {
-				void copySelection();
-				return;
-			}
-			void pasteFromClipboard();
-		};
-		el.addEventListener('contextmenu', onContextMenu);
-
-		const onAuxClick = (event: MouseEvent) => {
-			if (event.button !== 1 || !appSettingsRef.current.pasteOnMiddleClick) {
-				return;
-			}
-			event.preventDefault();
-			event.stopPropagation();
-			void pasteFromClipboard();
-		};
-		el.addEventListener('auxclick', onAuxClick);
-
-		const onPasteCapture = (event: ClipboardEvent) => {
-			const text = event.clipboardData?.getData('text/plain') ?? '';
-			if (!text) {
-				return;
-			}
-			event.preventDefault();
-			event.stopPropagation();
-			void pasteText(text);
-		};
-		el.addEventListener('paste', onPasteCapture, true);
-
-		const propagateResize = () => {
-			if (!activeRef.current || !fitRef.current || !containerRef.current) {
-				return;
-			}
-			try {
-				fitRef.current.fit();
-				const dims = fitRef.current.proposeDimensions();
-				if (dims && dims.cols && dims.rows) {
-					void shell.invoke('term:sessionResize', sessionId, dims.cols, dims.rows);
-				}
-			} catch {
-				/* ignore */
-			}
-		};
-
-		const applyZoomFontSize = () => {
-			const base = appSettingsRef.current.fontSize;
-			const scale = Math.pow(1.1, zoomLevelRef.current);
-			term.options.fontSize = base * scale;
-			try {
-				term.refresh(0, term.rows - 1);
-			} catch {
-				/* ignore */
-			}
-			propagateResize();
-		};
-
-		const searchAddon = new SearchAddon({ highlightLimit: 500 });
-		term.loadAddon(searchAddon);
-		searchAddonRef.current = searchAddon;
-
-		const disposeHotkeys = installXtermHotkeyRouting(
-			term,
-			() => mergeResolvedTerminalHotkeysMap(appSettingsRef.current),
-			(hotkeyId) => {
-				void dispatchTerminalHotkey(hotkeyId, {
-					term,
-					write: async (data) => {
-						await shell.invoke('term:sessionWrite', sessionId, data);
-					},
-					copySelection,
-					pasteFromClipboard,
-					selectAll: () => term.selectAll(),
-					clear: () => term.clear(),
-					getCwd: () => sessionCwdRef.current.trim(),
-					writeClipboardText: async (text) => {
-						await shell.invoke('clipboard:writeText', text);
-					},
-					showCopiedNotice: () => showTerminalCopiedNotice(t('app.universalTerminalToast.copied')),
-					zoom: {
-						levelRef: zoomLevelRef,
-						applyFontSize: () => applyZoomFontSize(),
-					},
-					search: {
-						addon: searchAddon,
-						open: () => {
-							const selected = term.getSelection().trim();
-							setSearchUi({ open: true, query: selected });
-						},
-					},
-					onReconnect: () => onReconnectRef.current?.(),
-					onDisconnect: () => onDisconnectRef.current?.(),
-				});
-			}
-		);
-
-		const observer = new ResizeObserver(() => {
-			if (resizeQueued) {
-				return;
-			}
-			resizeQueued = true;
-			requestAnimationFrame(() => {
-				resizeQueued = false;
-				propagateResize();
-			});
-		});
-		observer.observe(el);
-
-		return () => {
-			cancelled = true;
-			disposeHotkeys();
-			searchAddonRef.current = null;
-			observer.disconnect();
-			inputDisposer.dispose();
-			selectionDisposer.dispose();
-			bellDisposer.dispose();
-			el.removeEventListener('contextmenu', onContextMenu);
-			el.removeEventListener('auxclick', onAuxClick);
-			el.removeEventListener('paste', onPasteCapture, true);
-			unsubData?.();
-			unsubExit();
-			registerRuntime(sessionId, null);
-			void shell.invoke('term:sessionUnsubscribe', sessionId).catch(() => {
-				/* ignore */
-			});
-			term.dispose();
-			termRef.current = null;
-			fitRef.current = null;
-		};
-	}, [active, onAuthPrompt, profile, sessionId, shell, t, theme, onRequestContextMenu, registerRuntime]);
+	useXtermTerminal({
+		containerRef,
+		termRef,
+		fitRef,
+		searchAddonRef,
+		sessionId,
+		shell,
+		theme,
+		appSettingsRef,
+	});
+	useTerminalPaste({
+		containerRef,
+		termRef,
+		controlsRef: terminalControlsRef,
+		sessionId,
+		shell,
+		appSettingsRef,
+		profileRef,
+		tRef,
+		onRequestContextMenuRef,
+		registerRuntimeRef,
+	});
+	useTerminalSessionData({
+		termRef,
+		seenSeqRef,
+		sessionId,
+		shell,
+		profileRef,
+		onAuthPromptRef,
+		onExitRef,
+	});
+	useTerminalResize({
+		containerRef,
+		termRef,
+		fitRef,
+		active,
+		activeRef,
+		sessionId,
+		shell,
+	});
+	useTerminalHotkeys({
+		termRef,
+		searchAddonRef,
+		controlsRef: terminalControlsRef,
+		zoomLevelRef,
+		appSettingsRef,
+		sessionCwdRef,
+		onReconnectRef,
+		onDisconnectRef,
+		sessionId,
+		shell,
+		tRef,
+		setSearchUi,
+	});
 
 	useEffect(() => {
 		zoomLevelRef.current = 0;
@@ -654,6 +436,429 @@ function TerminalTabView({
 	);
 }
 
+type LatestRef<T> = { current: T };
+
+function useLatestRef<T>(value: T): LatestRef<T> {
+	const ref = useRef(value);
+	ref.current = value;
+	return ref;
+}
+
+function applyTerminalOptions(term: XTerm, appSettings: TerminalAppSettings, fontScale = 1): void {
+	term.options.fontFamily = appSettings.fontFamily;
+	term.options.fontSize = appSettings.fontSize * fontScale;
+	term.options.fontWeight = appSettings.fontWeight;
+	term.options.fontWeightBold = appSettings.fontWeightBold;
+	term.options.lineHeight = appSettings.lineHeight;
+	term.options.cursorBlink = appSettings.cursorBlink;
+	term.options.cursorStyle = appSettings.cursorStyle;
+	term.options.scrollback = appSettings.scrollback;
+	term.options.minimumContrastRatio = appSettings.minimumContrastRatio;
+	term.options.drawBoldTextInBrightColors = appSettings.drawBoldTextInBrightColors;
+	term.options.scrollOnUserInput = appSettings.scrollOnInput;
+	term.options.wordSeparator = appSettings.wordSeparator;
+	term.options.ignoreBracketedPasteMode = !appSettings.bracketedPaste;
+}
+
+function applyTerminalTheme(term: XTerm, theme: XTermThemeColors): void {
+	term.options.theme = {
+		background: theme.background,
+		foreground: theme.foreground,
+		cursor: theme.cursor,
+		cursorAccent: theme.background,
+		selectionBackground: theme.selectionBackground,
+		black: theme.black,
+		brightBlack: theme.brightBlack,
+	};
+}
+
+function useXtermTerminal(opts: {
+	containerRef: React.RefObject<HTMLDivElement | null>;
+	termRef: React.MutableRefObject<XTerm | null>;
+	fitRef: React.MutableRefObject<FitAddon | null>;
+	searchAddonRef: React.MutableRefObject<SearchAddon | null>;
+	sessionId: string;
+	shell: ShellBridge;
+	theme: XTermThemeColors;
+	appSettingsRef: React.MutableRefObject<TerminalAppSettings>;
+}): void {
+	const { containerRef, termRef, fitRef, searchAddonRef, sessionId, shell, theme, appSettingsRef } = opts;
+	useEffect(() => {
+		const el = containerRef.current;
+		if (!el || !shell?.subscribeTerminalSessionData) {
+			return;
+		}
+		const term = new XTerm({ allowProposedApi: true });
+		applyTerminalTheme(term, theme);
+		applyTerminalOptions(term, appSettingsRef.current);
+		const fit = new FitAddon();
+		const searchAddon = new SearchAddon({ highlightLimit: 500 });
+		term.loadAddon(fit);
+		term.loadAddon(searchAddon);
+		term.open(el);
+		termRef.current = term;
+		fitRef.current = fit;
+		searchAddonRef.current = searchAddon;
+		return () => {
+			searchAddonRef.current = null;
+			term.dispose();
+			termRef.current = null;
+			fitRef.current = null;
+		};
+	}, [containerRef, fitRef, searchAddonRef, sessionId, shell, termRef]);
+}
+
+function useTerminalSessionData(opts: {
+	termRef: React.MutableRefObject<XTerm | null>;
+	seenSeqRef: React.MutableRefObject<number>;
+	sessionId: string;
+	shell: ShellBridge;
+	profileRef: LatestRef<TerminalProfile | null>;
+	onAuthPromptRef: LatestRef<(sessionId: string, prompt: TerminalSessionAuthPrompt) => void>;
+	onExitRef: React.MutableRefObject<(code: number | null) => void>;
+}): void {
+	const { termRef, seenSeqRef, sessionId, shell, profileRef, onAuthPromptRef, onExitRef } = opts;
+	useEffect(() => {
+		let cancelled = false;
+		const term = termRef.current;
+		if (!term || !shell?.subscribeTerminalSessionData) {
+			return;
+		}
+		const loginScriptsState = profileRef.current?.loginScripts.map((script) => ({ ...script })) ?? [];
+		const subscribeAndReplay = async () => {
+			try {
+				const sub = (await shell.invoke('term:sessionSubscribe', sessionId)) as
+					| { ok: true; slice: BufferSlice }
+					| { ok: false };
+				if (cancelled || !sub.ok) {
+					return;
+				}
+				seenSeqRef.current = sub.slice.seq;
+				if (sub.slice.content) {
+					term.write(sub.slice.content);
+				}
+				if (sub.slice.authPrompt) {
+					onAuthPromptRef.current(sessionId, sub.slice.authPrompt);
+				}
+				if (!sub.slice.alive) {
+					onExitRef.current?.(sub.slice.exitCode);
+				}
+			} catch {
+				/* ignore */
+			}
+		};
+		void subscribeAndReplay();
+		void maybeRunLoginScripts(shell, sessionId, '', loginScriptsState);
+		const unsubData = shell.subscribeTerminalSessionData((id, data, seq) => {
+			if (id !== sessionId) {
+				return;
+			}
+			if (seq && seq <= seenSeqRef.current) {
+				return;
+			}
+			seenSeqRef.current = seq || seenSeqRef.current + 1;
+			term.write(data);
+			void maybeRunLoginScripts(shell, sessionId, data, loginScriptsState);
+		});
+		const unsubExit =
+			shell.subscribeTerminalSessionExit?.((id, code) => {
+				if (id === sessionId) {
+					onExitRef.current?.(typeof code === 'number' ? code : null);
+				}
+			}) ?? (() => {});
+		return () => {
+			cancelled = true;
+			unsubData?.();
+			unsubExit();
+			void shell.invoke('term:sessionUnsubscribe', sessionId).catch(() => {
+				/* ignore */
+			});
+		};
+	}, [onAuthPromptRef, onExitRef, profileRef, seenSeqRef, sessionId, shell, termRef]);
+}
+
+function useTerminalResize(opts: {
+	containerRef: React.RefObject<HTMLDivElement | null>;
+	termRef: React.MutableRefObject<XTerm | null>;
+	fitRef: React.MutableRefObject<FitAddon | null>;
+	active: boolean;
+	activeRef: React.MutableRefObject<boolean>;
+	sessionId: string;
+	shell: ShellBridge;
+}): void {
+	const { containerRef, termRef, fitRef, active, activeRef, sessionId, shell } = opts;
+	const resize = useCallback((focus = false) => {
+		if (!activeRef.current || !fitRef.current || !containerRef.current) {
+			return;
+		}
+		try {
+			fitRef.current.fit();
+			if (focus) {
+				termRef.current?.focus();
+			}
+			const dims = fitRef.current.proposeDimensions();
+			if (dims && dims.cols && dims.rows) {
+				void shell.invoke('term:sessionResize', sessionId, dims.cols, dims.rows);
+			}
+		} catch {
+			/* ignore */
+		}
+	}, [activeRef, containerRef, fitRef, sessionId, shell, termRef]);
+
+	useEffect(() => {
+		const el = containerRef.current;
+		if (!el) {
+			return;
+		}
+		let resizeQueued = false;
+		const observer = new ResizeObserver(() => {
+			if (resizeQueued) {
+				return;
+			}
+			resizeQueued = true;
+			requestAnimationFrame(() => {
+				resizeQueued = false;
+				resize();
+			});
+		});
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [containerRef, resize]);
+
+	useEffect(() => {
+		if (!active) {
+			return;
+		}
+		const raf = requestAnimationFrame(() => resize(true));
+		return () => cancelAnimationFrame(raf);
+	}, [active, resize]);
+}
+
+function useTerminalPaste(opts: {
+	containerRef: React.RefObject<HTMLDivElement | null>;
+	termRef: React.MutableRefObject<XTerm | null>;
+	controlsRef: React.MutableRefObject<TerminalRuntimeControls | null>;
+	sessionId: string;
+	shell: ShellBridge;
+	appSettingsRef: React.MutableRefObject<TerminalAppSettings>;
+	profileRef: LatestRef<TerminalProfile | null>;
+	tRef: LatestRef<TFunction>;
+	onRequestContextMenuRef: LatestRef<(payload: TerminalContextMenuState) => void>;
+	registerRuntimeRef: LatestRef<(sessionId: string, runtime: TerminalRuntimeControls | null) => void>;
+}): void {
+	const {
+		containerRef,
+		termRef,
+		controlsRef,
+		sessionId,
+		shell,
+		appSettingsRef,
+		profileRef,
+		tRef,
+		onRequestContextMenuRef,
+		registerRuntimeRef,
+	} = opts;
+	useEffect(() => {
+		const el = containerRef.current;
+		const term = termRef.current;
+		if (!el || !term) {
+			return;
+		}
+		const confirmMultilinePaste = async (preview: string) =>
+			window.confirm(`${tRef.current('app.universalTerminalPasteMultipleLines')}\n\n${preview.slice(0, 1000)}`);
+		const pasteText = async (text: string): Promise<boolean> => {
+			const next = await prepareTerminalPasteText(
+				text,
+				appSettingsRef.current,
+				isTerminalAlternateScreen(term),
+				confirmMultilinePaste
+			);
+			if (!next) {
+				return false;
+			}
+			term.paste(next);
+			return true;
+		};
+		const pasteFromClipboard = async (): Promise<boolean> => {
+			try {
+				const raw = await shell.invoke('clipboard:readText');
+				const text = typeof raw === 'string' ? raw : '';
+				return text ? pasteText(text) : false;
+			} catch {
+				return false;
+			}
+		};
+		const copySelection = async (): Promise<boolean> => {
+			const selection = term.getSelection();
+			if (!selection) {
+				return false;
+			}
+			try {
+				await shell.invoke('clipboard:writeText', selection);
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		const runtime: TerminalRuntimeControls = {
+			copySelection,
+			pasteFromClipboard,
+			selectAll: () => term.selectAll(),
+			clear: () => term.clear(),
+			focus: () => term.focus(),
+			hasSelection: () => term.hasSelection(),
+		};
+		controlsRef.current = runtime;
+		registerRuntimeRef.current(sessionId, runtime);
+		const inputDisposer = term.onData((data) => {
+			void shell.invoke('term:sessionWrite', sessionId, applyInputBackspaceMode(data, profileRef.current?.inputBackspace));
+		});
+		const selectionDisposer = term.onSelectionChange(() => {
+			if (!appSettingsRef.current.copyOnSelect || !term.hasSelection()) {
+				return;
+			}
+			void copySelection();
+		});
+		const bellDisposer = term.onBell(() => {
+			if (appSettingsRef.current.bell === 'visual') {
+				el.classList.add('ref-uterm-bell-flash');
+				window.setTimeout(() => el.classList.remove('ref-uterm-bell-flash'), 160);
+				return;
+			}
+			if (appSettingsRef.current.bell === 'audible') {
+				playAudibleTerminalBell();
+			}
+		});
+		const onContextMenu = (event: MouseEvent) => {
+			const action = appSettingsRef.current.rightClickAction;
+			if (action === 'off') {
+				return;
+			}
+			event.preventDefault();
+			if (action === 'menu') {
+				onRequestContextMenuRef.current({ sessionId, x: event.clientX, y: event.clientY });
+				return;
+			}
+			if (action === 'clipboard' && term.hasSelection()) {
+				void copySelection();
+				return;
+			}
+			void pasteFromClipboard();
+		};
+		const onAuxClick = (event: MouseEvent) => {
+			if (event.button !== 1 || !appSettingsRef.current.pasteOnMiddleClick) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			void pasteFromClipboard();
+		};
+		const onPasteCapture = (event: ClipboardEvent) => {
+			const text = event.clipboardData?.getData('text/plain') ?? '';
+			if (!text) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			void pasteText(text);
+		};
+		el.addEventListener('contextmenu', onContextMenu);
+		el.addEventListener('auxclick', onAuxClick);
+		el.addEventListener('paste', onPasteCapture, true);
+		return () => {
+			inputDisposer.dispose();
+			selectionDisposer.dispose();
+			bellDisposer.dispose();
+			el.removeEventListener('contextmenu', onContextMenu);
+			el.removeEventListener('auxclick', onAuxClick);
+			el.removeEventListener('paste', onPasteCapture, true);
+			controlsRef.current = null;
+			registerRuntimeRef.current(sessionId, null);
+		};
+	}, [appSettingsRef, containerRef, controlsRef, onRequestContextMenuRef, profileRef, registerRuntimeRef, sessionId, shell, tRef, termRef]);
+}
+
+function useTerminalHotkeys(opts: {
+	termRef: React.MutableRefObject<XTerm | null>;
+	searchAddonRef: React.MutableRefObject<SearchAddon | null>;
+	controlsRef: React.MutableRefObject<TerminalRuntimeControls | null>;
+	zoomLevelRef: React.MutableRefObject<number>;
+	appSettingsRef: React.MutableRefObject<TerminalAppSettings>;
+	sessionCwdRef: React.MutableRefObject<string>;
+	onReconnectRef: React.MutableRefObject<(() => void) | undefined>;
+	onDisconnectRef: React.MutableRefObject<(() => void) | undefined>;
+	sessionId: string;
+	shell: ShellBridge;
+	tRef: LatestRef<TFunction>;
+	setSearchUi: (value: { open: boolean; query: string }) => void;
+}): void {
+	const {
+		termRef,
+		searchAddonRef,
+		controlsRef,
+		zoomLevelRef,
+		appSettingsRef,
+		sessionCwdRef,
+		onReconnectRef,
+		onDisconnectRef,
+		sessionId,
+		shell,
+		tRef,
+		setSearchUi,
+	} = opts;
+	useEffect(() => {
+		const term = termRef.current;
+		const searchAddon = searchAddonRef.current;
+		if (!term || !searchAddon) {
+			return;
+		}
+		const applyZoomFontSize = () => {
+			const base = appSettingsRef.current.fontSize;
+			const scale = Math.pow(1.1, zoomLevelRef.current);
+			term.options.fontSize = base * scale;
+			try {
+				term.refresh(0, term.rows - 1);
+			} catch {
+				/* ignore */
+			}
+		};
+		return installXtermHotkeyRouting(
+			term,
+			() => mergeResolvedTerminalHotkeysMap(appSettingsRef.current),
+			(hotkeyId) => {
+				const controls = controlsRef.current;
+				void dispatchTerminalHotkey(hotkeyId, {
+					term,
+					write: async (data) => {
+						await shell.invoke('term:sessionWrite', sessionId, data);
+					},
+					copySelection: () => controls?.copySelection() ?? Promise.resolve(false),
+					pasteFromClipboard: () => controls?.pasteFromClipboard() ?? Promise.resolve(false),
+					selectAll: () => term.selectAll(),
+					clear: () => term.clear(),
+					getCwd: () => sessionCwdRef.current.trim(),
+					writeClipboardText: async (text) => {
+						await shell.invoke('clipboard:writeText', text);
+					},
+					showCopiedNotice: () => showTerminalCopiedNotice(tRef.current('app.universalTerminalToast.copied')),
+					zoom: {
+						levelRef: zoomLevelRef,
+						applyFontSize: () => applyZoomFontSize(),
+					},
+					search: {
+						addon: searchAddon,
+						open: () => {
+							const selected = term.getSelection().trim();
+							setSearchUi({ open: true, query: selected });
+						},
+					},
+					onReconnect: () => onReconnectRef.current?.(),
+					onDisconnect: () => onDisconnectRef.current?.(),
+				});
+			}
+		);
+	}, [appSettingsRef, controlsRef, onDisconnectRef, onReconnectRef, searchAddonRef, sessionCwdRef, sessionId, setSearchUi, shell, tRef, termRef, zoomLevelRef]);
+}
 const MemoTerminalTabView = memo(TerminalTabView);
 
 type Props = {
@@ -665,6 +870,12 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	const shell = window.asyncShell;
 	const [sessions, setSessions] = useState<SessionInfo[]>([]);
 	const [activeId, setActiveId] = useState<string | null>(null);
+	const [splitLayout, setSplitLayout] = useState<TerminalSplitLayout>({
+		enabled: false,
+		orientation: 'horizontal',
+		secondaryId: null,
+		ratio: 0.5,
+	});
 	const [exitByTab, setExitByTab] = useState<Record<string, number | null>>({});
 	const [sessionProfiles, setSessionProfiles] = useState<Record<string, string>>({});
 	const [builtinProfiles, setBuiltinProfiles] = useState<TerminalProfile[]>(() => getBuiltinTerminalProfiles());
@@ -681,15 +892,18 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		useState<TerminalSettingsPanelOpenProfileRequest | null>(null);
 	const [sftpPanelOpenBySession, setSftpPanelOpenBySession] = useState<Record<string, boolean>>({});
 	const [sftpPanelPathBySession, setSftpPanelPathBySession] = useState<Record<string, string>>({});
+	const [portsPanelOpenBySession, setPortsPanelOpenBySession] = useState<Record<string, boolean>>({});
 	const [toolbarPinned, setToolbarPinned] = useState(() => loadTerminalToolbarPinned());
 	const [toolbarRevealed, setToolbarRevealed] = useState(() => loadTerminalToolbarPinned());
 	const creatingRef = useRef(false);
 	const initialListLoadedRef = useRef(false);
-	const createSessionRef = useRef<(profileId?: string) => Promise<void>>(async () => {});
+	const createSessionRef = useRef<(profileId?: string, options?: { activate?: boolean }) => Promise<string | null>>(async () => null);
 	const builtinProfilesRef = useRef<TerminalProfile[]>(builtinProfiles);
 	const menuWrapRef = useRef<HTMLDivElement>(null);
+	const panesRef = useRef<HTMLDivElement>(null);
 	const runtimeControlsRef = useRef<Record<string, TerminalRuntimeControls>>({});
 	const toolbarHideTimerRef = useRef<number | null>(null);
+	const snapshotSaveTimerRef = useRef<number | null>(null);
 	builtinProfilesRef.current = builtinProfiles;
 
 	const clearToolbarHideTimer = useCallback(() => {
@@ -760,11 +974,26 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 
 	const restoreSavedTabs = useCallback(async () => {
 		const snapshot = loadTerminalTabSnapshot();
-		if (!snapshot.length) {
+		if (!snapshot.tabs.length) {
 			return false;
 		}
-		for (const tab of snapshot) {
-			await createSessionRef.current(tab.profileId);
+		const restoredIds: string[] = [];
+		for (const [index, tab] of snapshot.tabs.entries()) {
+			const id = await createSessionRef.current(tab.profileId, { activate: index === snapshot.activeIndex });
+			if (id) {
+				restoredIds.push(id);
+			}
+		}
+		if (snapshot.split?.enabled) {
+			const secondaryId = restoredIds[snapshot.split.secondaryIndex];
+			if (secondaryId) {
+				setSplitLayout({
+					enabled: true,
+					orientation: snapshot.split.orientation,
+					secondaryId,
+					ratio: snapshot.split.ratio,
+				});
+			}
 		}
 		return true;
 	}, []);
@@ -835,9 +1064,9 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	}, [forceStartPage, reloadBuiltinProfiles, restoreSavedTabs, shell, terminalSettings.autoOpen, terminalSettings.restoreTabs]);
 
 	const createSession = useCallback(
-		async (profileId?: string) => {
+		async (profileId?: string, options?: { activate?: boolean }): Promise<string | null> => {
 			if (!shell || creatingRef.current) {
-				return;
+				return null;
 			}
 			creatingRef.current = true;
 			try {
@@ -857,13 +1086,16 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 						rememberTerminalProfileLaunch(profile.id);
 					}
 					setSessions((prev) => (prev.some((session) => session.id === result.session.id) ? prev : [...prev, result.session]));
-					setActiveId(result.session.id);
+					if (options?.activate !== false) {
+						setActiveId(result.session.id);
+					}
 					setSettingsOpen(false);
 					setProfileSelectorOpen(false);
 					setMenuOpen(false);
 					setContextMenu(null);
 					setTabHeaderContextMenu(null);
 				}
+				return result.ok ? result.session.id : null;
 			} finally {
 				creatingRef.current = false;
 			}
@@ -874,9 +1106,16 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	createSessionRef.current = createSession;
 
 	const closeSession = useCallback(
-		async (id: string) => {
+		async (id: string, options?: { force?: boolean }) => {
 			if (!shell) {
 				return;
+			}
+			const session = sessions.find((item) => item.id === id);
+			if (!options?.force && session?.alive) {
+				const confirmed = window.confirm(`Close terminal "${session.title}"? Running processes will be terminated.`);
+				if (!confirmed) {
+					return;
+				}
 			}
 			await shell.invoke('term:sessionKill', id).catch(() => {
 				/* ignore */
@@ -907,8 +1146,70 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 				return next;
 			});
 		},
-		[shell]
+		[sessions, shell]
 	);
+
+	const duplicateSession = useCallback(
+		async (id: string, options?: { activate?: boolean }) => {
+			const profileId = sessionProfiles[id] ?? terminalSettings.defaultProfileId;
+			await createSession(profileId, options);
+		},
+		[createSession, sessionProfiles, terminalSettings.defaultProfileId]
+	);
+
+	const reorderSession = useCallback((sourceId: string, targetId: string) => {
+		if (sourceId === targetId) {
+			return;
+		}
+		setSessions((prev) => {
+			const sourceIndex = prev.findIndex((session) => session.id === sourceId);
+			const targetIndex = prev.findIndex((session) => session.id === targetId);
+			if (sourceIndex < 0 || targetIndex < 0) {
+				return prev;
+			}
+			const next = [...prev];
+			const [moved] = next.splice(sourceIndex, 1);
+			next.splice(targetIndex, 0, moved);
+			return next;
+		});
+	}, []);
+
+	const splitSession = useCallback(
+		async (id: string, orientation: TerminalSplitOrientation) => {
+			await duplicateSession(id);
+			setSplitLayout({ enabled: true, orientation, secondaryId: id, ratio: 0.5 });
+		},
+		[duplicateSession]
+	);
+
+		const closeSplit = useCallback(() => {
+			const secondaryId = splitLayout.secondaryId;
+			setSplitLayout({ enabled: false, orientation: 'horizontal', secondaryId: null, ratio: 0.5 });
+			if (secondaryId) {
+				shell?.invoke('term:sessionKill', secondaryId).catch(() => {});
+				setSessions((prev) => prev.filter((s) => s.id !== secondaryId));
+			}
+		}, [shell, splitLayout.secondaryId]);
+	const beginSplitResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+		const panes = panesRef.current;
+		if (!panes || !splitLayout.enabled) {
+			return;
+		}
+		event.preventDefault();
+		const rect = panes.getBoundingClientRect();
+		const update = (clientX: number, clientY: number) => {
+			const raw = splitLayout.orientation === 'horizontal' ? (clientX - rect.left) / rect.width : (clientY - rect.top) / rect.height;
+			const ratio = Math.max(0.2, Math.min(0.8, raw));
+			setSplitLayout((current) => ({ ...current, ratio }));
+		};
+		const onPointerMove = (moveEvent: PointerEvent) => update(moveEvent.clientX, moveEvent.clientY);
+		const onPointerUp = () => {
+			document.removeEventListener('pointermove', onPointerMove);
+			document.removeEventListener('pointerup', onPointerUp);
+		};
+		document.addEventListener('pointermove', onPointerMove);
+		document.addEventListener('pointerup', onPointerUp);
+	}, [splitLayout.enabled, splitLayout.orientation]);
 
 	useEffect(() => {
 		void refreshList();
@@ -947,19 +1248,61 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 	}, [reloadBuiltinProfiles, settingsOpen]);
 
 	useEffect(() => {
+		if (snapshotSaveTimerRef.current != null) {
+			window.clearTimeout(snapshotSaveTimerRef.current);
+			snapshotSaveTimerRef.current = null;
+		}
 		if (!terminalSettings.restoreTabs) {
-			saveTerminalTabSnapshot([]);
+			snapshotSaveTimerRef.current = window.setTimeout(() => {
+				saveTerminalTabSnapshot({ tabs: [] });
+				snapshotSaveTimerRef.current = null;
+			}, 500);
 			return;
 		}
-		saveTerminalTabSnapshot(
-			sessions
-				.map((session) => {
-					const profileId = sessionProfiles[session.id] ?? terminalSettings.defaultProfileId;
-					return profileId ? { profileId } : null;
-				})
-				.filter((tab): tab is RestorableTerminalTab => Boolean(tab))
-		);
-	}, [sessions, sessionProfiles, terminalSettings.defaultProfileId, terminalSettings.restoreTabs]);
+		const tabs = sessions
+			.map((session) => {
+				const profileId = sessionProfiles[session.id] ?? terminalSettings.defaultProfileId;
+				return profileId ? { profileId } : null;
+			})
+			.filter((tab): tab is RestorableTerminalTab => Boolean(tab));
+		const activeIndex = activeId ? sessions.findIndex((session) => session.id === activeId) : undefined;
+		const secondaryIndex = splitLayout.secondaryId
+			? sessions.findIndex((session) => session.id === splitLayout.secondaryId)
+			: -1;
+		const snapshot: RestorableTerminalSnapshot = {
+			tabs,
+			activeIndex: typeof activeIndex === 'number' && activeIndex >= 0 ? activeIndex : undefined,
+			split:
+				splitLayout.enabled && secondaryIndex >= 0
+					? {
+							enabled: true,
+							orientation: splitLayout.orientation,
+							secondaryIndex,
+							ratio: splitLayout.ratio,
+						}
+					: undefined,
+		};
+		snapshotSaveTimerRef.current = window.setTimeout(() => {
+			saveTerminalTabSnapshot(snapshot);
+			snapshotSaveTimerRef.current = null;
+		}, 500);
+		return () => {
+			if (snapshotSaveTimerRef.current != null) {
+				window.clearTimeout(snapshotSaveTimerRef.current);
+				snapshotSaveTimerRef.current = null;
+			}
+		};
+	}, [
+		activeId,
+		sessions,
+		sessionProfiles,
+		splitLayout.enabled,
+		splitLayout.orientation,
+		splitLayout.ratio,
+		splitLayout.secondaryId,
+		terminalSettings.defaultProfileId,
+		terminalSettings.restoreTabs,
+	]);
 
 	useEffect(() => {
 		if (!menuOpen) {
@@ -1069,6 +1412,26 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		() => sessions.find((session) => session.id === activeId) ?? sessions[0] ?? null,
 		[sessions, activeId]
 	);
+	const splitSecondarySession = useMemo(
+		() => sessions.find((session) => session.id === splitLayout.secondaryId && session.id !== activeSession?.id) ?? null,
+		[activeSession?.id, sessions, splitLayout.secondaryId]
+	);
+	const visibleTerminalSessions = useMemo(() => {
+		if (splitLayout.enabled && activeSession && splitSecondarySession) {
+			return [activeSession, splitSecondarySession];
+		}
+		return activeSession ? [activeSession] : [];
+	}, [activeSession, splitLayout.enabled, splitSecondarySession]);
+
+	useEffect(() => {
+		if (!splitLayout.enabled) {
+			return;
+		}
+		if (splitLayout.secondaryId && sessions.some((session) => session.id === splitLayout.secondaryId)) {
+			return;
+		}
+		setSplitLayout((current) => ({ ...current, enabled: false, secondaryId: null }));
+	}, [sessions, splitLayout.enabled, splitLayout.secondaryId]);
 
 	const displayBuiltinProfiles = useMemo(
 		() => builtinProfiles.map((profile) => withTerminalWindowProfileLabel(profile, t)),
@@ -1204,8 +1567,9 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		(): CSSProperties =>
 			({
 				'--ref-uterm-body-opacity': String(terminalSettings.opacity),
+				'--ref-uterm-split-ratio': `${Math.round(splitLayout.ratio * 100)}%`,
 			}) as CSSProperties,
-		[terminalSettings.opacity]
+		[splitLayout.ratio, terminalSettings.opacity]
 	);
 
 	const contextRuntime = contextMenu ? runtimeControlsRef.current[contextMenu.sessionId] ?? null : null;
@@ -1305,10 +1669,27 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 		setSftpPanelPathBySession((prev) => ({ ...prev, [sessionId]: nextPath }));
 	}, []);
 
+	const openPortsPanel = useCallback(
+		(sessionId: string) => {
+			setPortsPanelOpenBySession((prev) => ({ ...prev, [sessionId]: true }));
+			revealTerminalToolbar();
+		},
+		[revealTerminalToolbar]
+	);
+
+	const closePortsPanel = useCallback((sessionId: string) => {
+		setPortsPanelOpenBySession((prev) => {
+			if (!prev[sessionId]) {
+				return prev;
+			}
+			return { ...prev, [sessionId]: false };
+		});
+	}, []);
+
 	const reconnectSession = useCallback(
 		async (sessionId: string) => {
 			const profileId = resolvedSessionProfiles[sessionId]?.id;
-			await closeSession(sessionId);
+			await closeSession(sessionId, { force: true });
 			await createSession(profileId);
 			revealTerminalToolbar();
 		},
@@ -1396,6 +1777,14 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 							}}
 							onClose={() => void closeSession(session.id)}
 							onContextMenu={(event) => onTabStripContextMenu(session.id, event)}
+							onDragStart={(event) => event.dataTransfer.setData('application/x-ref-terminal-session', session.id)}
+							onDragOver={(event) => event.preventDefault()}
+							onDrop={(event) => {
+							const sourceId = event.dataTransfer.getData('application/x-ref-terminal-session');
+							if (sourceId) {
+								reorderSession(sourceId, session.id);
+							}
+						}}
 						/>
 					))}
 					<div className="ref-uterm-tabstrip-tail">
@@ -1498,7 +1887,7 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 												<span className="ref-uterm-dropdown-item-meta">
 													{describeTerminalProfileTarget(profile, t)}
 													{profile.id === defaultProfile?.id
-														? ` · ${t('app.universalTerminalMenu.defaultSuffix')}`
+														? ` 路 ${t('app.universalTerminalMenu.defaultSuffix')}`
 														: ''}
 												</span>
 											</button>
@@ -1574,6 +1963,56 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 					>
 						{t('app.universalTerminalTabHeader.newTerminal')}
 					</button>
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const id = tabHeaderContextMenu.sessionId;
+							closeTabHeaderContextMenu();
+							void duplicateSession(id);
+						}}
+					>
+						{t('app.universalTerminalTabHeader.duplicateTerminal')}
+					</button>
+					<div className="ref-uterm-dropdown-sep" role="separator" />
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const id = tabHeaderContextMenu.sessionId;
+							closeTabHeaderContextMenu();
+							void splitSession(id, 'horizontal');
+						}}
+					>
+						{t('app.universalTerminalTabHeader.splitRight')}
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const id = tabHeaderContextMenu.sessionId;
+							closeTabHeaderContextMenu();
+							void splitSession(id, 'vertical');
+						}}
+					>
+						{t('app.universalTerminalTabHeader.splitDown')}
+					</button>
+					<div className="ref-uterm-dropdown-sep" role="separator" />
+					<button
+						type="button"
+						role="menuitem"
+						className="ref-uterm-dropdown-item"
+						onClick={() => {
+							const id = tabHeaderContextMenu.sessionId;
+							closeTabHeaderContextMenu();
+							void closeSession(id);
+						}}
+					>
+						{t('app.universalTerminalCloseTab')}
+					</button>
 				</div>
 			) : null}
 
@@ -1605,23 +2044,44 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 						/>
 					) : (
 						<>
-							<div className="ref-uterm-panes">
+							<div
+								ref={panesRef}
+								className={`ref-uterm-panes ${splitLayout.enabled && splitSecondarySession ? `is-split is-split-${splitLayout.orientation}` : ''}`}
+							>
+								{splitLayout.enabled && splitSecondarySession ? (
+									<div
+										className="ref-uterm-split-resizer"
+										role="separator"
+										aria-orientation={splitLayout.orientation === 'horizontal' ? 'vertical' : 'horizontal'}
+										onPointerDown={beginSplitResize}
+									/>
+								) : null}
 								{sessions.map((session) => {
+									const isVisible = visibleTerminalSessions.some((visibleSession) => visibleSession.id === session.id);
 									const isActive = session.id === activeSession?.id;
 									const exitCode = exitByTab[session.id];
 									const sessionProfile = resolvedSessionProfiles[session.id] ?? null;
-									const paneActive = !settingsOpen && isActive;
+									const paneActive = !settingsOpen && isVisible;
 									const showSshToolbar = paneActive && sessionProfile?.kind === 'ssh';
 									const sftpPanelOpen = Boolean(sftpPanelOpenBySession[session.id]);
+					const portsPanelOpen = Boolean(portsPanelOpenBySession[session.id]);
 									const renderSftpPanel = sessionProfile?.kind === 'ssh' && sftpPanelOpen;
+					const renderPortsPanel = sessionProfile?.kind === 'ssh' && portsPanelOpen;
 									return (
 										<div
 											key={session.id}
-											className={`ref-uterm-pane ${paneActive ? 'is-active' : ''}`}
+											className={`ref-uterm-pane ${paneActive ? 'is-active' : ''} ${isActive ? 'is-focused' : ''}`}
 											aria-hidden={!paneActive}
+											onMouseDown={() => setActiveId(session.id)}
 											onMouseEnter={showSshToolbar ? revealTerminalToolbar : undefined}
 											onMouseLeave={showSshToolbar ? hideTerminalToolbar : undefined}
 										>
+											{paneActive && splitLayout.enabled ? (
+												<div className="ref-uterm-pane-controls">
+													<button type="button" className="ref-uterm-pane-control" onClick={closeSplit}>{t('app.universalTerminalPane.unsplit')}</button>
+													<button type="button" className="ref-uterm-pane-control" onClick={() => void closeSession(session.id)}>{t('app.universalTerminalPane.close')}</button>
+												</div>
+											) : null}
 											{showSshToolbar ? (
 												<TerminalSessionToolbar
 													t={t}
@@ -1632,14 +2092,14 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 													onPinToggle={toggleTerminalToolbarPinned}
 													onReconnect={() => void reconnectSession(session.id)}
 													onOpenSftp={() => openSftpPanel(session.id)}
-													onOpenPorts={() => openProfileSettingsFromToolbar(sessionProfile, 'ports')}
+													onOpenPorts={() => openPortsPanel(session.id)}
 													onMouseEnter={revealTerminalToolbar}
 													onMouseLeave={hideTerminalToolbar}
 												/>
 											) : null}
 											<MemoTerminalTabView
 												sessionId={session.id}
-												active={!settingsOpen && isActive}
+												active={!settingsOpen && paneActive && isActive}
 												shell={shell}
 												theme={getProfileThemeColors(sessionProfile, themeColors)}
 												appSettings={terminalSettings}
@@ -1653,6 +2113,15 @@ export const TerminalWindowSurface = memo(function TerminalWindowSurface({ t, fo
 												onReconnect={() => void reconnectSession(session.id)}
 												onDisconnect={() => void closeSession(session.id)}
 											/>
+							{renderPortsPanel ? (
+								<TerminalPortsPanel
+									t={t}
+									profile={sessionProfile}
+									onClose={() => closePortsPanel(session.id)}
+									onCopy={(text) => void window.asyncShell?.invoke('clipboard:writeText', text)}
+									onOpenSettings={() => openProfileSettingsFromToolbar(sessionProfile, 'ports')}
+								/>
+							) : null}
 											{renderSftpPanel ? (
 												<TerminalSftpPanel
 													t={t}
@@ -1741,6 +2210,9 @@ function TerminalTabButton({
 	onSelect,
 	onClose,
 	onContextMenu,
+	onDragStart,
+	onDragOver,
+	onDrop,
 }: {
 	active: boolean;
 	icon: React.ReactNode;
@@ -1750,10 +2222,17 @@ function TerminalTabButton({
 	onSelect(): void;
 	onClose(): void;
 	onContextMenu?(event: ReactMouseEvent<HTMLDivElement>): void;
+	onDragStart?(event: React.DragEvent<HTMLDivElement>): void;
+	onDragOver?(event: React.DragEvent<HTMLDivElement>): void;
+	onDrop?(event: React.DragEvent<HTMLDivElement>): void;
 }) {
 	return (
 		<div
 			className={`ref-uterm-tab ${active ? 'is-active' : ''} ${exited ? 'is-exited' : ''}`}
+			draggable={Boolean(onDragStart)}
+			onDragStart={onDragStart}
+			onDragOver={onDragOver}
+			onDrop={onDrop}
 			role="tab"
 			aria-selected={active}
 			onContextMenu={
@@ -1842,38 +2321,60 @@ function TerminalSessionToolbar({
 	);
 }
 
-function loadTerminalTabSnapshot(): RestorableTerminalTab[] {
+function loadTerminalTabSnapshot(): RestorableTerminalSnapshot {
+	const empty: RestorableTerminalSnapshot = { tabs: [] };
 	if (typeof window === 'undefined') {
-		return [];
+		return empty;
 	}
 	try {
 		const raw = window.localStorage.getItem(TERMINAL_TAB_SNAPSHOT_KEY);
 		if (!raw) {
-			return [];
+			return empty;
 		}
 		const parsed = JSON.parse(raw);
-		if (!Array.isArray(parsed)) {
-			return [];
-		}
-		return parsed.filter(
-			(item): item is RestorableTerminalTab =>
+		const rawTabs = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.tabs) ? parsed.tabs : [];
+		const tabs = rawTabs.filter(
+			(item: unknown): item is RestorableTerminalTab =>
 				Boolean(item) && typeof item === 'object' && typeof (item as RestorableTerminalTab).profileId === 'string'
 		);
+		const activeIndex =
+			typeof parsed?.activeIndex === 'number' && parsed.activeIndex >= 0 && parsed.activeIndex < tabs.length
+				? Math.floor(parsed.activeIndex)
+				: undefined;
+		const rawSplit = parsed?.split;
+		const split =
+			rawSplit &&
+			rawSplit.enabled === true &&
+			(rawSplit.orientation === 'horizontal' || rawSplit.orientation === 'vertical') &&
+			typeof rawSplit.secondaryIndex === 'number' &&
+			rawSplit.secondaryIndex >= 0 &&
+			rawSplit.secondaryIndex < tabs.length
+				? {
+					enabled: true,
+					orientation: rawSplit.orientation as TerminalSplitOrientation,
+					secondaryIndex: Math.floor(rawSplit.secondaryIndex),
+					ratio:
+						typeof rawSplit.ratio === 'number'
+							? Math.max(0.2, Math.min(0.8, rawSplit.ratio))
+							: 0.5,
+				}
+				: undefined;
+		return { tabs, activeIndex, split };
 	} catch {
-		return [];
+		return empty;
 	}
 }
 
-function saveTerminalTabSnapshot(tabs: RestorableTerminalTab[]): void {
+function saveTerminalTabSnapshot(snapshot: RestorableTerminalSnapshot): void {
 	if (typeof window === 'undefined') {
 		return;
 	}
 	try {
-		if (tabs.length === 0) {
+		if (snapshot.tabs.length === 0) {
 			window.localStorage.removeItem(TERMINAL_TAB_SNAPSHOT_KEY);
 			return;
 		}
-		window.localStorage.setItem(TERMINAL_TAB_SNAPSHOT_KEY, JSON.stringify(tabs));
+		window.localStorage.setItem(TERMINAL_TAB_SNAPSHOT_KEY, JSON.stringify(snapshot));
 	} catch {
 		/* ignore */
 	}

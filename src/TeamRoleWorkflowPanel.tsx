@@ -44,6 +44,7 @@ function renderAssistantMessage(
 		revertedPaths?: ReadonlySet<string>;
 		revertedChangeKeys?: ReadonlySet<string>;
 		allowAgentFileActions?: boolean;
+		typewriter?: boolean;
 	}
 ) {
 	return (
@@ -60,6 +61,7 @@ function renderAssistantMessage(
 					revertedPaths={options?.revertedPaths}
 					revertedChangeKeys={options?.revertedChangeKeys}
 					allowAgentFileActions={options?.allowAgentFileActions ?? false}
+					typewriter={options?.typewriter ?? false}
 				/>
 			</div>
 		</div>
@@ -200,6 +202,7 @@ export const TeamRoleWorkflowPanel = memo(function TeamRoleWorkflowPanel({
 						revertedPaths,
 						revertedChangeKeys,
 						allowAgentFileActions: false,
+						typewriter: true,
 					})
 				: null}
 			{!savedMessages.length && !isWorking ? (

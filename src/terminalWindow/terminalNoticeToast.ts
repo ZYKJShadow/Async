@@ -1,19 +1,35 @@
 const TOAST_CLASS = 'ref-uterm-notice-toast';
+const HIDE_TIMER_KEY = '__asyncTerminalToastHideTimer';
+const REMOVE_TIMER_KEY = '__asyncTerminalToastRemoveTimer';
+
+type ToastElement = HTMLDivElement & {
+	[HIDE_TIMER_KEY]?: number;
+	[REMOVE_TIMER_KEY]?: number;
+};
 
 export function showTerminalCopiedNotice(message: string, durationMs = 1000): void {
 	if (typeof document === 'undefined') {
 		return;
 	}
-	const el = document.createElement('div');
-	el.className = TOAST_CLASS;
-	el.setAttribute('role', 'status');
+	let el = document.querySelector<ToastElement>(`.${TOAST_CLASS}`);
+	if (!el) {
+		el = document.createElement('div') as ToastElement;
+		el.className = TOAST_CLASS;
+		el.setAttribute('role', 'status');
+		document.body.appendChild(el);
+	}
+	if (el[HIDE_TIMER_KEY] !== undefined) {
+		window.clearTimeout(el[HIDE_TIMER_KEY]);
+	}
+	if (el[REMOVE_TIMER_KEY] !== undefined) {
+		window.clearTimeout(el[REMOVE_TIMER_KEY]);
+	}
 	el.textContent = message;
-	document.body.appendChild(el);
 	requestAnimationFrame(() => {
 		el.classList.add('is-visible');
 	});
-	window.setTimeout(() => {
+	el[HIDE_TIMER_KEY] = window.setTimeout(() => {
 		el.classList.remove('is-visible');
-		window.setTimeout(() => el.remove(), 320);
+		el[REMOVE_TIMER_KEY] = window.setTimeout(() => el.remove(), 320);
 	}, durationMs);
 }

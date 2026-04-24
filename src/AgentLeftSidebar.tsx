@@ -10,7 +10,7 @@ import {
 	IconSearch,
 	IconSettings,
 	IconSparkles,
-	IconAutomation,
+	IconTerminal,
 	IconNewItem,
 } from './icons';
 
@@ -46,7 +46,7 @@ export type AgentLeftSidebarProps = {
 	openPluginSettings: () => void;
 	openGeneralSettings: () => void;
 	openSkillsSettings?: () => void;
-	openAutomationSettings?: () => void;
+	openUniversalTerminal?: () => void;
 };
 
 export const AgentLeftSidebar = memo(function AgentLeftSidebar({
@@ -70,7 +70,7 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 	openPluginSettings,
 	openGeneralSettings,
 	openSkillsSettings,
-	openAutomationSettings,
+	openUniversalTerminal,
 }: AgentLeftSidebarProps) {
 	return (
 		<div className="ref-left-agent-nest">
@@ -95,10 +95,10 @@ export const AgentLeftSidebar = memo(function AgentLeftSidebar({
 							<IconPlugin className="ref-agent-nav-item-icon" />
 							<span>{t('settings.nav.plugins')}</span>
 						</button>
-						{openAutomationSettings ? (
-							<button type="button" className="ref-agent-nav-item" onClick={openAutomationSettings}>
-								<IconAutomation className="ref-agent-nav-item-icon" />
-								<span>{t('app.automation')}</span>
+						{openUniversalTerminal ? (
+							<button type="button" className="ref-agent-nav-item" onClick={openUniversalTerminal}>
+								<IconTerminal className="ref-agent-nav-item-icon" />
+								<span>{t('app.universalTerminal')}</span>
 							</button>
 						) : null}
 					</nav>

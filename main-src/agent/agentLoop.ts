@@ -40,8 +40,10 @@ import {
 } from '../llm/thinkingLevel.js';
 import {
 	addAnthropicCacheBreakpoints,
+	type AnthropicCacheBreakpointDecision,
 	buildAnthropicSystemForApi,
 	isAnthropicPromptCachingEnabled,
+	observeAnthropicPromptCacheUsage,
 } from '../llm/anthropicPromptCache.js';
 import type { AnthropicToolResultBlock, AnthropicToolSchema } from '../llm/anthropicBeta.js';
 import type { ComposerMode } from '../llm/composerMode.js';
@@ -90,6 +92,11 @@ import type { MistakeLimitContext, MistakeLimitDecision } from './mistakeLimitGa
 import { resolveStreamTimeouts, createStreamTimeoutManager } from '../llm/streamTimeouts.js';
 import { applyTurnToolResultBudget, normalizeToolResultReplacementState, type ToolResultReplacementState } from './toolResultBudget.js';
 import { analyzeToolContext, shouldEnableAnthropicNativeDefer } from './toolContextAnalysis.js';
+import {
+	compactAnthropicConversationForContext,
+	compactOpenAIConversationForContext,
+	type AgentContextCompactState,
+} from './agentConversationContext.js';
 
 export type { MistakeLimitContext, MistakeLimitDecision } from './mistakeLimitGate.js';
 
@@ -245,6 +252,8 @@ export type AgentLoopOptions = {
 	onDiscoveredDeferredToolsChange?: (names: string[]) => void;
 	toolResultReplacementState?: ToolResultReplacementState;
 	onToolResultReplacementStateChange?: (state: ToolResultReplacementState) => void;
+	contextCompactState?: AgentContextCompactState;
+	onContextCompactStateChange?: (state: AgentContextCompactState) => void;
 	/** 在 executeTool 之前调用；用于 shell 写入等需用户确认的闸门 */
 	beforeExecuteTool?: (call: ToolCall) => Promise<BeforeExecuteToolResult>;
 	thinkingLevel?: ThinkingLevel;
@@ -987,6 +996,24 @@ async function runOpenAILoop(
 				conversation = appendMessagesToOpenAIConversation(conversation, injected);
 			}
 		}
+		const compactedForContext = compactOpenAIConversationForContext(conversation, {
+			model,
+			apiKey: key,
+			baseURL,
+			proxyUrl: proxyRaw || undefined,
+			contextWindowTokens: options.contextWindowTokens,
+			maxOutputTokens: options.maxOutputTokens,
+			state: options.contextCompactState,
+			onStateChange: options.onContextCompactStateChange,
+			signal: options.signal,
+		});
+		const compactedForContextResolved = await compactedForContext;
+		if (compactedForContextResolved.changed) {
+			conversation = compactedForContextResolved.messages;
+			console.log(
+				`[AgentLoop] round ${round} — context compacted provider=openai mode=${compactedForContextResolved.mode} before=${compactedForContextResolved.estimatedTokensBefore} after=${compactedForContextResolved.estimatedTokensAfter} compactedMessages=${compactedForContextResolved.compactedMessages} clearedToolResults=${compactedForContextResolved.clearedToolResults}${compactedForContextResolved.error ? ` error=${compactedForContextResolved.error}` : ''}`
+			);
+		}
 
 		console.log(`[AgentLoop] round ${round} — starting LLM call`);
 		const roundStartAt = Date.now();
@@ -1234,10 +1261,18 @@ async function runAnthropicLoop(
 	if (!key) { handlers.onError('未配置 Anthropic API Key。请在设置 → 模型中填写。'); return; }
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
+	const proxyRaw = (options.requestProxyUrl?.trim() || settings.openAI?.proxyUrl?.trim()) ?? '';
+	let httpAgent: InstanceType<typeof HttpsProxyAgent> | undefined;
+	if (proxyRaw) {
+		try { httpAgent = new HttpsProxyAgent(proxyRaw); } catch {
+			handlers.onError('代理地址无效。'); return;
+		}
+	}
 	const client = new Anthropic(
 		applyAnthropicProviderIdentity(settings, {
 			apiKey: key,
 			baseURL: baseURL || undefined,
+			...(httpAgent ? { httpAgent } : {}),
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,
 		})
@@ -1582,6 +1617,24 @@ async function runAnthropicLoop(
 				conversation = appendMessagesToAnthropicConversation(conversation, injected);
 			}
 		}
+		const compactedForContextA = compactAnthropicConversationForContext(conversation, {
+			model,
+			apiKey: key,
+			baseURL,
+			proxyUrl: proxyRaw || undefined,
+			contextWindowTokens: options.contextWindowTokens,
+			maxOutputTokens: options.maxOutputTokens,
+			state: options.contextCompactState,
+			onStateChange: options.onContextCompactStateChange,
+			signal: options.signal,
+		});
+		const compactedForContextAResolved = await compactedForContextA;
+		if (compactedForContextAResolved.changed) {
+			conversation = compactedForContextAResolved.messages;
+			console.log(
+				`[AgentLoop/A] round ${round} — context compacted provider=anthropic mode=${compactedForContextAResolved.mode} before=${compactedForContextAResolved.estimatedTokensBefore} after=${compactedForContextAResolved.estimatedTokensAfter} compactedMessages=${compactedForContextAResolved.compactedMessages} clearedToolResults=${compactedForContextAResolved.clearedToolResults}${compactedForContextAResolved.error ? ` error=${compactedForContextAResolved.error}` : ''}`
+			);
+		}
 
 		console.log(`[AgentLoop/A] round ${round} — starting LLM call`);
 		const roundStartAtA = Date.now();
@@ -1620,11 +1673,16 @@ async function runAnthropicLoop(
 		const timeoutMgrA = createStreamTimeoutManager(streamTimeoutConfigA, () => roundAcA.abort());
 		timeoutMgrA.start();
 
+		let cacheDecision: AnthropicCacheBreakpointDecision | undefined;
 		try {
 			const messagesForApi = addAnthropicCacheBreakpoints(
 				conversation,
 				anthropicPromptCaching,
-				options.skipAnthropicPromptCacheWrite === true
+				{
+					skipCacheWrite: options.skipAnthropicPromptCacheWrite === true,
+					strategy: 'stable-prefix',
+					onDecision: (decision) => { cacheDecision = decision; },
+				}
 			);
 			const stream = await withLlmTransportRetry(
 				async () => {
@@ -1738,6 +1796,14 @@ async function runAnthropicLoop(
 			options.signal.removeEventListener('abort', onOuterAbortA);
 		}
 		timeoutMgrA.stop();
+		observeAnthropicPromptCacheUsage({
+			source: `agent:${options.threadId ?? 'ephemeral'}`,
+			model,
+			usage: accUsage,
+			decision: cacheDecision,
+			system,
+			toolNames: tools.map((tool) => tool.name),
+		});
 		console.log(`[AgentLoop/A] round ${round} — stream done (${Date.now() - roundStartAtA}ms), stopReason=${turnStopReason}, toolUses=${turnToolUses.length}, textLen=${turnText.length}`);
 
 		if (options.signal.aborted || roundSignalA.aborted) {

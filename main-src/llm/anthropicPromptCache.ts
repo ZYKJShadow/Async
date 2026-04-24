@@ -8,10 +8,54 @@
  * （后三者用模型 id 子串匹配，因 Async 无 CC 的固定 model id 表）。
  */
 
+import { createHash } from 'node:crypto';
 import type { ContentBlockParam, MessageParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { SystemPromptSections } from './modePrompts.js';
+import type { TurnTokenUsage } from './types.js';
 
 export type AnthropicCacheControl = { type: 'ephemeral' };
+
+export type AnthropicCacheBreakpointStrategy = 'tail' | 'stable-prefix';
+
+export type AnthropicCacheBreakpointDecision = {
+	enabled: boolean;
+	strategy: AnthropicCacheBreakpointStrategy;
+	messageCount: number;
+	markerIndex: number | null;
+	markerRole: 'user' | 'assistant' | null;
+	reason: string;
+	volatileTailMessages: number;
+};
+
+export type AnthropicCacheBreakpointOptions = {
+	skipCacheWrite?: boolean;
+	/**
+	 * `tail` matches Claude Code's raw addCacheBreakpoints behavior. `stable-prefix`
+	 * keeps the single marker on the latest reusable prefix when the newest user
+	 * message/tool_result is expected to change every round.
+	 */
+	strategy?: AnthropicCacheBreakpointStrategy;
+	onDecision?: (decision: AnthropicCacheBreakpointDecision) => void;
+};
+
+export type AnthropicPromptCacheObservation = {
+	source: string;
+	model: string;
+	usage?: TurnTokenUsage;
+	decision?: AnthropicCacheBreakpointDecision;
+	system?: string | TextBlockParam[];
+	toolNames?: string[];
+};
+
+type CacheTrackingState = {
+	previousCacheReadTokens: number | null;
+	previousSignature: string | null;
+	callCount: number;
+};
+
+const cacheTrackingBySource = new Map<string, CacheTrackingState>();
+const MIN_CACHE_DROP_TOKENS = 1024;
+const CACHE_DROP_RATIO = 0.05;
 
 function isEnvTruthy(v: string | undefined): boolean {
 	if (v === undefined) return false;
@@ -71,51 +115,111 @@ export function buildAnthropicSystemForApi(
 	return blocks;
 }
 
-function withCacheOnLastUserContentBlock(blocks: ContentBlockParam[]): ContentBlockParam[] {
+function withCacheOnLastUserContentBlock(blocks: ContentBlockParam[]): { blocks: ContentBlockParam[]; applied: boolean } {
 	const out = blocks.map((b) => structuredClone(b) as ContentBlockParam);
 	if (out.length === 0) {
-		return [{ type: 'text', text: '', cache_control: getAnthropicCacheControl() }];
+		return { blocks: [{ type: 'text', text: '', cache_control: getAnthropicCacheControl() }], applied: true };
 	}
 	const last = out.length - 1;
 	const cur = out[last] as Record<string, unknown>;
 	out[last] = { ...cur, cache_control: getAnthropicCacheControl() } as ContentBlockParam;
-	return out;
+	return { blocks: out, applied: true };
 }
 
 /** 对齐 `assistantMessageToMessageParam`：末块为 thinking / redacted_thinking 时不挂 marker（与 CC 一致）。 */
-function withCacheOnAssistantContentBlocks(blocks: ContentBlockParam[]): ContentBlockParam[] {
+function withCacheOnAssistantContentBlocks(blocks: ContentBlockParam[]): { blocks: ContentBlockParam[]; applied: boolean } {
 	const out = blocks.map((b) => structuredClone(b) as ContentBlockParam);
 	if (out.length === 0) {
-		return [{ type: 'text', text: '', cache_control: getAnthropicCacheControl() }];
+		return { blocks: [{ type: 'text', text: '', cache_control: getAnthropicCacheControl() }], applied: true };
 	}
 	const lastIdx = out.length - 1;
 	const last = out[lastIdx]!;
 	if (last.type === 'thinking' || last.type === 'redacted_thinking') {
-		return out;
+		return { blocks: out, applied: false };
 	}
 	const cur = last as Record<string, unknown>;
 	out[lastIdx] = { ...cur, cache_control: getAnthropicCacheControl() } as ContentBlockParam;
-	return out;
+	return { blocks: out, applied: true };
 }
 
-function applyMarkerToMessage(msg: MessageParam): MessageParam {
+function applyMarkerToMessage(msg: MessageParam): { message: MessageParam; applied: boolean } {
 	const cc = getAnthropicCacheControl();
 	if (msg.role === 'user') {
 		if (typeof msg.content === 'string') {
-			return {
+			return { message: {
 				role: 'user',
 				content: [{ type: 'text', text: msg.content, cache_control: cc }],
-			};
+			}, applied: true };
 		}
-		return { role: 'user', content: withCacheOnLastUserContentBlock(msg.content) };
+		const marked = withCacheOnLastUserContentBlock(msg.content);
+		return { message: { role: 'user', content: marked.blocks }, applied: marked.applied };
 	}
 	if (typeof msg.content === 'string') {
-		return {
+		return { message: {
 			role: 'assistant',
 			content: [{ type: 'text', text: msg.content, cache_control: cc }],
+		}, applied: true };
+	}
+	const marked = withCacheOnAssistantContentBlocks(msg.content);
+	return { message: { role: 'assistant', content: marked.blocks }, applied: marked.applied };
+}
+
+function contentBlocks(msg: MessageParam): ContentBlockParam[] {
+	return typeof msg.content === 'string' ? [{ type: 'text', text: msg.content }] : msg.content;
+}
+
+function hasToolResult(msg: MessageParam): boolean {
+	return msg.role === 'user' && contentBlocks(msg).some((block) => block.type === 'tool_result');
+}
+
+function stripExistingCacheControls<T>(value: T): T {
+	if (Array.isArray(value)) {
+		return value.map(stripExistingCacheControls) as T;
+	}
+	if (!value || typeof value !== 'object') return value;
+	const out: Record<string, unknown> = {};
+	for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+		if (key !== 'cache_control') {
+			out[key] = stripExistingCacheControls(child);
+		}
+	}
+	return out as T;
+}
+
+function countVolatileTailMessages(messages: MessageParam[]): number {
+	if (messages.length <= 1) return 0;
+	const last = messages[messages.length - 1]!;
+	if (hasToolResult(last)) return 1;
+	if (last.role === 'user') return 1;
+	return 0;
+}
+
+function chooseMarkerIndex(
+	messages: MessageParam[],
+	strategy: AnthropicCacheBreakpointStrategy,
+	skipCacheWrite: boolean
+): { markerIndex: number; reason: string; volatileTailMessages: number } {
+	if (messages.length === 1) {
+		return { markerIndex: 0, reason: 'single-message', volatileTailMessages: 0 };
+	}
+	if (skipCacheWrite) {
+		return { markerIndex: Math.max(0, messages.length - 2), reason: 'skip-cache-write-shared-prefix', volatileTailMessages: 1 };
+	}
+	if (strategy === 'tail') {
+		return { markerIndex: messages.length - 1, reason: 'tail', volatileTailMessages: 0 };
+	}
+	const volatileTailMessages = countVolatileTailMessages(messages);
+	if (volatileTailMessages > 0) {
+		const candidate = Math.max(0, messages.length - volatileTailMessages - 1);
+		return {
+			markerIndex: candidate,
+			reason: hasToolResult(messages[messages.length - 1]!)
+				? 'stable-prefix-before-tool-result'
+				: 'stable-prefix-before-new-user-tail',
+			volatileTailMessages,
 		};
 	}
-	return { role: 'assistant', content: withCacheOnAssistantContentBlocks(msg.content) };
+	return { markerIndex: messages.length - 1, reason: 'stable-tail-no-volatile-suffix', volatileTailMessages: 0 };
 }
 
 /**
@@ -125,17 +229,107 @@ function applyMarkerToMessage(msg: MessageParam): MessageParam {
 export function addAnthropicCacheBreakpoints(
 	messages: MessageParam[],
 	enableCaching: boolean,
-	skipCacheWrite = false
+	optionsOrSkipCacheWrite: boolean | AnthropicCacheBreakpointOptions = false
 ): MessageParam[] {
-	const out = structuredClone(messages) as MessageParam[];
+	const options: AnthropicCacheBreakpointOptions =
+		typeof optionsOrSkipCacheWrite === 'boolean'
+			? { skipCacheWrite: optionsOrSkipCacheWrite }
+			: optionsOrSkipCacheWrite;
+	const strategy = options.strategy ?? 'stable-prefix';
+	const out = stripExistingCacheControls(structuredClone(messages) as MessageParam[]);
 	if (!enableCaching || out.length === 0) {
+		options.onDecision?.({
+			enabled: false,
+			strategy,
+			messageCount: out.length,
+			markerIndex: null,
+			markerRole: null,
+			reason: enableCaching ? 'empty-messages' : 'disabled',
+			volatileTailMessages: 0,
+		});
 		return out;
 	}
-	const markerIndex =
-		skipCacheWrite && out.length >= 2 ? out.length - 2 : out.length - 1;
-	if (markerIndex < 0) {
-		return out;
+	const selected = chooseMarkerIndex(out, strategy, options.skipCacheWrite === true);
+	for (let index = selected.markerIndex; index >= 0; index--) {
+		const marked = applyMarkerToMessage(out[index]!);
+		out[index] = marked.message;
+		if (marked.applied) {
+			options.onDecision?.({
+				enabled: true,
+				strategy,
+				messageCount: out.length,
+				markerIndex: index,
+				markerRole: out[index]!.role,
+				reason: index === selected.markerIndex ? selected.reason : 'fallback-marker-eligible-message',
+				volatileTailMessages: selected.volatileTailMessages,
+			});
+			return out;
+		}
 	}
-	out[markerIndex] = applyMarkerToMessage(out[markerIndex]!);
+	options.onDecision?.({
+		enabled: false,
+		strategy,
+		messageCount: out.length,
+		markerIndex: null,
+		markerRole: null,
+		reason: 'no-eligible-message',
+		volatileTailMessages: selected.volatileTailMessages,
+	});
 	return out;
+}
+
+function stableJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+	if (!value || typeof value !== 'object') return JSON.stringify(value);
+	const entries = Object.entries(value as Record<string, unknown>)
+		.filter(([key]) => key !== 'cache_control')
+		.sort(([a], [b]) => a.localeCompare(b));
+	return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(',')}}`;
+}
+
+function signatureForObservation(observation: AnthropicPromptCacheObservation): string {
+	const payload = {
+		model: observation.model,
+		system: observation.system ?? null,
+		toolNames: [...(observation.toolNames ?? [])].sort(),
+		strategy: observation.decision?.strategy ?? null,
+		markerIndex: observation.decision?.markerIndex ?? null,
+	};
+	return createHash('sha256').update(stableJson(payload)).digest('hex');
+}
+
+export function observeAnthropicPromptCacheUsage(observation: AnthropicPromptCacheObservation): void {
+	const usage = observation.usage;
+	if (!usage) return;
+	const cacheReadTokens = usage.cacheReadTokens ?? 0;
+	const cacheWriteTokens = usage.cacheWriteTokens ?? 0;
+	const key = observation.source || 'default';
+	const state = cacheTrackingBySource.get(key) ?? {
+		previousCacheReadTokens: null,
+		previousSignature: null,
+		callCount: 0,
+	};
+	state.callCount++;
+	const signature = signatureForObservation(observation);
+	const previousCacheReadTokens = state.previousCacheReadTokens;
+	const previousSignature = state.previousSignature;
+	state.previousCacheReadTokens = cacheReadTokens;
+	state.previousSignature = signature;
+	cacheTrackingBySource.set(key, state);
+	if (previousCacheReadTokens === null) return;
+	const tokenDrop = previousCacheReadTokens - cacheReadTokens;
+	if (tokenDrop < MIN_CACHE_DROP_TOKENS || cacheReadTokens >= previousCacheReadTokens * (1 - CACHE_DROP_RATIO)) {
+		return;
+	}
+	const signatureChanged = previousSignature !== signature;
+	console.warn(
+		`[AnthropicPromptCache] cache read dropped source=${key} call=${state.callCount} ` +
+		`read=${previousCacheReadTokens}->${cacheReadTokens} write=${cacheWriteTokens} ` +
+		`drop=${tokenDrop} marker=${observation.decision?.markerIndex ?? 'none'} ` +
+		`reason=${observation.decision?.reason ?? 'unknown'} signatureChanged=${signatureChanged}`
+	);
+}
+
+export function resetAnthropicPromptCacheTracking(): void {
+	cacheTrackingBySource.clear();
 }

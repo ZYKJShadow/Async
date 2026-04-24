@@ -15,6 +15,7 @@ import {
 import { initAutoUpdate } from './autoUpdate.js';
 import { disposeBotController, initBotController, syncBotControllerFromSettings } from './bots/botController.js';
 import { flushBotSessionStore, initBotSessionStore } from './bots/botSessionStore.js';
+import { disposeAppTray, initAppTray } from './appTray.js';
 
 function resolveAppIconPath(): string | undefined {
 	const iconSearchRoots =
@@ -60,7 +61,16 @@ app.on('web-contents-created', (_event, contents) => {
 });
 
 let quittingAfterThreadStoreFlush = false;
+let forceQuitFromTray = false;
+let appIsQuitting = false;
+
+function requestAppQuit(): void {
+	forceQuitFromTray = true;
+	app.quit();
+}
+
 app.on('before-quit', (e) => {
+	appIsQuitting = true;
 	if (quittingAfterThreadStoreFlush) {
 		return;
 	}
@@ -69,6 +79,16 @@ app.on('before-quit', (e) => {
 	flushBotSessionStore();
 	void Promise.allSettled([flushPendingSave(), disposeBotController()]).finally(() => {
 		app.quit();
+	});
+});
+
+app.on('browser-window-created', (_event, win) => {
+	win.on('close', (event) => {
+		if (forceQuitFromTray || appIsQuitting || process.platform === 'darwin') {
+			return;
+		}
+		event.preventDefault();
+		win.hide();
 	});
 });
 
@@ -89,6 +109,7 @@ app.whenReady().then(() => {
 
 	const appIconPath = resolveAppIconPath();
 	configureAppWindowIcon(appIconPath);
+	initAppTray(appIconPath, requestAppQuit);
 	if (process.platform === 'darwin' && appIconPath) {
 		try {
 			app.dock?.setIcon(appIconPath);
@@ -165,7 +186,11 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-	if (process.platform !== 'darwin') {
+	if ((forceQuitFromTray || appIsQuitting) && process.platform !== 'darwin') {
 		app.quit();
 	}
+});
+
+app.on('will-quit', () => {
+	disposeAppTray();
 });

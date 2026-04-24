@@ -1376,6 +1376,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 							revertedChangeKeys={revertedChangeKeys}
 							skipPlanTodo
 							renderMode="preflight"
+							typewriter={agentOrPlanStreaming && awaitingReply}
 						/>
 					</div>
 				</div>
@@ -1496,6 +1497,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 							revertedPaths={revertedFiles}
 							revertedChangeKeys={revertedChangeKeys}
 							skipPlanTodo
+							typewriter={isWorking}
 						/>
 					</div>
 				</div>

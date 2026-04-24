@@ -75,7 +75,7 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 	useEffect(() => {
 		const shell = window.asyncShell;
 		const el = containerRef.current;
-		if (!shell?.subscribeTerminalPtyData || !el) {
+		if (!shell?.subscribeTerminalSessionData || !el) {
 			return;
 		}
 		const current = settingsRef.current;
@@ -161,7 +161,7 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 				fitRef.current.fit();
 				const dims = fitRef.current.proposeDimensions();
 				if (dims) {
-					void shell.invoke('terminal:ptyResize', sessionId, dims.cols, dims.rows);
+					void shell.invoke('term:sessionResize', sessionId, dims.cols, dims.rows);
 				}
 			} catch {
 				/* ignore */
@@ -191,7 +191,7 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 				void dispatchTerminalHotkey(hotkeyId, {
 					term,
 					write: async (data) => {
-						await shell.invoke('terminal:ptyWrite', sessionId, data);
+						await shell.invoke('term:sessionWrite', sessionId, data);
 					},
 					copySelection,
 					pasteFromClipboard,
@@ -217,20 +217,46 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 			}
 		);
 
-		const unsubData = shell.subscribeTerminalPtyData((id, data) => {
-			if (id === sessionId) {
-				term.write(data);
+		let cancelled = false;
+		let seenSeq = 0;
+		void shell
+			.invoke('term:sessionSubscribe', sessionId)
+			.then((raw) => {
+				const sub = raw as { ok?: boolean; slice?: { content?: string; seq?: number; alive?: boolean } };
+				if (cancelled || !sub.ok || !sub.slice) {
+					return;
+				}
+				seenSeq = typeof sub.slice.seq === 'number' ? sub.slice.seq : 0;
+				if (sub.slice.content) {
+					term.write(sub.slice.content);
+				}
+				if (sub.slice.alive === false) {
+					onExitRef.current?.();
+				}
+			})
+			.catch(() => {
+				/* ignore */
+			});
+
+		const unsubData = shell.subscribeTerminalSessionData((id, data, seq) => {
+			if (id !== sessionId) {
+				return;
 			}
+			if (seq && seq <= seenSeq) {
+				return;
+			}
+			seenSeq = seq || seenSeq + 1;
+			term.write(data);
 		});
 		const unsubExit =
-			shell.subscribeTerminalPtyExit?.((id) => {
+			shell.subscribeTerminalSessionExit?.((id) => {
 				if (id === sessionId) {
 					onExitRef.current?.();
 				}
 			}) ?? (() => {});
 
 		const onDataDisposer = term.onData((data) => {
-			void shell.invoke('terminal:ptyWrite', sessionId, data);
+			void shell.invoke('term:sessionWrite', sessionId, data);
 		});
 
 		const selectionDisposer = term.onSelectionChange(() => {
@@ -295,6 +321,10 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 			selectionDisposer.dispose();
 			bellDisposer.dispose();
 			el.removeEventListener('contextmenu', onContextMenu);
+			cancelled = true;
+			void shell.invoke('term:sessionUnsubscribe', sessionId).catch(() => {
+				/* ignore */
+			});
 			unsubData();
 			unsubExit();
 			term.dispose();
@@ -368,7 +398,7 @@ export function PtyTerminalView({ sessionId, active, compactChrome, onSessionExi
 				fit.fit();
 				const dims = fit.proposeDimensions();
 				if (dims) {
-					void shell.invoke('terminal:ptyResize', sessionId, dims.cols, dims.rows);
+					void shell.invoke('term:sessionResize', sessionId, dims.cols, dims.rows);
 				}
 			} catch {
 				/* ignore */

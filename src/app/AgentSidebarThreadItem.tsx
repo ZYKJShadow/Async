@@ -26,6 +26,7 @@ export type AgentSidebarThreadItemProps = {
 	threadListWorkspace?: string | null;
 	workspace: string | null;
 	currentId: string | null;
+	hasUnreadAgentReply?: boolean;
 	editingThreadId: string | null;
 	editingThreadTitleDraft: string;
 	setEditingThreadTitleDraft: (v: string) => void;
@@ -50,6 +51,7 @@ function AgentSidebarThreadItemImpl(props: AgentSidebarThreadItemProps) {
 		threadListWorkspace,
 		workspace,
 		currentId,
+		hasUnreadAgentReply = false,
 		editingThreadId,
 		editingThreadTitleDraft,
 		setEditingThreadTitleDraft,
@@ -68,10 +70,14 @@ function AgentSidebarThreadItemImpl(props: AgentSidebarThreadItemProps) {
 	const isActive =
 		th.id === currentId &&
 		(!workspace || !owningWs || normWorkspaceRootKey(owningWs) === normWorkspaceRootKey(workspace));
+	const isWorking = Boolean(th.isAwaitingReply);
+	const showUnread = hasUnreadAgentReply && !isActive && !isWorking;
 
 	return (
 		<div
 			className={`ref-agent-thread-item ${isActive ? 'is-active' : ''} ${
+				isWorking ? 'is-awaiting-reply' : ''
+			} ${showUnread ? 'has-unread-reply' : ''} ${
 				editingThreadId === th.id ? 'is-editing-title' : ''
 			}`}
 		>
@@ -111,6 +117,15 @@ function AgentSidebarThreadItemImpl(props: AgentSidebarThreadItemProps) {
 					}}
 				>
 					<span className="ref-agent-thread-row-title">{threadRowTitle(t, th)}</span>
+					{isWorking ? (
+						<span className="ref-agent-thread-status ref-agent-thread-status--working" aria-label="Agent 正在回复">
+							<span aria-hidden />
+							<span aria-hidden />
+							<span aria-hidden />
+						</span>
+					) : showUnread ? (
+						<span className="ref-agent-thread-status ref-agent-thread-status--unread" aria-label="有未读回复" />
+					) : null}
 					<span className="ref-agent-thread-row-time">
 						{formatRelativeTime(t, th.updatedAt)}
 					</span>
