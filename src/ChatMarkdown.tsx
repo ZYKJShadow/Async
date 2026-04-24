@@ -58,7 +58,7 @@ function hasVisibleMarkdownNode(node: ReactNode): boolean {
 		return false;
 	}
 	const element = node as ReactElement<{ children?: ReactNode }>;
-	if (typeof node.type === 'string' && ['img', 'video', 'audio', 'svg'].includes(node.type)) {
+	if (typeof node.type === 'string' && ['img', 'video', 'audio', 'svg', 'hr'].includes(node.type)) {
 		return true;
 	}
 	return hasVisibleMarkdownNode(element.props.children);
@@ -89,6 +89,7 @@ const markdownComponents: MarkdownComponents = {
 		}
 		return <li {...props}>{children}</li>;
 	},
+	hr: ({ ...props }) => <hr {...props} className="ref-md-hr" />,
 };
 
 function thinkingGroupRenderMeta(

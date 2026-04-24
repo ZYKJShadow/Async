@@ -4282,6 +4282,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	margin: 0.25em 0;
 }
 
+.ref-md-root hr.ref-md-hr {
+	height: 1px;
+	margin: 0.85em 0;
+	border: 0;
+	background: var(--void-border-soft);
+}
+
 /* 流式未闭合 ``` 使用 .ref-agent-streaming-fence-pre，单独一套样式，避免与下面通用 pre 规则抢优先级 */
 .ref-md-root pre:not(.ref-agent-streaming-fence-pre) {
 	margin: 0.65em 0;
