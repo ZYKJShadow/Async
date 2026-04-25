@@ -89,7 +89,7 @@ export function resolveContentBottomScroll(
 		if (bottomInViewport > maxBottomInViewport) {
 			maxBottomInViewport = bottomInViewport;
 		}
-		if (row.dataset.preflightFor != null && rect.height > 0) {
+		if (row.dataset?.preflightFor != null && rect.height > 0) {
 			activePreflightTopInTrack = viewport.scrollTop + (rect.top - viewportRect.top);
 		}
 	}
@@ -103,14 +103,16 @@ export function resolveContentBottomScroll(
 	   计算允许的最大 scrollTop:让 preflight 顶端至少落在 sticky 下沿,并额外
 	   预留 STICKY_USER_BOTTOM_GAP_PX 让 user 气泡视觉上不贴顶。 */
 	const STICKY_USER_BOTTOM_GAP_PX = 16;
-	const stickyEl = viewport.querySelector('.ref-msg-sticky-user-wrap') as HTMLElement | null;
-	const stickyH = stickyEl ? stickyEl.getBoundingClientRect().height : 0;
-	if (activePreflightTopInTrack != null && stickyH > 0) {
-		const maxAllowedScroll = Math.max(
-			0,
-			activePreflightTopInTrack - stickyH - STICKY_USER_BOTTOM_GAP_PX,
-		);
-		return Math.max(0, Math.min(rawTarget, maxAllowedScroll));
+	if (activePreflightTopInTrack != null) {
+		const stickyEl = viewport.querySelector?.('.ref-msg-sticky-user-wrap') as HTMLElement | null;
+		const stickyH = stickyEl ? stickyEl.getBoundingClientRect().height : 0;
+		if (stickyH > 0) {
+			const maxAllowedScroll = Math.max(
+				0,
+				activePreflightTopInTrack - stickyH - STICKY_USER_BOTTOM_GAP_PX,
+			);
+			return Math.max(0, Math.min(rawTarget, maxAllowedScroll));
+		}
 	}
 	return Math.max(0, rawTarget);
 }
