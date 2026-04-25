@@ -74,21 +74,40 @@ export function resolveContentBottomScroll(
 	if (!track) {
 		return Math.max(0, viewport.scrollHeight - viewport.clientHeight - bottomInset);
 	}
-	const messageRows = track.querySelectorAll<HTMLElement>('.ref-msg-row-measure[data-msg-index]');
-	const lastContentRow = messageRows[messageRows.length - 1] ?? null;
-	if (!lastContentRow) {
+	const messageRows = track.querySelectorAll<HTMLElement>(
+		'.ref-msg-row-measure[data-msg-index], .ref-msg-row-measure[data-preflight-for]'
+	);
+	if (messageRows.length === 0) {
 		return Math.max(0, viewport.scrollHeight - viewport.clientHeight - bottomInset);
 	}
-	/* 必须用 getBoundingClientRect 而非 offsetTop，因为 offsetParent
-	   在 editor-rail 等布局下可能是外层 ref-chat-drop-zone（position:relative），
-	   而不是 track 本身，导致参考系不一致。 */
-	const rowRect = lastContentRow.getBoundingClientRect();
 	const viewportRect = viewport.getBoundingClientRect();
-	const rowBottomInViewport = rowRect.bottom - viewportRect.top;
-	return Math.max(
-		0,
-		viewport.scrollTop + rowBottomInViewport - (viewport.clientHeight - bottomInset)
-	);
+	let maxBottomInViewport = -Infinity;
+	let activePreflightTopInTrack: number | null = null;
+	for (const row of Array.from(messageRows)) {
+		const rect = row.getBoundingClientRect();
+		const bottomInViewport = rect.bottom - viewportRect.top;
+		if (bottomInViewport > maxBottomInViewport) {
+			maxBottomInViewport = bottomInViewport;
+		}
+		if (row.dataset.preflightFor != null && rect.height > 0) {
+			activePreflightTopInTrack = viewport.scrollTop + (rect.top - viewportRect.top);
+		}
+	}
+	if (!Number.isFinite(maxBottomInViewport)) {
+		return Math.max(0, viewport.scrollHeight - viewport.clientHeight - bottomInset);
+	}
+	const rawTarget =
+		viewport.scrollTop + maxBottomInViewport - (viewport.clientHeight - bottomInset);
+	/* 贴底时不能让"活动 preflight 行"的顶被推到 sticky user 后面 —— 否则
+	   header（"正在分析…"）会被钉在顶部的 user 气泡完全遮住。
+	   计算允许的最大 scrollTop:让 preflight 顶端至少落在 sticky 下沿。 */
+	const stickyEl = viewport.querySelector('.ref-msg-sticky-user-wrap') as HTMLElement | null;
+	const stickyH = stickyEl ? stickyEl.getBoundingClientRect().height : 0;
+	if (activePreflightTopInTrack != null && stickyH > 0) {
+		const maxAllowedScroll = Math.max(0, activePreflightTopInTrack - stickyH);
+		return Math.max(0, Math.min(rawTarget, maxAllowedScroll));
+	}
+	return Math.max(0, rawTarget);
 }
 
 export function measureMessagesScroll(
