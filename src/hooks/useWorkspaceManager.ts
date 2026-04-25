@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { normWorkspaceRootKey } from '../workspaceRootKey';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
 const AGENT_WORKSPACE_ALIASES_KEY = 'async:agent-workspace-aliases-v1';
-const AGENT_WORKSPACE_HIDDEN_KEY = 'async:agent-workspace-hidden-v1';
-const AGENT_WORKSPACE_COLLAPSED_KEY = 'async:agent-workspace-collapsed-v1';
+const AGENT_WORKSPACE_HIDDEN_KEY = 'async:agent-workspace-hidden-v2';
+const AGENT_WORKSPACE_COLLAPSED_KEY = 'async:agent-workspace-collapsed-v2';
 
 function readJsonStorage<T>(key: string, fallback: T): T {
 	try {
@@ -142,7 +143,7 @@ export function useWorkspaceManager(shell: Shell | undefined) {
 				if (cancelled) return;
 				const paths = Array.isArray(r.paths) ? r.paths : [];
 				if (!workspace) setHomeRecents(paths);
-				setFolderRecents(paths.slice(0, 14));
+				setFolderRecents(paths);
 			} catch {
 				if (!cancelled) {
 					setHomeRecents([]);
@@ -155,11 +156,13 @@ export function useWorkspaceManager(shell: Shell | undefined) {
 		};
 	}, [shell, workspace]);
 
-	// 打开工作区后取消 hidden/collapsed 标记
+	// 兼容旧数据：当前工作区不能因为历史 hidden 标记从 Agent 全局侧栏消失。
 	useEffect(() => {
 		if (!workspace) return;
-		setHiddenAgentWorkspacePaths((prev) => prev.filter((item) => item !== workspace));
-		setCollapsedAgentWorkspacePaths((prev) => prev.filter((item) => item !== workspace));
+		const workspaceKey = normWorkspaceRootKey(workspace);
+		setHiddenAgentWorkspacePaths((prev) =>
+			prev.filter((item) => normWorkspaceRootKey(item) !== workspaceKey)
+		);
 	}, [workspace]);
 
 	// ── TS LSP ────────────────────────────────────────────────────────────────

@@ -123,7 +123,6 @@ import {
 	DEFAULT_SIDEBAR_LAYOUT_KEY,
 	clampSidebarLayout,
 	readSidebarLayout,
-	readStoredShellLayoutModeFromKey,
 	type ShellLayoutMode,
 } from './app/shellLayoutStorage';
 import {
@@ -144,6 +143,11 @@ import { ShellWorkspaceGrid } from './app/ShellWorkspaceGrid';
 import { ThreadItem } from './app/ThreadItem';
 import { AgentSidebarThreadItem } from './app/AgentSidebarThreadItem';
 import {
+	isAgentWorkspaceCollapsed,
+	selectAgentSidebarThreadPaths,
+} from './app/agentSidebarWorkspaceList';
+import {
+	readStoredWorkspaceLauncher,
 	type WorkspaceLauncherTool,
 	workspaceLauncherLabel,
 } from './app/workspaceLaunchers';
@@ -511,6 +515,9 @@ function AppMainWorkspaceInner() {
 		refreshAgentSidebarThreads,
 		sidebarThreadsByPathKey,
 		loadMessages,
+		cacheThreadStateForWorkspace,
+		restoreThreadStateForWorkspace,
+		getCachedThreadsForWorkspace,
 		resetThreadState,
 	} = useThreads(shell);
 
@@ -873,7 +880,7 @@ function AppMainWorkspaceInner() {
 	});
 
 	const [layoutMode, setLayoutMode] = useState<LayoutMode>(() =>
-		layoutPinnedBySurface && appSurface ? appSurface : readStoredShellLayoutModeFromKey(shellLayoutStorageKey)
+		layoutPinnedBySurface && appSurface ? appSurface : 'agent'
 	);
 	const [layoutWindowAvailability, setLayoutWindowAvailability] = useState<Record<LayoutMode, boolean>>({
 		agent: false,
@@ -1134,12 +1141,6 @@ function AppMainWorkspaceInner() {
 		[visibleThreads]
 	);
 
-	const hiddenAgentWorkspacePathSet = useMemo(() => new Set(hiddenAgentWorkspacePaths), [hiddenAgentWorkspacePaths]);
-	const collapsedAgentWorkspacePathSet = useMemo(
-		() => new Set(collapsedAgentWorkspacePaths),
-		[collapsedAgentWorkspacePaths]
-	);
-
 	const agentSidebarWorkspaceCandidates = useMemo(() => {
 		const seen = new Set<string>();
 		const ordered: string[] = [];
@@ -1173,11 +1174,15 @@ function AppMainWorkspaceInner() {
 
 	const agentSidebarThreadPaths = useMemo(
 		() =>
-			agentWorkspaceOrder
-				.filter((path) => !hiddenAgentWorkspacePathSet.has(path))
-				.slice(0, 8),
-		[agentWorkspaceOrder, hiddenAgentWorkspacePathSet]
+			selectAgentSidebarThreadPaths({
+				orderedPaths: agentWorkspaceOrder,
+				hiddenPaths: hiddenAgentWorkspacePaths,
+				currentWorkspace: workspace,
+			}),
+		[agentWorkspaceOrder, hiddenAgentWorkspacePaths, workspace]
 	);
+
+	const agentSidebarThreadFetchPaths = agentSidebarThreadPaths;
 
 	useEffect(() => {
 		if (!shell) {
@@ -1187,24 +1192,22 @@ function AppMainWorkspaceInner() {
 			void refreshAgentSidebarThreads([]);
 			return;
 		}
-		const idle = window.requestIdleCallback ?? ((cb: IdleRequestCallback) => window.setTimeout(() => cb({ didTimeout: true, timeRemaining: () => 0 } as IdleDeadline), 1));
-		const cancel = window.cancelIdleCallback ?? ((id: number) => window.clearTimeout(id));
-		const id = idle(
-			() => {
-				void refreshAgentSidebarThreads(agentSidebarThreadPaths);
-			},
-			{ timeout: 3000 }
-		);
-		return () => cancel(id);
-	}, [shell, layoutMode, agentSidebarThreadPaths, refreshAgentSidebarThreads]);
+		void refreshAgentSidebarThreads(agentSidebarThreadFetchPaths);
+	}, [shell, layoutMode, agentSidebarThreadFetchPaths, refreshAgentSidebarThreads]);
 
 	const agentSidebarWorkspaces = useMemo(() => {
 		const q = threadSearch.trim().toLowerCase();
 		return agentSidebarThreadPaths.map((path) => {
-			const rowsSource =
-				workspace && normWorkspaceRootKey(path) === normWorkspaceRootKey(workspace)
+			const pathKey = normWorkspaceRootKey(path);
+			const sidebarRows = sidebarThreadsByPathKey[pathKey] ?? getCachedThreadsForWorkspace(path) ?? [];
+			const currentRows =
+				workspace && pathKey === normWorkspaceRootKey(workspace)
 					? threads
-					: (sidebarThreadsByPathKey[normWorkspaceRootKey(path)] ?? []);
+					: null;
+			const rowsSource =
+				currentRows && currentRows.some((thread) => thread.hasUserMessages)
+					? currentRows
+					: sidebarRows;
 			const visible = rowsSource.filter((thread) => thread.hasUserMessages);
 			const list = q
 				? visible.filter(
@@ -1226,9 +1229,8 @@ function AppMainWorkspaceInner() {
 				path,
 				name: workspaceAliases[path]?.trim() || workspacePathDisplayName(path),
 				parent: workspacePathParent(path),
-				isCurrent: path === workspace,
-				isCollapsed:
-					path === workspace ? collapsedAgentWorkspacePathSet.has(path) : !collapsedAgentWorkspacePathSet.has(path),
+				isCurrent: !!workspace && normWorkspaceRootKey(path) === normWorkspaceRootKey(workspace),
+				isCollapsed: isAgentWorkspaceCollapsed(path, collapsedAgentWorkspacePaths),
 				threadCount: list.length,
 				todayThreads: today,
 				archivedThreads: archived,
@@ -1239,9 +1241,10 @@ function AppMainWorkspaceInner() {
 		workspace,
 		threads,
 		sidebarThreadsByPathKey,
+		getCachedThreadsForWorkspace,
 		threadSearch,
 		workspaceAliases,
-		collapsedAgentWorkspacePathSet,
+		collapsedAgentWorkspacePaths,
 	]);
 
 	const hasConversation = messages.length > 0 || awaitingReply;
@@ -1359,16 +1362,27 @@ function AppMainWorkspaceInner() {
 		[agentSidebarWorkspaces, workspaceMenuPath]
 	);
 
-	const clearWorkspaceConversationState = useCallback(() => {
+	const resetWorkspaceEphemeralState = useCallback(() => {
 		resetStreamingSession({ clearThread: true });
 		planBuildPendingMarkerRef.current = null;
-		resetThreadState();
 		resetAgentReviewState();
 		resetComposerState();
 		setLastTurnUsage(null);
 		resetPlanState();
 		cancelWorkspaceAliasEdit();
-	}, [resetStreamingSession, resetThreadState, resetAgentReviewState, resetComposerState, cancelWorkspaceAliasEdit]);
+	}, [
+		resetStreamingSession,
+		resetAgentReviewState,
+		resetComposerState,
+		setLastTurnUsage,
+		resetPlanState,
+		cancelWorkspaceAliasEdit,
+	]);
+
+	const clearWorkspaceConversationState = useCallback(() => {
+		resetWorkspaceEphemeralState();
+		resetThreadState();
+	}, [resetWorkspaceEphemeralState, resetThreadState]);
 
 	const {
 		executeSkillCreatorSend,
@@ -1629,26 +1643,54 @@ function AppMainWorkspaceInner() {
 			const t0 = performance.now();
 			console.log(`[perf][renderer] workspace switch START → ${next}`);
 			mark('start');
-			clearWorkspaceConversationState();
+			if (workspace && normWorkspaceRootKey(workspace) !== normWorkspaceRootKey(next)) {
+				cacheThreadStateForWorkspace(workspace);
+			}
+			resetWorkspaceEphemeralState();
+			const restoredFromCache = restoreThreadStateForWorkspace(next);
+			if (!restoredFromCache) {
+				resetThreadState({ keepSidebarThreads: true });
+			}
 			setWorkspace(next);
 			mark('workspace-set');
-			console.log(`[perf][renderer] workspace:openPath+setState done in ${(performance.now() - t0).toFixed(1)}ms`);
-			// 并行而非串行，且 refreshGit 由 workspace 变化的 effect 触发，此处不重复调用
-			const threadId = await refreshThreads();
-			mark('threads-done');
-			measure('void-ws:apply-path:threads', 'start', 'threads-done');
-			console.log(`[perf][renderer] refreshThreads IPC round-trip done in ${(performance.now() - t0).toFixed(1)}ms`);
-			// 直接调用 loadMessages，避免通过 effect (currentId 变化 → loadMessages)
-			// 间接触发导致多出一帧空白 render。去重 ref 确保 effect 不会发起重复 IPC。
-			if (threadId) {
-				await loadMessages(threadId, onMessagesLoaded);
-				restoreInFlightThreadUiIfNeeded(threadId);
-				mark('messages-done');
-				measure('void-ws:apply-path:messages', 'threads-done', 'messages-done');
-				console.log(`[perf][renderer] loadMessages done in ${(performance.now() - t0).toFixed(1)}ms`);
-			}
+			console.log(
+				`[perf][renderer] workspace:openPath+setState done in ${(performance.now() - t0).toFixed(1)}ms` +
+					(restoredFromCache ? ' (cache restored)' : '')
+			);
+			// 后台补齐线程/消息：打开工作区的交互先完成，慢 IPC 不再卡住 workspace 切换。
+			void (async () => {
+				const isLatestWorkspaceSwitch = () => workspaceSwitchSeqRef.current === seq;
+				const threadId = await refreshThreads({ shouldApply: isLatestWorkspaceSwitch });
+				if (!isLatestWorkspaceSwitch()) {
+					return;
+				}
+				mark('threads-done');
+				measure('void-ws:apply-path:threads', 'start', 'threads-done');
+				console.log(`[perf][renderer] refreshThreads IPC round-trip done in ${(performance.now() - t0).toFixed(1)}ms`);
+				if (threadId) {
+					await loadMessages(threadId, onMessagesLoaded);
+					if (!isLatestWorkspaceSwitch()) {
+						return;
+					}
+					restoreInFlightThreadUiIfNeeded(threadId);
+					mark('messages-done');
+					measure('void-ws:apply-path:messages', 'threads-done', 'messages-done');
+					console.log(`[perf][renderer] loadMessages done in ${(performance.now() - t0).toFixed(1)}ms`);
+				}
+			})();
 		},
-		[clearWorkspaceConversationState, refreshThreads, loadMessages, onMessagesLoaded, restoreInFlightThreadUiIfNeeded]
+		[
+			workspace,
+			cacheThreadStateForWorkspace,
+			resetWorkspaceEphemeralState,
+			restoreThreadStateForWorkspace,
+			resetThreadState,
+			setWorkspace,
+			refreshThreads,
+			loadMessages,
+			onMessagesLoaded,
+			restoreInFlightThreadUiIfNeeded,
+		]
 	);
 
 	const openWorkspaceByPath = useCallback(
@@ -1741,13 +1783,21 @@ function AppMainWorkspaceInner() {
 	}, [layoutMode, toggleAgentRightSidebarView]);
 
 	const launchWorkspaceWithTool = useCallback(
-		async (tool: WorkspaceLauncherTool) => {
+		async (
+			tool: WorkspaceLauncherTool,
+			options?: { relPath?: string; revealLine?: number; revealEndLine?: number }
+		) => {
 			if (!shell || !workspace) {
 				flashComposerAttachErr(t('app.noWorkspace'));
 				return;
 			}
 			try {
-				const r = (await shell.invoke('workspace:openInExternalTool', { tool })) as {
+				const r = (await shell.invoke('workspace:openInExternalTool', {
+					tool,
+					relPath: options?.relPath,
+					revealLine: options?.revealLine,
+					revealEndLine: options?.revealEndLine,
+				})) as {
 					ok?: boolean;
 					code?: string;
 					error?: string;
@@ -1772,6 +1822,13 @@ function AppMainWorkspaceInner() {
 			}
 		},
 		[shell, workspace, flashComposerAttachErr, t]
+	);
+
+	const openAgentFilePreviewInWorkspaceLauncher = useCallback(
+		(relPath: string, revealLine?: number, revealEndLine?: number) => {
+			void launchWorkspaceWithTool(readStoredWorkspaceLauncher(), { relPath, revealLine, revealEndLine });
+		},
+		[launchWorkspaceWithTool]
 	);
 
 	const {
@@ -3588,7 +3645,7 @@ function AppMainWorkspaceInner() {
 		onPlanAddTodoCancel,
 		onPlanTodoToggle,
 		agentFilePreview,
-		openFileInTab,
+		openFileInTab: openAgentFilePreviewInWorkspaceLauncher,
 		onAcceptAgentFilePreviewHunk,
 		onRevertAgentFilePreviewHunk,
 		agentFilePreviewBusyPatch,

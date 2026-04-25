@@ -2,13 +2,33 @@ import { useCallback, useLayoutEffect, useRef, useState, startTransition } from 
 import {
 	type ChatMessage,
 	type ThreadInfo,
+	applyThreadRowsPreservingDetails,
 	chatMessagesListEqual,
+	mergeThreadDetailRows,
 	normalizeThreadRow,
 	threadInfoListEqual,
+	threadListVersions,
 } from '../threadTypes';
 import { normWorkspaceRootKey } from '../workspaceRootKey';
 
 type Shell = NonNullable<Window['asyncShell']>;
+
+type RefreshThreadsOptions = {
+	shouldApply?: () => boolean;
+};
+
+type ThreadStateSnapshot = {
+	threads: ThreadInfo[];
+	currentId: string | null;
+	messages: ChatMessage[];
+	messagesThreadId: string | null;
+	threadNavigation: { history: string[]; index: number };
+};
+
+function workspaceSnapshotKey(root: string | null | undefined): string | null {
+	const raw = String(root ?? '').trim();
+	return raw ? normWorkspaceRootKey(raw) : null;
+}
 
 /** 仅在侧栏真实展示字段均相同时复用旧引用，避免标题/摘要/diff 统计更新被吞掉。 */
 function sameSidebarThreadsByPath(
@@ -72,6 +92,8 @@ function incomingMissesOnlyTrailingAssistantError(prev: ChatMessage[], incoming:
  */
 export function useThreads(shell: Shell | undefined) {
 	const [threads, setThreads] = useState<ThreadInfo[]>([]);
+	const threadsRef = useRef<ThreadInfo[]>([]);
+	threadsRef.current = threads;
 	const [threadSearch, setThreadSearch] = useState('');
 	const [currentId, setCurrentId] = useState<string | null>(null);
 	const currentIdRef = useRef<string | null>(null);
@@ -91,6 +113,8 @@ export function useThreads(shell: Shell | undefined) {
 	});
 	const messages = msgState.messages;
 	const messagesThreadId = msgState.threadId;
+	const msgStateRef = useRef(msgState);
+	msgStateRef.current = msgState;
 	const messagesRef = useRef(messages);
 	messagesRef.current = messages;
 
@@ -106,7 +130,11 @@ export function useThreads(shell: Shell | undefined) {
 		history: [],
 		index: -1,
 	});
+	const threadNavigationRef = useRef(threadNavigation);
+	threadNavigationRef.current = threadNavigation;
 	const skipThreadNavigationRecordRef = useRef(false);
+	const workspaceSnapshotsRef = useRef<Map<string, ThreadStateSnapshot>>(new Map());
+	const threadListFetchGenRef = useRef(0);
 
 	// currentId 变化时更新导航历史
 	// 用 useLayoutEffect 而非 useEffect：commit 后立即同步执行，setState 触发的重渲在同一帧内
@@ -127,20 +155,63 @@ export function useThreads(shell: Shell | undefined) {
 
 	// ── 操作 ──────────────────────────────────────────────────────────────────
 
-	const refreshThreads = useCallback(async () => {
+	const refreshThreads = useCallback(async (options?: RefreshThreadsOptions) => {
 		if (!shell) return null;
+		const gen = ++threadListFetchGenRef.current;
+		const shouldApply = () => gen === threadListFetchGenRef.current && (!options?.shouldApply || options.shouldApply());
 		const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
-		const r = (await shell.invoke('threads:list')) as {
+		const r = (await shell.invoke('threads:listLight')) as {
 			threads: ThreadInfo[];
 			currentId: string | null;
 		};
+		if (!shouldApply()) {
+			if (t0 && typeof performance !== 'undefined') {
+				console.log(`[perf] refreshThreads: stale skipped after ${(performance.now() - t0).toFixed(1)}ms`);
+			}
+			return r.currentId;
+		}
+		const lightRows = r.threads ?? [];
 		// setCurrentId 必须紧急（触发 loadMessages effect 和导航历史更新）。
 		// setThreads 是侧栏列表，非紧急，用 transition 避免阻塞消息加载路径。
+		currentIdRef.current = r.currentId;
 		setCurrentId(r.currentId);
-		startTransition(() => setThreads((r.threads ?? []).map(normalizeThreadRow)));
+		startTransition(() =>
+			setThreads((prev) => applyThreadRowsPreservingDetails(prev, lightRows))
+		);
 		if (t0 && typeof performance !== 'undefined') {
-			console.log(`[perf] refreshThreads: ${(performance.now() - t0).toFixed(1)}ms`);
+			console.log(`[perf] refreshThreads: light ${(performance.now() - t0).toFixed(1)}ms`);
 		}
+		void (async () => {
+			const tDetails = typeof performance !== 'undefined' ? performance.now() : 0;
+			try {
+				const detailResult = (await shell.invoke(
+					'threads:listDetails',
+					threadListVersions(lightRows)
+				)) as {
+					threads?: ThreadInfo[];
+					currentId?: string | null;
+				};
+				if (!shouldApply()) {
+					if (tDetails && typeof performance !== 'undefined') {
+						console.log(
+							`[perf] refreshThreads: detail stale skipped after ${(performance.now() - tDetails).toFixed(1)}ms`
+						);
+					}
+					return;
+				}
+				const detailRows = detailResult.threads ?? [];
+				startTransition(() =>
+					setThreads((prev) => mergeThreadDetailRows(prev, detailRows))
+				);
+				if (tDetails && typeof performance !== 'undefined') {
+					console.log(
+						`[perf] refreshThreads: details ${(performance.now() - tDetails).toFixed(1)}ms rows=${detailRows.length}`
+					);
+				}
+			} catch (err) {
+				console.warn('[perf] refreshThreads: details failed', err);
+			}
+		})();
 		return r.currentId;
 	}, [shell]);
 
@@ -281,8 +352,53 @@ export function useThreads(shell: Shell | undefined) {
 		[shell]
 	);
 
-	/** 切换工作区时重置线程域的所有状态 */
-	const resetThreadState = useCallback(() => {
+	const cacheThreadStateForWorkspace = useCallback((workspaceRoot: string | null | undefined) => {
+		const key = workspaceSnapshotKey(workspaceRoot);
+		if (!key) {
+			return;
+		}
+		workspaceSnapshotsRef.current.set(key, {
+			threads: threadsRef.current,
+			currentId: currentIdRef.current,
+			messages: msgStateRef.current.messages,
+			messagesThreadId: msgStateRef.current.threadId,
+			threadNavigation: threadNavigationRef.current,
+		});
+	}, []);
+
+	const restoreThreadStateForWorkspace = useCallback((workspaceRoot: string | null | undefined) => {
+		const key = workspaceSnapshotKey(workspaceRoot);
+		const snapshot = key ? workspaceSnapshotsRef.current.get(key) : null;
+		if (!snapshot) {
+			return false;
+		}
+		threadListFetchGenRef.current++;
+		currentIdRef.current = snapshot.currentId;
+		setThreads(snapshot.threads);
+		setCurrentId(snapshot.currentId);
+		setMsgState({
+			messages: snapshot.messages,
+			threadId: snapshot.messagesThreadId,
+		});
+		setResendFromUserIndex(null);
+		setConfirmDeleteId(null);
+		setEditingThreadId(null);
+		setEditingThreadTitleDraft('');
+		threadTitleDraftRef.current = '';
+		setThreadNavigation(snapshot.threadNavigation);
+		loadMessagesInflightByIdRef.current.clear();
+		return true;
+	}, []);
+
+	const getCachedThreadsForWorkspace = useCallback((workspaceRoot: string | null | undefined): ThreadInfo[] | null => {
+		const key = workspaceSnapshotKey(workspaceRoot);
+		const snapshot = key ? workspaceSnapshotsRef.current.get(key) : null;
+		return snapshot?.threads ?? null;
+	}, []);
+
+	/** 切换/关闭工作区时重置线程域的所有状态 */
+	const resetThreadState = useCallback((options?: { keepSidebarThreads?: boolean }) => {
+		threadListFetchGenRef.current++;
 		currentIdRef.current = null;
 		setThreads([]);
 		setCurrentId(null);
@@ -293,8 +409,10 @@ export function useThreads(shell: Shell | undefined) {
 		setEditingThreadTitleDraft('');
 		threadTitleDraftRef.current = '';
 		setThreadNavigation({ history: [], index: -1 });
-		sidebarFetchGenRef.current++;
-		setSidebarThreadsByPathKey({});
+		if (!options?.keepSidebarThreads) {
+			sidebarFetchGenRef.current++;
+			setSidebarThreadsByPathKey({});
+		}
 		loadMessagesInflightByIdRef.current.clear();
 	}, []);
 
@@ -340,6 +458,9 @@ export function useThreads(shell: Shell | undefined) {
 		refreshAgentSidebarThreads,
 		sidebarThreadsByPathKey,
 		loadMessages,
+		cacheThreadStateForWorkspace,
+		restoreThreadStateForWorkspace,
+		getCachedThreadsForWorkspace,
 		resetThreadState,
 	};
 }

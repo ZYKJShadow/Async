@@ -44,6 +44,19 @@ export type ProjectAgentSliceState = {
 
 export const EMPTY_PROJECT_AGENT: ProjectAgentSliceState = { rules: [], skills: [], subagents: [] };
 
+function scheduleIdleWorkspaceLoad(fn: () => void): () => void {
+	if (typeof window === 'undefined') {
+		fn();
+		return () => {};
+	}
+	if (typeof window.requestIdleCallback === 'function') {
+		const id = window.requestIdleCallback(() => fn(), { timeout: 1500 });
+		return () => window.cancelIdleCallback?.(id);
+	}
+	const id = window.setTimeout(fn, 120);
+	return () => window.clearTimeout(id);
+}
+
 export type LoadedSettingsSnapshot = {
 	providerIdentity?: ProviderIdentitySettings;
 	defaultModel?: string;
@@ -307,23 +320,26 @@ export function useSettings(
 			return;
 		}
 		let cancelled = false;
-		void (async () => {
-			const r = (await shell.invoke('workspaceAgent:get')) as {
-				ok?: boolean;
-				slice?: { rules?: AgentRule[]; skills?: AgentSkill[]; subagents?: AgentSubagent[] };
-			};
-			if (cancelled) return;
-			const slice = r?.slice;
-			startTransition(() => {
-				setProjectAgentSlice({
-					rules: tagProjectOrigin(slice?.rules),
-					skills: tagProjectOrigin(slice?.skills),
-					subagents: tagProjectOrigin(slice?.subagents),
+		const cancelIdle = scheduleIdleWorkspaceLoad(() => {
+			void (async () => {
+				const r = (await shell.invoke('workspaceAgent:get')) as {
+					ok?: boolean;
+					slice?: { rules?: AgentRule[]; skills?: AgentSkill[]; subagents?: AgentSubagent[] };
+				};
+				if (cancelled) return;
+				const slice = r?.slice;
+				startTransition(() => {
+					setProjectAgentSlice({
+						rules: tagProjectOrigin(slice?.rules),
+						skills: tagProjectOrigin(slice?.skills),
+						subagents: tagProjectOrigin(slice?.subagents),
+					});
 				});
-			});
-		})();
+			})();
+		});
 		return () => {
 			cancelled = true;
+			cancelIdle();
 		};
 	}, [shell, workspace]);
 
@@ -333,21 +349,24 @@ export function useSettings(
 			return;
 		}
 		let cancelled = false;
-		void (async () => {
-			try {
-				const r = (await shell.invoke('workspace:listDiskSkills')) as { ok?: boolean; skills?: AgentSkill[] };
-				if (cancelled) return;
-				startTransition(() => {
-					setWorkspaceDiskSkills(Array.isArray(r?.skills) ? r.skills : []);
-				});
-			} catch {
-				if (!cancelled) {
-					setWorkspaceDiskSkills([]);
+		const cancelIdle = scheduleIdleWorkspaceLoad(() => {
+			void (async () => {
+				try {
+					const r = (await shell.invoke('workspace:listDiskSkills')) as { ok?: boolean; skills?: AgentSkill[] };
+					if (cancelled) return;
+					startTransition(() => {
+						setWorkspaceDiskSkills(Array.isArray(r?.skills) ? r.skills : []);
+					});
+				} catch {
+					if (!cancelled) {
+						setWorkspaceDiskSkills([]);
+					}
 				}
-			}
-		})();
+			})();
+		});
 		return () => {
 			cancelled = true;
+			cancelIdle();
 		};
 	}, [shell, workspace, diskSkillsRefreshTicker]);
 
@@ -357,23 +376,26 @@ export function useSettings(
 			return;
 		}
 		let cancelled = false;
-		void (async () => {
-			try {
-				const next = (await shell.invoke('plugins:getRuntimeState')) as PluginRuntimeState;
-				if (cancelled) {
-					return;
+		const cancelIdle = scheduleIdleWorkspaceLoad(() => {
+			void (async () => {
+				try {
+					const next = (await shell.invoke('plugins:getRuntimeState')) as PluginRuntimeState;
+					if (cancelled) {
+						return;
+					}
+					startTransition(() => {
+						setPluginRuntimeState(next && typeof next === 'object' ? next : EMPTY_PLUGIN_RUNTIME_STATE);
+					});
+				} catch {
+					if (!cancelled) {
+						setPluginRuntimeState(EMPTY_PLUGIN_RUNTIME_STATE);
+					}
 				}
-				startTransition(() => {
-					setPluginRuntimeState(next && typeof next === 'object' ? next : EMPTY_PLUGIN_RUNTIME_STATE);
-				});
-			} catch {
-				if (!cancelled) {
-					setPluginRuntimeState(EMPTY_PLUGIN_RUNTIME_STATE);
-				}
-			}
-		})();
+			})();
+		});
 		return () => {
 			cancelled = true;
+			cancelIdle();
 		};
 	}, [shell, workspace, pluginRuntimeRefreshTicker]);
 

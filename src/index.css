@@ -3407,7 +3407,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	flex: 1 1 auto;
 	min-height: 0;
 	max-height: none;
-	padding-top: 0;
+	padding-top: 8px;
 	/* 缩短对话末尾与底部输入区之间的留白，但仍保留一点呼吸感 */
 	padding-bottom: calc(12px + var(--ref-chat-tail-space));
 	/* 消息高度在 Markdown/虚拟测量后会继续变化，关闭浏览器 scroll anchoring，避免把视口拉回中段。 */
@@ -4689,12 +4689,14 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-agent-activity-text {
 	min-width: 0;
-	white-space: pre-line;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 /* read_file ?????????????????????? Cursor Agent? */
 .ref-agent-activity-ref-link {
-	display: inline;
+	display: inline-block;
 	max-width: 100%;
 	margin: 0;
 	padding: 0;
@@ -4704,7 +4706,9 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font: inherit;
 	text-align: left;
 	cursor: pointer;
-	white-space: pre-line;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	text-decoration: none;
 	border-radius: 4px;
 }
@@ -5081,6 +5085,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.ref-preflight-shell-collapse.instant-toggle {
+	transition: none !important;
+}
+
 .ref-preflight-shell-collapse.is-open {
 	max-height: 216px;
 }
@@ -5098,7 +5106,6 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	/* 水平 padding 设为 0 让 body 内容与父 .ref-md-root--agent-chat 左右边缘对齐。
 	   首行（如「已思考 X.Xs」）需要与壳头部留出呼吸距离，否则在流式底部遮罩存在时容易被遮 */
 	padding: 10px 0 6px;
-	height: 200px;
 	max-height: 200px;
 	overflow-y: auto;
 	/* 细滚动条：默认完全透明，鼠标进入 body 时渐入；离开时渐出。

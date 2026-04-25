@@ -264,7 +264,10 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 				return;
 			}
 			if (workspacePath !== workspace) {
-				setHiddenAgentWorkspacePaths((prev) => prev.filter((item) => item !== workspacePath));
+				const workspaceKey = normWorkspaceRootKey(workspacePath);
+				setHiddenAgentWorkspacePaths((prev) =>
+					prev.filter((item) => normWorkspaceRootKey(item) !== workspaceKey)
+				);
 				const opened = await openWorkspaceByPath(workspacePath);
 				if (!opened) {
 					return;

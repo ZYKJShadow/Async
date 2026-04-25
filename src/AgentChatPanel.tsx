@@ -617,6 +617,8 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const prevDisplayMessagesLenRef = useRef(displayMessages.length);
 	const prevConversationForLenRef = useRef<string | null>(null);
 	const lastLayoutMeasureSigRef = useRef('');
+	const layoutMeasureSettleTimerRef = useRef<number | null>(null);
+	const pinnedToBottomRef = useRef(true);
 
 	const getRowHeightForBudget = useCallback(
 		(i: number) => messageRowHeightsRef.current.get(i) ?? ESTIMATED_MESSAGE_ROW_PX,
@@ -706,6 +708,17 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			});
 		});
 	}, [scheduleMessagesScrollToBottom]);
+	const notifyPreflightLayoutChange = useCallback(() => {
+		setLayoutMeasureVersion((version) => version + 1);
+		if (!pinnedToBottomRef.current) {
+			return;
+		}
+		scheduleMessagesScrollToBottom();
+		window.requestAnimationFrame(() => {
+			scheduleMessagesScrollToBottom();
+		});
+	}, [scheduleMessagesScrollToBottom]);
+	const shouldInstantTogglePreflight = useCallback(() => pinnedToBottomRef.current, []);
 
 	/**
 	 * 切换对话：清空测量并按视口高度预算重算起点。
@@ -749,13 +762,11 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			setStickyUserTopPx((prev) => (prev === 0 ? prev : 0));
 			return;
 		}
-		const viewport = messagesViewportRef.current;
-		if (!viewport) {
-			return;
-		}
-		const viewportStyle = window.getComputedStyle(viewport);
-		const topPadding = Number.parseFloat(viewportStyle.paddingTop || '0') || 0;
-		setStickyUserTopPx((prev) => (Math.abs(prev - topPadding) <= 1 ? prev : topPadding));
+		/* sticky 元素的 top 已经是相对 viewport 的 padding-box 顶部,
+		   再叠加 padding-top 会把它二次下推,且 padding 任何变化都会
+		   触发 sticky 落点跳动(sidebar 展开/收起时尤其明显)。
+		   固定 0,让 sticky 视觉上正好停在 padding 内边沿。 */
+		setStickyUserTopPx((prev) => (prev === 0 ? prev : 0));
 	}, [hasConversation, conversationRenderKey, layoutMeasureVersion, messagesViewportRef]);
 
 	/** 顶部哨兵：再往上加载约「一整屏」高的内容（按已测/估算行高累计） */
@@ -934,6 +945,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	useEffect(() => {
 		if (!hasConversation) {
 			lastLayoutMeasureSigRef.current = '';
+			if (layoutMeasureSettleTimerRef.current !== null) {
+				window.clearTimeout(layoutMeasureSettleTimerRef.current);
+				layoutMeasureSettleTimerRef.current = null;
+			}
 			return;
 		}
 		const viewport = messagesViewportRef.current;
@@ -942,6 +957,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			return;
 		}
 		let rafId = 0;
+		let lastCommittedAt = 0;
 		const flush = () => {
 			rafId = 0;
 			const nextSig = [
@@ -954,7 +970,19 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				return;
 			}
 			lastLayoutMeasureSigRef.current = nextSig;
-			setLayoutMeasureVersion((v) => v + 1);
+			const now = performance.now();
+			if (now - lastCommittedAt >= 120) {
+				lastCommittedAt = now;
+				setLayoutMeasureVersion((v) => v + 1);
+			}
+			if (layoutMeasureSettleTimerRef.current !== null) {
+				window.clearTimeout(layoutMeasureSettleTimerRef.current);
+			}
+			layoutMeasureSettleTimerRef.current = window.setTimeout(() => {
+				layoutMeasureSettleTimerRef.current = null;
+				lastCommittedAt = performance.now();
+				setLayoutMeasureVersion((v) => v + 1);
+			}, 140);
 		};
 		const schedule = () => {
 			if (rafId !== 0) {
@@ -971,8 +999,30 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			if (rafId !== 0) {
 				window.cancelAnimationFrame(rafId);
 			}
+			if (layoutMeasureSettleTimerRef.current !== null) {
+				window.clearTimeout(layoutMeasureSettleTimerRef.current);
+				layoutMeasureSettleTimerRef.current = null;
+			}
 		};
 	}, [hasConversation, conversationRenderKey, messagesViewportRef, messagesTrackRef]);
+
+	/**
+	 * 监听 preflight shell 的 CSS transition 结束，立即触发 spacer 重算。
+	 */
+	useEffect(() => {
+		if (!hasConversation) return;
+		const track = messagesTrackRef.current;
+		if (!track) return;
+		const onTransitionEnd = (e: TransitionEvent) => {
+			const target = e.target;
+			if (!(target instanceof HTMLElement)) return;
+			if (!target.closest('.ref-preflight-shell-collapse')) return;
+			if (e.propertyName !== 'max-height') return;
+			setLayoutMeasureVersion((v) => v + 1);
+		};
+		track.addEventListener('transitionend', onTransitionEnd);
+		return () => track.removeEventListener('transitionend', onTransitionEnd);
+	}, [hasConversation, conversationRenderKey, setLayoutMeasureVersion, messagesTrackRef]);
 
 	/**
 	 * sticky 同步逻辑：用 ref 持有最新闭包，让监听器订阅 effect 只在「会话级」变量变化时
@@ -995,6 +1045,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		const isAtBottom =
 			distFromBottom <= 16 || viewport.scrollHeight <= viewport.clientHeight + 16;
 		bottomTodoAtBottomRef.current = isAtBottom;
+		pinnedToBottomRef.current = isAtBottom;
 		const renderedRows = collectMeasuredTurnRows();
 		const nextStickyIndex = findStickyUserIndexForViewport({
 			renderedRows,
@@ -1084,8 +1135,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		const update = () => {
 			rafId = 0;
 			const dist = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-			bottomTodoAtBottomRef.current =
-				dist <= 16 || viewport.scrollHeight <= viewport.clientHeight + 16;
+			const isAtBottom = dist <= 16 || viewport.scrollHeight <= viewport.clientHeight + 16;
+			bottomTodoAtBottomRef.current = isAtBottom;
+			pinnedToBottomRef.current = isAtBottom;
 		};
 		const schedule = () => {
 			if (rafId !== 0) return;
@@ -1376,8 +1428,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 							revertedChangeKeys={revertedChangeKeys}
 							skipPlanTodo
 							renderMode="preflight"
-							preserveLivePreflight
+							preserveLivePreflight={agentOrPlanStreaming}
 							typewriter={agentOrPlanStreaming && awaitingReply}
+							shouldInstantTogglePreflight={shouldInstantTogglePreflight}
+							onPreflightLayoutChange={notifyPreflightLayoutChange}
 						/>
 					</div>
 				</div>

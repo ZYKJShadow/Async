@@ -8,6 +8,7 @@ import {
 	type SetStateAction,
 } from 'react';
 import type { TFunction } from '../i18n';
+import { normWorkspaceRootKey } from '../workspaceRootKey';
 
 function workspacePathDisplayName(full: string): string {
 	const norm = full.replace(/\\/g, '/');
@@ -63,9 +64,13 @@ export function useWorkspaceActions(p: UseWorkspaceActionsParams) {
 	}, []);
 
 	const toggleWorkspaceCollapsed = useCallback((path: string) => {
-		setCollapsedAgentWorkspacePaths((prev) =>
-			prev.includes(path) ? prev.filter((item) => item !== path) : [...prev, path]
-		);
+		const key = normWorkspaceRootKey(path);
+		setCollapsedAgentWorkspacePaths((prev) => {
+			const exists = prev.some((item) => normWorkspaceRootKey(item) === key);
+			return exists
+				? prev.filter((item) => normWorkspaceRootKey(item) !== key)
+				: [...prev, path];
+		});
 	}, [setCollapsedAgentWorkspacePaths]);
 
 	const revealWorkspaceInOs = useCallback(
@@ -117,10 +122,13 @@ export function useWorkspaceActions(p: UseWorkspaceActionsParams) {
 				delete updated[path];
 				return updated;
 			});
-			setCollapsedAgentWorkspacePaths((prev) => prev.filter((item) => item !== path));
-			setHiddenAgentWorkspacePaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
-			setFolderRecents((prev) => prev.filter((item) => item !== path));
-			setHomeRecents((prev) => prev.filter((item) => item !== path));
+			const key = normWorkspaceRootKey(path);
+			setCollapsedAgentWorkspacePaths((prev) => prev.filter((item) => normWorkspaceRootKey(item) !== key));
+			setHiddenAgentWorkspacePaths((prev) =>
+				prev.some((item) => normWorkspaceRootKey(item) === key) ? prev : [...prev, path]
+			);
+			setFolderRecents((prev) => prev.filter((item) => normWorkspaceRootKey(item) !== key));
+			setHomeRecents((prev) => prev.filter((item) => normWorkspaceRootKey(item) !== key));
 			if (editingWorkspacePath === path) {
 				setEditingWorkspacePath(null);
 				setEditingWorkspaceNameDraft('');

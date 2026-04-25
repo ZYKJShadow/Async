@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { chatMessagesListEqual, type ChatMessage } from './threadTypes';
+import {
+	applyThreadRowsPreservingDetails,
+	chatMessagesListEqual,
+	mergeThreadDetailRows,
+	threadListVersions,
+	type ChatMessage,
+	type ThreadInfo,
+} from './threadTypes';
 
 describe('chatMessagesListEqual skill_invoke', () => {
 	it('相同 skill_invoke parts 视为相等', () => {
@@ -38,5 +45,78 @@ describe('chatMessagesListEqual skill_invoke', () => {
 		expect(
 			chatMessagesListEqual([base], [{ ...base, parts: [{ kind: 'skill_invoke', slug: 'a', name: 'B' }] }])
 		).toBe(false);
+	});
+});
+
+describe('layered thread rows', () => {
+	it('preserves existing summary details when a light row has the same version', () => {
+		const prev: ThreadInfo[] = [
+			{
+				id: 't1',
+				title: 'Old title',
+				updatedAt: 10,
+				previewCount: 2,
+				hasUserMessages: true,
+				hasAgentDiff: true,
+				filePaths: ['src/a.ts'],
+				fileCount: 1,
+				subtitleFallback: 'Edited src/a.ts',
+			},
+		];
+
+		const next = applyThreadRowsPreservingDetails(prev, [
+			{
+				id: 't1',
+				title: 'New title',
+				updatedAt: 10,
+				previewCount: 2,
+				hasUserMessages: true,
+			},
+		]);
+
+		expect(next[0]).toMatchObject({
+			title: 'New title',
+			hasAgentDiff: true,
+			filePaths: ['src/a.ts'],
+			subtitleFallback: 'Edited src/a.ts',
+		});
+	});
+
+	it('does not merge stale detail rows across updatedAt changes', () => {
+		const prev: ThreadInfo[] = [
+			{
+				id: 't1',
+				title: 'Current',
+				updatedAt: 20,
+				previewCount: 3,
+				hasUserMessages: true,
+			},
+		];
+
+		const next = mergeThreadDetailRows(prev, [
+			{
+				id: 't1',
+				title: 'Stale',
+				updatedAt: 10,
+				previewCount: 2,
+				hasUserMessages: true,
+				hasAgentDiff: true,
+				filePaths: ['stale.ts'],
+			},
+		]);
+
+		expect(next).toBe(prev);
+	});
+
+	it('returns id and updatedAt pairs for detail hydration requests', () => {
+		expect(
+			threadListVersions([
+				{ id: 'a', title: 'A', updatedAt: 1, previewCount: 0 },
+				{ id: 'b', title: 'B', updatedAt: 2, previewCount: 1 },
+			])
+		).toEqual([
+			{ id: 'a', updatedAt: 1 },
+			{ id: 'b', updatedAt: 2 },
+		]);
 	});
 });

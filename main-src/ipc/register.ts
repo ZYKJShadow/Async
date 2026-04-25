@@ -106,7 +106,7 @@ import {
 	getCurrentThreadId,
 	getThread,
 	listThreads,
-	threadHasUserMessages,
+	listThreadWorkspaceRoots,
 	replaceFromUserVisibleIndex,
 	selectThread,
 	setThreadGeneratedTitle,
@@ -129,6 +129,7 @@ import {
 	saveTeamSession,
 	getAgentSession,
 	type ChatMessage,
+	type ThreadRecord,
 } from '../threadStore.js';
 import { compressForSend } from '../agent/conversationCompress.js';
 import { flattenAssistantTextPartsForSearch } from '../../src/agentStructuredMessage.js';
@@ -205,7 +206,12 @@ import {
 	writeWorkspaceAgentProjectSlice,
 	type WorkspaceAgentProjectSlice,
 } from '../workspaceAgentStore.js';
-import { summarizeThreadForSidebar, isTimestampToday, pruneSummaryCache } from '../threadListSummary.js';
+import {
+	summarizeThreadForSidebarWithMeta,
+	isTimestampToday,
+	pruneSummaryCache,
+	type ThreadRowSummary,
+} from '../threadListSummary.js';
 import { registerTerminalSessionIpc } from '../terminalSessionIpc.js';
 
 import {
@@ -638,7 +644,9 @@ async function spawnDetachedLaunch(
 
 async function launchWorkspaceInExternalEditor(
 	tool: Extract<ExternalWorkspaceTool, 'vscode' | 'cursor' | 'antigravity'>,
-	workspaceRoot: string
+	workspaceRoot: string,
+	targetPath?: string,
+	revealLine?: number
 ): Promise<boolean> {
 	const commandCandidates = {
 		vscode: ['code'],
@@ -652,7 +660,9 @@ async function launchWorkspaceInExternalEditor(
 	if (!resolved) {
 		return false;
 	}
-	await spawnDetachedLaunch(resolved.command, ['-n', workspaceRoot], {
+	const target = targetPath ?? workspaceRoot;
+	const targetArg = targetPath && Number.isFinite(revealLine) && revealLine > 0 ? `${targetPath}:${Math.floor(revealLine)}` : target;
+	await spawnDetachedLaunch(resolved.command, ['-n', targetArg], {
 		cwd: workspaceRoot,
 		useShell: resolved.useShell,
 		windowsHide: true,
@@ -1312,13 +1322,29 @@ export function registerIpc(): void {
 		if (!root) {
 			return { ok: false as const, code: 'no-workspace' as const };
 		}
-		const tool = (payload as { tool?: unknown } | null | undefined)?.tool;
+		const input = payload as
+			| { tool?: unknown; relPath?: unknown; revealLine?: unknown; revealEndLine?: unknown }
+			| null
+			| undefined;
+		const tool = input?.tool;
 		if (!isExternalWorkspaceTool(tool)) {
 			return { ok: false as const, code: 'unsupported-tool' as const, error: 'unsupported tool' };
 		}
+		const relPath = typeof input?.relPath === 'string' ? input.relPath.trim() : '';
+		let targetPath: string | undefined;
+		if (relPath) {
+			const normalizedRel = relPath.replace(/\\/g, '/');
+			const resolvedTarget = path.resolve(root, normalizedRel);
+			const relativeToRoot = path.relative(root, resolvedTarget);
+			if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+				return { ok: false as const, code: 'outside-workspace' as const, error: 'path is outside workspace' };
+			}
+			targetPath = resolvedTarget;
+		}
+		const revealLine = typeof input?.revealLine === 'number' ? input.revealLine : undefined;
 		try {
 			if (tool === 'explorer') {
-				const err = await shell.openPath(root);
+				const err = await shell.openPath(targetPath ?? root);
 				return err
 					? ({ ok: false as const, code: 'launch-failed' as const, error: err } as const)
 					: ({ ok: true as const } as const);
@@ -1329,7 +1355,7 @@ export function registerIpc(): void {
 					? ({ ok: true as const } as const)
 					: ({ ok: false as const, code: 'tool-unavailable' as const } as const);
 			}
-			const ok = await launchWorkspaceInExternalEditor(tool, root);
+			const ok = await launchWorkspaceInExternalEditor(tool, root, targetPath, revealLine);
 			return ok
 				? ({ ok: true as const } as const)
 				: ({ ok: false as const, code: 'tool-unavailable' as const } as const);
@@ -1344,7 +1370,17 @@ export function registerIpc(): void {
 
 	ipcMain.handle('workspace:listRecents', () => {
 		const t0 = performance.now();
-		const paths = getRecentWorkspaces().filter((p) => {
+		const seen = new Set<string>();
+		const candidates = [
+			...getRecentWorkspaces(),
+			...listThreadWorkspaceRoots({ onlyWithUserMessages: true }),
+		];
+		const paths = candidates.filter((p) => {
+			const key = path.resolve(p).replace(/\\/g, '/').toLowerCase();
+			if (seen.has(key)) {
+				return false;
+			}
+			seen.add(key);
 			try {
 				return fs.existsSync(p) && fs.statSync(p).isDirectory();
 			} catch {
@@ -2322,9 +2358,152 @@ export function registerIpc(): void {
 	// 防止 summarizeThreadForSidebar 对大量/长消息的 thread 进行批量 diff 扫描时
 	// 阻塞主进程，导致 Electron 窗口拖动等原生事件无法响应。
 	const THREAD_SUMMARIZE_BATCH = 8;
+	const THREAD_CACHED_ROW_BATCH = 64;
 	function yieldToEventLoop(): Promise<void> {
 		return new Promise((resolve) => setImmediate(resolve));
 	}
+
+	type ThreadListVersion = {
+		id: string;
+		updatedAt: number;
+	};
+
+	type ThreadSidebarLightRow = {
+		id: string;
+		title: string;
+		updatedAt: number;
+		createdAt: number;
+		previewCount: number;
+		hasUserMessages: boolean;
+		isToday: boolean;
+		tokenUsage: ThreadRecord['tokenUsage'];
+		fileStateCount: number;
+	};
+
+	type ThreadSidebarRow = {
+		id: string;
+		title: string;
+		updatedAt: number;
+		createdAt: number;
+		isToday: boolean;
+		tokenUsage: ThreadRecord['tokenUsage'];
+		fileStateCount: number;
+	} & ThreadRowSummary;
+
+	function collectThreadLightStats(t: ThreadRecord): { previewCount: number; hasUserMessages: boolean } {
+		let previewCount = 0;
+		let hasUserMessages = false;
+		for (const message of t.messages) {
+			if (message.role === 'system') {
+				continue;
+			}
+			previewCount += 1;
+			if (message.role === 'user' && !hasUserMessages && /\S/.test(message.content)) {
+				hasUserMessages = true;
+			}
+		}
+		return { previewCount, hasUserMessages };
+	}
+
+	function buildThreadSidebarLightRow(t: ThreadRecord, now: number): ThreadSidebarLightRow {
+		const stats = collectThreadLightStats(t);
+		return {
+			id: t.id,
+			title: t.title,
+			updatedAt: t.updatedAt,
+			createdAt: t.createdAt,
+			previewCount: stats.previewCount,
+			hasUserMessages: stats.hasUserMessages,
+			isToday: isTimestampToday(t.updatedAt, now),
+			tokenUsage: t.tokenUsage,
+			fileStateCount: t.fileStates ? Object.keys(t.fileStates).length : 0,
+		};
+	}
+
+	function buildThreadSidebarRow(
+		t: ThreadRecord,
+		now: number,
+		workspaceRoot: string | null | undefined
+	): { row: ThreadSidebarRow; cacheHit: boolean } {
+		const { summary, cacheHit } = summarizeThreadForSidebarWithMeta(t, workspaceRoot);
+		return {
+			cacheHit,
+			row: {
+				id: t.id,
+				title: t.title,
+				updatedAt: t.updatedAt,
+				createdAt: t.createdAt,
+				isToday: isTimestampToday(t.updatedAt, now),
+				tokenUsage: t.tokenUsage,
+				fileStateCount: t.fileStates ? Object.keys(t.fileStates).length : 0,
+				...summary,
+			},
+		};
+	}
+
+	function parseRequestedThreadVersions(rawVersions: unknown): Map<string, number> | null {
+		if (!Array.isArray(rawVersions) || rawVersions.length === 0) {
+			return null;
+		}
+		const versions = new Map<string, number>();
+		for (const item of rawVersions) {
+			if (!item || typeof item !== 'object') {
+				continue;
+			}
+			const rec = item as Partial<ThreadListVersion>;
+			const id = typeof rec.id === 'string' ? rec.id : '';
+			const updatedAt = typeof rec.updatedAt === 'number' ? rec.updatedAt : Number.NaN;
+			if (id && Number.isFinite(updatedAt)) {
+				versions.set(id, updatedAt);
+			}
+		}
+		return versions.size > 0 ? versions : null;
+	}
+
+	ipcMain.handle('threads:listLight', async (event) => {
+		const t0 = performance.now();
+		const scope = senderWorkspaceRoot(event);
+		ensureDefaultThread(scope);
+		const now = Date.now();
+		const raw = listThreads(scope);
+		const threads = raw.map((t) => buildThreadSidebarLightRow(t, now));
+		console.log(`[perf][main] threads:listLight total=${(performance.now() - t0).toFixed(1)}ms count=${threads.length}`);
+		return { threads, currentId: getCurrentThreadId(scope) };
+	});
+
+	ipcMain.handle('threads:listDetails', async (event, rawVersions: unknown) => {
+		const t0 = performance.now();
+		const scope = senderWorkspaceRoot(event);
+		ensureDefaultThread(scope);
+		const now = Date.now();
+		const raw = listThreads(scope);
+		const requestedVersions = parseRequestedThreadVersions(rawVersions);
+		console.log(`[perf][main] threads:listDetails listThreads=${(performance.now() - t0).toFixed(1)}ms count=${raw.length}`);
+		const threads = [];
+		let cacheHits = 0;
+		let cacheMissesSinceYield = 0;
+		let rowsSinceYield = 0;
+		for (let i = 0; i < raw.length; i++) {
+			const t = raw[i]!;
+			if (requestedVersions && requestedVersions.get(t.id) !== t.updatedAt) {
+				continue;
+			}
+			const { row, cacheHit } = buildThreadSidebarRow(t, now, scope);
+			threads.push(row);
+			cacheHits += cacheHit ? 1 : 0;
+			cacheMissesSinceYield += cacheHit ? 0 : 1;
+			rowsSinceYield += 1;
+			if (cacheMissesSinceYield >= THREAD_SUMMARIZE_BATCH || rowsSinceYield >= THREAD_CACHED_ROW_BATCH) {
+				cacheMissesSinceYield = 0;
+				rowsSinceYield = 0;
+				await yieldToEventLoop();
+			}
+		}
+		console.log(`[perf][main] threads:listDetails total=${(performance.now() - t0).toFixed(1)}ms summarized=${threads.length} cacheHits=${cacheHits}`);
+		// Prune cached summaries for threads that no longer exist in this workspace.
+		pruneSummaryCache(new Set(raw.map((t) => t.id)), scope);
+		return { threads, currentId: getCurrentThreadId(scope) };
+	});
 
 	ipcMain.handle('threads:list', async (event) => {
 		const t0 = performance.now();
@@ -2334,28 +2513,24 @@ export function registerIpc(): void {
 		const raw = listThreads(scope);
 		console.log(`[perf][main] threads:list listThreads=${(performance.now() - t0).toFixed(1)}ms count=${raw.length}`);
 		const threads = [];
+		let cacheHits = 0;
+		let cacheMissesSinceYield = 0;
+		let rowsSinceYield = 0;
 		for (let i = 0; i < raw.length; i++) {
 			const t = raw[i]!;
-			const sum = summarizeThreadForSidebar(t);
-			threads.push({
-				id: t.id,
-				title: t.title,
-				updatedAt: t.updatedAt,
-				createdAt: t.createdAt,
-				previewCount: t.messages.filter((m) => m.role !== 'system').length,
-				hasUserMessages: threadHasUserMessages(t),
-				isToday: isTimestampToday(t.updatedAt, now),
-				tokenUsage: t.tokenUsage,
-				fileStateCount: t.fileStates ? Object.keys(t.fileStates).length : 0,
-				...sum,
-			});
-			if ((i + 1) % THREAD_SUMMARIZE_BATCH === 0) {
+			const { row, cacheHit } = buildThreadSidebarRow(t, now, scope);
+			threads.push(row);
+			cacheHits += cacheHit ? 1 : 0;
+			cacheMissesSinceYield += cacheHit ? 0 : 1;
+			rowsSinceYield += 1;
+			if (cacheMissesSinceYield >= THREAD_SUMMARIZE_BATCH || rowsSinceYield >= THREAD_CACHED_ROW_BATCH) {
+				cacheMissesSinceYield = 0;
+				rowsSinceYield = 0;
 				await yieldToEventLoop();
 			}
 		}
-		console.log(`[perf][main] threads:list total=${(performance.now() - t0).toFixed(1)}ms summarized=${threads.length}`);
-		// Prune cached summaries for threads that no longer exist in this workspace.
-		pruneSummaryCache(new Set(raw.map((t) => t.id)));
+		console.log(`[perf][main] threads:list total=${(performance.now() - t0).toFixed(1)}ms summarized=${threads.length} cacheHits=${cacheHits}`);
+		pruneSummaryCache(new Set(raw.map((t) => t.id)), scope);
 		return { threads, currentId: getCurrentThreadId(scope) };
 	});
 
@@ -2383,25 +2558,21 @@ export function registerIpc(): void {
 			}
 			const raw = listThreads(resolved);
 			const threads = [];
+			let cacheMissesSinceYield = 0;
+			let rowsSinceYield = 0;
 			for (let i = 0; i < raw.length; i++) {
 				const t = raw[i]!;
-				const sum = summarizeThreadForSidebar(t);
-				threads.push({
-					id: t.id,
-					title: t.title,
-					updatedAt: t.updatedAt,
-					createdAt: t.createdAt,
-					previewCount: t.messages.filter((m) => m.role !== 'system').length,
-					hasUserMessages: threadHasUserMessages(t),
-					isToday: isTimestampToday(t.updatedAt, now),
-					tokenUsage: t.tokenUsage,
-					fileStateCount: t.fileStates ? Object.keys(t.fileStates).length : 0,
-					...sum,
-				});
-				if ((i + 1) % THREAD_SUMMARIZE_BATCH === 0) {
+				const { row, cacheHit } = buildThreadSidebarRow(t, now, resolved);
+				threads.push(row);
+				cacheMissesSinceYield += cacheHit ? 0 : 1;
+				rowsSinceYield += 1;
+				if (cacheMissesSinceYield >= THREAD_SUMMARIZE_BATCH || rowsSinceYield >= THREAD_CACHED_ROW_BATCH) {
+					cacheMissesSinceYield = 0;
+					rowsSinceYield = 0;
 					await yieldToEventLoop();
 				}
 			}
+			pruneSummaryCache(new Set(raw.map((t) => t.id)), resolved);
 			workspaces.push({ requestedPath: dirPath, resolvedPath: resolved, threads, currentId: getCurrentThreadId(resolved) });
 		}
 		return { workspaces };
