@@ -40,8 +40,12 @@ type Props = {
 	phase?: 'thinking' | 'streaming' | 'done';
 	/** done 阶段可在末尾展示 token 用量 */
 	tokenUsage?: TurnTokenUsage | null;
-	/** 快速折叠/展开时不使用 CSS transition，避免与 turn-focus spacer 竞争导致滚动条上移 */
+	/** 贴底时跳过高度动画，避免外层 follow-bottom 与 max-height transition 互相拉扯 */
 	instantToggle?: boolean;
+	/** 点击展开/收起时读取最新外层贴底状态，避免使用父级上一次 render 的旧快照 */
+	shouldInstantToggle?: () => boolean;
+	/** 展开/收起提交到 DOM 后通知父级同步重算外层补高 */
+	onLayoutChange?: () => void;
 };
 
 function defaultDisplayState(liveTurn: boolean, hasOutcome: boolean): DisplayState {
@@ -56,12 +60,15 @@ export const AgentPreflightShell = memo(function AgentPreflightShell({
 	phase = 'thinking',
 	tokenUsage,
 	instantToggle = false,
+	shouldInstantToggle,
+	onLayoutChange,
 }: Props) {
 	const { t } = useI18n();
 
 	const [displayState, setDisplayState] = useState<DisplayState>(() =>
 		defaultDisplayState(liveTurn, hasOutcome)
 	);
+	const [toggleInstantOverride, setToggleInstantOverride] = useState(false);
 	const userToggledRef = useRef(false);
 	const prevLiveTurnRef = useRef(liveTurn);
 
@@ -75,9 +82,12 @@ export const AgentPreflightShell = memo(function AgentPreflightShell({
 		if (userToggledRef.current) return;
 		// 回合结束的最后一帧 hasOutcome 决定默认态：有结果 → 收起聚焦答案；无结果 → 保持展开
 		const next = defaultDisplayState(false, hasOutcome);
-		const id = setTimeout(() => setDisplayState(next), 600);
+		const id = setTimeout(() => {
+			setToggleInstantOverride(shouldInstantToggle?.() ?? instantToggle);
+			setDisplayState(next);
+		}, 600);
 		return () => clearTimeout(id);
-	}, [liveTurn, hasOutcome]);
+	}, [liveTurn, hasOutcome, instantToggle, shouldInstantToggle]);
 
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const pinnedToBottomRef = useRef(true);
@@ -95,6 +105,15 @@ export const AgentPreflightShell = memo(function AgentPreflightShell({
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [children, displayState]);
 
+	const didMountLayoutRef = useRef(false);
+	useLayoutEffect(() => {
+		if (!didMountLayoutRef.current) {
+			didMountLayoutRef.current = true;
+			return;
+		}
+		onLayoutChange?.();
+	}, [displayState, onLayoutChange]);
+
 	useEffect(() => {
 		if (displayState === 'expanded') {
 			pinnedToBottomRef.current = true;
@@ -103,13 +122,26 @@ export const AgentPreflightShell = memo(function AgentPreflightShell({
 		}
 	}, [displayState]);
 
+	useLayoutEffect(() => {
+		if (!toggleInstantOverride) return;
+		const id = window.requestAnimationFrame(() => setToggleInstantOverride(false));
+		return () => window.cancelAnimationFrame(id);
+	}, [displayState, toggleInstantOverride]);
+
+	const resolveInstantToggle = useCallback(
+		() => shouldInstantToggle?.() ?? instantToggle,
+		[instantToggle, shouldInstantToggle]
+	);
+
 	/** 真正的二值取反：collapsed ↔ expanded。点击后锁定，自动逻辑不再生效。 */
 	const onToggle = useCallback(() => {
 		userToggledRef.current = true;
+		setToggleInstantOverride(resolveInstantToggle());
 		setDisplayState((s) => (s === 'expanded' ? 'collapsed' : 'expanded'));
-	}, []);
+	}, [resolveInstantToggle]);
 
 	const isOpen = displayState === 'expanded';
+	const useInstantToggle = instantToggle || toggleInstantOverride;
 	const isPending = liveTurn && phase !== 'done';
 	const headLabel = isPending
 		? t('agent.preflight.working')
@@ -141,7 +173,9 @@ export const AgentPreflightShell = memo(function AgentPreflightShell({
 				</span>
 			</button>
 
-			<div className={`ref-preflight-shell-collapse ${isOpen ? 'is-open' : ''}${instantToggle ? ' instant-toggle' : ''}`}>
+			<div
+				className={`ref-preflight-shell-collapse ${isOpen ? 'is-open' : ''}${useInstantToggle ? ' instant-toggle' : ''}`}
+			>
 				<div
 					ref={bodyRef}
 					className={`ref-preflight-shell-body ${isPending ? 'ref-preflight-shell-body--live' : ''}`}

@@ -708,6 +708,17 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			});
 		});
 	}, [scheduleMessagesScrollToBottom]);
+	const notifyPreflightLayoutChange = useCallback(() => {
+		setLayoutMeasureVersion((version) => version + 1);
+		if (!pinnedToBottomRef.current) {
+			return;
+		}
+		scheduleMessagesScrollToBottom();
+		window.requestAnimationFrame(() => {
+			scheduleMessagesScrollToBottom();
+		});
+	}, [scheduleMessagesScrollToBottom]);
+	const shouldInstantTogglePreflight = useCallback(() => pinnedToBottomRef.current, []);
 
 	/**
 	 * 切换对话：清空测量并按视口高度预算重算起点。
@@ -998,6 +1009,24 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	}, [hasConversation, conversationRenderKey, messagesViewportRef, messagesTrackRef]);
 
 	/**
+	 * 监听 preflight shell 的 CSS transition 结束，立即触发 spacer 重算。
+	 */
+	useEffect(() => {
+		if (!hasConversation) return;
+		const track = messagesTrackRef.current;
+		if (!track) return;
+		const onTransitionEnd = (e: TransitionEvent) => {
+			const target = e.target;
+			if (!(target instanceof HTMLElement)) return;
+			if (!target.closest('.ref-preflight-shell-collapse')) return;
+			if (e.propertyName !== 'max-height') return;
+			setLayoutMeasureVersion((v) => v + 1);
+		};
+		track.addEventListener('transitionend', onTransitionEnd);
+		return () => track.removeEventListener('transitionend', onTransitionEnd);
+	}, [hasConversation, conversationRenderKey, setLayoutMeasureVersion, messagesTrackRef]);
+
+	/**
 	 * sticky 同步逻辑：用 ref 持有最新闭包，让监听器订阅 effect 只在「会话级」变量变化时
 	 * 重订阅，避免流式 token 推送期间反复 add/removeEventListener 与 ResizeObserver 拆装。
 	 */
@@ -1108,8 +1137,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		const update = () => {
 			rafId = 0;
 			const dist = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-			bottomTodoAtBottomRef.current =
-				dist <= 16 || viewport.scrollHeight <= viewport.clientHeight + 16;
+			const isAtBottom = dist <= 16 || viewport.scrollHeight <= viewport.clientHeight + 16;
+			bottomTodoAtBottomRef.current = isAtBottom;
+			pinnedToBottomRef.current = isAtBottom;
 		};
 		const schedule = () => {
 			if (rafId !== 0) return;
@@ -1400,9 +1430,10 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 							revertedChangeKeys={revertedChangeKeys}
 							skipPlanTodo
 							renderMode="preflight"
-							preserveLivePreflight
+							preserveLivePreflight={agentOrPlanStreaming}
 							typewriter={agentOrPlanStreaming && awaitingReply}
-							preflightInstantToggle={pinnedToBottomRef.current}
+							shouldInstantTogglePreflight={shouldInstantTogglePreflight}
+							onPreflightLayoutChange={notifyPreflightLayoutChange}
 						/>
 					</div>
 				</div>
