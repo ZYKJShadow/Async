@@ -215,8 +215,24 @@ function safeGetWebviewUrl(node: AsyncShellWebviewElement | null): string {
 	}
 }
 
+function looksLikeLocalFilesystemPath(raw: string): boolean {
+	if (/^[a-zA-Z]:[\\/]/.test(raw)) {
+		return true;
+	}
+	if (/^\\\\/.test(raw)) {
+		return true;
+	}
+	if (/^\/[^/]/.test(raw)) {
+		return true;
+	}
+	if (/\\/.test(raw) && !/^[a-zA-Z][a-zA-Z\d+\-.]+:\/\//.test(raw)) {
+		return true;
+	}
+	return false;
+}
+
 function looksLikeDirectUrl(raw: string): boolean {
-	if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw)) {
+	if (/^[a-zA-Z][a-zA-Z\d+\-.]+:/.test(raw)) {
 		return true;
 	}
 	return /^(localhost|(?:\d{1,3}\.){3}\d{1,3}|(?:[\w-]+\.)+[a-z]{2,})(?::\d+)?(?:[/?#].*)?$/i.test(raw);
@@ -227,8 +243,11 @@ function normalizeBrowserTarget(raw: string): string {
 	if (!text) {
 		return BROWSER_HOME_URL;
 	}
+	if (looksLikeLocalFilesystemPath(text)) {
+		return `https://www.bing.com/search?q=${encodeURIComponent(text)}`;
+	}
 	if (looksLikeDirectUrl(text)) {
-		return /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(text) ? text : `https://${text}`;
+		return /^[a-zA-Z][a-zA-Z\d+\-.]+:/.test(text) ? text : `https://${text}`;
 	}
 	return `https://www.bing.com/search?q=${encodeURIComponent(text)}`;
 }

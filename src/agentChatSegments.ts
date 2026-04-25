@@ -1898,12 +1898,14 @@ function groupActivities(segs: AssistantSegment[]): AssistantSegment[] {
 
 /**
  * Extract the last TodoWrite todos from raw assistant message content.
- * Used by AgentChatPanel to render todos outside ChatMarkdown.
+ *
+ * Legacy TodoWrite-only — Task* (TaskCreate / TaskList / TaskGet / TaskOutput /
+ * TaskUpdate / TaskStop) tools manage live sub-agent jobs, not a todo list,
+ * so they are intentionally NOT folded into this view.
  */
 export function extractLastTodosFromContent(
 	content: string
 ): Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> | null {
-	// Find all TodoWrite tool_call markers using regex
 	const pattern = /<tool_call\s+tool="TodoWrite"[^>]*>([\s\S]*?)<\/tool_call>/g;
 	let lastMatch: string | null = null;
 	let m: RegExpExecArray | null;

@@ -440,6 +440,20 @@ function describeBotToolActivity(name: string, args: Record<string, unknown>): s
 			const active = todos.find((todo) => todo.status === 'in_progress');
 			return active?.activeForm || active?.content || `更新任务列表（${todos.length} 项）`;
 		}
+		case 'TaskCreate': {
+			const prompt = String(args.prompt ?? '').slice(0, 80);
+			return prompt ? `派发子任务：${prompt}` : '派发子任务';
+		}
+		case 'TaskList':
+			return '查询任务列表';
+		case 'TaskGet':
+			return `查询任务 ${String(args.taskId ?? args.id ?? '')}`;
+		case 'TaskOutput':
+			return `读取任务输出 ${String(args.taskId ?? args.id ?? '')}`;
+		case 'TaskUpdate':
+			return `向任务发送消息 ${String(args.taskId ?? args.target ?? '')}`;
+		case 'TaskStop':
+			return `停止任务 ${String(args.taskId ?? args.target ?? '')}`;
 		case 'Browser': {
 			const action = String(args.action ?? '').trim();
 			return action ? `浏览器：${action}` : '正在操作内置浏览器';
@@ -725,6 +739,12 @@ const BOT_LEADER_NATIVE_TOOL_NAMES = new Set([
 	'Browser',
 	'BrowserCapture',
 	'TodoWrite',
+	'TaskCreate',
+	'TaskList',
+	'TaskGet',
+	'TaskOutput',
+	'TaskUpdate',
+	'TaskStop',
 	'Read',
 	'Grep',
 	'Glob',
@@ -782,8 +802,8 @@ export function buildBotOrchestratorPrompt(
 			? 'This leader loop is for app-level orchestration. It can directly use app/browser controls plus the custom bot session tools below.'
 			: '这个 Leader 循环用于应用级调度。它可以直接使用应用/浏览器控制工具，以及下面的 bot 会话工具。',
 		language === 'en'
-			? 'Your priority is fast, direct answers. Default to using your own tools (Read, Grep, Glob, Browser, BrowserCapture, TodoWrite, Terminal) to answer the user without spawning a worker.'
-			: '你的首要目标是快速、直接地回答用户。默认优先使用自己的工具（Read、Grep、Glob、Browser、BrowserCapture、TodoWrite、Terminal）直接回答，不要动不动就派 worker。',
+			? 'Your priority is fast, direct answers. Default to using your own tools (Read, Grep, Glob, Browser, BrowserCapture, Terminal) to answer the user without spawning a worker. Use the Task* family (TaskCreate / TaskList / TaskGet / TaskOutput / TaskUpdate / TaskStop) when the user explicitly asks to fire a sub-agent task that runs asynchronously.'
+			: '你的首要目标是快速、直接地回答用户。默认优先使用自己的工具（Read、Grep、Glob、Browser、BrowserCapture、Terminal）直接回答，不要动不动就派 worker。当用户明确要求派发一个异步子任务时，使用 Task* 系列（TaskCreate / TaskList / TaskGet / TaskOutput / TaskUpdate / TaskStop）。',
 		language === 'en'
 			? 'Use run_async_task ONLY when the task requires Writes/Edits, builds/tests, multi-file refactors, or long-running workflows. Direct shell or SSH session work may use Terminal in-place.'
 			: '只有在任务需要写文件、改文件、跑构建/测试、多文件重构、或长链路流程时，才使用 run_async_task。直接的 shell 或 SSH 会话操作可以直接用 Terminal 在当前回合完成。',
@@ -881,7 +901,18 @@ function resolveSessionWorkspace(
 	return { ok: true, workspaceRoot: match };
 }
 
-const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'Browser', 'BrowserCapture', 'TodoWrite', 'pause_for_qr_login']);
+const READONLY_TOOLS = new Set([
+	'Read',
+	'Grep',
+	'Glob',
+	'Browser',
+	'BrowserCapture',
+	'TodoWrite',
+	'TaskList',
+	'TaskGet',
+	'TaskOutput',
+	'pause_for_qr_login',
+]);
 
 function resolveBotPermissionPolicy(integration: BotIntegrationConfig): 'strict' | 'readonly_auto' | 'permissive' {
 	const raw = String(integration.permissionPolicy ?? '').trim().toLowerCase();

@@ -11,22 +11,21 @@
 import { getPlatform, isWindows, isUnixLike } from '../platform';
 import type { ShellProvider, ShellConfig } from './shellProvider';
 import { createBashProvider, findUnixShell } from './bashProvider';
-import { createPowerShellProvider, findPowerShell } from './powershellProvider';
+import { findPowerShell } from './powershellProvider';
 
 /** 缓存的 Shell 配置 */
 let cachedShellConfig: ShellConfig | null = null;
 
 /**
  * 检测并获取最佳可用的 Shell Provider
- * 
- * 检测逻辑：
- * 1. 检查环境变量 CLAUDE_CODE_SHELL（用户自定义）
- * 2. Windows: PowerShell (pwsh > powershell)
- * 3. macOS/Linux/WSL: Bash/Zsh (遵循 SHELL 环境变量)
- * 4. 降级策略
+ *
+ * 检测逻辑（所有平台一致）：
+ * 1. 优先寻找 POSIX bash（Windows 上用 Git Bash / MSYS2 / WSL，类 Unix 上用系统 bash/zsh）
+ * 2. 找不到则报错——LLM 工具只支持 POSIX 语法，不再回落到 PowerShell
+ *
+ * PowerShell provider 仍保留给内置终端的 profile 使用，但 LLM 的 Bash 工具不再使用它。
  */
 export async function detectShellProvider(): Promise<ShellConfig> {
-  // 返回缓存
   if (cachedShellConfig) {
     return cachedShellConfig;
   }
@@ -34,23 +33,7 @@ export async function detectShellProvider(): Promise<ShellConfig> {
   const platform = getPlatform();
 
   try {
-    // Windows 平台
-    if (isWindows()) {
-      const psProvider = await createPowerShellProvider();
-      if (psProvider) {
-        cachedShellConfig = {
-          provider: psProvider,
-          isPreferred: true,
-        };
-        return cachedShellConfig;
-      }
-      
-      // PowerShell 不可用时的降级
-      throw new Error('PowerShell not found on Windows system');
-    }
-
-    // 类 Unix 系统 (macOS, Linux, WSL)
-    if (isUnixLike()) {
+    if (isWindows() || isUnixLike()) {
       const bashProvider = await createBashProvider();
       if (bashProvider) {
         cachedShellConfig = {
@@ -59,12 +42,16 @@ export async function detectShellProvider(): Promise<ShellConfig> {
         };
         return cachedShellConfig;
       }
-      
-      // Bash/Zsh 不可用时的降级
-      throw new Error('No suitable Unix shell found (bash/zsh required)');
+
+      if (isWindows()) {
+        throw new Error(
+          'No POSIX bash found on Windows. Install Git for Windows (https://git-scm.com/download/win) ' +
+            'or set CLAUDE_CODE_SHELL to a bash/zsh executable.'
+        );
+      }
+      throw new Error('No suitable Unix shell found (bash/zsh required).');
     }
 
-    // 未知平台
     throw new Error(`Unsupported platform: ${platform}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -114,16 +101,14 @@ export async function getShellDiagnostics(): Promise<{
 }> {
   const platform = getPlatform();
   const availableShells: string[] = [];
-  
-  // 检测可用的 Shell
+
+  // 检测可用的 Shell（不再为 LLM 工具检测 PowerShell；仅记录系统是否安装供诊断）
+  const unix = await findUnixShell();
+  if (unix) availableShells.push(unix);
+
   if (isWindows()) {
     const ps = await findPowerShell();
-    if (ps) availableShells.push(ps);
-  }
-  
-  if (isUnixLike()) {
-    const unix = await findUnixShell();
-    if (unix) availableShells.push(unix);
+    if (ps) availableShells.push(`${ps} (terminal-only, not used by Bash tool)`);
   }
 
   // 当前选中的 Shell

@@ -3785,10 +3785,9 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	z-index: 1;
 }
 
-/* User bubble default visible block height = padding + two text lines; max height is doubled, overflow scrolls inside the bubble. */
+/* User bubble: clamp long messages to a few lines with an ellipsis; click to enter edit mode. */
 .ref-msg-user {
-	--ref-user-bubble-unit: calc(24px + 2 * 1.5em);
-	--ref-user-bubble-max-h: calc(2 * var(--ref-user-bubble-unit));
+	--ref-user-bubble-clamp-lines: 1;
 	display: block;
 	width: 100%;
 	max-width: 100%;
@@ -3804,30 +3803,12 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	text-align: left;
 	white-space: pre-wrap;
 	word-break: break-word;
+	overflow: hidden;
 	cursor: pointer;
 	font-family: inherit;
 	transition: background 0.12s ease, border-color 0.12s ease;
 	appearance: none;
 	-webkit-appearance: none;
-	max-height: var(--ref-user-bubble-max-h);
-	overflow-y: auto;
-	overflow-x: hidden;
-	overscroll-behavior: contain;
-	scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-	scrollbar-width: thin;
-}
-
-.ref-msg-user::-webkit-scrollbar {
-	width: 8px;
-}
-
-.ref-msg-user::-webkit-scrollbar-thumb {
-	background: rgba(255, 255, 255, 0.18);
-	border-radius: 8px;
-}
-
-.ref-msg-user::-webkit-scrollbar-thumb:hover {
-	background: rgba(255, 255, 255, 0.28);
 }
 
 .ref-msg-user::-moz-focus-inner {
@@ -3850,8 +3831,15 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-msg-user-rich {
-	display: block;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: var(--ref-user-bubble-clamp-lines, 4);
+	line-clamp: var(--ref-user-bubble-clamp-lines, 4);
+	overflow: hidden;
+	text-overflow: ellipsis;
 	text-align: left;
+	word-break: break-word;
+	overflow-wrap: anywhere;
 }
 
 .ref-msg-user-rich-text {

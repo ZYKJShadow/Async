@@ -18,8 +18,8 @@ describe('autoReplyLanguageRule', () => {
 		expect(rule.content).toContain('简体中文');
 		expect(rule.content).toContain('最终回答');
 		expect(rule.content).toContain('thinking');
-		expect(rule.content).toContain('TodoWrite');
-		expect(rule.content).toContain('activeForm');
+		expect(rule.content).toContain('TaskCreate');
+		expect(rule.content).toContain('TaskUpdate');
 		expect(rule.content).toContain('ask_plan_question');
 		expect(rule.content).toContain('代码注释');
 		// Carve-out for technical tokens — must remain verbatim.
@@ -32,7 +32,7 @@ describe('autoReplyLanguageRule', () => {
 	it('zh-CN: block wraps the rule with a Markdown header that includes the rule name', () => {
 		const block = buildAutoReplyLanguageRuleBlock('zh-CN', 'zh-CN');
 		expect(block).toContain('#### Rule: 自动语言：默认使用简体中文回应');
-		expect(block).toContain('TodoWrite');
+		expect(block).toContain('TaskCreate');
 		expect(block).toContain('文件路径');
 	});
 
@@ -41,8 +41,8 @@ describe('autoReplyLanguageRule', () => {
 		expect(rule.name).toBe('Automatic language: respond in English');
 		expect(rule.content).toContain('English');
 		expect(rule.content).toContain('reasoning');
-		expect(rule.content).toContain('TodoWrite');
-		expect(rule.content).toContain('activeForm');
+		expect(rule.content).toContain('TaskCreate');
+		expect(rule.content).toContain('TaskUpdate');
 		expect(rule.content).toContain('ask_plan_question');
 		expect(rule.content).toContain('file paths');
 		expect(rule.content).toContain('identifiers');
@@ -50,7 +50,7 @@ describe('autoReplyLanguageRule', () => {
 
 		const block = buildAutoReplyLanguageRuleBlock('en', 'en');
 		expect(block).toContain('#### Rule: Automatic language: respond in English');
-		expect(block).toContain('TodoWrite');
+		expect(block).toContain('TaskCreate');
 		expect(block).toContain('file paths');
 	});
 
@@ -60,6 +60,6 @@ describe('autoReplyLanguageRule', () => {
 		expect(rule.name).toBe('自动语言：默认使用英文回应');
 		// Content keeps the zh-CN structural prose ("默认始终使用…")  with the English label.
 		expect(rule.content).toContain('默认始终使用英文');
-		expect(rule.content).toContain('TodoWrite');
+		expect(rule.content).toContain('TaskCreate');
 	});
 });

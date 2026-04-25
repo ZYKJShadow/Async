@@ -425,7 +425,9 @@ export function getActiveStreamingToolPreviewFromBlocks(blocks: LiveAgentBlock[]
 
 /**
  * Extract the latest TodoWrite todos from live agent blocks.
- * Scans all tool blocks, returns todos from the last TodoWrite call.
+ *
+ * Legacy TodoWrite-only — Task* tools are sub-agent management, not todos,
+ * so they are intentionally NOT folded in.
  */
 export function extractTodosFromLiveBlocks(
 	blocks: LiveAgentBlock[]
@@ -433,7 +435,7 @@ export function extractTodosFromLiveBlocks(
 	let lastTodos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> | null = null;
 	for (const b of blocks) {
 		if (b.type !== 'tool' || b.name !== 'TodoWrite') continue;
-		// 流式参数阶段的 partialJson 常会间歇性 parse 成功但语义错误（误显示已完成等）；只信 tool_call 落盘后的完整 args。
+		// streaming_args 阶段的 partialJson 常会间歇性 parse 成功但语义错误（误显示已完成等）；只信 tool_call 落盘后的完整 args。
 		if (b.phase === 'streaming_args') continue;
 
 		let parsedArgs: Record<string, unknown> = {};
