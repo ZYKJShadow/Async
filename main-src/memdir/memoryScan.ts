@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import * as path from 'node:path';
 import { ENTRYPOINT_NAME } from './paths.js';
 import { parseMemoryType, type MemoryType } from './memoryTypes.js';
@@ -37,7 +38,7 @@ function parseSimpleFrontmatter(text: string): Record<string, string> {
 }
 
 async function walkMemoryFiles(memoryDir: string, relativeDir = ''): Promise<string[]> {
-	let entries: fs.Dirent[];
+	let entries: Dirent[];
 	try {
 		entries = await fs.readdir(path.join(memoryDir, relativeDir), { withFileTypes: true });
 	} catch {

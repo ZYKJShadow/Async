@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { BotIntegrationConfig } from '../botSettingsTypes.js';
 import type { ShellSettings } from '../settingsStore.js';
+
+vi.mock('../services/dialectic/dialectic.js', () => ({
+	runDialecticAnalysis: vi.fn(),
+	buildDialecticContextBlock: vi.fn(() => ''),
+	buildRelationshipContextBlock: vi.fn(() => ''),
+}));
+
 import {
 	buildBotOrchestratorPrompt,
 	looksLikeQrLoginConfirmation,

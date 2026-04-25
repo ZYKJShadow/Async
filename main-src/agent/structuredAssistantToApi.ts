@@ -92,7 +92,7 @@ function expandAnthropicNativeParts(parts: AgentAssistantPart[]): MessageParam[]
 				content: t.resultStructured ?? t.result,
 				is_error: !t.success,
 			}));
-			out.push({ role: 'user', content: toolResults });
+			out.push({ role: 'user', content: toolResults as unknown as ContentBlockParam[] });
 		} else if (text) {
 			out.push({ role: 'assistant', content: text });
 		}

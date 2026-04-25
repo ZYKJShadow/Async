@@ -59,6 +59,7 @@ export type AgentCommand = {
 	body: string;
 	/** `template` = 传统宏展开；`prompt` = 将 body 当作按需注入的命令说明 */
 	invocation?: 'template' | 'prompt';
+	origin?: AgentItemOrigin;
 	pluginSourceName?: string;
 	pluginSourceRelPath?: string;
 };

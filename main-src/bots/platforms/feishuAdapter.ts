@@ -272,7 +272,6 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 		this.wsClient = new lark.WSClient({
 			appId,
 			appSecret,
-			appType: lark.AppType.SelfBuild,
 			httpInstance,
 			agent: proxyAgent,
 		});
@@ -398,7 +397,7 @@ export class FeishuBotAdapter implements BotPlatformAdapter {
 	}
 
 	async stop(): Promise<void> {
-		this.wsClient?.stop();
+		this.wsClient?.close();
 		this.wsClient = null;
 		this.client = null;
 		this.cardKitClient = null;

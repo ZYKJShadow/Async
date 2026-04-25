@@ -203,7 +203,7 @@ const browserPendingCommandResults = new Map<
 >();
 const browserWindowRendererByHost = new Map<number, number>();
 const browserWindowHostByRenderer = new Map<number, number>();
-const browserWindowOpenByHost = new Map<number, Promise<number>>();
+const browserWindowOpenByHost = new Map<number, Promise<number | null>>();
 const browserWindowReadyRenderers = new Set<number>();
 const browserWindowReadyWaiters = new Map<
 	number,

@@ -51,6 +51,7 @@ export type AgentCommand = {
 	slash: string;
 	body: string;
 	invocation?: 'template' | 'prompt';
+	origin?: AgentItemOrigin;
 	pluginSourceName?: string;
 	pluginSourceRelPath?: string;
 };

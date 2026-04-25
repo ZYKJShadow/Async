@@ -116,7 +116,8 @@ function extractOpenAIText(content: OpenAI.Chat.Completions.ChatCompletionMessag
 	if (!Array.isArray(content)) {
 		return '';
 	}
-	return content
+	const parts = content as Array<Record<string, unknown>>;
+	return parts
 		.map((part) => {
 			if (part && typeof part === 'object' && 'type' in part && part.type === 'text' && 'text' in part) {
 				return typeof part.text === 'string' ? part.text : '';

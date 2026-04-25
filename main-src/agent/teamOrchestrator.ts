@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ChatMessage, DeferredToolState, TeamSessionSnapshot } from '../threadStore.js';
 import type { ShellSettings, TeamRoleType } from '../settingsStore.js';
 import type { WorkspaceLspManager } from '../lsp/workspaceLspManager.js';
+import type { AgentUserInputRequest } from '../../src/agentSessionTypes.js';
 import { runAgentLoop, type AgentLoopHandlers, type AgentLoopOptions } from './agentLoop.js';
 import { assembleAgentToolPool } from './agentToolPool.js';
 import { AGENT_TOOLS, isReadOnlyAgentTool, type AgentToolDef } from './agentTools.js';
@@ -61,7 +62,7 @@ type TeamPhase =
 	| 'synthesizing'
 	| 'delivering'
 	| 'cancelled';
-type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'revision';
+type TeamTaskStatus = 'pending' | 'blocked' | 'in_progress' | 'completed' | 'failed' | 'revision';
 
 type SpecialistRunResult = {
 	success: boolean;
@@ -198,7 +199,7 @@ type TeamEmit =
 			teamRoleScope: {
 				teamTaskId: string;
 				teamExpertId: string;
-				teamRoleKind: 'specialist' | 'reviewer';
+				teamRoleKind: 'specialist' | 'reviewer' | 'lead';
 				teamExpertName: string;
 				teamRoleType: TeamRoleType;
 			};
@@ -225,6 +226,7 @@ type TeamEmit =
 	| { threadId: string; type: 'team_lead_final'; summary: string }
 	| { threadId: string; type: 'team_plan_summary'; summary: string }
 	| { threadId: string; type: 'team_preflight_review'; verdict: 'ok' | 'needs_clarification'; summary: string }
+	| { threadId: string; type: 'user_input_request'; request: AgentUserInputRequest }
 	| {
 			threadId: string;
 			type: 'team_plan_proposed';
@@ -686,7 +688,15 @@ function buildTeamUserInputHandlers(params: {
 			{
 				threadId: params.threadId,
 				signal: params.signal,
-				emit: (evt) => params.emit({ threadId: params.threadId, ...evt }),
+				emit: (evt) => {
+					if (evt.type === 'user_input_request' && evt.request) {
+						params.emit({
+							threadId: params.threadId,
+							type: 'user_input_request',
+							request: evt.request as AgentUserInputRequest,
+						});
+					}
+				},
 				agentId: params.agentId,
 				agentTitle: params.agentTitle,
 			},
@@ -695,7 +705,7 @@ function buildTeamUserInputHandlers(params: {
 	};
 }
 
-function normalizeTeamTaskKey(value: string): string {
+function normalizeTeamTaskKey(value: unknown): string {
 	return String(value ?? '').trim().toLowerCase();
 }
 
@@ -1139,7 +1149,7 @@ async function llmPlanTasks(params: {
 		thinkingLevel,
 		workspaceRoot: workspaceRoot ?? null,
 		workspaceLspManager,
-		hostWebContentsId: params.hostWebContentsId ?? null,
+		hostWebContentsId: hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
 		deferredToolState,
@@ -1166,7 +1176,7 @@ async function llmPlanTasks(params: {
 	for (let attempt = 0; attempt < 3; attempt++) {
 		let planText = '';
 		let visiblePlanText = '';
-		let decision: TeamPlanDecision | null = null;
+		const decisionRef: { current: TeamPlanDecision | null } = { current: null };
 		const clarificationCountBeforeTurn = clarificationAnswers.length;
 		options.customToolHandlers = buildTeamUserInputHandlers({
 			threadId,
@@ -1238,9 +1248,9 @@ async function llmPlanTasks(params: {
 				planText = text;
 				const finalVisible =
 					extractTeamLeadNarrative(text) ||
-					decision?.replyToUser?.trim() ||
+					decisionRef.current?.replyToUser?.trim() ||
 					visiblePlanText ||
-					(decision?.mode === 'PLAN'
+					(decisionRef.current?.mode === 'PLAN'
 						? buildFallbackTeamLeadNarrative(hasCjk)
 						: buildClarificationNeededNarrative(hasCjk));
 				visiblePlanText = finalVisible;
@@ -1251,7 +1261,7 @@ async function llmPlanTasks(params: {
 
 		setTeamPlanDecideRuntime(teamLeadScope.teamTaskId, {
 			onDecision: (nextDecision) => {
-				decision = nextDecision;
+				decisionRef.current = nextDecision;
 			},
 		});
 		try {
@@ -1262,6 +1272,7 @@ async function llmPlanTasks(params: {
 
 		const usedClarificationTool = clarificationAnswers.length > clarificationCountBeforeTurn;
 		const extractedNarrative = extractTeamLeadNarrative(planText);
+		const decision = decisionRef.current;
 
 		if (!decision) {
 			const fallbackSummary = extractedNarrative || buildClarificationNeededNarrative(hasCjk);
@@ -1533,7 +1544,7 @@ async function runPreflightReviewerAgent(params: {
 		thinkingLevel,
 		workspaceRoot,
 		workspaceLspManager,
-		hostWebContentsId: params.hostWebContentsId ?? null,
+		hostWebContentsId: hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
 		deferredToolState,
@@ -1702,7 +1713,7 @@ async function runReviewerAgent(params: {
 		thinkingLevel,
 		workspaceRoot,
 		workspaceLspManager,
-		hostWebContentsId: params.hostWebContentsId ?? null,
+		hostWebContentsId: hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
 		deferredToolState,
@@ -2111,7 +2122,7 @@ async function runOneSpecialist(params: {
 		thinkingLevel,
 		workspaceRoot,
 		workspaceLspManager,
-		hostWebContentsId: params.hostWebContentsId ?? null,
+		hostWebContentsId: hostWebContentsId ?? null,
 		threadId,
 		toolHooks,
 		deferredToolState,

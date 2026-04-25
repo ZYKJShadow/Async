@@ -165,12 +165,9 @@ export async function downloadUpdate(): Promise<void> {
 		throw new Error('No update available to download');
 	}
 
-	// 如果禁用差异化更新，强制全量下载
-	if (!isDifferentialAllowed()) {
-		autoUpdater.downloadUpdate(undefined, false);
-	} else {
-		autoUpdater.downloadUpdate();
-	}
+	// 如果禁用差异化更新，强制全量下载；每次下载前同步，避免设置切回后沿用旧状态。
+	autoUpdater.disableDifferentialDownload = !isDifferentialAllowed();
+	await autoUpdater.downloadUpdate();
 }
 
 /** 检测应用是否被代码签名 */

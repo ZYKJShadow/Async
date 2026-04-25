@@ -476,7 +476,7 @@ function seedPendingRequest(
 ): PendingRequestInfo | null {
 	const request = requestRaw && typeof requestRaw === 'object' ? (requestRaw as Record<string, unknown>) : null;
 	const url = request?.url;
-	if (!isHttpRequestUrl(url)) {
+	if (!request || !isHttpRequestUrl(url)) {
 		return null;
 	}
 	const requestBody = clipCaptureText(request.postData);

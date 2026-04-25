@@ -166,7 +166,7 @@ export async function listTerminalSftpDirectory(
 ): Promise<TerminalSftpListEntry[]> {
 	const connection = requireConnection(connectionId);
 	const targetPath = normalizeRemotePath(remotePath);
-	const entries = (await connection.client.list(targetPath)) as Array<Record<string, unknown>>;
+	const entries = (await connection.client.list(targetPath)) as unknown as Array<Record<string, unknown>>;
 	return entries.map((entry) => mapListEntry(targetPath, entry));
 }
 
@@ -176,7 +176,7 @@ export async function statTerminalSftpPath(
 ): Promise<TerminalSftpListEntry> {
 	const connection = requireConnection(connectionId);
 	const targetPath = normalizeRemotePath(remotePath);
-	const stats = (await connection.client.stat(targetPath)) as Record<string, unknown>;
+	const stats = (await connection.client.stat(targetPath)) as unknown as Record<string, unknown>;
 	const type = inferStatType(stats);
 	return {
 		name: basenameRemote(targetPath),
@@ -203,7 +203,9 @@ export async function createTerminalSftpDirectory(connectionId: string, remotePa
 export async function deleteTerminalSftpPath(connectionId: string, remotePath: string, recursive = false): Promise<void> {
 	const connection = requireConnection(connectionId);
 	const targetPath = normalizeRemotePath(remotePath);
-	const stats = (await connection.client.lstat(targetPath)) as Record<string, unknown>;
+	const sftp = connection.client as SftpClient & { lstat?: (remotePath: string) => Promise<unknown> };
+	const rawStats = typeof sftp.lstat === 'function' ? await sftp.lstat(targetPath) : await connection.client.stat(targetPath);
+	const stats = rawStats as unknown as Record<string, unknown>;
 	if (Boolean(stats.isDirectory)) {
 		await connection.client.rmdir(targetPath, recursive);
 		return;

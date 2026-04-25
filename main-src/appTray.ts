@@ -1,4 +1,4 @@
-﻿import { app, BrowserWindow, Menu, Tray } from 'electron';
+﻿import { BrowserWindow, Menu, Tray } from 'electron';
 import { checkForUpdates } from './autoUpdate.js';
 import { createAppWindow, focusAppWindow } from './appWindow.js';
 

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentToolDef } from './agentTools.js';
+import type { ResolvedModelRequest } from '../llm/modelResolve.js';
 
 const { runAgentLoopMock, assembleAgentToolPoolMock } = vi.hoisted(() => ({
 	runAgentLoopMock: vi.fn(),
-	assembleAgentToolPoolMock: vi.fn(() => []),
+	assembleAgentToolPoolMock: vi.fn<() => AgentToolDef[]>(() => []),
 }));
 
 vi.mock('./agentLoop.js', () => ({
@@ -65,6 +67,28 @@ function buildTeamSettings(experts: Array<ReturnType<typeof makeExpertConfig>>, 
 	};
 }
 
+function makeResolvedModel(): Extract<ResolvedModelRequest, { ok: true }> {
+	return {
+		ok: true,
+		entryId: 'test-model',
+		requestModelId: 'test-model',
+		paradigm: 'openai-compatible',
+		apiKey: 'test-key',
+		baseURL: 'https://example.test',
+		proxyUrl: undefined,
+		maxOutputTokens: 2048,
+		temperatureMode: 'auto',
+	};
+}
+
+function makeTool(name: string): AgentToolDef {
+	return {
+		name,
+		description: '',
+		parameters: { type: 'object', properties: {}, required: [] },
+	};
+}
+
 async function runSession(params: {
 	userRequest: string;
 	experts: Array<ReturnType<typeof makeExpertConfig>>;
@@ -79,15 +103,7 @@ async function runSession(params: {
 		threadId: 'thread-test',
 		messages: [{ role: 'user', content: params.userRequest }] as never,
 		modelSelection: 'test-model',
-		resolvedModel: {
-			ok: true,
-			requestModelId: 'test-model',
-			paradigm: 'openai-compatible',
-			apiKey: 'test-key',
-			baseURL: 'https://example.test',
-			proxyUrl: undefined,
-			maxOutputTokens: 2048,
-		},
+		resolvedModel: makeResolvedModel(),
 		...(params.agentSystemAppend ? { agentSystemAppend: params.agentSystemAppend } : {}),
 		signal: new AbortController().signal,
 		emit: (evt) => events.push(evt as never),
@@ -264,12 +280,12 @@ describe('buildReviewerTaskPacket', () => {
 describe('runTeamSession discuss-kind plans', () => {
 	it('filters specialist tool pool to read-only and skips the delivery reviewer', async () => {
 		assembleAgentToolPoolMock.mockReturnValue([
-			{ name: 'Read', description: '', parameters: {} },
-			{ name: 'Glob', description: '', parameters: {} },
-			{ name: 'Grep', description: '', parameters: {} },
-			{ name: 'Write', description: '', parameters: {} },
-			{ name: 'Edit', description: '', parameters: {} },
-			{ name: 'Bash', description: '', parameters: {} },
+			makeTool('Read'),
+			makeTool('Glob'),
+			makeTool('Grep'),
+			makeTool('Write'),
+			makeTool('Edit'),
+			makeTool('Bash'),
 		]);
 
 		runAgentLoopMock
@@ -461,7 +477,9 @@ describe('runTeamSession clarification gates', () => {
 				);
 			})
 			.mockImplementationOnce(async (_settings, messagesArg, _options, handlers) => {
-				specialistPacketText = messagesArg.map((message) => String(message.content ?? '')).join('\n');
+				specialistPacketText = (messagesArg as Array<{ content?: unknown }>)
+					.map((message) => String(message.content ?? ''))
+					.join('\n');
 				handlers.onDone('已完成前端质量审查。');
 			});
 
@@ -512,7 +530,9 @@ describe('runTeamSession clarification gates', () => {
 				handlers.onDone('请先明确你要优化的是哪个模块，以及你希望达成的结果。');
 			})
 			.mockImplementationOnce(async (_settings, messagesArg, _options, handlers) => {
-				secondTurnMessages = messagesArg.map((message) => String(message.content ?? '')).join('\n');
+				secondTurnMessages = (messagesArg as Array<{ content?: unknown }>)
+					.map((message) => String(message.content ?? ''))
+					.join('\n');
 				await submitTeamPlanDecision(
 					handlers,
 					{
@@ -964,7 +984,9 @@ describe('runTeamSession clarification gates', () => {
 需要继续返工，补上 review 后自动重分派的链路。`);
 			})
 			.mockImplementationOnce(async (_settings, messagesArg, _options, handlers) => {
-				reviewReplanPrompt = messagesArg.map((message) => String(message.content ?? '')).join('\n');
+				reviewReplanPrompt = (messagesArg as Array<{ content?: unknown }>)
+					.map((message) => String(message.content ?? ''))
+					.join('\n');
 				await submitTeamPlanDecision(
 					handlers,
 					{
@@ -1124,7 +1146,7 @@ describe('runTeamSession clarification gates', () => {
 	});
 
 	it('emits specialist completion before other parallel specialists finish', async () => {
-		let releaseBackend: (() => void) | null = null;
+		let releaseBackend: () => void = () => {};
 		const backendGate = new Promise<void>((resolve) => {
 			releaseBackend = resolve;
 		});
@@ -1175,15 +1197,7 @@ describe('runTeamSession clarification gates', () => {
 			threadId: 'thread-test',
 			messages: [{ role: 'user', content: '检查 team 并行角色的完成状态是否实时更新' }] as never,
 			modelSelection: 'test-model',
-			resolvedModel: {
-				ok: true,
-				requestModelId: 'test-model',
-				paradigm: 'openai-compatible',
-				apiKey: 'test-key',
-				baseURL: 'https://example.test',
-				proxyUrl: undefined,
-				maxOutputTokens: 2048,
-			},
+			resolvedModel: makeResolvedModel(),
 			signal: new AbortController().signal,
 			emit: (evt) => events.push(evt as never),
 			onDone: (text, _usage, snapshot) => doneCalls.push({ text, snapshot }),
@@ -1207,7 +1221,7 @@ describe('runTeamSession clarification gates', () => {
 			})
 		);
 
-		releaseBackend?.();
+		releaseBackend();
 		await sessionPromise;
 
 		expect(errorCalls).toEqual([]);

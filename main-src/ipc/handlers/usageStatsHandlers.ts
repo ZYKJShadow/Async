@@ -22,9 +22,10 @@ export function registerUsageStatsHandlers(): void {
 
 	ipcMain.handle('usageStats:pickDirectory', async (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
-		const r = await dialog.showOpenDialog(win ?? undefined, {
+		const options = {
 			properties: ['openDirectory', 'createDirectory'],
-		});
+		} satisfies Electron.OpenDialogOptions;
+		const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
 		if (r.canceled || !r.filePaths[0]) {
 			return { ok: false as const };
 		}

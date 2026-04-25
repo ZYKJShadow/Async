@@ -151,6 +151,10 @@ export type TeamSettings = {
 	requirePlanApproval?: boolean;
 	/** 执行前先让评审专家评估需求/方案；默认值随 preset 决定（engineering 默认 false） */
 	enablePreflightReview?: boolean;
+	/** 简单请求可由 Team Lead 直接回答，避免不必要的专家派发；默认 false */
+	enableSimpleGoalShortCircuit?: boolean;
+	/** 多个就绪任务同时存在时的排序策略；默认 dependency-first */
+	taskSchedulingStrategy?: 'fifo' | 'round-robin' | 'least-busy' | 'dependency-first' | 'capability-match';
 	/** 可选的规划评审专家；为空时复用 reviewer */
 	planReviewer?: TeamExpertConfig | null;
 	/** 可选的交付评审专家；为空时复用 reviewer */
@@ -210,6 +214,10 @@ export type ShellSettings = {
 	lsp?: ShellLspSettings;
 	/** MCP 服务器配置 */
 	mcpServers?: McpServerConfig[];
+	/** @deprecated 兼容旧渲染层保存结构；写入时会归并到 mcpServers */
+	mcp?: {
+		servers?: McpServerConfig[];
+	};
 	/** 对插件注入的 MCP 服务器做本地覆盖（如启用/禁用）。 */
 	pluginMcpOverrides?: Record<string, PluginMcpServerOverride>;
 	/**
@@ -262,6 +270,8 @@ const defaultSettings: ShellSettings = {
 		builtinExpertModelOverrides: {},
 		requirePlanApproval: true,
 		enablePreflightReview: false,
+		enableSimpleGoalShortCircuit: false,
+		taskSchedulingStrategy: 'dependency-first',
 		planReviewer: null,
 		deliveryReviewer: null,
 	},

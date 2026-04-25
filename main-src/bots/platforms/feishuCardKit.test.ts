@@ -13,7 +13,7 @@ function tokenResponse(token = 'tok_test', expire = 7200) {
 	return { code: 0, msg: 'ok', tenant_access_token: token, expire };
 }
 
-function okResponse(data: Record<string, unknown> = {}) {
+function okResponse<T extends Record<string, unknown> = Record<string, unknown>>(data = {} as T) {
 	return { code: 0, msg: 'ok', data };
 }
 

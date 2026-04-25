@@ -437,15 +437,16 @@ export function registerTerminalSessionIpc(): void {
 					})
 					.filter((item): item is FileFilter => Boolean(item)))
 			: undefined;
-		const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-		const result = await dialog.showOpenDialog(win, {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		const options = {
 			title,
 			properties:
 				kind === 'directory'
 					? (multi ? ['openDirectory', 'multiSelections', 'createDirectory'] : ['openDirectory', 'createDirectory'])
 					: (multi ? ['openFile', 'multiSelections'] : ['openFile']),
 			filters: kind === 'file' && filters?.length ? filters : undefined,
-		});
+		} satisfies Electron.OpenDialogOptions;
+		const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
 		if (result.canceled || !result.filePaths.length) {
 			return { ok: false as const, canceled: true as const };
 		}
@@ -479,12 +480,13 @@ export function registerTerminalSessionIpc(): void {
 					})
 					.filter((item): item is FileFilter => Boolean(item)))
 			: undefined;
-		const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-		const result = await dialog.showSaveDialog(win, {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		const options = {
 			title,
 			defaultPath,
 			filters: filters?.length ? filters : undefined,
-		});
+		} satisfies Electron.SaveDialogOptions;
+		const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
 		if (result.canceled || !result.filePath) {
 			return { ok: false as const, canceled: true as const };
 		}

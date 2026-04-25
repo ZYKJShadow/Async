@@ -6,7 +6,7 @@ import {
 	disposeTsLspSessionForWebContents,
 	getWorkspaceLspManagerForWebContents,
 } from '../../lspSessionsByWebContents.js';
-import { senderWorkspaceRoot } from '../register.js';
+import { senderWorkspaceRoot } from '../agentRuntime.js';
 
 /**
  * TypeScript LSP IPC：start / stop / definition / diagnostics。

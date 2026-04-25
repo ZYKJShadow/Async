@@ -15,7 +15,6 @@ import { buildAgentGlobalRuleAppend, prepareUserTurnForChat } from '../llm/agent
 import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
 import { modeExpandsWorkspaceFileContext } from '../llm/workspaceContextExpand.js';
-import type { ComposerMode } from '../llm/composerMode.js';
 import { resolveMessagesForSend } from '../llm/sendResolved.js';
 import { loadMemoryPrompt } from '../memdir/memdir.js';
 import { type ShellSettings, getRecentWorkspaces } from '../settingsStore.js';
@@ -180,35 +179,6 @@ function buildBotSkillAppend(settings: ShellSettings, integration: BotIntegratio
 				.join('\n\n')
 		),
 	].join('\n\n');
-}
-
-async function appendMemoryAndRetrievalContext(params: {
-	base: string | undefined;
-	mode: ComposerMode;
-	settings: ShellSettings;
-	root: string | null;
-	signal?: AbortSignal;
-}): Promise<string> {
-	let next = params.base ?? '';
-	if (params.signal?.aborted) {
-		return next;
-	}
-
-	if ((params.mode === 'agent' || params.mode === 'debug') && params.root) {
-		const memoryPrompt = await loadMemoryPrompt(params.root);
-		if (memoryPrompt) {
-			next = appendSystemBlock(next, memoryPrompt);
-		}
-	}
-
-	if (modeExpandsWorkspaceFileContext(params.mode) && params.root) {
-		const gitBlock = await getGitContextBlock(params.root);
-		if (gitBlock) {
-			next = appendSystemBlock(next, gitBlock);
-		}
-	}
-
-	return next;
 }
 
 function normalizeWorkspaceRoot(value: string | null | undefined): string | null {
@@ -1039,7 +1009,7 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 
 		// Frozen memory: 同一会话内缓存 MEMORY.md，保留 LLM prefix cache
 		if (session.cachedMemoryPrompt === undefined) {
-			session.cachedMemoryPrompt = (mode === 'agent' || mode === 'debug') && session.workspaceRoot
+			session.cachedMemoryPrompt = mode === 'agent' && session.workspaceRoot
 				? await loadMemoryPrompt(session.workspaceRoot)
 				: null;
 		}
