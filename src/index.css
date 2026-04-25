@@ -3407,7 +3407,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	flex: 1 1 auto;
 	min-height: 0;
 	max-height: none;
-	padding-top: 0;
+	padding-top: 8px;
 	/* 缩短对话末尾与底部输入区之间的留白，但仍保留一点呼吸感 */
 	padding-bottom: calc(12px + var(--ref-chat-tail-space));
 	/* 消息高度在 Markdown/虚拟测量后会继续变化，关闭浏览器 scroll anchoring，避免把视口拉回中段。 */

@@ -100,11 +100,16 @@ export function resolveContentBottomScroll(
 		viewport.scrollTop + maxBottomInViewport - (viewport.clientHeight - bottomInset);
 	/* 贴底时不能让"活动 preflight 行"的顶被推到 sticky user 后面 —— 否则
 	   header（"正在分析…"）会被钉在顶部的 user 气泡完全遮住。
-	   计算允许的最大 scrollTop:让 preflight 顶端至少落在 sticky 下沿。 */
+	   计算允许的最大 scrollTop:让 preflight 顶端至少落在 sticky 下沿,并额外
+	   预留 STICKY_USER_BOTTOM_GAP_PX 让 user 气泡视觉上不贴顶。 */
+	const STICKY_USER_BOTTOM_GAP_PX = 16;
 	const stickyEl = viewport.querySelector('.ref-msg-sticky-user-wrap') as HTMLElement | null;
 	const stickyH = stickyEl ? stickyEl.getBoundingClientRect().height : 0;
 	if (activePreflightTopInTrack != null && stickyH > 0) {
-		const maxAllowedScroll = Math.max(0, activePreflightTopInTrack - stickyH);
+		const maxAllowedScroll = Math.max(
+			0,
+			activePreflightTopInTrack - stickyH - STICKY_USER_BOTTOM_GAP_PX,
+		);
 		return Math.max(0, Math.min(rawTarget, maxAllowedScroll));
 	}
 	return Math.max(0, rawTarget);

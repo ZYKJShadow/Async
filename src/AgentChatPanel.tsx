@@ -762,13 +762,11 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			setStickyUserTopPx((prev) => (prev === 0 ? prev : 0));
 			return;
 		}
-		const viewport = messagesViewportRef.current;
-		if (!viewport) {
-			return;
-		}
-		const viewportStyle = window.getComputedStyle(viewport);
-		const topPadding = Number.parseFloat(viewportStyle.paddingTop || '0') || 0;
-		setStickyUserTopPx((prev) => (Math.abs(prev - topPadding) <= 1 ? prev : topPadding));
+		/* sticky 元素的 top 已经是相对 viewport 的 padding-box 顶部,
+		   再叠加 padding-top 会把它二次下推,且 padding 任何变化都会
+		   触发 sticky 落点跳动(sidebar 展开/收起时尤其明显)。
+		   固定 0,让 sticky 视觉上正好停在 padding 内边沿。 */
+		setStickyUserTopPx((prev) => (prev === 0 ? prev : 0));
 	}, [hasConversation, conversationRenderKey, layoutMeasureVersion, messagesViewportRef]);
 
 	/** 顶部哨兵：再往上加载约「一整屏」高的内容（按已测/估算行高累计） */
