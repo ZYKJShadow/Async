@@ -17,6 +17,11 @@ export type ThreadInfo = {
 	fileStateCount?: number;
 };
 
+export type ThreadListVersion = {
+	id: string;
+	updatedAt: number;
+};
+
 import type { UserMessagePart } from './messageParts';
 
 export type ChatMessage = {
@@ -163,4 +168,41 @@ export function normalizeThreadRow(t: ThreadInfo): ThreadInfo {
 		tokenUsage: t.tokenUsage,
 		fileStateCount: t.fileStateCount ?? 0,
 	};
+}
+
+export function threadListVersions(rows: ThreadInfo[]): ThreadListVersion[] {
+	return rows.map((row) => ({ id: row.id, updatedAt: row.updatedAt }));
+}
+
+export function applyThreadRowsPreservingDetails(prev: ThreadInfo[], incoming: ThreadInfo[]): ThreadInfo[] {
+	const prevById = new Map(prev.map((row) => [row.id, row]));
+	const next = incoming.map((row) => {
+		const existing = prevById.get(row.id);
+		const merged = existing && existing.updatedAt === row.updatedAt
+			? { ...existing, ...row }
+			: row;
+		return normalizeThreadRow(merged);
+	});
+	return threadInfoListEqual(prev, next) ? prev : next;
+}
+
+export function mergeThreadDetailRows(prev: ThreadInfo[], details: ThreadInfo[]): ThreadInfo[] {
+	if (prev.length === 0 || details.length === 0) {
+		return prev;
+	}
+	const detailsById = new Map(details.map((row) => [row.id, normalizeThreadRow(row)]));
+	let changed = false;
+	const next = prev.map((row) => {
+		const detail = detailsById.get(row.id);
+		if (!detail || detail.updatedAt !== row.updatedAt) {
+			return row;
+		}
+		const merged = normalizeThreadRow({ ...row, ...detail });
+		if (!threadInfoListEqual([row], [merged])) {
+			changed = true;
+			return merged;
+		}
+		return row;
+	});
+	return changed ? next : prev;
 }

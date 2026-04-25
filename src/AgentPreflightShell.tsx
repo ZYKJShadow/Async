@@ -40,6 +40,8 @@ type Props = {
 	phase?: 'thinking' | 'streaming' | 'done';
 	/** done 阶段可在末尾展示 token 用量 */
 	tokenUsage?: TurnTokenUsage | null;
+	/** 快速折叠/展开时不使用 CSS transition，避免与 turn-focus spacer 竞争导致滚动条上移 */
+	instantToggle?: boolean;
 };
 
 function defaultDisplayState(liveTurn: boolean, hasOutcome: boolean): DisplayState {
@@ -53,6 +55,7 @@ export const AgentPreflightShell = memo(function AgentPreflightShell({
 	hasOutcome = false,
 	phase = 'thinking',
 	tokenUsage,
+	instantToggle = false,
 }: Props) {
 	const { t } = useI18n();
 
@@ -138,7 +141,7 @@ export const AgentPreflightShell = memo(function AgentPreflightShell({
 				</span>
 			</button>
 
-			<div className={`ref-preflight-shell-collapse ${isOpen ? 'is-open' : ''}`}>
+			<div className={`ref-preflight-shell-collapse ${isOpen ? 'is-open' : ''}${instantToggle ? ' instant-toggle' : ''}`}>
 				<div
 					ref={bodyRef}
 					className={`ref-preflight-shell-body ${isPending ? 'ref-preflight-shell-body--live' : ''}`}

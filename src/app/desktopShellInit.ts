@@ -14,7 +14,6 @@ import type { McpServerConfig, McpServerStatus } from '../mcpTypes';
 import {
 	clampSidebarLayout,
 	readSidebarLayout,
-	readStoredShellLayoutModeFromKey,
 	syncDesktopShellLayoutMode,
 	syncDesktopSidebarLayout,
 	writeStoredShellLayoutMode,
@@ -104,9 +103,8 @@ export async function runDesktopShellInit(ctx: DesktopShellInitContext): Promise
 			: (shell.invoke('workspace:get') as Promise<{ root: string | null }>),
 		shell.invoke('app:getPaths') as Promise<{ home?: string }>,
 		shell.invoke('settings:get') as Promise<SettingsGetPayload>,
-		refreshThreads(),
 	]);
-	_lap('batch1 (ping/workspace/paths/settings/threads)');
+	_lap('batch1 (ping/workspace/paths/settings)');
 	setIpcOk(p.ok ? t('app.ipcReady', { message: p.message }) : t('app.ipcError'));
 	if (!isBlankWindow) {
 		setWorkspace(w.root);
@@ -132,15 +130,9 @@ export async function runDesktopShellInit(ctx: DesktopShellInitContext): Promise
 		syncDesktopSidebarLayout(shell, clampSidebarLayout(s0.left, s0.right));
 	}
 	if (!layoutPinnedBySurface) {
-		const lmRaw = st.ui?.layoutMode;
-		if (lmRaw === 'agent' || lmRaw === 'editor') {
-			setLayoutMode(lmRaw);
-			writeStoredShellLayoutMode(lmRaw, shellLayoutStorageKey);
-		} else {
-			const lm0 = readStoredShellLayoutModeFromKey(shellLayoutStorageKey);
-			setLayoutMode(lm0);
-			syncDesktopShellLayoutMode(shell, lm0);
-		}
+		setLayoutMode('agent');
+		writeStoredShellLayoutMode('agent', shellLayoutStorageKey);
+		syncDesktopShellLayoutMode(shell, 'agent');
 	}
 	applyLoadedSettings(st);
 	const cmRaw = st.ui?.colorMode;
@@ -151,6 +143,10 @@ export async function runDesktopShellInit(ctx: DesktopShellInitContext): Promise
 	const appearanceScheme = resolveEffectiveScheme(nextColorMode, readPrefersDark());
 	setAppearanceSettings(normalizeAppearanceSettings(st.ui, appearanceScheme));
 	_lap('settings state applied');
+
+	void refreshThreads().catch((err) => {
+		console.warn('[renderer-init] refreshThreads failed after settings load', err);
+	});
 
 	hideBootSplash();
 

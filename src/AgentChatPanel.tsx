@@ -618,6 +618,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const prevConversationForLenRef = useRef<string | null>(null);
 	const lastLayoutMeasureSigRef = useRef('');
 	const layoutMeasureSettleTimerRef = useRef<number | null>(null);
+	const pinnedToBottomRef = useRef(true);
 
 	const getRowHeightForBudget = useCallback(
 		(i: number) => messageRowHeightsRef.current.get(i) ?? ESTIMATED_MESSAGE_ROW_PX,
@@ -1017,6 +1018,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		const isAtBottom =
 			distFromBottom <= 16 || viewport.scrollHeight <= viewport.clientHeight + 16;
 		bottomTodoAtBottomRef.current = isAtBottom;
+		pinnedToBottomRef.current = isAtBottom;
 		const renderedRows = collectMeasuredTurnRows();
 		const nextStickyIndex = findStickyUserIndexForViewport({
 			renderedRows,
@@ -1400,6 +1402,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 							renderMode="preflight"
 							preserveLivePreflight
 							typewriter={agentOrPlanStreaming && awaitingReply}
+							preflightInstantToggle={pinnedToBottomRef.current}
 						/>
 					</div>
 				</div>

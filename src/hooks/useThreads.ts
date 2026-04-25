@@ -2,9 +2,12 @@ import { useCallback, useLayoutEffect, useRef, useState, startTransition } from 
 import {
 	type ChatMessage,
 	type ThreadInfo,
+	applyThreadRowsPreservingDetails,
 	chatMessagesListEqual,
+	mergeThreadDetailRows,
 	normalizeThreadRow,
 	threadInfoListEqual,
+	threadListVersions,
 } from '../threadTypes';
 import { normWorkspaceRootKey } from '../workspaceRootKey';
 
@@ -131,6 +134,7 @@ export function useThreads(shell: Shell | undefined) {
 	threadNavigationRef.current = threadNavigation;
 	const skipThreadNavigationRecordRef = useRef(false);
 	const workspaceSnapshotsRef = useRef<Map<string, ThreadStateSnapshot>>(new Map());
+	const threadListFetchGenRef = useRef(0);
 
 	// currentId 变化时更新导航历史
 	// 用 useLayoutEffect 而非 useEffect：commit 后立即同步执行，setState 触发的重渲在同一帧内
@@ -153,25 +157,61 @@ export function useThreads(shell: Shell | undefined) {
 
 	const refreshThreads = useCallback(async (options?: RefreshThreadsOptions) => {
 		if (!shell) return null;
+		const gen = ++threadListFetchGenRef.current;
+		const shouldApply = () => gen === threadListFetchGenRef.current && (!options?.shouldApply || options.shouldApply());
 		const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
-		const r = (await shell.invoke('threads:list')) as {
+		const r = (await shell.invoke('threads:listLight')) as {
 			threads: ThreadInfo[];
 			currentId: string | null;
 		};
-		if (options?.shouldApply && !options.shouldApply()) {
+		if (!shouldApply()) {
 			if (t0 && typeof performance !== 'undefined') {
 				console.log(`[perf] refreshThreads: stale skipped after ${(performance.now() - t0).toFixed(1)}ms`);
 			}
 			return r.currentId;
 		}
+		const lightRows = r.threads ?? [];
 		// setCurrentId 必须紧急（触发 loadMessages effect 和导航历史更新）。
 		// setThreads 是侧栏列表，非紧急，用 transition 避免阻塞消息加载路径。
 		currentIdRef.current = r.currentId;
 		setCurrentId(r.currentId);
-		startTransition(() => setThreads((r.threads ?? []).map(normalizeThreadRow)));
+		startTransition(() =>
+			setThreads((prev) => applyThreadRowsPreservingDetails(prev, lightRows))
+		);
 		if (t0 && typeof performance !== 'undefined') {
-			console.log(`[perf] refreshThreads: ${(performance.now() - t0).toFixed(1)}ms`);
+			console.log(`[perf] refreshThreads: light ${(performance.now() - t0).toFixed(1)}ms`);
 		}
+		void (async () => {
+			const tDetails = typeof performance !== 'undefined' ? performance.now() : 0;
+			try {
+				const detailResult = (await shell.invoke(
+					'threads:listDetails',
+					threadListVersions(lightRows)
+				)) as {
+					threads?: ThreadInfo[];
+					currentId?: string | null;
+				};
+				if (!shouldApply()) {
+					if (tDetails && typeof performance !== 'undefined') {
+						console.log(
+							`[perf] refreshThreads: detail stale skipped after ${(performance.now() - tDetails).toFixed(1)}ms`
+						);
+					}
+					return;
+				}
+				const detailRows = detailResult.threads ?? [];
+				startTransition(() =>
+					setThreads((prev) => mergeThreadDetailRows(prev, detailRows))
+				);
+				if (tDetails && typeof performance !== 'undefined') {
+					console.log(
+						`[perf] refreshThreads: details ${(performance.now() - tDetails).toFixed(1)}ms rows=${detailRows.length}`
+					);
+				}
+			} catch (err) {
+				console.warn('[perf] refreshThreads: details failed', err);
+			}
+		})();
 		return r.currentId;
 	}, [shell]);
 
@@ -332,6 +372,7 @@ export function useThreads(shell: Shell | undefined) {
 		if (!snapshot) {
 			return false;
 		}
+		threadListFetchGenRef.current++;
 		currentIdRef.current = snapshot.currentId;
 		setThreads(snapshot.threads);
 		setCurrentId(snapshot.currentId);
@@ -357,6 +398,7 @@ export function useThreads(shell: Shell | undefined) {
 
 	/** 切换/关闭工作区时重置线程域的所有状态 */
 	const resetThreadState = useCallback((options?: { keepSidebarThreads?: boolean }) => {
+		threadListFetchGenRef.current++;
 		currentIdRef.current = null;
 		setThreads([]);
 		setCurrentId(null);

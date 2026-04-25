@@ -350,6 +350,25 @@ export function threadHasUserMessages(thread: ThreadRecord): boolean {
 	return thread.messages.some((message) => message.role === 'user' && message.content.trim().length > 0);
 }
 
+export function listThreadWorkspaceRoots(options?: { onlyWithUserMessages?: boolean }): string[] {
+	const roots = Object.entries(data.buckets)
+		.map(([bucketKey, bucket]) => {
+			const root = extractWorkspaceRootFromBucketKey(bucketKey);
+			if (!root) {
+				return null;
+			}
+			const threads = Object.values(bucket.threads);
+			if (options?.onlyWithUserMessages && !threads.some(threadHasUserMessages)) {
+				return null;
+			}
+			const latestUpdatedAt = threads.reduce((max, thread) => Math.max(max, thread.updatedAt), 0);
+			return { root, latestUpdatedAt };
+		})
+		.filter((item): item is { root: string; latestUpdatedAt: number } => item != null)
+		.sort((a, b) => b.latestUpdatedAt - a.latestUpdatedAt);
+	return roots.map((item) => item.root);
+}
+
 export function getCurrentThreadId(workspaceRoot: string | null | undefined = null): string | null {
 	return ensureBucket(workspaceRoot).currentThreadId;
 }

@@ -5085,6 +5085,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.ref-preflight-shell-collapse.instant-toggle {
+	transition: none !important;
+}
+
 .ref-preflight-shell-collapse.is-open {
 	max-height: 216px;
 }
@@ -5102,7 +5106,6 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	/* 水平 padding 设为 0 让 body 内容与父 .ref-md-root--agent-chat 左右边缘对齐。
 	   首行（如「已思考 X.Xs」）需要与壳头部留出呼吸距离，否则在流式底部遮罩存在时容易被遮 */
 	padding: 10px 0 6px;
-	height: 200px;
 	max-height: 200px;
 	overflow-y: auto;
 	/* 细滚动条：默认完全透明，鼠标进入 body 时渐入；离开时渐出。

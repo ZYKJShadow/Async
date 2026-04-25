@@ -123,7 +123,6 @@ import {
 	DEFAULT_SIDEBAR_LAYOUT_KEY,
 	clampSidebarLayout,
 	readSidebarLayout,
-	readStoredShellLayoutModeFromKey,
 	type ShellLayoutMode,
 } from './app/shellLayoutStorage';
 import {
@@ -143,6 +142,10 @@ import type { ShellLeftRailGroupProps, ShellCenterRightGroupProps } from './app/
 import { ShellWorkspaceGrid } from './app/ShellWorkspaceGrid';
 import { ThreadItem } from './app/ThreadItem';
 import { AgentSidebarThreadItem } from './app/AgentSidebarThreadItem';
+import {
+	isAgentWorkspaceCollapsed,
+	selectAgentSidebarThreadPaths,
+} from './app/agentSidebarWorkspaceList';
 import {
 	readStoredWorkspaceLauncher,
 	type WorkspaceLauncherTool,
@@ -877,7 +880,7 @@ function AppMainWorkspaceInner() {
 	});
 
 	const [layoutMode, setLayoutMode] = useState<LayoutMode>(() =>
-		layoutPinnedBySurface && appSurface ? appSurface : readStoredShellLayoutModeFromKey(shellLayoutStorageKey)
+		layoutPinnedBySurface && appSurface ? appSurface : 'agent'
 	);
 	const [layoutWindowAvailability, setLayoutWindowAvailability] = useState<Record<LayoutMode, boolean>>({
 		agent: false,
@@ -1138,12 +1141,6 @@ function AppMainWorkspaceInner() {
 		[visibleThreads]
 	);
 
-	const hiddenAgentWorkspacePathSet = useMemo(() => new Set(hiddenAgentWorkspacePaths), [hiddenAgentWorkspacePaths]);
-	const collapsedAgentWorkspacePathSet = useMemo(
-		() => new Set(collapsedAgentWorkspacePaths),
-		[collapsedAgentWorkspacePaths]
-	);
-
 	const agentSidebarWorkspaceCandidates = useMemo(() => {
 		const seen = new Set<string>();
 		const ordered: string[] = [];
@@ -1177,19 +1174,15 @@ function AppMainWorkspaceInner() {
 
 	const agentSidebarThreadPaths = useMemo(
 		() =>
-			agentWorkspaceOrder
-				.filter((path) => !hiddenAgentWorkspacePathSet.has(path))
-				.slice(0, 8),
-		[agentWorkspaceOrder, hiddenAgentWorkspacePathSet]
+			selectAgentSidebarThreadPaths({
+				orderedPaths: agentWorkspaceOrder,
+				hiddenPaths: hiddenAgentWorkspacePaths,
+				currentWorkspace: workspace,
+			}),
+		[agentWorkspaceOrder, hiddenAgentWorkspacePaths, workspace]
 	);
 
-	const agentSidebarThreadFetchPaths = useMemo(() => {
-		if (!workspace) {
-			return agentSidebarThreadPaths;
-		}
-		const currentKey = normWorkspaceRootKey(workspace);
-		return agentSidebarThreadPaths.filter((path) => normWorkspaceRootKey(path) !== currentKey);
-	}, [agentSidebarThreadPaths, workspace]);
+	const agentSidebarThreadFetchPaths = agentSidebarThreadPaths;
 
 	useEffect(() => {
 		if (!shell) {
@@ -1199,25 +1192,22 @@ function AppMainWorkspaceInner() {
 			void refreshAgentSidebarThreads([]);
 			return;
 		}
-		const idle = window.requestIdleCallback ?? ((cb: IdleRequestCallback) => window.setTimeout(() => cb({ didTimeout: true, timeRemaining: () => 0 } as IdleDeadline), 1));
-		const cancel = window.cancelIdleCallback ?? ((id: number) => window.clearTimeout(id));
-		const id = idle(
-			() => {
-				void refreshAgentSidebarThreads(agentSidebarThreadFetchPaths);
-			},
-			{ timeout: 3000 }
-		);
-		return () => cancel(id);
+		void refreshAgentSidebarThreads(agentSidebarThreadFetchPaths);
 	}, [shell, layoutMode, agentSidebarThreadFetchPaths, refreshAgentSidebarThreads]);
 
 	const agentSidebarWorkspaces = useMemo(() => {
 		const q = threadSearch.trim().toLowerCase();
 		return agentSidebarThreadPaths.map((path) => {
 			const pathKey = normWorkspaceRootKey(path);
-			const rowsSource =
+			const sidebarRows = sidebarThreadsByPathKey[pathKey] ?? getCachedThreadsForWorkspace(path) ?? [];
+			const currentRows =
 				workspace && pathKey === normWorkspaceRootKey(workspace)
 					? threads
-					: (sidebarThreadsByPathKey[pathKey] ?? getCachedThreadsForWorkspace(path) ?? []);
+					: null;
+			const rowsSource =
+				currentRows && currentRows.some((thread) => thread.hasUserMessages)
+					? currentRows
+					: sidebarRows;
 			const visible = rowsSource.filter((thread) => thread.hasUserMessages);
 			const list = q
 				? visible.filter(
@@ -1239,9 +1229,8 @@ function AppMainWorkspaceInner() {
 				path,
 				name: workspaceAliases[path]?.trim() || workspacePathDisplayName(path),
 				parent: workspacePathParent(path),
-				isCurrent: path === workspace,
-				isCollapsed:
-					path === workspace ? collapsedAgentWorkspacePathSet.has(path) : !collapsedAgentWorkspacePathSet.has(path),
+				isCurrent: !!workspace && normWorkspaceRootKey(path) === normWorkspaceRootKey(workspace),
+				isCollapsed: isAgentWorkspaceCollapsed(path, collapsedAgentWorkspacePaths),
 				threadCount: list.length,
 				todayThreads: today,
 				archivedThreads: archived,
@@ -1255,7 +1244,7 @@ function AppMainWorkspaceInner() {
 		getCachedThreadsForWorkspace,
 		threadSearch,
 		workspaceAliases,
-		collapsedAgentWorkspacePathSet,
+		collapsedAgentWorkspacePaths,
 	]);
 
 	const hasConversation = messages.length > 0 || awaitingReply;

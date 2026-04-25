@@ -209,6 +209,7 @@ type Props = {
 	 */
 	renderMode?: 'all' | 'preflight' | 'outcome';
 	preserveLivePreflight?: boolean;
+	preflightInstantToggle?: boolean;
 };
 
 function InlineChevron({ open }: { open: boolean }) {
@@ -405,6 +406,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	preserveLivePreflight = false,
 	typewriter = false,
 	turnFocusFillPx = 0,
+	preflightInstantToggle = false,
 }: Props) {
 	const { t } = useI18n();
 
@@ -762,6 +764,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 					hasOutcome={hasOutcome}
 					phase={liveThoughtMeta?.phase ?? (showAgentWorking ? 'thinking' : 'done')}
 					tokenUsage={liveThoughtMeta?.tokenUsage ?? null}
+					instantToggle={preflightInstantToggle}
 				>
 					{preflight.map((seg, i) => renderUnitNode(seg, i, { insideShell: true }))}
 				</AgentPreflightShell>
