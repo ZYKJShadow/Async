@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { AgentCustomization, AgentSkill } from '../agentSettingsTypes.js';
 import { AGENT_TOOLS, type AgentToolDef, ToolCall, ToolResult } from '../agent/agentTools.js';
 import type { BotInboundAttachment, BotStreamChannel } from './platforms/common.js';
+import { buildFeishuToolBundle } from './platforms/feishu/feishuToolBundle.js';
 import { runAgentLoop } from '../agent/agentLoop.js';
 import { compressForSend } from '../agent/conversationCompress.js';
 import { type ToolExecutionContext, type ToolExecutionHooks } from '../agent/toolExecutor.js';
@@ -17,7 +18,7 @@ import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/mo
 import { modeExpandsWorkspaceFileContext } from '../llm/workspaceContextExpand.js';
 import { resolveMessagesForSend } from '../llm/sendResolved.js';
 import { loadMemoryPrompt } from '../memdir/memdir.js';
-import { type ShellSettings, getRecentWorkspaces } from '../settingsStore.js';
+import { type ShellSettings, getRecentWorkspaces, updateBotIntegrationFeishuTokens } from '../settingsStore.js';
 import { queueExtractMemories } from '../services/extractMemories/extractMemories.js';
 import {
 	recordSkillUsage,
@@ -841,6 +842,44 @@ export function buildBotOrchestratorPrompt(
 	if (extraPrompt) {
 		lines.push('', '## Integration Prompt', extraPrompt);
 	}
+	if (integration.platform === 'feishu' && integration.feishu?.appId && integration.feishu?.appSecret) {
+		const hasUserToken = Boolean(integration.feishu?.userAccessToken?.trim());
+		const lns = [
+			'',
+			language === 'en' ? '## Feishu tools' : '## 飞书工具',
+			language === 'en'
+				? 'You can call native Feishu Open API tools when the user explicitly asks for Feishu document/folder/task/contact operations. Available tools:'
+				: '当用户明确要求执行飞书文档 / 文件夹 / 任务 / 通讯录相关操作时，可以直接调用以下飞书原生 API 工具：',
+			language === 'en'
+				? '- Documents: create_feishu_document, get_feishu_document_blocks, batch_create_feishu_blocks, search_feishu_documents'
+				: '- 文档：create_feishu_document、get_feishu_document_blocks、batch_create_feishu_blocks、search_feishu_documents',
+			language === 'en'
+				? '- Folders: get_feishu_folder_files, create_feishu_folder'
+				: '- 文件夹：get_feishu_folder_files、create_feishu_folder',
+		];
+		if (hasUserToken) {
+			lns.push(
+				language === 'en'
+					? '- Tasks: list_feishu_tasks, create_feishu_task, update_feishu_task, delete_feishu_task'
+					: '- 任务：list_feishu_tasks、create_feishu_task、update_feishu_task、delete_feishu_task',
+				language === 'en'
+					? '- Contacts: get_feishu_users (resolve a name to open_id, then pass it as assigneeIds when creating tasks).'
+					: '- 通讯录：get_feishu_users（先把人名解析成 open_id，再作为 assigneeIds 传给任务创建工具）。'
+			);
+		} else {
+			lns.push(
+				language === 'en'
+					? '- Tasks/contacts disabled: paste a user_access_token into the integration settings to unlock list_feishu_tasks / create_feishu_task / get_feishu_users.'
+					: '- 任务 / 通讯录工具未启用：在集成设置中粘贴 user_access_token 后即可解锁 list_feishu_tasks / create_feishu_task / get_feishu_users 等。'
+			);
+		}
+		lns.push(
+			language === 'en'
+				? 'Do NOT advertise these tools spontaneously. Use them only when the user is asking a Feishu-specific operation.'
+				: '不要主动宣传这些工具——仅当用户明确要求飞书相关操作时再调用。'
+		);
+		lines.push(...lns);
+	}
 	if (botSkillAppend.trim()) {
 		lines.push('', botSkillAppend);
 	}
@@ -1516,9 +1555,16 @@ export async function runBotOrchestratorTurn(args: RunBotOrchestratorArgs): Prom
 	let full = '';
 	let errorMessage = '';
 	let streamFull = '';
+	const feishuBundle = buildFeishuToolBundle(integration, (next) => {
+		updateBotIntegrationFeishuTokens(integration.id, next);
+	});
+	if (feishuBundle) {
+		Object.assign(handlers, feishuBundle.handlers);
+	}
 	const leaderToolPool = [
 		...AGENT_TOOLS.filter((tool) => BOT_LEADER_NATIVE_TOOL_NAMES.has(tool.name)),
 		...BOT_TOOL_DEFS,
+		...(feishuBundle?.toolDefs ?? []),
 	];
 	const userTurnContent = buildUserTurnContentWithAttachments(inbound);
 	const baseLeaderMessages = [

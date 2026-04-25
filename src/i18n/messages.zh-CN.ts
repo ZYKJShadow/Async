@@ -1093,11 +1093,14 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.general.identityPresetHint': '预设会同时决定 User-Agent、请求头、Anthropic metadata 与系统提示前缀的生成方式。',
 	'settings.general.identityPreset.async': 'Async 默认',
 	'settings.general.identityPreset.claudeCode': 'Claude Code',
+	'settings.general.identityPreset.codex': 'Codex CLI',
 	'settings.general.identityPreset.custom': '自定义',
 	'settings.general.identityPresetAsyncHint':
 		'使用 Async 的默认标识格式：Async 风格的 User-Agent、X-Async-Session-Id、Async metadata 和 Async 系统提示前缀。',
 	'settings.general.identityPresetClaudeCodeHint':
 		'严格切到 Claude Code 风格：User-Agent 为 claude-code/<version>（与上游 getClaudeCodeUserAgent 同形，版本号与同目录发行版 MACRO.VERSION 对齐）、x-app=cli、X-Claude-Code-Session-Id、Claude Code 系统提示前缀，以及 Claude Code 结构的 Anthropic metadata。',
+	'settings.general.identityPresetCodexHint':
+		'切换到 OpenAI Codex CLI 风格：User-Agent 为 codex-cli/<version>、附带 `originator: codex-cli` 请求头（与上游 Codex 客户端同形）、X-Codex-Session-Id 以及 Codex CLI 的系统提示前缀。',
 	'settings.general.identityEnabled': '启用提供商身份信号',
 	'settings.general.identityEnabledDesc':
 		'统一控制 User-Agent、额外请求头、Anthropic metadata 和系统提示前缀。某些严格网关不接受自定义头时，可以先关闭后再逐项启用。',
@@ -1208,6 +1211,18 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.bots.field.appSecret': 'App Secret',
 	'settings.bots.field.encryptKey': 'Encrypt Key（可选）',
 	'settings.bots.field.verificationToken': 'Verification Token（可选）',
+	'settings.bots.field.feishuAuth': '飞书用户授权',
+	'settings.bots.feishuAuth.none': '未授权（任务 / 通讯录工具不可用）',
+	'settings.bots.feishuAuth.expired': '授权已过期，请重新授权',
+	'settings.bots.feishuAuth.active': '已授权 · 剩余 {duration}',
+	'settings.bots.feishuAuth.activeAs': '已授权为 {name} · 剩余 {duration}',
+	'settings.bots.feishuAuth.button': '授权飞书账号',
+	'settings.bots.feishuAuth.buttonRunning': '正在等待授权…',
+	'settings.bots.feishuAuth.disconnect': '断开授权',
+	'settings.bots.feishuAuth.cancel': '取消',
+	'settings.bots.feishuAuth.hintIntro': '点击「授权」会打开浏览器跳转飞书登录。请先在飞书开放平台「安全设置 → 重定向 URL」中加入：',
+	'settings.bots.feishuAuth.hintScopes': '同时请在「权限管理」中开启 task:task、contact:user.base:readonly 等权限，否则任务 / 通讯录工具会调用失败。',
+	'settings.bots.feishuAuth.error': '授权失败：{message}',
 	'settings.bots.field.proxy': '网络代理（可选）',
 	'settings.bots.placeholder.name': '例如：研发值班机器人',
 	'settings.bots.placeholder.allowedChatGroup': '例如：群聊 Chat ID',

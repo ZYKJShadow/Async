@@ -219,6 +219,188 @@ function platformIcon(platform: BotPlatform): ReactNode {
 	);
 }
 
+function formatDurationShort(ms: number, language: 'en' | 'zh-CN'): string {
+	const total = Math.max(0, Math.floor(ms / 1000));
+	const hours = Math.floor(total / 3600);
+	const minutes = Math.floor((total % 3600) / 60);
+	if (language === 'en') {
+		if (hours >= 1) return `${hours}h ${minutes}m`;
+		return `${minutes}m`;
+	}
+	if (hours >= 1) return `${hours} 小时 ${minutes} 分`;
+	return `${minutes} 分钟`;
+}
+
+type FeishuAuthSectionProps = {
+	t: TFunction;
+	draft: BotIntegrationConfig;
+	onChangeDraft: (next: BotIntegrationConfig) => void;
+	shell: NonNullable<Window['asyncShell']>;
+};
+
+function FeishuAuthSection({ t, draft, onChangeDraft, shell }: FeishuAuthSectionProps) {
+	const { locale } = useI18n();
+	const language: 'en' | 'zh-CN' = locale === 'en' ? 'en' : 'zh-CN';
+	const [callbackUrls, setCallbackUrls] = useState<string[]>([]);
+	const [running, setRunning] = useState(false);
+	const [error, setError] = useState<string>('');
+	const [, forceTick] = useState(0);
+
+	useEffect(() => {
+		let cancelled = false;
+		void (async () => {
+			try {
+				const r = (await shell.invoke('feishu:getCallbackUrls')) as { urls?: string[] } | undefined;
+				if (!cancelled && Array.isArray(r?.urls)) {
+					setCallbackUrls(r!.urls!);
+				}
+			} catch {
+				/* ignore */
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [shell]);
+
+	useEffect(() => {
+		const interval = setInterval(() => forceTick((n) => n + 1), 30_000);
+		return () => clearInterval(interval);
+	}, []);
+
+	const expiresAt = draft.feishu?.userAccessTokenExpiresAt ?? 0;
+	const hasToken = Boolean(draft.feishu?.userAccessToken);
+	const now = Date.now();
+	const expired = hasToken && expiresAt > 0 && expiresAt < now;
+	const remaining = expiresAt > now ? expiresAt - now : 0;
+	const authorizedName = draft.feishu?.userAuthorizedName?.trim() ?? '';
+	const canAuthorize = Boolean(draft.feishu?.appId?.trim() && draft.feishu?.appSecret?.trim());
+
+	let statusText = t('settings.bots.feishuAuth.none');
+	if (hasToken) {
+		if (expired) {
+			statusText = t('settings.bots.feishuAuth.expired');
+		} else {
+			const duration = remaining > 0 ? formatDurationShort(remaining, language) : '?';
+			statusText = authorizedName
+				? t('settings.bots.feishuAuth.activeAs', { name: authorizedName, duration })
+				: t('settings.bots.feishuAuth.active', { duration });
+		}
+	}
+
+	const handleAuthorize = async () => {
+		setError('');
+		setRunning(true);
+		try {
+			const result = (await shell.invoke('feishu:runOauth', { integrationId: draft.id })) as {
+				ok?: boolean;
+				expiresAtMs?: number;
+				openId?: string;
+				name?: string;
+				error?: string;
+				message?: string;
+			};
+			if (result?.ok) {
+				const fresh = (await shell.invoke('settings:get')) as { bots?: { integrations?: BotIntegrationConfig[] } } | undefined;
+				const updated = (fresh?.bots?.integrations ?? []).find((i) => i.id === draft.id);
+				if (updated) {
+					onChangeDraft({ ...draft, feishu: { ...(updated.feishu ?? {}) } });
+				}
+			} else {
+				setError(t('settings.bots.feishuAuth.error', { message: result?.message ?? result?.error ?? 'unknown' }));
+			}
+		} catch (e) {
+			setError(t('settings.bots.feishuAuth.error', { message: e instanceof Error ? e.message : String(e) }));
+		} finally {
+			setRunning(false);
+		}
+	};
+
+	const handleCancel = async () => {
+		try {
+			await shell.invoke('feishu:cancelOauth', { integrationId: draft.id });
+		} catch {
+			/* ignore */
+		}
+		setRunning(false);
+	};
+
+	const handleDisconnect = async () => {
+		try {
+			await shell.invoke('feishu:disconnect', { integrationId: draft.id });
+			onChangeDraft({
+				...draft,
+				feishu: {
+					...(draft.feishu ?? {}),
+					userAccessToken: '',
+					userRefreshToken: '',
+					userAccessTokenExpiresAt: 0,
+					userAuthorizedOpenId: '',
+					userAuthorizedName: '',
+				},
+			});
+		} catch {
+			/* ignore */
+		}
+	};
+
+	return (
+		<div className="ref-settings-field" style={{ gridColumn: '1 / -1' }}>
+			<span>{t('settings.bots.field.feishuAuth')}</span>
+			<div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+				<span
+					style={{
+						padding: '2px 8px',
+						borderRadius: 6,
+						fontSize: 12,
+						background: hasToken && !expired ? 'rgba(34,197,94,0.15)' : 'rgba(148,163,184,0.15)',
+						color: hasToken && !expired ? '#16a34a' : expired ? '#dc2626' : '#64748b',
+					}}
+				>
+					{statusText}
+				</span>
+				{!running ? (
+					<button
+						type="button"
+						className="ref-settings-bot-modal-btn is-primary"
+						onClick={handleAuthorize}
+						disabled={!canAuthorize}
+					>
+						{t('settings.bots.feishuAuth.button')}
+					</button>
+				) : (
+					<>
+						<span style={{ fontSize: 12, color: '#64748b' }}>{t('settings.bots.feishuAuth.buttonRunning')}</span>
+						<button type="button" className="ref-settings-bot-modal-btn is-ghost" onClick={handleCancel}>
+							{t('settings.bots.feishuAuth.cancel')}
+						</button>
+					</>
+				)}
+				{hasToken && !running ? (
+					<button type="button" className="ref-settings-bot-modal-btn is-ghost" onClick={handleDisconnect}>
+						{t('settings.bots.feishuAuth.disconnect')}
+					</button>
+				) : null}
+			</div>
+			{error ? (
+				<p className="ref-settings-field-hint" style={{ color: '#dc2626' }}>
+					{error}
+				</p>
+			) : null}
+			<p className="ref-settings-field-hint">
+				{t('settings.bots.feishuAuth.hintIntro')}
+				<br />
+				{callbackUrls.map((url) => (
+					<code key={url} style={{ display: 'block', fontSize: 11 }}>
+						{url}
+					</code>
+				))}
+			</p>
+			<p className="ref-settings-field-hint">{t('settings.bots.feishuAuth.hintScopes')}</p>
+		</div>
+	);
+}
+
 type BotEditorModalProps = {
 	t: TFunction;
 	mode: EditorMode;
@@ -615,6 +797,14 @@ function BotEditorModal(props: BotEditorModalProps) {
 										}
 									/>
 								</label>
+								{shell ? (
+									<FeishuAuthSection
+										t={t}
+										draft={draft}
+										onChangeDraft={onChangeDraft}
+										shell={shell}
+									/>
+								) : null}
 							</div>
 						) : null}
 

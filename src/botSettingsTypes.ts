@@ -33,6 +33,20 @@ export type FeishuBotConfig = {
 	proxyUrl?: string;
 	allowedChatIds?: string[];
 	streamingCard?: boolean;
+	/**
+	 * Optional manually-pasted user_access_token. Required for the task and
+	 * member tools (`feishu_*_task`, `get_feishu_users`) — tenant_access_token
+	 * cannot read "我负责的" tasks or search the contact directory.
+	 */
+	userAccessToken?: string;
+	/** Refresh token paired with userAccessToken. Used for silent re-issuance. */
+	userRefreshToken?: string;
+	/** Epoch ms when userAccessToken expires. Refresh kicks in 60s before this. */
+	userAccessTokenExpiresAt?: number;
+	/** Optional open_id of the authorized user, for display only. */
+	userAuthorizedOpenId?: string;
+	/** Optional display name of the authorized user, for display only. */
+	userAuthorizedName?: string;
 };
 
 export type BotIntegrationConfig = {

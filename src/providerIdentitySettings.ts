@@ -1,4 +1,4 @@
-export type ProviderIdentityPreset = 'async-default' | 'claude-code' | 'custom';
+export type ProviderIdentityPreset = 'async-default' | 'claude-code' | 'codex' | 'custom';
 
 export type ProviderIdentitySettings = {
 	preset?: ProviderIdentityPreset;
@@ -11,7 +11,7 @@ export type ProviderIdentitySettings = {
 
 export type ResolvedProviderIdentitySettings = {
 	preset: ProviderIdentityPreset;
-	userAgentMode: 'generic' | 'claude-code';
+	userAgentMode: 'generic' | 'claude-code' | 'codex';
 	userAgentProduct: string;
 	entrypoint: string;
 	appHeaderValue: string;
@@ -19,6 +19,8 @@ export type ResolvedProviderIdentitySettings = {
 	sessionHeaderName: string;
 	systemPromptPrefix: string;
 	anthropicMetadataMode: 'async' | 'claude-code';
+	/** Optional value for the upstream `originator` header (used by Codex). */
+	originatorHeaderValue?: string;
 };
 
 export const PROVIDER_IDENTITY_VERSION_PREVIEW = '<version>';
@@ -26,6 +28,14 @@ export const PROVIDER_IDENTITY_SESSION_PREVIEW = '<runtime-session-id>';
 export const PROVIDER_IDENTITY_DEVICE_ID_PREVIEW = '<device-id>';
 
 export const CLAUDE_CODE_EMULATED_VERSION = '2.1.112';
+export const CODEX_EMULATED_VERSION = '0.99.0';
+/**
+ * Value for the upstream `originator` request header. Codex's npm/SDK surface
+ * advertises itself as `codex-cli` (see e.g.
+ * `sdk/python/tests/test_public_api_signatures.py` —
+ * `userAgent: "codex-cli/1.2.3"`), so we mirror that token end-to-end.
+ */
+export const CODEX_ORIGINATOR = 'codex-cli';
 
 const ASYNC_DEFAULT_IDENTITY: ResolvedProviderIdentitySettings = {
 	preset: 'async-default',
@@ -51,13 +61,32 @@ const CLAUDE_CODE_IDENTITY: ResolvedProviderIdentitySettings = {
 	anthropicMetadataMode: 'claude-code',
 };
 
+const CODEX_IDENTITY: ResolvedProviderIdentitySettings = {
+	preset: 'codex',
+	userAgentMode: 'codex',
+	userAgentProduct: CODEX_ORIGINATOR,
+	entrypoint: 'cli',
+	appHeaderValue: 'cli',
+	clientAppValue: CODEX_ORIGINATOR,
+	sessionHeaderName: 'X-Codex-Session-Id',
+	systemPromptPrefix:
+		'You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is an open source project led by OpenAI.',
+	anthropicMetadataMode: 'async',
+	originatorHeaderValue: CODEX_ORIGINATOR,
+};
+
 function cleanToken(value: unknown, fallback: string): string {
 	const raw = typeof value === 'string' ? value.trim() : '';
 	return raw || fallback;
 }
 
 function isPreset(value: unknown): value is ProviderIdentityPreset {
-	return value === 'async-default' || value === 'claude-code' || value === 'custom';
+	return (
+		value === 'async-default' ||
+		value === 'claude-code' ||
+		value === 'codex' ||
+		value === 'custom'
+	);
 }
 
 function inferPreset(raw?: ProviderIdentitySettings | null): ProviderIdentityPreset {
@@ -89,6 +118,15 @@ function inferPreset(raw?: ProviderIdentitySettings | null): ProviderIdentityPre
 	if (matchesClaudeCode) {
 		return 'claude-code';
 	}
+	const matchesCodex =
+		legacyValues.userAgentProduct === CODEX_IDENTITY.userAgentProduct &&
+		legacyValues.entrypoint === CODEX_IDENTITY.entrypoint &&
+		legacyValues.appHeaderValue === CODEX_IDENTITY.appHeaderValue &&
+		legacyValues.clientAppValue === CODEX_IDENTITY.clientAppValue &&
+		legacyValues.systemPromptPrefix === CODEX_IDENTITY.systemPromptPrefix;
+	if (matchesCodex) {
+		return 'codex';
+	}
 	return 'custom';
 }
 
@@ -110,6 +148,9 @@ export function resolveProviderIdentitySettings(
 	if (preset === 'claude-code') {
 		return { ...CLAUDE_CODE_IDENTITY };
 	}
+	if (preset === 'codex') {
+		return { ...CODEX_IDENTITY };
+	}
 	if (preset === 'custom') {
 		return {
 			preset,
@@ -128,12 +169,13 @@ export function resolveProviderIdentitySettings(
 
 export function providerIdentityPresetOptions(): Array<{
 	id: ProviderIdentityPreset;
-	userAgentMode: 'generic' | 'claude-code';
+	userAgentMode: 'generic' | 'claude-code' | 'codex';
 	label: string;
 }> {
 	return [
 		{ id: 'async-default', userAgentMode: 'generic', label: 'Async' },
 		{ id: 'claude-code', userAgentMode: 'claude-code', label: 'Claude Code' },
+		{ id: 'codex', userAgentMode: 'codex', label: 'Codex CLI' },
 		{ id: 'custom', userAgentMode: 'generic', label: 'Custom' },
 	];
 }
@@ -146,6 +188,12 @@ export function formatResolvedProviderIdentityUserAgent(
 	if (settings.userAgentMode === 'claude-code') {
 		// 与 `claude-code/src/utils/userAgent.ts` 一致：`claude-code/${MACRO.VERSION}`
 		return `claude-code/${CLAUDE_CODE_EMULATED_VERSION}`;
+	}
+	if (settings.userAgentMode === 'codex') {
+		// 与 codex-rs/login/src/auth/default_client.rs 中 get_codex_user_agent 的格式对齐：
+		// `<originator>/<version> (<os> <os_version>; <arch>) <terminal_info>`
+		// 仅在浏览器侧预览时使用一个稳定的简化形式；运行时由 main 进程拼真实平台信息。
+		return `${CODEX_ORIGINATOR}/${version}`;
 	}
 	const parts = [settings.entrypoint];
 	if (settings.clientAppValue.trim()) {
@@ -168,6 +216,9 @@ export function buildProviderIdentityPreview(raw?: ProviderIdentitySettings | nu
 	];
 	if (settings.clientAppValue.trim()) {
 		headers.push(['x-client-app', settings.clientAppValue]);
+	}
+	if (settings.originatorHeaderValue) {
+		headers.push(['originator', settings.originatorHeaderValue]);
 	}
 	headers.push([settings.sessionHeaderName, PROVIDER_IDENTITY_SESSION_PREVIEW]);
 	return {

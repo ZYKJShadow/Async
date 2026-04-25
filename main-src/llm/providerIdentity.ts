@@ -56,6 +56,9 @@ export function buildProviderIdentityHeaders(settings: ShellSettings): Record<st
 	if (identity.clientAppValue.trim()) {
 		headers['x-client-app'] = identity.clientAppValue;
 	}
+	if (identity.originatorHeaderValue) {
+		headers['originator'] = identity.originatorHeaderValue;
+	}
 	headers[identity.sessionHeaderName] = RUNTIME_PROVIDER_SESSION_ID;
 	return headers;
 }

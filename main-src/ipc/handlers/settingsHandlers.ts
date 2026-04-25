@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import {
 	getSettings,
 	patchSettings,
+	updateBotIntegrationFeishuTokens,
 	type UserLlmProvider,
 } from '../../settingsStore.js';
 import { syncBotControllerFromSettings } from '../../bots/botController.js';
@@ -11,6 +12,7 @@ import { testBotIntegrationConnection } from '../../bots/botConnectivity.js';
 import type { BotIntegrationConfig } from '../../botSettingsTypes.js';
 import { discoverProviderModels } from '../../llm/providerModelDiscovery.js';
 import { getBuiltinTeamCatalogPayload } from '../../agent/builtinTeamCatalog.js';
+import { cancelFeishuOauth, runFeishuOauth, FEISHU_OAUTH_CALLBACK_URLS } from '../../bots/platforms/feishu/feishuOauth.js';
 
 function stripSkillFrontmatter(md: string): { body: string; name?: string; description?: string } {
 	const t = md.trim();
@@ -100,6 +102,66 @@ export function registerSettingsHandlers(): void {
 		const lang = getSettings().language === 'en' ? 'en' : 'zh-CN';
 		return await testBotIntegrationConnection(integration, lang);
 	});
+
+	ipcMain.handle('feishu:runOauth', async (_e, payload: unknown) => {
+		const integrationId =
+			payload && typeof payload === 'object' && typeof (payload as { integrationId?: unknown }).integrationId === 'string'
+				? (payload as { integrationId: string }).integrationId
+				: '';
+		if (!integrationId) {
+			return { ok: false as const, error: 'no-integration' as const, message: 'integrationId is required.' };
+		}
+		const integration = (getSettings().bots?.integrations ?? []).find((i) => i.id === integrationId);
+		if (!integration) {
+			return { ok: false as const, error: 'no-integration' as const };
+		}
+		const result = await runFeishuOauth(integration);
+		if (result.ok) {
+			updateBotIntegrationFeishuTokens(integrationId, result.tokens);
+			void syncBotControllerFromSettings(getSettings());
+			return {
+				ok: true as const,
+				expiresAtMs: result.tokens.userAccessTokenExpiresAt,
+				openId: result.tokens.userAuthorizedOpenId,
+				name: result.tokens.userAuthorizedName,
+			};
+		}
+		return { ok: false as const, error: result.error, message: result.message };
+	});
+
+	ipcMain.handle('feishu:cancelOauth', (_e, payload: unknown) => {
+		const integrationId =
+			payload && typeof payload === 'object' && typeof (payload as { integrationId?: unknown }).integrationId === 'string'
+				? (payload as { integrationId: string }).integrationId
+				: '';
+		if (integrationId) {
+			cancelFeishuOauth(integrationId);
+		}
+		return { ok: true as const };
+	});
+
+	ipcMain.handle('feishu:disconnect', (_e, payload: unknown) => {
+		const integrationId =
+			payload && typeof payload === 'object' && typeof (payload as { integrationId?: unknown }).integrationId === 'string'
+				? (payload as { integrationId: string }).integrationId
+				: '';
+		if (!integrationId) {
+			return { ok: false as const };
+		}
+		const updated = updateBotIntegrationFeishuTokens(integrationId, {
+			userAccessToken: '',
+			userRefreshToken: '',
+			userAccessTokenExpiresAt: 0,
+			userAuthorizedOpenId: '',
+			userAuthorizedName: '',
+		});
+		if (updated) {
+			void syncBotControllerFromSettings(getSettings());
+		}
+		return { ok: updated };
+	});
+
+	ipcMain.handle('feishu:getCallbackUrls', () => ({ urls: FEISHU_OAUTH_CALLBACK_URLS }));
 
 	ipcMain.handle('settings:importBotSkillFolder', async (event) => {
 		try {

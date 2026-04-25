@@ -829,6 +829,10 @@ export function SettingsPage({
 														label: t('settings.general.identityPreset.claudeCode'),
 													},
 													{
+														value: 'codex',
+														label: t('settings.general.identityPreset.codex'),
+													},
+													{
 														value: 'custom',
 														label: t('settings.general.identityPreset.custom'),
 													},
@@ -916,6 +920,8 @@ export function SettingsPage({
 											<p className="ref-settings-field-hint" style={{ marginTop: 4 }}>
 												{resolvedProviderIdentity.preset === 'claude-code'
 													? t('settings.general.identityPresetClaudeCodeHint')
+													: resolvedProviderIdentity.preset === 'codex'
+													? t('settings.general.identityPresetCodexHint')
 													: t('settings.general.identityPresetAsyncHint')}
 											</p>
 										)}

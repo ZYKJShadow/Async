@@ -787,6 +787,48 @@ function save(): void {
 	fs.writeFileSync(settingsPath, JSON.stringify(cached, null, 2), 'utf8');
 }
 
+/**
+ * Patch the Feishu OAuth tokens for a single bot integration in place and
+ * persist. Used by the OAuth flow and by the silent token refresh path —
+ * neither one wants to round-trip the entire integrations array through the
+ * renderer.
+ */
+export function updateBotIntegrationFeishuTokens(
+	integrationId: string,
+	tokens: {
+		userAccessToken?: string;
+		userRefreshToken?: string;
+		userAccessTokenExpiresAt?: number;
+		userAuthorizedOpenId?: string;
+		userAuthorizedName?: string;
+	}
+): boolean {
+	const integrations = cached.bots?.integrations ?? [];
+	const idx = integrations.findIndex((i) => i.id === integrationId);
+	if (idx < 0) {
+		return false;
+	}
+	const current = integrations[idx]!;
+	if (current.platform !== 'feishu') {
+		return false;
+	}
+	const nextIntegration = {
+		...current,
+		feishu: {
+			...(current.feishu ?? {}),
+			...tokens,
+		},
+	};
+	const nextList = integrations.slice();
+	nextList[idx] = nextIntegration;
+	cached = {
+		...cached,
+		bots: { integrations: nextList },
+	};
+	save();
+	return true;
+}
+
 /** 获取 MCP 服务器配置 */
 export function getMcpServerConfigs(): McpServerConfig[] {
 	return cached.mcpServers ?? [];

@@ -1111,11 +1111,14 @@ export const messagesEn: Record<string, string> = {
 		'The preset controls how User-Agent, request headers, Anthropic metadata, and the system prompt prefix are generated together.',
 	'settings.general.identityPreset.async': 'Async default',
 	'settings.general.identityPreset.claudeCode': 'Claude Code',
+	'settings.general.identityPreset.codex': 'Codex CLI',
 	'settings.general.identityPreset.custom': 'Custom',
 	'settings.general.identityPresetAsyncHint':
 		'Uses Async defaults: the Async-style User-Agent, X-Async-Session-Id, Async metadata, and the Async system prompt prefix.',
 	'settings.general.identityPresetClaudeCodeHint':
 		'Switches to Claude Code style end-to-end: User-Agent claude-code/<version> (same pattern as upstream getClaudeCodeUserAgent, version constant synced to that release), x-app=cli, X-Claude-Code-Session-Id, the Claude Code system prompt prefix, and Claude Code-shaped Anthropic metadata.',
+	'settings.general.identityPresetCodexHint':
+		'Switches to OpenAI Codex CLI style: User-Agent codex-cli/<version>, an `originator: codex-cli` header (same shape as the upstream Codex client), X-Codex-Session-Id, and the Codex CLI system prompt prefix.',
 	'settings.general.identityEnabled': 'Enable provider identity signals',
 	'settings.general.identityEnabledDesc':
 		'Controls User-Agent, extra request headers, Anthropic metadata, and the system prompt prefix together. If a strict gateway rejects custom headers, disable this first and re-enable parts gradually.',
@@ -1226,6 +1229,18 @@ export const messagesEn: Record<string, string> = {
 	'settings.bots.field.appSecret': 'App Secret',
 	'settings.bots.field.encryptKey': 'Encrypt key (optional)',
 	'settings.bots.field.verificationToken': 'Verification token (optional)',
+	'settings.bots.field.feishuAuth': 'Feishu user authorization',
+	'settings.bots.feishuAuth.none': 'Not authorized (task / contact tools disabled)',
+	'settings.bots.feishuAuth.expired': 'Authorization expired — re-authorize',
+	'settings.bots.feishuAuth.active': 'Authorized · {duration} remaining',
+	'settings.bots.feishuAuth.activeAs': 'Authorized as {name} · {duration} remaining',
+	'settings.bots.feishuAuth.button': 'Authorize Feishu account',
+	'settings.bots.feishuAuth.buttonRunning': 'Waiting for browser…',
+	'settings.bots.feishuAuth.disconnect': 'Disconnect',
+	'settings.bots.feishuAuth.cancel': 'Cancel',
+	'settings.bots.feishuAuth.hintIntro': 'Clicking Authorize opens your browser to Feishu sign-in. Add these redirect URLs to your Feishu app under Security settings → Redirect URLs first:',
+	'settings.bots.feishuAuth.hintScopes': 'Also enable scopes task:task and contact:user.base:readonly in the Feishu app permissions, otherwise task and contact tools will fail.',
+	'settings.bots.feishuAuth.error': 'Authorization failed: {message}',
 	'settings.bots.field.proxy': 'Network proxy (optional)',
 	'settings.bots.placeholder.name': 'Example: Incident Bot',
 	'settings.bots.placeholder.allowedChatGroup': 'Example: group chat ids',
