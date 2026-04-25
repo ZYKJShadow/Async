@@ -512,6 +512,9 @@ function AppMainWorkspaceInner() {
 		refreshAgentSidebarThreads,
 		sidebarThreadsByPathKey,
 		loadMessages,
+		cacheThreadStateForWorkspace,
+		restoreThreadStateForWorkspace,
+		getCachedThreadsForWorkspace,
 		resetThreadState,
 	} = useThreads(shell);
 
@@ -1180,6 +1183,14 @@ function AppMainWorkspaceInner() {
 		[agentWorkspaceOrder, hiddenAgentWorkspacePathSet]
 	);
 
+	const agentSidebarThreadFetchPaths = useMemo(() => {
+		if (!workspace) {
+			return agentSidebarThreadPaths;
+		}
+		const currentKey = normWorkspaceRootKey(workspace);
+		return agentSidebarThreadPaths.filter((path) => normWorkspaceRootKey(path) !== currentKey);
+	}, [agentSidebarThreadPaths, workspace]);
+
 	useEffect(() => {
 		if (!shell) {
 			return;
@@ -1192,20 +1203,21 @@ function AppMainWorkspaceInner() {
 		const cancel = window.cancelIdleCallback ?? ((id: number) => window.clearTimeout(id));
 		const id = idle(
 			() => {
-				void refreshAgentSidebarThreads(agentSidebarThreadPaths);
+				void refreshAgentSidebarThreads(agentSidebarThreadFetchPaths);
 			},
 			{ timeout: 3000 }
 		);
 		return () => cancel(id);
-	}, [shell, layoutMode, agentSidebarThreadPaths, refreshAgentSidebarThreads]);
+	}, [shell, layoutMode, agentSidebarThreadFetchPaths, refreshAgentSidebarThreads]);
 
 	const agentSidebarWorkspaces = useMemo(() => {
 		const q = threadSearch.trim().toLowerCase();
 		return agentSidebarThreadPaths.map((path) => {
+			const pathKey = normWorkspaceRootKey(path);
 			const rowsSource =
-				workspace && normWorkspaceRootKey(path) === normWorkspaceRootKey(workspace)
+				workspace && pathKey === normWorkspaceRootKey(workspace)
 					? threads
-					: (sidebarThreadsByPathKey[normWorkspaceRootKey(path)] ?? []);
+					: (sidebarThreadsByPathKey[pathKey] ?? getCachedThreadsForWorkspace(path) ?? []);
 			const visible = rowsSource.filter((thread) => thread.hasUserMessages);
 			const list = q
 				? visible.filter(
@@ -1240,6 +1252,7 @@ function AppMainWorkspaceInner() {
 		workspace,
 		threads,
 		sidebarThreadsByPathKey,
+		getCachedThreadsForWorkspace,
 		threadSearch,
 		workspaceAliases,
 		collapsedAgentWorkspacePathSet,
@@ -1360,16 +1373,27 @@ function AppMainWorkspaceInner() {
 		[agentSidebarWorkspaces, workspaceMenuPath]
 	);
 
-	const clearWorkspaceConversationState = useCallback(() => {
+	const resetWorkspaceEphemeralState = useCallback(() => {
 		resetStreamingSession({ clearThread: true });
 		planBuildPendingMarkerRef.current = null;
-		resetThreadState();
 		resetAgentReviewState();
 		resetComposerState();
 		setLastTurnUsage(null);
 		resetPlanState();
 		cancelWorkspaceAliasEdit();
-	}, [resetStreamingSession, resetThreadState, resetAgentReviewState, resetComposerState, cancelWorkspaceAliasEdit]);
+	}, [
+		resetStreamingSession,
+		resetAgentReviewState,
+		resetComposerState,
+		setLastTurnUsage,
+		resetPlanState,
+		cancelWorkspaceAliasEdit,
+	]);
+
+	const clearWorkspaceConversationState = useCallback(() => {
+		resetWorkspaceEphemeralState();
+		resetThreadState();
+	}, [resetWorkspaceEphemeralState, resetThreadState]);
 
 	const {
 		executeSkillCreatorSend,
@@ -1630,26 +1654,54 @@ function AppMainWorkspaceInner() {
 			const t0 = performance.now();
 			console.log(`[perf][renderer] workspace switch START → ${next}`);
 			mark('start');
-			clearWorkspaceConversationState();
+			if (workspace && normWorkspaceRootKey(workspace) !== normWorkspaceRootKey(next)) {
+				cacheThreadStateForWorkspace(workspace);
+			}
+			resetWorkspaceEphemeralState();
+			const restoredFromCache = restoreThreadStateForWorkspace(next);
+			if (!restoredFromCache) {
+				resetThreadState({ keepSidebarThreads: true });
+			}
 			setWorkspace(next);
 			mark('workspace-set');
-			console.log(`[perf][renderer] workspace:openPath+setState done in ${(performance.now() - t0).toFixed(1)}ms`);
-			// 并行而非串行，且 refreshGit 由 workspace 变化的 effect 触发，此处不重复调用
-			const threadId = await refreshThreads();
-			mark('threads-done');
-			measure('void-ws:apply-path:threads', 'start', 'threads-done');
-			console.log(`[perf][renderer] refreshThreads IPC round-trip done in ${(performance.now() - t0).toFixed(1)}ms`);
-			// 直接调用 loadMessages，避免通过 effect (currentId 变化 → loadMessages)
-			// 间接触发导致多出一帧空白 render。去重 ref 确保 effect 不会发起重复 IPC。
-			if (threadId) {
-				await loadMessages(threadId, onMessagesLoaded);
-				restoreInFlightThreadUiIfNeeded(threadId);
-				mark('messages-done');
-				measure('void-ws:apply-path:messages', 'threads-done', 'messages-done');
-				console.log(`[perf][renderer] loadMessages done in ${(performance.now() - t0).toFixed(1)}ms`);
-			}
+			console.log(
+				`[perf][renderer] workspace:openPath+setState done in ${(performance.now() - t0).toFixed(1)}ms` +
+					(restoredFromCache ? ' (cache restored)' : '')
+			);
+			// 后台补齐线程/消息：打开工作区的交互先完成，慢 IPC 不再卡住 workspace 切换。
+			void (async () => {
+				const isLatestWorkspaceSwitch = () => workspaceSwitchSeqRef.current === seq;
+				const threadId = await refreshThreads({ shouldApply: isLatestWorkspaceSwitch });
+				if (!isLatestWorkspaceSwitch()) {
+					return;
+				}
+				mark('threads-done');
+				measure('void-ws:apply-path:threads', 'start', 'threads-done');
+				console.log(`[perf][renderer] refreshThreads IPC round-trip done in ${(performance.now() - t0).toFixed(1)}ms`);
+				if (threadId) {
+					await loadMessages(threadId, onMessagesLoaded);
+					if (!isLatestWorkspaceSwitch()) {
+						return;
+					}
+					restoreInFlightThreadUiIfNeeded(threadId);
+					mark('messages-done');
+					measure('void-ws:apply-path:messages', 'threads-done', 'messages-done');
+					console.log(`[perf][renderer] loadMessages done in ${(performance.now() - t0).toFixed(1)}ms`);
+				}
+			})();
 		},
-		[clearWorkspaceConversationState, refreshThreads, loadMessages, onMessagesLoaded, restoreInFlightThreadUiIfNeeded]
+		[
+			workspace,
+			cacheThreadStateForWorkspace,
+			resetWorkspaceEphemeralState,
+			restoreThreadStateForWorkspace,
+			resetThreadState,
+			setWorkspace,
+			refreshThreads,
+			loadMessages,
+			onMessagesLoaded,
+			restoreInFlightThreadUiIfNeeded,
+		]
 	);
 
 	const openWorkspaceByPath = useCallback(
