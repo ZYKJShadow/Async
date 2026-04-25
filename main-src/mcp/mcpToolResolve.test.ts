@@ -8,12 +8,13 @@ function makeClient(
 	status: McpServerStatus['status'],
 	tools: McpServerStatus['tools']
 ): McpClientLike {
+	const { id, name, ...rest } = config;
 	const full: McpServerConfig = {
-		id: config.id,
-		name: config.name,
-		enabled: config.enabled ?? true,
-		transport: config.transport ?? 'stdio',
-		...config,
+		...rest,
+		id,
+		name,
+		enabled: rest.enabled ?? true,
+		transport: rest.transport ?? 'stdio',
 	};
 	return {
 		config: full,

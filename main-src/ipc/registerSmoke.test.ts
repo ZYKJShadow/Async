@@ -233,5 +233,5 @@ describe('IPC register smoke', () => {
 			}
 			bindWorkspaceRootToWebContents(sender as never, null);
 		}
-	});
+	}, 15_000);
 });

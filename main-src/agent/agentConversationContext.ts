@@ -1,4 +1,4 @@
-import type OpenAI from 'openai';
+import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import { HttpsProxyAgent } from 'https-proxy-agent';
@@ -98,7 +98,7 @@ function truncate(text: string, maxChars: number): string {
 }
 
 function messageTokens(messages: readonly unknown[]): number {
-	return messages.reduce((total, message) => total + roughTokenCount(message), 0);
+	return messages.reduce<number>((total, message) => total + roughTokenCount(message), 0);
 }
 
 export function estimateOpenAIConversationTokens(messages: OpenAIMessage[]): number {
@@ -109,7 +109,11 @@ export function estimateAnthropicConversationTokens(messages: AnthropicMessage[]
 	return messageTokens(messages);
 }
 
-function hasOpenAIToolCalls(message: OpenAIMessage): boolean {
+function hasOpenAIToolCalls(
+	message: OpenAIMessage
+): message is OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam & {
+	tool_calls: NonNullable<OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam['tool_calls']>;
+} {
 	return message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
 }
 

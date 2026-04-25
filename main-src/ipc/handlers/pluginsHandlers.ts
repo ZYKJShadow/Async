@@ -29,9 +29,10 @@ export function registerPluginsHandlers(): void {
 
 	ipcMain.handle('plugins:pickUserDirectory', async (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
-		const result = await dialog.showOpenDialog(win ?? undefined, {
+		const options = {
 			properties: ['openDirectory', 'createDirectory'],
-		});
+		} satisfies Electron.OpenDialogOptions;
+		const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
 		if (result.canceled || !result.filePaths[0]) {
 			return { ok: false as const };
 		}

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { TeamExpertConfig } from '../settingsStore.js';
 
 const { listBuiltinTeamExpertsMock } = vi.hoisted(() => ({
-	listBuiltinTeamExpertsMock: vi.fn(() => []),
+	listBuiltinTeamExpertsMock: vi.fn<() => TeamExpertConfig[]>(() => []),
 }));
 
 vi.mock('./builtinTeamCatalog.js', () => ({

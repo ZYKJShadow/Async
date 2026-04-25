@@ -104,9 +104,10 @@ export function registerSettingsHandlers(): void {
 	ipcMain.handle('settings:importBotSkillFolder', async (event) => {
 		try {
 			const win = BrowserWindow.fromWebContents(event.sender);
-			const result = await dialog.showOpenDialog(win ?? undefined, {
+			const options = {
 				properties: ['openDirectory'],
-			});
+			} satisfies Electron.OpenDialogOptions;
+			const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
 			if (result.canceled || !result.filePaths[0]) {
 				return { ok: false as const, canceled: true as const };
 			}

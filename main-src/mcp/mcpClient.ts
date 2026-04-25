@@ -193,7 +193,7 @@ export class McpClient extends EventEmitter<McpClientEvents> implements McpClien
 				await client.connect(transport);
 				const stderrStream = transport.stderr;
 				if (stderrStream && 'on' in stderrStream) {
-					(stderrStream as NodeJS.ReadableStream).on('data', (data: Buffer) => {
+					(stderrStream as unknown as NodeJS.ReadableStream).on('data', (data: Buffer) => {
 						console.warn(`[MCP ${this.config.name} stderr]`, data.toString('utf8'));
 					});
 				}

@@ -121,7 +121,7 @@ function withCacheOnLastUserContentBlock(blocks: ContentBlockParam[]): { blocks:
 		return { blocks: [{ type: 'text', text: '', cache_control: getAnthropicCacheControl() }], applied: true };
 	}
 	const last = out.length - 1;
-	const cur = out[last] as Record<string, unknown>;
+	const cur = out[last] as unknown as Record<string, unknown>;
 	out[last] = { ...cur, cache_control: getAnthropicCacheControl() } as ContentBlockParam;
 	return { blocks: out, applied: true };
 }
@@ -137,7 +137,7 @@ function withCacheOnAssistantContentBlocks(blocks: ContentBlockParam[]): { block
 	if (last.type === 'thinking' || last.type === 'redacted_thinking') {
 		return { blocks: out, applied: false };
 	}
-	const cur = last as Record<string, unknown>;
+	const cur = last as unknown as Record<string, unknown>;
 	out[lastIdx] = { ...cur, cache_control: getAnthropicCacheControl() } as ContentBlockParam;
 	return { blocks: out, applied: true };
 }

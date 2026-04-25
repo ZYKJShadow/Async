@@ -26,7 +26,6 @@ import { ensureAgentMemoryDirExists, loadAgentMemoryPrompt } from './agentMemory
 import { buildRelevantMemoryContextBlock } from '../memdir/findRelevantMemories.js';
 import { extractMemoriesToDir } from '../services/extractMemories/extractMemories.js';
 import type { ToolExecutionHooks } from './toolExecutor.js';
-import type { ToolCall, ToolResult } from './agentTools.js';
 import { createRequestUserInputToolHandler } from './requestUserInputTool.js';
 
 export type ManagedAgentUiEvent =
@@ -42,6 +41,11 @@ export type ManagedAgentUiEvent =
 			agentId: string;
 			result: string;
 			success: boolean;
+	  }
+	| {
+			threadId: string;
+			type: 'user_input_request';
+			request: AgentUserInputRequest;
 	  };
 
 type ManagedAgentEmitter = (evt: ManagedAgentUiEvent) => void;
@@ -385,7 +389,13 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 				threadId: runtime.threadId,
 				signal: abortController.signal,
 				emit: (evt) => {
-					runtime.emit?.({ threadId: runtime.threadId, ...evt });
+					if (evt.type === 'user_input_request' && evt.request) {
+						runtime.emit?.({
+							threadId: runtime.threadId,
+							type: 'user_input_request',
+							request: evt.request as AgentUserInputRequest,
+						});
+					}
 				},
 				agentId: runtime.agentId,
 				agentTitle: runtime.title,

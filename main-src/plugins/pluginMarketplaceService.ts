@@ -944,8 +944,7 @@ async function materializePluginSourceToTemp(
 	const tempRoot = makeTempDir('async-plugin');
 	try {
 		const repoDir = path.join(tempRoot, 'repo');
-		const sourceKind = String(sourceObj.source ?? '').trim();
-		switch (sourceKind) {
+		switch (sourceObj.source) {
 			case 'github': {
 				const repo = typeof sourceObj.repo === 'string' ? sourceObj.repo.trim() : '';
 				if (!repo) {
@@ -1011,9 +1010,9 @@ async function materializePluginSourceToTemp(
 			}
 			case 'npm':
 			case 'pip':
-				throw new Error(`Plugin source "${sourceKind}" is not supported by Async yet.`);
+				throw new Error(`Plugin source "${sourceObj.source}" is not supported by Async yet.`);
 			default:
-				throw new Error(`Plugin source "${sourceKind || 'unknown'}" is not supported.`);
+				throw new Error(`Plugin source "${String(sourceObj.source || 'unknown')}" is not supported.`);
 		}
 
 		if (!isRecognizedPluginDirectorySync(repoDir) && !canSynthesizePluginMetadata(entry)) {

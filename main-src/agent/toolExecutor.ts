@@ -8,6 +8,8 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import * as https from 'node:https';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { getThread } from '../threadStore.js';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolveWorkspacePath, isPathInsideRoot } from '../workspace.js';
@@ -62,6 +64,8 @@ import {
 	waitForManagedAgents,
 	type ManagedAgentUiEvent,
 } from './managedSubagents.js';
+
+const execFileAsync = promisify(execFile);
 
 export type SubAgentBackgroundDonePayload = {
 	parentToolCallId: string;
@@ -1310,7 +1314,7 @@ function throwIfToolAbortRequested(signal: AbortSignal | undefined, toolName: st
 	if (!signal?.aborted) {
 		return;
 	}
-	throw new DOMException('Aborted', 'AbortError');
+	throw new DOMException(`Tool ${toolName} aborted during ${phase}`, 'AbortError');
 }
 
 export async function executeTool(
@@ -2467,36 +2471,6 @@ function formatBackgroundTerminalSessionResult(opts: {
 	return lines.join('\n');
 }
 
-function formatPreservedTerminalSessionResult(opts: {
-	sessionId: string;
-	output: string;
-	command?: string;
-	profileName?: string;
-	authPrompt?: string;
-}): string {
-	const lines = [
-		opts.profileName
-			? `session_id=${opts.sessionId} profile=${opts.profileName} session_kept=true`
-			: `session_id=${opts.sessionId} session_kept=true`,
-		'---',
-	];
-	if (opts.authPrompt) {
-		lines.push(`Interactive prompt blocked completion: ${opts.authPrompt}`);
-	} else if (opts.profileName) {
-		lines.push(`Foreground wait ended, but the terminal session for profile "${opts.profileName}" is still alive.`);
-	} else {
-		lines.push('Foreground wait ended, but the terminal session is still alive.');
-	}
-	if (opts.command) {
-		lines.push(`Command: ${opts.command}`);
-	}
-	lines.push('Use Terminal read with this session_id to inspect more output, or close it when finished.');
-	if (opts.output.trim()) {
-		lines.push('', opts.output);
-	}
-	return lines.join('\n');
-}
-
 function resolveTerminalCwd(raw: unknown, execCtx: ToolExecutionContext): string | undefined {
 	if (typeof raw !== 'string' || !raw.trim()) {
 		return execCtx.workspaceRoot ?? undefined;
@@ -3019,7 +2993,7 @@ function executeTodoWrite(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 	}));
 
 	const key = execCtx.threadId ?? execCtx.workspaceRoot ?? '_default';
-	const { oldTodos, newTodos } = setTodos(key, todos);
+	const { newTodos } = setTodos(key, todos);
 
 	const completed = newTodos.filter((t) => t.status === 'completed').length;
 	const inProgress = newTodos.filter((t) => t.status === 'in_progress').length;

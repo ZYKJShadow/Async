@@ -77,7 +77,6 @@ function languageIdForUri(uri: string, map: Record<string, string>): string {
 export class GenericLspSession {
 	private child: cp.ChildProcess | null = null;
 	private connection: ReturnType<typeof createMessageConnection> | null = null;
-	private workspaceRoot: string | null = null;
 	private readonly openedUris = new Set<string>();
 	private readonly docVersions = new Map<string, number>();
 
@@ -94,7 +93,6 @@ export class GenericLspSession {
 	async start(workspaceRoot: string): Promise<void> {
 		await this.dispose();
 		const root = path.resolve(workspaceRoot);
-		this.workspaceRoot = root;
 		let cwd: string;
 		if (this.opts.absoluteCwd) {
 			cwd = path.resolve(this.opts.absoluteCwd);
@@ -287,7 +285,6 @@ export class GenericLspSession {
 			this.child.kill('SIGTERM');
 			this.child = null;
 		}
-		this.workspaceRoot = null;
 		this.openedUris.clear();
 		this.docVersions.clear();
 	}

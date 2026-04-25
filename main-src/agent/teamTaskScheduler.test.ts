@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rankReadyTasks, type TaskSchedulingStrategy } from './teamTaskScheduler.js';
+import { rankReadyTasks } from './teamTaskScheduler.js';
 import type { TeamTask } from './teamOrchestrator.js';
 import type { TeamExpertRuntimeProfile } from './teamExpertProfiles.js';
 
@@ -26,7 +26,6 @@ function makeExpert(id: string, name: string, systemPrompt = ''): TeamExpertRunt
 		roleType: 'custom',
 		systemPrompt,
 		summary: '',
-		enabled: true,
 		allowedTools: [],
 	};
 }

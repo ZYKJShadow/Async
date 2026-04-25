@@ -17,7 +17,7 @@ import OpenAI from 'openai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
-import type { ChatMessage, DeferredToolState } from '../threadStore.js';
+import type { DeferredToolState } from '../threadStore.js';
 import type { ShellSettings, ModelRequestParadigm, ThinkingLevel } from '../settingsStore.js';
 import {
 	assembleAgentToolPool,
@@ -48,7 +48,6 @@ import {
 import type { AnthropicToolResultBlock, AnthropicToolSchema } from '../llm/anthropicBeta.js';
 import type { ComposerMode } from '../llm/composerMode.js';
 import {
-	agentToolsForComposerMode,
 	isReadOnlyAgentTool,
 	toOpenAITools,
 	toAnthropicTools,
@@ -537,7 +536,7 @@ export async function runAgentLoop(
 	const repairStart = Date.now();
 	const messagesForApi = repairAgentThreadMessagesForApi(threadMessages);
 	console.log(`[AgentLoop] repairAgentThreadMessagesForApi (${Date.now() - repairStart}ms) thread=${tid}`);
-	await prepareMcpConnectionsForSession(options.composerMode, settings.mcpServers, options.workspaceRoot);
+	await prepareMcpConnectionsForSession(options.composerMode, settings.mcpServers, options.workspaceRoot ?? null);
 	console.log(
 		`[AgentLoop] after MCP prepare, before ${options.paradigm === 'anthropic' ? 'Anthropic' : 'OpenAI'} loop (${Date.now() - loopT0}ms since runAgentLoop enter) thread=${tid}`
 	);
@@ -949,7 +948,7 @@ async function runOpenAILoop(
 		);
 		toolResultReplacementState = budgeted.state;
 		options.onToolResultReplacementStateChange?.(toolResultReplacementState);
-		const toolMessages = executed.map((item, index) => {
+		const toolMessages: OAIMsg[] = executed.map((item, index) => {
 			const adjusted = budgeted.results[index]!;
 			structured.pushTool(
 				item.call.id,
@@ -1858,7 +1857,7 @@ async function runAnthropicLoop(
 		const toolResults = await flushAnthropicToolsInOrder(turnToolUses);
 		console.log(`[AgentLoop/A] round ${round} — tools done (${Date.now() - toolsStartA}ms)`);
 
-		conversation.push({ role: 'user', content: toolResults });
+		conversation.push({ role: 'user', content: toolResults as unknown as ContentBlockParam[] });
 
 		if (maxRoundsA != null && round === maxRoundsA - 1) {
 			console.warn(`[AgentLoop/A] max tool rounds (${maxRoundsA}) exhausted — ending loop`);

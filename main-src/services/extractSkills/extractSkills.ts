@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import type { ModelRequestParadigm, ShellSettings } from '../../settingsStore.js';
+import type { ShellSettings } from '../../settingsStore.js';
 import { resolveModelRequest } from '../../llm/modelResolve.js';
 import {
 	applyAnthropicProviderIdentity,
@@ -22,7 +22,6 @@ import {
 	saveSkillExtractionToolBaseline,
 	type ChatMessage,
 } from '../../threadStore.js';
-import { parseAgentAssistantPayload } from '../../../src/agentStructuredMessage.js';
 import type { RuntimeMemoryModel } from '../../memdir/findRelevantMemories.js';
 function getSkillDir(workspaceRoot: string): string {
 	return path.join(workspaceRoot, '.async', 'skills');
@@ -81,21 +80,6 @@ function buildRecentConversationBlock(messages: ChatMessage[], startIndex: numbe
 			.join('\n\n'),
 		MAX_SOURCE_CHARS
 	);
-}
-
-function countToolCallsInMessages(messages: ChatMessage[]): number {
-	let count = 0;
-	for (const m of messages) {
-		if (m.role !== 'assistant') continue;
-		const payload = parseAgentAssistantPayload(m.content);
-		if (payload?.parts) {
-			count += payload.parts.filter((p) => p.type === 'tool').length;
-		} else if (m.content.includes('<tool_call')) {
-			// Fallback for legacy format
-			count += (m.content.match(/<tool_call/g) ?? []).length;
-		}
-	}
-	return count;
 }
 
 /**
@@ -395,13 +379,7 @@ async function runSkillExtractionOnce(
 	if (!thread) {
 		return;
 	}
-	const skillDir = getAutoSkillPath(workspaceRoot);
-	if (!skillDir) {
-		return;
-	}
-
 	const toolCalls = thread.agentToolCallsCompleted ?? 0;
-	const startIndex = thread.messages.filter((m) => m.role !== 'system').length;
 	const recentBlock = buildRecentConversationBlock(thread.messages, 0);
 	if (!recentBlock.trim()) {
 		return;

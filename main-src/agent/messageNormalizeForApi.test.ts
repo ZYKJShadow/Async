@@ -3,7 +3,6 @@ import type OpenAI from 'openai';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import {
 	mergeAdjacentAnthropicUserMessages,
-	mergeAdjacentOpenAIUserMessages,
 	normalizeAnthropicMessagesForApi,
 	normalizeOpenAIMessagesForApi,
 	stripOrphanAnthropicServerToolUsesInAssistant,

@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import type { ModelRequestParadigm, ShellSettings } from '../../settingsStore.js';
+import type { ShellSettings } from '../../settingsStore.js';
 import { resolveModelRequest } from '../../llm/modelResolve.js';
 import {
 	applyAnthropicProviderIdentity,
@@ -27,7 +27,7 @@ import {
 import { parseAgentAssistantPayload } from '../../../src/agentStructuredMessage.js';
 import { ensureMemoryDirExists } from '../../memdir/memdir.js';
 import { scanMemoryFiles, type MemoryHeader } from '../../memdir/memoryScan.js';
-import { getAutoMemEntrypoint, getAutoMemPath } from '../../memdir/paths.js';
+import { getAutoMemEntrypoint } from '../../memdir/paths.js';
 import { parseMemoryType, type MemoryType } from '../../memdir/memoryTypes.js';
 import type { RuntimeMemoryModel } from '../../memdir/findRelevantMemories.js';
 import { queueExtractSkills } from '../extractSkills/extractSkills.js';

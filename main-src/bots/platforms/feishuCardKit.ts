@@ -305,7 +305,6 @@ export class FeishuStreamingSession {
 	private readonly uploadImage?: (filePath: string) => Promise<string>;
 
 	private cardId = '';
-	private messageId = '';
 	private sequence = 0;
 	private currentText = '';
 	private currentChannel: BotStreamChannel = 'leader';
@@ -369,7 +368,7 @@ export class FeishuStreamingSession {
 				};
 
 				this.cardId = await this.client.createCard(cardJson);
-				this.messageId = await this.client.sendCardMessage(chatId, this.cardId, replyMessageId);
+				await this.client.sendCardMessage(chatId, this.cardId, replyMessageId);
 				this.sequence = 0;
 				for (const element of initialElements) {
 					this.lastRenderedByElement.set(element.element_id, serializeElement(element));

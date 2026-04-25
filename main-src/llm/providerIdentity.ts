@@ -10,8 +10,8 @@ import {
 	resolveProviderIdentitySettings,
 } from '../../src/providerIdentitySettings.js';
 
-type OpenAIClientOptions = ConstructorParameters<typeof OpenAI>[0];
-type AnthropicClientOptions = ConstructorParameters<typeof Anthropic>[0];
+type OpenAIClientOptions = NonNullable<ConstructorParameters<typeof OpenAI>[0]>;
+type AnthropicClientOptions = NonNullable<ConstructorParameters<typeof Anthropic>[0]>;
 
 const RUNTIME_PROVIDER_SESSION_ID = randomUUID();
 const DEFAULT_APP_VERSION = '0.0.0';

@@ -19,12 +19,6 @@ import {
 import { getPluginDiscoveryVersion } from './pluginDiscoveryVersion.js';
 
 const MAX_PLUGIN_MARKDOWN_CHARS = 120_000;
-const EMPTY_PLUGIN_RUNTIME_STATE: PluginRuntimeState = {
-	plugins: [],
-	skills: [],
-	commands: [],
-	mcpServers: [],
-};
 
 type GenericObject = Record<string, unknown>;
 
@@ -374,7 +368,7 @@ function collectCommandItems(
 function parseMcpServerConfig(
 	serverName: string,
 	rawConfig: unknown,
-	scope: PluginInstallScope,
+	_scope: PluginInstallScope,
 	pluginName: string,
 	contributionKey: string,
 	sourceRelPath: string,

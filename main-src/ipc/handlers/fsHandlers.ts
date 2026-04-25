@@ -15,10 +15,11 @@ export function registerFsHandlers(): void {
 		if (!root) {
 			return { ok: false as const, error: 'no-workspace' as const };
 		}
-		const r = await dialog.showOpenDialog(win ?? undefined, {
+		const openOptions = {
 			properties: ['openFile'],
 			defaultPath: root,
-		});
+		} satisfies Electron.OpenDialogOptions;
+		const r = win ? await dialog.showOpenDialog(win, openOptions) : await dialog.showOpenDialog(openOptions);
 		if (r.canceled || !r.filePaths[0]) {
 			return { ok: false as const, canceled: true as const };
 		}
@@ -39,10 +40,11 @@ export function registerFsHandlers(): void {
 				return { ok: false as const, error: 'no-workspace' as const };
 			}
 			const defaultName = typeof opts?.defaultName === 'string' ? opts.defaultName : 'Untitled.txt';
-			const r = await dialog.showSaveDialog(win ?? undefined, {
+			const saveOptions = {
 				title: typeof opts?.title === 'string' ? opts.title : 'Save',
 				defaultPath: path.join(root, path.basename(defaultName)),
-			});
+			} satisfies Electron.SaveDialogOptions;
+			const r = win ? await dialog.showSaveDialog(win, saveOptions) : await dialog.showSaveDialog(saveOptions);
 			if (r.canceled || !r.filePath) {
 				return { ok: false as const, canceled: true as const };
 			}

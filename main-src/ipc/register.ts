@@ -522,7 +522,7 @@ export function registerIpc(): void {
 				return { ok: false as const, error: 'no-workspace' as const, attachments: [] };
 			}
 			const win = BrowserWindow.fromWebContents(event.sender);
-			const r = await dialog.showOpenDialog(win ?? undefined, {
+			const options = {
 				properties: ['openFile', 'multiSelections'],
 				defaultPath: root,
 				filters: [
@@ -531,7 +531,8 @@ export function registerIpc(): void {
 						extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'],
 					},
 				],
-			});
+			} satisfies Electron.OpenDialogOptions;
+			const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
 			if (r.canceled || r.filePaths.length === 0) {
 				return { ok: false as const, canceled: true as const, attachments: [] };
 			}

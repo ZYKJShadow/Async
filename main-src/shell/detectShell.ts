@@ -8,7 +8,7 @@
  * - 提供降级策略
  */
 
-import { getPlatform, isWindows, isUnixLike, isWSL } from '../platform';
+import { getPlatform, isWindows, isUnixLike } from '../platform';
 import type { ShellProvider, ShellConfig } from './shellProvider';
 import { createBashProvider, findUnixShell } from './bashProvider';
 import { createPowerShellProvider, findPowerShell } from './powershellProvider';

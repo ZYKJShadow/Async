@@ -3,7 +3,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { McpClient, type McpClientEvents } from './mcpClient.js';
+import { McpClient } from './mcpClient.js';
 import type {
 	McpServerConfig,
 	McpToolDef,
@@ -231,7 +231,7 @@ export class McpManager extends EventEmitter<McpManagerEvents> {
 	}
 
 	private setupClientListeners(client: McpClient): void {
-		client.on('status', (serverId, status, error) => {
+		client.on('status', (serverId, status) => {
 			this.emit('status_changed', serverId);
 			if (status === 'connected') {
 				this.updateTools();

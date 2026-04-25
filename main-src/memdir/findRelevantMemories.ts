@@ -228,31 +228,6 @@ async function selectRelevantMemoriesWithRuntimeModel(
 	}
 }
 
-async function selectRelevantMemoriesWithModel(
-	settings: ShellSettings,
-	modelSelection: string,
-	query: string,
-	memories: MemoryHeader[]
-): Promise<string[]> {
-	const resolved = resolveModelRequest(settings, modelSelection);
-	if (!resolved.ok) {
-		return [];
-	}
-	return selectRelevantMemoriesWithRuntimeModel(
-		{
-			requestModelId: resolved.requestModelId,
-			paradigm: resolved.paradigm,
-			requestApiKey: resolved.apiKey,
-			requestBaseURL: resolved.baseURL,
-			requestProxyUrl: resolved.proxyUrl,
-			temperatureMode: resolved.temperatureMode,
-			temperature: resolved.temperature,
-		},
-		query,
-		memories
-	);
-}
-
 export async function findRelevantMemoriesInDir(
 	query: string,
 	memoryDir: string,

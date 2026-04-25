@@ -100,10 +100,10 @@ function buildAnthropicToolBaseSchemas(defs: AgentToolDef[]): AnthropicToolBaseS
 	return cacheSet(
 		anthropicToolSchemaCache,
 		signature,
-		defs.map((def) => ({
+		defs.map((def): AnthropicToolBaseSchema => ({
 			name: def.name,
 			description: def.description,
-			input_schema: normalizeUnknown(def.parameters) as Record<string, unknown>,
+			input_schema: normalizeUnknown(def.parameters) as AnthropicToolBaseSchema['input_schema'],
 			...(def.strict === true ? { strict: true } : {}),
 			...(def.eagerInputStreaming === true ? { eager_input_streaming: true } : {}),
 		}))

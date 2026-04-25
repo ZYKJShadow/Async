@@ -8,10 +8,10 @@ import {
 } from './anthropicPromptCache.js';
 
 function countCacheControls(value: unknown): number {
-	if (Array.isArray(value)) return value.reduce((sum, child) => sum + countCacheControls(child), 0);
+	if (Array.isArray(value)) return value.reduce<number>((sum, child) => sum + countCacheControls(child), 0);
 	if (!value || typeof value !== 'object') return 0;
 	const record = value as Record<string, unknown>;
-	return (record.cache_control ? 1 : 0) + Object.values(record).reduce((sum, child) => sum + countCacheControls(child), 0);
+	return (record.cache_control ? 1 : 0) + Object.values(record).reduce<number>((sum, child) => sum + countCacheControls(child), 0);
 }
 
 function markedMessageIndexes(messages: MessageParam[]): number[] {

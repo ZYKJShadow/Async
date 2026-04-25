@@ -82,6 +82,8 @@
     "mac": {
       "icon": "resources/icons/icon.icns",
       "category": "public.app-category.developer-tools",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "target": [
         {
           "target": "dmg",
@@ -117,10 +119,13 @@
     }
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/diff": "^5.2.3",
     "@types/minimatch": "^5.1.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ssh2-sftp-client": "^9.0.6",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",

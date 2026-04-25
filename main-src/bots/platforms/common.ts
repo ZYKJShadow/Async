@@ -3,6 +3,7 @@ import * as https from 'node:https';
 import type { Readable } from 'node:stream';
 import FormData from 'form-data';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import type { HttpInstance, HttpRequestOptions as LarkHttpRequestOptions } from '@larksuiteoapi/node-sdk';
 import type { BotIntegrationConfig } from '../../botSettingsTypes.js';
 import type { BotInboundMessage } from '../botRuntime.js';
 
@@ -201,11 +202,9 @@ export function electronProxyRulesFromUrl(proxyUrl: string): string {
 	return `${scheme}://${parsed.host}`;
 }
 
-type JsonPrimitive = string | number | boolean;
-
 type JsonRequestOptions = {
 	method?: string;
-	headers?: Record<string, string | undefined>;
+	headers?: Record<string, unknown>;
 	body?: unknown;
 	timeoutMs?: number;
 	proxyUrl?: string;
@@ -214,18 +213,9 @@ type JsonRequestOptions = {
 	returnHeaders?: boolean;
 };
 
-type HttpInstanceRequestOptions = {
-	url: string;
-	method?: string;
-	headers?: Record<string, string | undefined>;
-	params?: Record<string, JsonPrimitive | null | undefined>;
-	data?: unknown;
-	timeout?: number;
-	responseType?: 'json' | 'stream';
-	$return_headers?: boolean;
-};
+type HttpInstanceRequestOptions<D = unknown> = LarkHttpRequestOptions<D>;
 
-function appendQueryParams(url: string, params?: Record<string, JsonPrimitive | null | undefined>): string {
+function appendQueryParams(url: string, params?: Record<string, unknown>): string {
 	if (!params || Object.keys(params).length === 0) {
 		return url;
 	}
@@ -234,18 +224,20 @@ function appendQueryParams(url: string, params?: Record<string, JsonPrimitive | 
 		if (value === null || value === undefined) {
 			continue;
 		}
-		parsed.searchParams.set(key, String(value));
+		if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+			parsed.searchParams.set(key, String(value));
+		}
 	}
 	return parsed.toString();
 }
 
-function normalizeHeaders(input?: Record<string, string | undefined>): Record<string, string> {
+function normalizeHeaders(input?: Record<string, unknown>): Record<string, string> {
 	const headers: Record<string, string> = {};
 	for (const [key, value] of Object.entries(input ?? {})) {
 		if (value === undefined) {
 			continue;
 		}
-		headers[key] = value;
+		headers[key] = String(value);
 	}
 	return headers;
 }
@@ -444,33 +436,46 @@ export async function requestJson<T>(url: string, options: JsonRequestOptions = 
 	});
 }
 
-export function createJsonHttpInstance(proxyUrl?: string) {
-	const request = async <T = any>(options: HttpInstanceRequestOptions): Promise<T> =>
-		await requestJson<T>(appendQueryParams(options.url, options.params), {
+function normalizeLarkResponseType(
+	responseType: LarkHttpRequestOptions<unknown>['responseType'] | undefined
+): JsonRequestOptions['responseType'] {
+	return responseType === 'stream' ? 'stream' : responseType === undefined ? undefined : 'json';
+}
+
+export function createJsonHttpInstance(proxyUrl?: string): HttpInstance {
+	const request: HttpInstance['request'] = async <T = any, R = T, D = any>(
+		options: HttpInstanceRequestOptions<D>
+	): Promise<R> => {
+		const url = String(options.url ?? '').trim();
+		if (!url) {
+			throw new Error('Lark HTTP request is missing a URL.');
+		}
+		return await requestJson<R>(appendQueryParams(url, options.params), {
 			method: options.method,
 			headers: options.headers,
 			body: options.data,
 			timeoutMs: options.timeout,
 			proxyUrl,
-			responseType: options.responseType,
+			responseType: normalizeLarkResponseType(options.responseType),
 			returnHeaders: options.$return_headers === true,
 		});
+	};
 
 	return {
 		request,
-		get: async <T = any>(url: string, options?: Omit<HttpInstanceRequestOptions, 'url' | 'method'>) =>
-			await request<T>({ ...(options ?? {}), url, method: 'GET' }),
-		delete: async <T = any>(url: string, options?: Omit<HttpInstanceRequestOptions, 'url' | 'method'>) =>
-			await request<T>({ ...(options ?? {}), url, method: 'DELETE' }),
-		head: async <T = any>(url: string, options?: Omit<HttpInstanceRequestOptions, 'url' | 'method'>) =>
-			await request<T>({ ...(options ?? {}), url, method: 'HEAD' }),
-		options: async <T = any>(url: string, options?: Omit<HttpInstanceRequestOptions, 'url' | 'method'>) =>
-			await request<T>({ ...(options ?? {}), url, method: 'OPTIONS' }),
-		post: async <T = any>(url: string, data?: unknown, options?: Omit<HttpInstanceRequestOptions, 'url' | 'method' | 'data'>) =>
-			await request<T>({ ...(options ?? {}), url, method: 'POST', data }),
-		put: async <T = any>(url: string, data?: unknown, options?: Omit<HttpInstanceRequestOptions, 'url' | 'method' | 'data'>) =>
-			await request<T>({ ...(options ?? {}), url, method: 'PUT', data }),
-		patch: async <T = any>(url: string, data?: unknown, options?: Omit<HttpInstanceRequestOptions, 'url' | 'method' | 'data'>) =>
-			await request<T>({ ...(options ?? {}), url, method: 'PATCH', data }),
+		get: async <T = any, R = T, D = any>(url: string, options?: HttpInstanceRequestOptions<D>) =>
+			await request<T, R, D>({ ...(options ?? {}), url, method: 'GET' }),
+		delete: async <T = any, R = T, D = any>(url: string, options?: HttpInstanceRequestOptions<D>) =>
+			await request<T, R, D>({ ...(options ?? {}), url, method: 'DELETE' }),
+		head: async <T = any, R = T, D = any>(url: string, options?: HttpInstanceRequestOptions<D>) =>
+			await request<T, R, D>({ ...(options ?? {}), url, method: 'HEAD' }),
+		options: async <T = any, R = T, D = any>(url: string, options?: HttpInstanceRequestOptions<D>) =>
+			await request<T, R, D>({ ...(options ?? {}), url, method: 'OPTIONS' }),
+		post: async <T = any, R = T, D = any>(url: string, data?: D, options?: HttpInstanceRequestOptions<D>) =>
+			await request<T, R, D>({ ...(options ?? {}), url, method: 'POST', data }),
+		put: async <T = any, R = T, D = any>(url: string, data?: D, options?: HttpInstanceRequestOptions<D>) =>
+			await request<T, R, D>({ ...(options ?? {}), url, method: 'PUT', data }),
+		patch: async <T = any, R = T, D = any>(url: string, data?: D, options?: HttpInstanceRequestOptions<D>) =>
+			await request<T, R, D>({ ...(options ?? {}), url, method: 'PATCH', data }),
 	};
 }
