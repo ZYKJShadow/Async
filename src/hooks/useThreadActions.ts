@@ -61,6 +61,7 @@ export type UseThreadActionsParams = {
 	// streaming reset
 	setLastTurnUsage: Dispatch<SetStateAction<TurnTokenUsage | null>>;
 	setAwaitingReply: Dispatch<SetStateAction<boolean>>;
+	setStreamingThreadId: Dispatch<SetStateAction<string | null>>;
 	setStreaming: Dispatch<SetStateAction<string>>;
 	setStreamingThinking: Dispatch<SetStateAction<string>>;
 	clearStreamingToolPreviewNow: () => void;
@@ -167,6 +168,7 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 		setHiddenAgentWorkspacePaths,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -208,6 +210,7 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 		setCurrentId(r.id);
 		setLastTurnUsage(null);
 		setAwaitingReply(false);
+		setStreamingThreadId(null);
 		setStreaming('');
 		setStreamingThinking('');
 		clearStreamingToolPreviewNow();
@@ -234,6 +237,7 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 		setCurrentId,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -342,6 +346,7 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 				// 消息已在内存：流式/plan/预览等非紧急状态用 transition，避免与已有 Markdown 长任务叠成单帧巨型 commit
 				startTransition(() => {
 					setAwaitingReply(false);
+					setStreamingThreadId(null);
 					setStreaming('');
 					setStreamingThinking('');
 					clearStreamingToolPreviewNow();
@@ -358,6 +363,7 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 				setInlineResendSegments([]);
 			} else {
 				setAwaitingReply(false);
+				setStreamingThreadId(null);
 				setStreaming('');
 				setStreamingThinking('');
 				clearStreamingToolPreviewNow();
@@ -422,6 +428,7 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 			setEditorThreadHistoryOpen,
 			setCurrentId,
 			setAwaitingReply,
+			setStreamingThreadId,
 			setStreaming,
 			setStreamingThinking,
 			streamStartedAtRef,
@@ -571,6 +578,7 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 			if (wasCurrent && awaitingReply) {
 				await shell.invoke('chat:abort', id);
 				setAwaitingReply(false);
+				setStreamingThreadId(null);
 				setStreaming('');
 				setStreamingThinking('');
 				clearStreamingToolPreviewNow();
@@ -611,6 +619,7 @@ export function useThreadActions(params: UseThreadActionsParams): UseThreadActio
 			clearStreamingToolPreviewNow,
 			resetLiveAgentBlocks,
 			setAwaitingReply,
+			setStreamingThreadId,
 			setStreaming,
 			setStreamingThinking,
 			streamStartedAtRef,

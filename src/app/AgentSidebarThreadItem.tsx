@@ -27,6 +27,8 @@ export type AgentSidebarThreadItemProps = {
 	workspace: string | null;
 	currentId: string | null;
 	hasUnreadAgentReply?: boolean;
+	/** Front-end 当前正在流式回复的线程 id；用于无延迟显示「正在回复」状态 */
+	streamingThreadId?: string | null;
 	editingThreadId: string | null;
 	editingThreadTitleDraft: string;
 	setEditingThreadTitleDraft: (v: string) => void;
@@ -52,6 +54,7 @@ function AgentSidebarThreadItemImpl(props: AgentSidebarThreadItemProps) {
 		workspace,
 		currentId,
 		hasUnreadAgentReply = false,
+		streamingThreadId = null,
 		editingThreadId,
 		editingThreadTitleDraft,
 		setEditingThreadTitleDraft,
@@ -70,7 +73,10 @@ function AgentSidebarThreadItemImpl(props: AgentSidebarThreadItemProps) {
 	const isActive =
 		th.id === currentId &&
 		(!workspace || !owningWs || normWorkspaceRootKey(owningWs) === normWorkspaceRootKey(workspace));
-	const isWorking = Boolean(th.isAwaitingReply);
+	// 本地正在流式回复 → 立即显示「正在回复」，无需等待主进程列表刷新；
+	// 主进程列表也会同步置位 isAwaitingReply，作为兜底（例如刷新慢于本地状态）。
+	const isStreamingThisThread = streamingThreadId === th.id;
+	const isWorking = isStreamingThisThread || Boolean(th.isAwaitingReply);
 	const showUnread = hasUnreadAgentReply && !isActive && !isWorking;
 
 	return (

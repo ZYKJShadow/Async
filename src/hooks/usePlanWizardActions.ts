@@ -81,6 +81,7 @@ export type UsePlanWizardActionsParams = {
 	setCurrentId: Dispatch<SetStateAction<string | null>>;
 	setLastTurnUsage: Dispatch<SetStateAction<TurnTokenUsage | null>>;
 	setAwaitingReply: Dispatch<SetStateAction<boolean>>;
+	setStreamingThreadId: Dispatch<SetStateAction<string | null>>;
 	setStreaming: Dispatch<SetStateAction<string>>;
 	setStreamingThinking: Dispatch<SetStateAction<string>>;
 	clearStreamingToolPreviewNow: () => void;
@@ -164,6 +165,7 @@ export function usePlanWizardActions(
 		setCurrentId,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -458,6 +460,7 @@ export function usePlanWizardActions(
 		setCurrentId(threadId);
 		setLastTurnUsage(null);
 		setAwaitingReply(false);
+		setStreamingThreadId(null);
 		setStreaming('');
 		setStreamingThinking('');
 		clearStreamingToolPreviewNow();
@@ -492,6 +495,7 @@ export function usePlanWizardActions(
 		setCurrentId,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		streamStartedAtRef,

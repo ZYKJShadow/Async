@@ -587,6 +587,8 @@ function AppMainWorkspaceInner() {
 
 	const {
 		awaitingReply,
+		streamingThreadId,
+		setStreamingThreadId,
 		thoughtSecondsByThread,
 		subAgentBgToast,
 		showTransientToast,
@@ -763,8 +765,9 @@ function AppMainWorkspaceInner() {
 				delete offThreadStreamDraftsRef.current[threadId];
 			}
 			setAwaitingReply(true);
+			setStreamingThreadId(threadId);
 		},
-		[setStreaming, setStreamingThinking, setAwaitingReply]
+		[setStreaming, setStreamingThinking, setAwaitingReply, setStreamingThreadId]
 	);
 
 	const clearPlanQuestion = useCallback(() => {
@@ -833,6 +836,7 @@ function AppMainWorkspaceInner() {
 		clearMistakeLimitRequest: () => setMistakeLimitRequest(null),
 		planBuildPendingMarkerRef,
 		setAwaitingReply,
+		setStreamingThreadId,
 		streamStartedAtRef,
 	});
 
@@ -1870,6 +1874,7 @@ function AppMainWorkspaceInner() {
 		setHiddenAgentWorkspacePaths,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -2059,6 +2064,7 @@ function AppMainWorkspaceInner() {
 		setCurrentId,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -2566,6 +2572,7 @@ function AppMainWorkspaceInner() {
 		setCurrentId,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -3409,6 +3416,7 @@ function AppMainWorkspaceInner() {
 				workspace={workspace}
 				currentId={currentId}
 				hasUnreadAgentReply={unreadAgentThreadIds.has(th.id)}
+				streamingThreadId={awaitingReply ? streamingThreadId : null}
 				editingThreadId={editingThreadId}
 				editingThreadTitleDraft={editingThreadTitleDraft}
 				setEditingThreadTitleDraft={setEditingThreadTitleDraft}
@@ -3429,6 +3437,8 @@ function AppMainWorkspaceInner() {
 		[
 			currentId,
 			unreadAgentThreadIds,
+			awaitingReply,
+			streamingThreadId,
 			editingThreadId,
 			editingThreadTitleDraft,
 			t,

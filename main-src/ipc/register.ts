@@ -793,6 +793,7 @@ export function registerIpc(): void {
 		createdAt: number;
 		previewCount: number;
 		hasUserMessages: boolean;
+		isAwaitingReply: boolean;
 		isToday: boolean;
 		tokenUsage: ThreadRecord['tokenUsage'];
 		fileStateCount: number;
@@ -808,9 +809,14 @@ export function registerIpc(): void {
 		fileStateCount: number;
 	} & ThreadRowSummary;
 
-	function collectThreadLightStats(t: ThreadRecord): { previewCount: number; hasUserMessages: boolean } {
+	function collectThreadLightStats(t: ThreadRecord): {
+		previewCount: number;
+		hasUserMessages: boolean;
+		lastVisibleRole: 'user' | 'assistant' | null;
+	} {
 		let previewCount = 0;
 		let hasUserMessages = false;
+		let lastVisibleRole: 'user' | 'assistant' | null = null;
 		for (const message of t.messages) {
 			if (message.role === 'system') {
 				continue;
@@ -819,8 +825,11 @@ export function registerIpc(): void {
 			if (message.role === 'user' && !hasUserMessages && /\S/.test(message.content)) {
 				hasUserMessages = true;
 			}
+			if (message.role === 'user' || message.role === 'assistant') {
+				lastVisibleRole = message.role;
+			}
 		}
-		return { previewCount, hasUserMessages };
+		return { previewCount, hasUserMessages, lastVisibleRole };
 	}
 
 	function buildThreadSidebarLightRow(t: ThreadRecord, now: number): ThreadSidebarLightRow {
@@ -832,6 +841,7 @@ export function registerIpc(): void {
 			createdAt: t.createdAt,
 			previewCount: stats.previewCount,
 			hasUserMessages: stats.hasUserMessages,
+			isAwaitingReply: stats.lastVisibleRole === 'user',
 			isToday: isTimestampToday(t.updatedAt, now),
 			tokenUsage: t.tokenUsage,
 			fileStateCount: t.fileStates ? Object.keys(t.fileStates).length : 0,
