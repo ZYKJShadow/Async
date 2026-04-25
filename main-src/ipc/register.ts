@@ -1,32 +1,22 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, webContents, nativeImage, type WebContents } from 'electron';
-import { createAppWindow, findAppWindowBySurface, focusAppWindow, type AppWindowSurface } from '../appWindow.js';
+import { app, BrowserWindow, ipcMain, dialog, type WebContents } from 'electron';
 import { applyThemeChromeToWindow, type NativeChromeOverride, type ThemeChromeScheme } from '../themeChrome.js';
 import { applyPatch, formatPatch, parsePatch, reversePatch } from 'diff';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { pathToFileURL, fileURLToPath } from 'node:url';
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
 import sharp from 'sharp';
 import {
 	imageMimeFromExt,
 	isImagePath,
 	type UserMessagePart,
 } from '../../src/messageParts.js';
-import { windowsCmdUtf8Prefix } from '../winUtf8.js';
 import {
-	bindWorkspaceRootToWebContents,
-	getWorkspaceRootForWebContents,
 	resolveWorkspacePath,
 	isPathInsideRoot,
 } from '../workspace.js';
 import {
 	ensureWorkspaceFileIndex,
-	searchWorkspaceFiles,
 	setWorkspaceFileIndexReadyBroadcaster,
-	acquireWorkspaceFileIndexRef,
-	releaseWorkspaceFileIndexRef,
 	registerKnownWorkspaceRelPath,
 	setWorkspaceFsTouchNotifier,
 } from '../workspaceFileIndex.js';
@@ -46,38 +36,10 @@ setWorkspaceFileIndexReadyBroadcaster((rootNorm) => {
 
 import {
 	getSettings,
-	patchSettings,
-	resolveUsageStatsDataDir,
-	getRecentWorkspaces,
-	rememberWorkspace,
-	removeRecentWorkspace,
-	getMcpServerConfigs,
-	patchMcpServerConfigs,
-	addMcpServerConfig,
-	removeMcpServerConfig,
-	type UserLlmProvider,
 } from '../settingsStore.js';
 import {
-	addMarketplaceFromInput,
-	getPluginPanelState,
-	installMarketplacePlugin,
-	removeMarketplaceByName,
-	refreshMarketplaceByName,
-	setConfiguredUserPluginsRoot,
-	setInstalledPluginEnabled,
-	uninstallInstalledPlugin,
-} from '../plugins/pluginMarketplaceService.js';
-import {
-	getEffectiveMcpServerConfigs,
-	getPluginRuntimeState,
 	mergeAgentWithPluginRuntime,
 } from '../plugins/pluginRuntimeService.js';
-import { checkForUpdates, downloadUpdate, quitAndInstall, getStatus, type AutoUpdateStatus } from '../autoUpdate.js';
-import { getMcpManager, destroyMcpManager } from '../mcp';
-import type { McpServerConfig } from '../mcp';
-import { syncBotControllerFromSettings } from '../bots/botController.js';
-import { testBotIntegrationConnection } from '../bots/botConnectivity.js';
-import type { BotIntegrationConfig } from '../botSettingsTypes.js';
 import {
 	appendMessage,
 	createThread,
@@ -86,74 +48,47 @@ import {
 	getCurrentThreadId,
 	getThread,
 	listThreads,
-	listThreadWorkspaceRoots,
 	replaceFromUserVisibleIndex,
 	selectThread,
-	setThreadGeneratedTitle,
 	setThreadTitle,
-	updateLastAssistant,
 	appendToLastAssistant,
-	accumulateTokenUsage,
-	touchFileInThread,
-	saveSummary,
 	savePlan,
 	getExecutedPlanFileKeys,
 	markPlanFileExecuted,
-	incrementThreadAgentToolCallCount,
 	getContextCompactState,
 	getDeferredToolState,
 	saveDeferredToolState,
 	getToolResultReplacementState,
 	saveContextCompactState,
 	saveToolResultReplacementState,
-	saveTeamSession,
 	getAgentSession,
-	type ChatMessage,
 	type ThreadRecord,
 } from '../threadStore.js';
-import { compressForSend } from '../agent/conversationCompress.js';
-import { flattenAssistantTextPartsForSearch } from '../../src/agentStructuredMessage.js';
-import * as gitService from '../gitService.js';
 import { parseComposerMode, type ComposerMode } from '../llm/composerMode.js';
-import { resolveModelRequest, resolveThinkingLevelForSelection } from '../llm/modelResolve.js';
-import { preconnectLlmBaseUrlIfEligible } from '../llm/apiPreconnect.js';
-import { scheduleRefreshOpenAiModelCapabilitiesIfStale } from '../llm/modelContext.js';
-import { discoverProviderModels } from '../llm/providerModelDiscovery.js';
-import { streamChatUnified } from '../llm/llmRouter.js';
-import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import {
 	modeExpandsWorkspaceFileContext,
 } from '../llm/workspaceContextExpand.js';
-import { resolveMessagesForSend } from '../llm/sendResolved.js';
 import {
-	listAgentDiffChunks,
 	applyAgentDiffChunk,
 	applyAgentPatchItems,
 	formatAgentApplyFooter,
 	formatAgentApplyIncremental,
 } from '../agent/applyAgentDiffs.js';
-import { countLineChangesBetweenTexts, countDiffLinesInChunk } from '../diffLineCount.js';
-import { recordAgentLineDelta, recordTokenUsageEvent, getUsageStatsForDataDir } from '../workspaceUsageStats.js';
-import { runAgentLoop } from '../agent/agentLoop.js';
-import { runTeamSession } from '../agent/teamOrchestrator.js';
-import { getBuiltinTeamCatalogPayload } from '../agent/builtinTeamCatalog.js';
+import { countDiffLinesInChunk } from '../diffLineCount.js';
+import { recordAgentLineDelta } from '../workspaceUsageStats.js';
 import {
-	createMistakeLimitReachedHandler,
 	resolveMistakeLimitRecovery,
 	type MistakeLimitDecision,
 } from '../agent/mistakeLimitGate.js';
-import { createToolApprovalBeforeExecute, resolveToolApproval } from '../agent/toolApprovalGate.js';
-import { setPlanQuestionRuntime } from '../agent/planQuestionRuntime.js';
+import { resolveToolApproval } from '../agent/toolApprovalGate.js';
 import {
 	abortPlanQuestionWaitersForThread,
 	resolvePlanQuestionTool,
 } from '../agent/planQuestionTool.js';
 import {
 	abortRequestUserInputWaitersForThread,
-	createRequestUserInputToolHandler,
 	resolveRequestUserInput,
 } from '../agent/requestUserInputTool.js';
-import { setPlanDraftRuntime } from '../agent/planDraftTool.js';
 import {
 	abortTeamPlanApprovalForThread,
 	resolveTeamPlanApproval,
@@ -196,7 +131,6 @@ import { registerTerminalSessionIpc } from '../terminalSessionIpc.js';
 
 import {
 	getWorkspaceLspManagerForWebContents,
-	disposeTsLspSessionForWebContents,
 } from '../lspSessionsByWebContents.js';
 import { registerClipboardHandlers } from './handlers/clipboardHandlers.js';
 import { registerAutoUpdateHandlers } from './handlers/autoUpdateHandlers.js';
@@ -208,42 +142,35 @@ import { registerFsHandlers } from './handlers/fsHandlers.js';
 import { registerShellHandlers } from './handlers/shellHandlers.js';
 import { registerGitHandlers } from './handlers/gitHandlers.js';
 import { registerBrowserHandlers } from './handlers/browserHandlers.js';
-import { senderWorkspaceRoot } from './agentRuntime.js';
-import { setDelegateContext, clearDelegateContext } from '../agent/toolExecutor.js';
+import { registerMcpHandlers } from './handlers/mcpHandlers.js';
+import { registerPluginsHandlers } from './handlers/pluginsHandlers.js';
+import { registerSettingsHandlers } from './handlers/settingsHandlers.js';
+import { registerTerminalExecHandlers } from './handlers/terminalExecHandlers.js';
+import { senderWorkspaceRoot, workspaceRootsEqual } from './agentRuntime.js';
+import {
+	abortByThread,
+	preflightAbortByThread,
+	agentRevertSnapshotsByThread,
+	toolApprovalWaiters,
+	mistakeLimitWaiters,
+	activeUsageStatsDir,
+	queueThreadTitleGeneration,
+	resolveManagedAgentLoopOptions,
+	runChatStream,
+} from './chatRuntime.js';
 import {
 	attachManagedAgentEmitter,
 	closeManagedAgent,
 	getManagedAgentSession,
-	getManagedAgentTranscriptPath,
 	resumeManagedAgent,
 	sendInputToManagedAgent,
 	waitForManagedAgents,
 } from '../agent/managedSubagents.js';
-import {
-	searchWorkspaceSymbols,
-	ensureSymbolIndexLoaded,
-} from '../workspaceSymbolIndex.js';
-import { getGitContextBlock, clearGitContextCacheForRoot } from '../gitContext.js';
+import { getGitContextBlock } from '../gitContext.js';
 import { ensureMemoryDirExists, loadMemoryPrompt } from '../memdir/memdir.js';
 import { scanMemoryFiles } from '../memdir/memoryScan.js';
 import { getAutoMemEntrypoint } from '../memdir/paths.js';
-import { buildMemoryEntrypoint, queueExtractMemories } from '../services/extractMemories/extractMemories.js';
-import {
-	browserPartitionForHostId,
-	getBrowserSidebarConfigPayloadForHostId,
-	setBrowserSidebarConfigForHostId,
-	sendApplyConfigToDetachedBrowserWindowIfOpen,
-	updateBrowserRuntimeStateForHostId,
-	getBrowserRuntimeStateForHostId,
-	resolveBrowserCommandResultForHostId,
-	resolveBrowserHostIdForSenderId,
-	markBrowserWindowReadyForSenderId,
-	openBrowserWindowForHostId,
-} from '../browser/browserController.js';
-import { syncBrowserCaptureBindingsForHostId } from '../browser/browserCapture.js';
-import { generateThreadTitle } from '../threadTitle.js';
-
-const execFileAsync = promisify(execFile);
+import { buildMemoryEntrypoint } from '../services/extractMemories/extractMemories.js';
 
 
 /** 可选覆盖工作区根路径（须为已存在目录），否则使用当前窗口绑定的工作区 */
@@ -272,41 +199,6 @@ function appendSystemBlock(base: string | undefined, block: string): string {
 	return base && base.trim() ? `${base}\n\n---\n${trimmed}` : trimmed;
 }
 
-function stripSkillFrontmatter(md: string): { body: string; name?: string; description?: string } {
-	const t = md.trim();
-	if (!t.startsWith('---')) {
-		return { body: md };
-	}
-	const end = t.indexOf('\n---', 3);
-	if (end < 0) {
-		return { body: md };
-	}
-	const yamlBlock = t.slice(3, end).trim();
-	const body = t.slice(end + 4).trim();
-	const meta: Record<string, string> = {};
-	for (const line of yamlBlock.split('\n')) {
-		const m = line.match(/^([a-zA-Z0-9_-]+)\s*:\s*(.*)$/);
-		if (m) {
-			meta[m[1]!] = (m[2] ?? '').replace(/^["']|["']$/g, '').trim();
-		}
-	}
-	return {
-		body,
-		name: meta.name || meta.title,
-		description: meta.description,
-	};
-}
-
-function sanitizeSkillSlug(raw: string): string {
-	return String(raw ?? '')
-		.trim()
-		.toLowerCase()
-		.replace(/^\.\//, '')
-		.replace(/[^a-z0-9-]+/g, '-')
-		.replace(/-{2,}/g, '-')
-		.replace(/^-+|-+$/g, '');
-}
-
 function logChatPipelineLatency(
 	_channel: string,
 	_threadId: string,
@@ -315,14 +207,6 @@ function logChatPipelineLatency(
 	_extra?: Record<string, string | number | boolean | null | undefined>
 ): void {
 	/* intentionally quiet — was used for main-process chat pipeline latency tracing */
-}
-
-function startThreadMemDiag(
-	_threadId: string,
-	_signal: AbortSignal,
-	_phaseRef: { current: string }
-): () => void {
-	return () => {};
 }
 
 function throwIfAbortRequested(signal: AbortSignal | undefined, _threadId: string, _phase: string): void {
@@ -361,104 +245,6 @@ async function appendMemoryAndRetrievalContext(params: {
 	return next;
 }
 
-const abortByThread = new Map<string, AbortController>();
-const preflightAbortByThread = new Map<string, AbortController>();
-const agentRevertSnapshotsByThread = new Map<string, Map<string, string | null>>();
-const threadTitleGenerationVersion = new Map<string, number>();
-/** 工具执行前用户确认：approvalId → resolve(allowed) */
-const toolApprovalWaiters = new Map<string, (approved: boolean) => void>();
-/** 连续失败后恢复：recoveryId → resolve(decision) */
-const mistakeLimitWaiters = new Map<string, (d: MistakeLimitDecision) => void>();
-
-function queueThreadTitleGeneration(params: {
-	sender: WebContents;
-	threadId: string;
-	description: string;
-	settings: ReturnType<typeof getSettings>;
-	modelSelection: string;
-	ruleContext?: string;
-}): void {
-	const description = String(params.description ?? '').trim();
-	if (!description) {
-		return;
-	}
-	const version = (threadTitleGenerationVersion.get(params.threadId) ?? 0) + 1;
-	threadTitleGenerationVersion.set(params.threadId, version);
-	void generateThreadTitle(
-		params.settings,
-		params.modelSelection,
-		description,
-		params.ruleContext ?? ''
-	)
-		.then((title) => {
-			if (!title) {
-				return;
-			}
-			if (threadTitleGenerationVersion.get(params.threadId) !== version) {
-				return;
-			}
-			if (!setThreadGeneratedTitle(params.threadId, title)) {
-				return;
-			}
-			try {
-				params.sender.send('async-shell:chat', {
-					type: 'thread_title_updated',
-					threadId: params.threadId,
-					title,
-				});
-			} catch {
-				/* ignore */
-			}
-		})
-		.catch(() => {
-			/* ignore */
-		})
-		.finally(() => {
-			if (threadTitleGenerationVersion.get(params.threadId) === version) {
-				threadTitleGenerationVersion.delete(params.threadId);
-			}
-		});
-}
-
-function activeUsageStatsDir(): string | null {
-	return resolveUsageStatsDataDir(getSettings());
-}
-
-function resolveManagedAgentLoopOptions(
-	settings: ReturnType<typeof getSettings>,
-	workspaceRoot: string | null,
-	workspaceLspManager: ReturnType<typeof getWorkspaceLspManagerForWebContents>,
-	hostWebContentsId: number | null
-): Omit<import('../agent/agentLoop.js').AgentLoopOptions, 'signal'> | null {
-	const modelSelection = String(settings.defaultModel ?? '').trim();
-	if (!modelSelection) {
-		return null;
-	}
-	const resolved = resolveModelRequest(settings, modelSelection);
-	if (!resolved.ok) {
-		return null;
-	}
-	const thinkingLevel = resolveThinkingLevelForSelection(settings, modelSelection);
-	return {
-		modelSelection,
-		requestModelId: resolved.requestModelId,
-		paradigm: resolved.paradigm,
-		requestApiKey: resolved.apiKey,
-		requestBaseURL: resolved.baseURL,
-		requestProxyUrl: resolved.proxyUrl,
-		maxOutputTokens: resolved.maxOutputTokens,
-		...(resolved.contextWindowTokens != null
-			? { contextWindowTokens: resolved.contextWindowTokens }
-			: {}),
-		temperatureMode: resolved.temperatureMode,
-		...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
-		composerMode: 'agent',
-		thinkingLevel,
-		workspaceRoot,
-		workspaceLspManager,
-		hostWebContentsId,
-	};
-}
 
 function readWorkspaceTextFileIfExists(relPath: string, workspaceRoot: string | null): string | null {
 	if (!workspaceRoot) {
@@ -500,452 +286,6 @@ function reverseUnifiedPatch(chunk: string): string | null {
 	}
 }
 
-
-function recordTurnTokenUsageStats(
-	modelSelection: string,
-	mode: ComposerMode,
-	usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
-): void {
-	recordTokenUsageEvent(activeUsageStatsDir(), {
-		modelId: modelSelection,
-		mode,
-		input: usage?.inputTokens,
-		output: usage?.outputTokens,
-		cacheRead: usage?.cacheReadTokens,
-		cacheWrite: usage?.cacheWriteTokens,
-	});
-}
-
-function persistAssistantStreamError(threadId: string, message: string): void {
-	try {
-		const lang = getSettings().language;
-		const prefix = lang === 'en' ? 'Error: ' : '错误：';
-		appendMessage(threadId, { role: 'assistant', content: `${prefix}${message}` });
-	} catch (e) {
-		console.warn('[chat:stream] persist assistant error failed:', e instanceof Error ? e.message : e);
-	}
-}
-
-function runChatStream(
-	win: BrowserWindow,
-	threadId: string,
-	messages: ChatMessage[],
-	mode: ReturnType<typeof parseComposerMode>,
-	modelSelection: string,
-	agentSystemAppend?: string,
-	streamNonce?: number
-): void {
-	const send = (obj: unknown) => {
-		const o = (typeof obj === 'object' && obj !== null ? obj : {}) as Record<string, unknown>;
-		win.webContents.send(
-			'async-shell:chat',
-			streamNonce !== undefined ? { ...o, streamNonce } : o
-		);
-	};
-	const emitStreamError = (message: string) => {
-		console.error('[chat:stream]', threadId, message);
-		persistAssistantStreamError(threadId, message);
-		send({ threadId, type: 'error', message });
-	};
-	const prev = abortByThread.get(threadId);
-	prev?.abort();
-	agentRevertSnapshotsByThread.set(threadId, new Map());
-	const ac = new AbortController();
-	abortByThread.set(threadId, ac);
-
-	void (async () => {
-		const streamLatencyT0 = Date.now();
-		const phaseRef = { current: 'bootstrap' };
-		const stopMemDiag = startThreadMemDiag(threadId, ac.signal, phaseRef);
-		try {
-			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'runChatStream async entered', {
-				mode: String(mode),
-				msgCount: messages.length,
-			});
-			phaseRef.current = 'resolveModelRequest';
-			const settings = getSettings();
-			const workspaceRoot = getWorkspaceRootForWebContents(win.webContents);
-			const workspaceLspManager = getWorkspaceLspManagerForWebContents(win.webContents);
-			const thinkingLevel = resolveThinkingLevelForSelection(settings, modelSelection);
-			const resolved = resolveModelRequest(settings, modelSelection);
-			if (!resolved.ok) {
-				emitStreamError(resolved.message);
-				return;
-			}
-			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'after resolveModelRequest', {
-				paradigm: String(resolved.paradigm),
-			});
-
-// 首条对话前预热到当前模型 API 基址的 TCP/TLS（无代理时）
-			preconnectLlmBaseUrlIfEligible({
-				paradigm: resolved.paradigm,
-				baseURL: resolved.baseURL,
-				appProxyUrl: resolved.proxyUrl?.trim() || settings.openAI?.proxyUrl?.trim() || undefined,
-			});
-			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'after preconnectLlm (fire-and-forget HEAD)');
-
-			// 发送端压缩：超长线程仅压缩发给 LLM 的副本，磁盘保留完整历史
-			const thread = getThread(threadId);
-			if (resolved.paradigm === 'openai-compatible') {
-				scheduleRefreshOpenAiModelCapabilitiesIfStale({
-					baseURL: resolved.baseURL,
-					apiKey: resolved.apiKey,
-					proxyUrl: resolved.proxyUrl,
-				});
-			}
-			const compressOptions = {
-				mode: mode as import('../llm/composerMode.js').ComposerMode,
-				signal: ac.signal,
-				requestModelId: resolved.requestModelId,
-				paradigm: resolved.paradigm,
-				requestApiKey: resolved.apiKey,
-				requestBaseURL: resolved.baseURL,
-				requestProxyUrl: resolved.proxyUrl,
-				maxOutputTokens: resolved.maxOutputTokens,
-				...(resolved.contextWindowTokens != null
-					? { contextWindowTokens: resolved.contextWindowTokens }
-					: {}),
-				temperatureMode: resolved.temperatureMode,
-				...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
-				thinkingLevel,
-			};
-			if (mode === 'team') {
-				setPlanQuestionRuntime({
-					threadId,
-					signal: ac.signal,
-					emit: (evt) => send({ threadId, ...evt }),
-				});
-				phaseRef.current = 'runTeamSession';
-				try {
-					await runTeamSession({
-						settings,
-						threadId,
-						messages,
-						modelSelection,
-						resolvedModel: resolved,
-						agentSystemAppend,
-						signal: ac.signal,
-						thinkingLevel,
-						workspaceRoot,
-						workspaceLspManager,
-						hostWebContentsId: win.webContents.id,
-						deferredToolState: getDeferredToolState(threadId),
-						onDeferredToolStateChange: (state) =>
-							saveDeferredToolState(threadId, state),
-						toolResultReplacementState: getToolResultReplacementState(threadId),
-						onToolResultReplacementStateChange: (state) =>
-							saveToolResultReplacementState(threadId, state),
-						emit: (evt) => send(evt),
-						onDone: (full, usage, teamSnapshot) => {
-							updateLastAssistant(threadId, full);
-							accumulateTokenUsage(threadId, usage?.inputTokens, usage?.outputTokens);
-							recordTurnTokenUsageStats(modelSelection, mode, usage);
-							if (teamSnapshot) {
-								saveTeamSession(threadId, teamSnapshot);
-							}
-							queueExtractMemories({
-								threadId,
-								workspaceRoot,
-								settings,
-								modelSelection,
-							});
-							send({ threadId, type: 'done', text: full, usage });
-						},
-						onError: (message) => emitStreamError(message),
-					});
-				} finally {
-					setPlanQuestionRuntime(null);
-				}
-				return;
-			}
-
-			const compressStarted = Date.now();
-			phaseRef.current = 'compressForSend';
-			const compressResult = await compressForSend(
-				messages,
-				settings,
-				compressOptions,
-				thread?.summary,
-				thread?.summaryCoversMessageCount
-			);
-			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'after compressForSend', {
-				compressMs: Date.now() - compressStarted,
-				triggeredNewSummary: Boolean(compressResult.newSummary),
-				outMsgCount: compressResult.messages.length,
-			});
-			let sendMessages = compressResult.messages;
-			if (compressResult.newSummary && compressResult.newSummaryCoversCount !== undefined) {
-				saveSummary(threadId, compressResult.newSummary, compressResult.newSummaryCoversCount);
-			}
-
-			if ((mode === 'agent' || mode === 'plan') && resolved.paradigm !== 'gemini') {
-				const beforeExecuteTool = createToolApprovalBeforeExecute(
-					send,
-					threadId,
-					ac.signal,
-					() => getSettings().agent,
-					toolApprovalWaiters
-				);
-				const onMistakeLimitReached = createMistakeLimitReachedHandler(
-					send,
-					threadId,
-					ac.signal,
-					mistakeLimitWaiters
-				);
-			const ag = getSettings().agent;
-			const deferredToolState = getDeferredToolState(threadId);
-			const toolResultReplacementState = getToolResultReplacementState(threadId);
-			const customToolHandlers = {
-					request_user_input: createRequestUserInputToolHandler({
-						threadId,
-						signal: ac.signal,
-						emit: (evt) => send({ threadId, ...evt }),
-						agentId: 'root',
-						agentTitle: mode === 'plan' ? 'Plan Assistant' : 'Root Agent',
-					}),
-				};
-			const agentOptions = {
-					modelSelection,
-					requestModelId: resolved.requestModelId,
-					paradigm: resolved.paradigm,
-					requestApiKey: resolved.apiKey,
-					requestBaseURL: resolved.baseURL,
-					requestProxyUrl: resolved.proxyUrl,
-					maxOutputTokens: resolved.maxOutputTokens,
-					...(resolved.contextWindowTokens != null
-						? { contextWindowTokens: resolved.contextWindowTokens }
-						: {}),
-					temperatureMode: resolved.temperatureMode,
-					...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
-					signal: ac.signal,
-					composerMode: mode,
-					thinkingLevel,
-					beforeExecuteTool,
-					maxConsecutiveMistakes: ag?.maxConsecutiveMistakes,
-					mistakeLimitEnabled: ag?.mistakeLimitEnabled,
-					onMistakeLimitReached,
-					customToolHandlers,
-					workspaceRoot,
-					workspaceLspManager,
-					hostWebContentsId: win.webContents.id,
-					deferredToolState,
-					onDeferredToolStateChange: (state) =>
-						saveDeferredToolState(threadId, state),
-					toolResultReplacementState,
-					onToolResultReplacementStateChange: (state) =>
-						saveToolResultReplacementState(threadId, state),
-				};
-			try {
-				setDelegateContext(
-					settings,
-					agentOptions,
-					ac.signal,
-					(evt) => send({ threadId, ...evt }),
-					threadId,
-					(evt) => send(evt),
-					(payload) =>
-						send({
-							threadId,
-							type: 'sub_agent_background_done',
-							parentToolCallId: payload.parentToolCallId,
-							agentId: payload.agentId,
-							result: payload.result,
-							success: payload.success,
-						}),
-					messages
-				);
-				if (mode === 'plan') {
-					setPlanQuestionRuntime({
-						threadId,
-						signal: ac.signal,
-						emit: (evt) => send({ threadId, ...evt }),
-					});
-					setPlanDraftRuntime(threadId, {
-						onDraft: () => {
-							// Renderer persists the visible draft from tool arguments and keeps the review UI in sync.
-						},
-					});
-				}
-				const expandMode = mode as import('../llm/composerMode.js').ComposerMode;
-				const doAtExpand = modeExpandsWorkspaceFileContext(expandMode);
-				const expandStarted = Date.now();
-				phaseRef.current = 'resolveMessagesForSend';
-				const messagesForAgent = doAtExpand
-					? await resolveMessagesForSend(sendMessages, workspaceRoot)
-					: sendMessages;
-				logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'after structured send resolve', {
-					expandMs: Date.now() - expandStarted,
-					didExpand: doAtExpand,
-				});
-				logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'before runAgentLoop');
-				phaseRef.current = 'runAgentLoop';
-				await runAgentLoop(
-					settings,
-					messagesForAgent,
-					{
-						modelSelection,
-						requestModelId: resolved.requestModelId,
-						paradigm: resolved.paradigm,
-						requestApiKey: resolved.apiKey,
-						requestBaseURL: resolved.baseURL,
-						requestProxyUrl: resolved.proxyUrl,
-						maxOutputTokens: resolved.maxOutputTokens,
-						...(resolved.contextWindowTokens != null
-							? { contextWindowTokens: resolved.contextWindowTokens }
-							: {}),
-						temperatureMode: resolved.temperatureMode,
-						...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
-						signal: ac.signal,
-						composerMode: mode,
-						thinkingLevel,
-						beforeExecuteTool,
-						maxConsecutiveMistakes: ag?.maxConsecutiveMistakes,
-						mistakeLimitEnabled: ag?.mistakeLimitEnabled,
-						onMistakeLimitReached,
-						customToolHandlers,
-						workspaceRoot,
-						workspaceLspManager,
-						threadId,
-						hostWebContentsId: win.webContents.id,
-						deferredToolState,
-						onDeferredToolStateChange: (state) =>
-							saveDeferredToolState(threadId, state),
-						toolResultReplacementState,
-						onToolResultReplacementStateChange: (state) =>
-							saveToolResultReplacementState(threadId, state),
-						contextCompactState: getContextCompactState(threadId),
-						onContextCompactStateChange: (state) =>
-							saveContextCompactState(threadId, state),
-						toolHooks: {
-							beforeWrite: ({ path, previousContent }) => {
-								const snapshots = agentRevertSnapshotsByThread.get(threadId);
-								if (!snapshots || snapshots.has(path)) {
-									touchFileInThread(threadId, path, 'modified', false);
-									return;
-								}
-								snapshots.set(path, previousContent);
-								touchFileInThread(
-									threadId,
-									path,
-									previousContent === null ? 'created' : 'modified',
-									previousContent === null
-								);
-							},
-							...(mode === 'agent' && activeUsageStatsDir()
-								? {
-										afterWrite: ({ previousContent, nextContent }) => {
-											const { additions, deletions } = countLineChangesBetweenTexts(previousContent, nextContent);
-											recordAgentLineDelta(activeUsageStatsDir(), { add: additions, del: deletions });
-										},
-									}
-								: {}),
-						},
-						...(agentSystemAppend?.trim() ? { agentSystemAppend: agentSystemAppend.trim() } : {}),
-					},
-					{
-						onTextDelta: (piece) => send({ threadId, type: 'delta', text: piece }),
-						onToolInputDelta: (p) =>
-							send({ threadId, type: 'tool_input_delta', name: p.name, partialJson: p.partialJson, index: p.index }),
-						onToolProgress: (p) =>
-							send({ threadId, type: 'tool_progress', name: p.name, phase: p.phase, detail: p.detail }),
-						onThinkingDelta: (text) => send({ threadId, type: 'thinking_delta', text }),
-						onToolCall: (name, args, toolCallId) =>
-							send({ threadId, type: 'tool_call', name, args: JSON.stringify(args), toolCallId }),
-						onToolResult: (name, result, success, toolCallId) => {
-							incrementThreadAgentToolCallCount(threadId);
-							send({ threadId, type: 'tool_result', name, result, success, toolCallId });
-						},
-						onDone: (full, usage) => {
-							updateLastAssistant(threadId, full);
-							accumulateTokenUsage(threadId, usage?.inputTokens, usage?.outputTokens);
-							recordTurnTokenUsageStats(modelSelection, mode, usage);
-							queueExtractMemories({
-								threadId,
-								workspaceRoot,
-								settings,
-								modelSelection,
-							});
-							send({ threadId, type: 'done', text: full, usage });
-						},
-						onError: (message) => emitStreamError(message),
-					}
-				);
-			} finally {
-				clearDelegateContext();
-				if (mode === 'plan') {
-					setPlanQuestionRuntime(null);
-					setPlanDraftRuntime(threadId, null);
-				}
-			}
-			return;
-		}
-
-			logChatPipelineLatency('chat:stream', threadId, streamLatencyT0, 'before streamChatUnified (non-agent path)');
-			phaseRef.current = 'streamChatUnified';
-			await streamChatUnified(
-			settings,
-			sendMessages,
-			{
-				mode,
-				signal: ac.signal,
-				requestModelId: resolved.requestModelId,
-				paradigm: resolved.paradigm,
-				requestApiKey: resolved.apiKey,
-				requestBaseURL: resolved.baseURL,
-				requestProxyUrl: resolved.proxyUrl,
-				maxOutputTokens: resolved.maxOutputTokens,
-				temperatureMode: resolved.temperatureMode,
-				...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),
-				thinkingLevel,
-				workspaceRoot,
-				...(agentSystemAppend?.trim() ? { agentSystemAppend: agentSystemAppend.trim() } : {}),
-			},
-			{
-				onDelta: (piece) => send({ threadId, type: 'delta', text: piece }),
-				onThinkingDelta: (text) => send({ threadId, type: 'thinking_delta', text }),
-				onDone: (full, usage) => {
-					updateLastAssistant(threadId, full);
-					accumulateTokenUsage(threadId, usage?.inputTokens, usage?.outputTokens);
-					recordTurnTokenUsageStats(modelSelection, mode, usage);
-					queueExtractMemories({
-						threadId,
-						workspaceRoot,
-						settings,
-						modelSelection,
-					});
-					if (mode === 'agent') {
-						const listed = listAgentDiffChunks(flattenAssistantTextPartsForSearch(full));
-						if (listed.length > 0) {
-							send({
-								threadId,
-								type: 'done',
-								text: full,
-								usage,
-								pendingAgentPatches: listed.map((p, i) => ({
-									id: `p-${i}`,
-									relPath: p.relPath,
-									chunk: p.chunk,
-								})),
-							});
-							return;
-						}
-					}
-					send({ threadId, type: 'done', text: full, usage });
-				},
-				onError: (message) => emitStreamError(message),
-			}
-		);
-		} catch (e) {
-			phaseRef.current = 'error';
-			try {
-				emitStreamError(formatLlmSdkError(e));
-			} catch { /* window may be destroyed */ }
-		} finally {
-			stopMemDiag();
-			abortByThread.delete(threadId);
-		}
-	})();
-}
 
 const MAX_PLAN_EXECUTE_INJECT_CHARS = 200_000;
 
@@ -1029,22 +369,14 @@ export function registerIpc(): void {
 	registerShellHandlers();
 	registerGitHandlers();
 	registerBrowserHandlers();
+	registerSettingsHandlers();
+	registerPluginsHandlers();
+	registerMcpHandlers();
+	registerTerminalExecHandlers();
 	registerLspHandlers();
 	registerClipboardHandlers();
 	registerUsageStatsHandlers();
 	registerAutoUpdateHandlers();
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 	const COMPOSER_ATTACH_MAX_BYTES = 8 * 1024 * 1024;
@@ -1286,275 +618,6 @@ export function registerIpc(): void {
 		}
 	);
 
-	ipcMain.handle('settings:get', () => getSettings());
-
-	ipcMain.handle('settings:set', (_e, partial: Record<string, unknown>) => {
-		const next = patchSettings(partial as Parameters<typeof patchSettings>[0]);
-		void syncBotControllerFromSettings(next);
-		const syncedColorMode = next.ui?.colorMode;
-		if (syncedColorMode === 'light' || syncedColorMode === 'dark' || syncedColorMode === 'system') {
-			for (const win of BrowserWindow.getAllWindows()) {
-				if (!win.isDestroyed()) {
-					win.webContents.send('async-shell:themeMode', { colorMode: syncedColorMode });
-				}
-			}
-		}
-		return next;
-	});
-
-	ipcMain.handle('team:getBuiltinCatalog', () => getBuiltinTeamCatalogPayload());
-
-	ipcMain.handle('settings:discoverProviderModels', async (_e, rawProvider: unknown) => {
-		const provider = rawProvider as Partial<UserLlmProvider> | null | undefined;
-		if (
-			!provider ||
-			typeof provider !== 'object' ||
-			typeof provider.id !== 'string' ||
-			typeof provider.displayName !== 'string' ||
-			typeof provider.paradigm !== 'string'
-		) {
-			return { ok: false as const, message: 'Invalid provider payload.' };
-		}
-		return await discoverProviderModels({
-			id: provider.id,
-			displayName: provider.displayName,
-			paradigm: provider.paradigm,
-			apiKey: typeof provider.apiKey === 'string' ? provider.apiKey : undefined,
-			baseURL: typeof provider.baseURL === 'string' ? provider.baseURL : undefined,
-			proxyUrl: typeof provider.proxyUrl === 'string' ? provider.proxyUrl : undefined,
-		});
-	});
-
-	ipcMain.handle('plugins:getState', async (event) => {
-		return await getPluginPanelState(senderWorkspaceRoot(event));
-	});
-
-	ipcMain.handle('plugins:getRuntimeState', async (event) => {
-		return getPluginRuntimeState(senderWorkspaceRoot(event));
-	});
-
-	ipcMain.handle('plugins:pickUserDirectory', async (event) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		const result = await dialog.showOpenDialog(win ?? undefined, {
-			properties: ['openDirectory', 'createDirectory'],
-		});
-		if (result.canceled || !result.filePaths[0]) {
-			return { ok: false as const };
-		}
-		return { ok: true as const, path: path.resolve(result.filePaths[0]) };
-	});
-
-	ipcMain.handle('plugins:setUserDirectory', async (_event, payload: unknown) => {
-		const nextPath =
-			payload && typeof payload === 'object' && typeof (payload as { path?: unknown }).path === 'string'
-				? String((payload as { path: string }).path)
-				: null;
-		const reset =
-			payload && typeof payload === 'object' && (payload as { reset?: unknown }).reset === true;
-		try {
-			const result = {
-				ok: true as const,
-				...setConfiguredUserPluginsRoot(reset ? null : nextPath),
-			};
-			broadcastPluginsChanged();
-			return result;
-		} catch (error) {
-			return {
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	});
-
-	ipcMain.handle('plugins:addMarketplace', async (_event, payload: unknown) => {
-		const input =
-			payload && typeof payload === 'object' && typeof (payload as { input?: unknown }).input === 'string'
-				? String((payload as { input: string }).input)
-				: '';
-		try {
-			return {
-				ok: true as const,
-				...(await addMarketplaceFromInput(input)),
-			};
-		} catch (error) {
-			return {
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	});
-
-	ipcMain.handle('plugins:refreshMarketplace', async (_event, payload: unknown) => {
-		const name =
-			payload && typeof payload === 'object' && typeof (payload as { name?: unknown }).name === 'string'
-				? String((payload as { name: string }).name).trim()
-				: '';
-		if (!name) {
-			return { ok: false as const, error: 'Marketplace name is required.' };
-		}
-		try {
-			await refreshMarketplaceByName(name);
-			return { ok: true as const };
-		} catch (error) {
-			return {
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	});
-
-	ipcMain.handle('plugins:removeMarketplace', async (_event, payload: unknown) => {
-		const name =
-			payload && typeof payload === 'object' && typeof (payload as { name?: unknown }).name === 'string'
-				? String((payload as { name: string }).name).trim()
-				: '';
-		if (!name) {
-			return { ok: false as const, error: 'Marketplace name is required.' };
-		}
-		try {
-			await removeMarketplaceByName(name);
-			return { ok: true as const };
-		} catch (error) {
-			return {
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	});
-
-	ipcMain.handle('plugins:install', async (event, payload: unknown) => {
-		const marketplaceName =
-			payload && typeof payload === 'object' && typeof (payload as { marketplaceName?: unknown }).marketplaceName === 'string'
-				? String((payload as { marketplaceName: string }).marketplaceName).trim()
-				: '';
-		const pluginName =
-			payload && typeof payload === 'object' && typeof (payload as { pluginName?: unknown }).pluginName === 'string'
-				? String((payload as { pluginName: string }).pluginName).trim()
-				: '';
-		const scope =
-			payload && typeof payload === 'object' && (payload as { scope?: unknown }).scope === 'project'
-				? 'project'
-				: 'user';
-		if (!marketplaceName || !pluginName) {
-			return { ok: false as const, error: 'Marketplace name and plugin name are required.' };
-		}
-		try {
-			const result = {
-				ok: true as const,
-				...(await installMarketplacePlugin(marketplaceName, pluginName, scope, senderWorkspaceRoot(event))),
-			};
-			broadcastPluginsChanged();
-			return result;
-		} catch (error) {
-			return {
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	});
-
-	ipcMain.handle('plugins:uninstall', async (event, payload: unknown) => {
-		const installDir =
-			payload && typeof payload === 'object' && typeof (payload as { installDir?: unknown }).installDir === 'string'
-				? String((payload as { installDir: string }).installDir).trim()
-				: '';
-		if (!installDir) {
-			return { ok: false as const, error: 'Plugin install directory is required.' };
-		}
-		try {
-			await uninstallInstalledPlugin(installDir, senderWorkspaceRoot(event));
-			broadcastPluginsChanged();
-			return { ok: true as const };
-		} catch (error) {
-			return {
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	});
-
-	ipcMain.handle('plugins:setEnabled', async (event, payload: unknown) => {
-		const installDir =
-			payload && typeof payload === 'object' && typeof (payload as { installDir?: unknown }).installDir === 'string'
-				? String((payload as { installDir: string }).installDir).trim()
-				: '';
-		const enabled =
-			payload && typeof payload === 'object' && typeof (payload as { enabled?: unknown }).enabled === 'boolean'
-				? Boolean((payload as { enabled: boolean }).enabled)
-				: true;
-		if (!installDir) {
-			return { ok: false as const, error: 'Plugin install directory is required.' };
-		}
-		try {
-			await setInstalledPluginEnabled(installDir, enabled, senderWorkspaceRoot(event));
-			broadcastPluginsChanged();
-			return { ok: true as const };
-		} catch (error) {
-			return {
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	});
-
-	ipcMain.handle('settings:testBotConnection', async (_e, rawIntegration: unknown) => {
-		const integration = rawIntegration as BotIntegrationConfig | null | undefined;
-		if (!integration || typeof integration !== 'object' || typeof integration.id !== 'string' || typeof integration.platform !== 'string') {
-			return { ok: false as const, message: 'Invalid bot integration payload.' };
-		}
-		const lang = getSettings().language === 'en' ? 'en' : 'zh-CN';
-		return await testBotIntegrationConnection(integration, lang);
-	});
-
-	ipcMain.handle('settings:importBotSkillFolder', async (event) => {
-		try {
-			const win = BrowserWindow.fromWebContents(event.sender);
-			const result = await dialog.showOpenDialog(win ?? undefined, {
-				properties: ['openDirectory'],
-			});
-			if (result.canceled || !result.filePaths[0]) {
-				return { ok: false as const, canceled: true as const };
-			}
-			const folderPath = path.resolve(result.filePaths[0]);
-			const skillFilePath = path.join(folderPath, 'SKILL.md');
-			if (!fs.existsSync(skillFilePath) || !fs.statSync(skillFilePath).isFile()) {
-				return {
-					ok: false as const,
-					error: 'missing-skill-md' as const,
-					folderPath,
-				};
-			}
-			const raw = fs.readFileSync(skillFilePath, 'utf8');
-			const parsed = stripSkillFrontmatter(raw);
-			const folderName = path.basename(folderPath);
-			const name = (parsed.name || folderName).trim();
-			const slug = sanitizeSkillSlug(parsed.name || folderName);
-			const content = parsed.body.trim();
-			if (!name || !slug || !content) {
-				return {
-					ok: false as const,
-					error: 'invalid-skill' as const,
-					folderPath,
-				};
-			}
-			return {
-				ok: true as const,
-				skill: {
-					name,
-					description: (parsed.description || '').trim(),
-					slug,
-					content,
-				},
-				folderPath,
-				skillFilePath,
-			};
-		} catch (error) {
-			return {
-				ok: false as const,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	});
 
 	ipcMain.handle(
 		'theme:applyChrome',
@@ -1939,7 +1002,6 @@ export function registerIpc(): void {
 		}
 		return { ok: true as const, fileStates: t.fileStates ?? {} };
 	});
-
 
 
 	ipcMain.handle('threads:messages', (_e, threadId: string) => {
@@ -2867,11 +1929,6 @@ ipcMain.handle(
 	});
 
 
-
-
-
-
-
 	ipcMain.handle(
 		'plan:save',
 		(event, payload: { filename: string; content: string }) => {
@@ -2917,153 +1974,6 @@ ipcMain.handle(
 		return { ok: true as const, plan: t.plan ?? null };
 	});
 
-	ipcMain.handle('terminal:execLine', async (event, line: string) => {
-		const root = senderWorkspaceRoot(event);
-		if (!root) {
-			return { ok: false as const, error: 'No workspace' };
-		}
-		const trimmed = line.trim();
-		if (!trimmed) {
-			return { ok: true as const, stdout: '', stderr: '' };
-		}
-		try {
-			const isWin = process.platform === 'win32';
-			const shell = isWin ? process.env.ComSpec || 'cmd.exe' : '/bin/bash';
-			const cmdLine = isWin ? windowsCmdUtf8Prefix(trimmed) : trimmed;
-			const args = isWin ? ['/d', '/s', '/c', cmdLine] : ['-lc', cmdLine];
-			const { stdout, stderr } = await execFileAsync(shell, args, {
-				cwd: root,
-				windowsHide: true,
-				maxBuffer: 5 * 1024 * 1024,
-				timeout: 120_000,
-				encoding: 'utf8',
-			});
-			return { ok: true as const, stdout: stdout || '', stderr: stderr || '' };
-		} catch (e: unknown) {
-			const err = e as { stdout?: string; stderr?: string; message?: string };
-			return {
-				ok: false as const,
-				error: err.message ?? String(e),
-				stdout: err.stdout ?? '',
-				stderr: err.stderr ?? '',
-			};
-		}
-	});
-
-	// ─── MCP IPC handlers ─────────────────────────────────────────────────────
-
-	/** 获取所有 MCP 服务器配置 */
-	ipcMain.handle('mcp:getServers', () => {
-		return { ok: true as const, servers: getMcpServerConfigs() };
-	});
-
-	/** 获取所有 MCP 服务器配置（别名） */
-	ipcMain.handle('mcp:listServers', () => {
-		return { ok: true as const, servers: getMcpServerConfigs() };
-	});
-
-	/** 获取所有 MCP 服务器状态 */
-	ipcMain.handle('mcp:getStatuses', (event) => {
-		const manager = getMcpManager();
-		manager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), senderWorkspaceRoot(event)));
-		return { ok: true as const, statuses: manager.getServerStatuses() };
-	});
-
-	/** 添加或更新 MCP 服务器配置 */
-	ipcMain.handle('mcp:saveServer', (event, config: McpServerConfig) => {
-		try {
-			addMcpServerConfig(config);
-			const manager = getMcpManager();
-			manager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), senderWorkspaceRoot(event)));
-			return { ok: true as const, server: config };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	/** 删除 MCP 服务器配置 */
-	ipcMain.handle('mcp:deleteServer', (event, id: string) => {
-		try {
-			removeMcpServerConfig(id);
-			const manager = getMcpManager();
-			manager.removeServer(id);
-			manager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), senderWorkspaceRoot(event)));
-			return { ok: true as const };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	/** 启动 MCP 服务器 */
-	ipcMain.handle('mcp:startServer', async (event, id: string) => {
-		try {
-			const manager = getMcpManager();
-			manager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), senderWorkspaceRoot(event)));
-			await manager.startServer(id);
-			return { ok: true as const };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	/** 停止 MCP 服务器 */
-	ipcMain.handle('mcp:stopServer', async (_e, id: string) => {
-		try {
-			const manager = getMcpManager();
-			await manager.stopServer(id);
-			return { ok: true as const };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	/** 重启 MCP 服务器 */
-	ipcMain.handle('mcp:restartServer', async (event, id: string) => {
-		try {
-			const manager = getMcpManager();
-			manager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), senderWorkspaceRoot(event)));
-			await manager.restartServer(id);
-			return { ok: true as const };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	/** 启动所有已启用的 MCP 服务器 */
-	ipcMain.handle('mcp:startAll', async (event) => {
-		try {
-			const manager = getMcpManager();
-			manager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), senderWorkspaceRoot(event)));
-			await manager.startAll();
-			return { ok: true as const };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	/** 获取 MCP 工具列表（供 Agent 使用） */
-	ipcMain.handle('mcp:getTools', (event) => {
-		const manager = getMcpManager();
-		manager.loadConfigs(getEffectiveMcpServerConfigs(getMcpServerConfigs(), senderWorkspaceRoot(event)));
-		return { ok: true as const, tools: manager.getAgentTools() };
-	});
-
-	/** 调用 MCP 工具 */
-	ipcMain.handle('mcp:callTool', async (_e, name: string, args: Record<string, unknown>) => {
-		try {
-			const manager = getMcpManager();
-			const result = await manager.callTool(name, args);
-			return { ok: true as const, result };
-		} catch (e) {
-			return { ok: false as const, error: String(e) };
-		}
-	});
-
-	/** 销毁 MCP 管理器（应用退出时调用） */
-	ipcMain.handle('mcp:destroy', () => {
-		destroyMcpManager();
-		return { ok: true as const };
-	});
 
 	/** 自动更新：检查更新 */
 
