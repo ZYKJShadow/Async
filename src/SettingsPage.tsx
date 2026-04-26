@@ -63,6 +63,7 @@ export const ALL_SETTINGS_NAV_IDS: SettingsNavId[] = [
 	'appearance',
 	'editor',
 	'models',
+	'plugins',
 	'agents',
 	'bots',
 	'rules',
@@ -72,12 +73,11 @@ export const ALL_SETTINGS_NAV_IDS: SettingsNavId[] = [
 	'tools',
 	'plan',
 	'team',
-	'plugins',
 ];
 
 
 
-type NavItem = { id: SettingsNavId; label: string; badge?: number };
+type NavItem = { id: SettingsNavId; label: string };
 
 type ProviderDiscoverState = {
 	status: 'idle' | 'loading' | 'done';
@@ -132,7 +132,8 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'general', label: t('settings.nav.general') },
 		{ id: 'appearance', label: t('settings.nav.appearance') },
 		{ id: 'editor', label: t('settings.nav.editor') },
-		{ id: 'models', label: t('settings.nav.models'), badge: 1 },
+		{ id: 'models', label: t('settings.nav.models') },
+		{ id: 'plugins', label: t('settings.nav.plugins') },
 		{ id: 'agents', label: t('settings.nav.agents') },
 		{ id: 'bots', label: t('settings.nav.bots') },
 		{ id: 'rules', label: t('settings.nav.rules') },
@@ -142,7 +143,6 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'tools', label: t('settings.nav.tools') },
 		{ id: 'plan', label: t('settings.nav.plan') },
 		{ id: 'team', label: t('settings.nav.team') },
-		{ id: 'plugins', label: t('settings.nav.plugins') },
 	];
 }
 
@@ -1003,9 +1003,6 @@ export function SettingsPage({
 			<div className="ref-settings-layout">
 				<aside className="ref-settings-sidebar" style={{ width: sidebarWidth }}>
 					<div className="ref-settings-sidebar-tools">
-						<button type="button" className="ref-settings-icon-btn" aria-label={t('common.search')} title={t('common.search')}>
-							<IconSearch />
-						</button>
 						<button type="button" className="ref-settings-icon-btn" onClick={onClose} aria-label={t('common.back')} title={t('common.back')}>
 							<IconBack />
 						</button>
@@ -1024,7 +1021,6 @@ export function SettingsPage({
 							>
 								<span className="ref-settings-nav-ico">{navIcon(item.id)}</span>
 								<span className="ref-settings-nav-label">{item.label}</span>
-								{item.badge != null ? <span className="ref-settings-nav-badge">{item.badge}</span> : null}
 							</button>
 						))}
 					</nav>

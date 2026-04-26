@@ -13802,20 +13802,6 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	min-width: 0;
 }
 
-.ref-settings-nav-badge {
-	font-size: 10px;
-	min-width: 18px;
-	height: 18px;
-	padding: 0 5px;
-	border-radius: 999px;
-	background: var(--void-ring);
-	color: var(--void-bg-0);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-weight: 600;
-}
-
 .ref-settings-nav-soon {
 	font-size: 10px;
 	color: var(--void-fg-3);
