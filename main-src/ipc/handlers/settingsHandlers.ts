@@ -108,16 +108,17 @@ function createOAuthModelEntry(providerId: string, authProvider: OAuthProviderKi
 	};
 }
 
-function providerLooksLikeOAuth(provider: UserLlmProvider, authProvider: OAuthProviderKind): boolean {
-	const needle = authProvider === 'claude' ? 'claude' : authProvider;
-	return (
-		provider.oauthAuth?.provider === authProvider ||
-		(authProvider === 'codex' && Boolean(provider.codexAuth)) ||
-		provider.displayName.trim().toLowerCase().includes(needle)
-	);
+function oauthLoginDisplayDetail(login: ProviderOAuthAuthRecord): string {
+	return (login.email || login.accountId || login.projectId || '').trim();
 }
 
-function upsertOAuthLoginProvider(params: {
+function oauthProviderDisplayName(authProvider: OAuthProviderKind, login: ProviderOAuthAuthRecord): string {
+	const defaults = OAUTH_PROVIDER_DEFAULTS[authProvider];
+	const detail = oauthLoginDisplayDetail(login);
+	return detail ? `${defaults.displayName} (${detail})` : defaults.displayName;
+}
+
+function appendOAuthLoginProvider(params: {
 	authProvider: OAuthProviderKind;
 	providers: UserLlmProvider[];
 	entries: UserModelEntry[];
@@ -134,19 +135,13 @@ function upsertOAuthLoginProvider(params: {
 	projectId?: string;
 } {
 	const defaults = OAUTH_PROVIDER_DEFAULTS[params.authProvider];
-	const providerIndex = params.providers.findIndex(
-		(provider) => provider.paradigm === defaults.paradigm && providerLooksLikeOAuth(provider, params.authProvider)
-	);
-	const existing = providerIndex >= 0 ? params.providers[providerIndex] : undefined;
-	const providerId = existing?.id || randomUUID();
+	const providerId = randomUUID();
+	const modelEntry = createOAuthModelEntry(providerId, params.authProvider);
 	const nextProvider: UserLlmProvider = {
-		...(existing ?? {}),
 		id: providerId,
-		displayName: existing?.displayName?.trim() ? existing.displayName : defaults.displayName,
+		displayName: oauthProviderDisplayName(params.authProvider, params.login),
 		paradigm: defaults.paradigm,
 		apiKey: params.login.accessToken,
-		baseURL: existing?.baseURL,
-		proxyUrl: existing?.proxyUrl,
 		providerIdentity: defaults.providerIdentity,
 		oauthAuth: params.login,
 		...(params.authProvider === 'codex'
@@ -161,27 +156,15 @@ function upsertOAuthLoginProvider(params: {
 				}
 			: {}),
 	};
-	const providers =
-		providerIndex >= 0
-			? params.providers.map((provider, index) => (index === providerIndex ? nextProvider : provider))
-			: [...params.providers, nextProvider];
-
-	const existingModel = params.entries.find(
-		(entry) =>
-			entry.providerId === providerId &&
-			entry.requestName.trim().toLowerCase() === defaults.modelId
-	);
-	const entries = existingModel
-		? params.entries
-		: [...params.entries, createOAuthModelEntry(providerId, params.authProvider)];
-	const modelId = existingModel?.id ?? entries[entries.length - 1]!.id;
+	const providers = [...params.providers, nextProvider];
+	const entries = [...params.entries, modelEntry];
 	const currentDefault = params.defaultModel?.trim() ?? '';
 	return {
 		providers,
 		entries,
 		providerId,
-		modelId,
-		defaultModel: currentDefault || modelId,
+		modelId: modelEntry.id,
+		defaultModel: currentDefault || modelEntry.id,
 		...(params.login.accountId ? { accountId: params.login.accountId } : {}),
 		...(params.login.email ? { email: params.login.email } : {}),
 		...(params.login.projectId ? { projectId: params.login.projectId } : {}),
@@ -231,7 +214,7 @@ async function handleProviderOAuthLoginPayload(rawPayload: unknown) {
 					? payload.timeoutMs
 					: undefined,
 		});
-		const next = upsertOAuthLoginProvider({
+		const next = appendOAuthLoginProvider({
 			authProvider,
 			providers,
 			entries,

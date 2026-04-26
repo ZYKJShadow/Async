@@ -94,6 +94,29 @@ type ProviderOAuthLoginState = {
 
 const PROVIDER_OAUTH_LOGIN_UI_TIMEOUT_MS = 5 * 60_000;
 const OAUTH_LOGIN_PROVIDERS: OAuthProviderKind[] = ['codex', 'claude', 'antigravity'];
+type ProviderGroupId = 'manual' | OAuthProviderKind;
+
+const PROVIDER_GROUPS: {
+	id: ProviderGroupId;
+	labelKey: string;
+	oauthProvider?: OAuthProviderKind;
+}[] = [
+	{ id: 'manual', labelKey: 'settings.providerGroup.manual' },
+	{ id: 'codex', labelKey: 'settings.providerGroup.codex', oauthProvider: 'codex' },
+	{ id: 'claude', labelKey: 'settings.providerGroup.claude', oauthProvider: 'claude' },
+	{ id: 'antigravity', labelKey: 'settings.providerGroup.antigravity', oauthProvider: 'antigravity' },
+];
+
+function providerGroupId(provider: UserLlmProvider): ProviderGroupId {
+	const oauthProvider = provider.oauthAuth?.provider;
+	if (oauthProvider === 'codex' || oauthProvider === 'claude' || oauthProvider === 'antigravity') {
+		return oauthProvider;
+	}
+	if (provider.codexAuth) {
+		return 'codex';
+	}
+	return 'manual';
+}
 
 type ProviderDiscoverModalState = {
 	providerId: string;
@@ -468,6 +491,7 @@ type Props = {
 	effectiveColorScheme: 'light' | 'dark';
 	appearanceSettings: AppAppearanceSettings;
 	onChangeAppearanceSettings: (next: AppAppearanceSettings) => void | Promise<void>;
+	showTransientToast?: (ok: boolean, text: string, durationMs?: number) => void;
 };
 
 export type SettingsPageProps = Props;
@@ -510,6 +534,7 @@ export function SettingsPage({
 	effectiveColorScheme,
 	appearanceSettings,
 	onChangeAppearanceSettings,
+	showTransientToast,
 }: Props) {
 	const { t, locale, setLocale } = useI18n();
 	const navItems = useMemo(() => navItemsForT(t), [t]);
@@ -519,6 +544,7 @@ export function SettingsPage({
 	const [providerDiscoverStateById, setProviderDiscoverStateById] = useState<Record<string, ProviderDiscoverState>>({});
 	const [providerDiscoverModal, setProviderDiscoverModal] = useState<ProviderDiscoverModalState | null>(null);
 	const [oauthLoginState, setOauthLoginState] = useState<ProviderOAuthLoginState>({ status: 'idle' });
+	const [expandedProviderIds, setExpandedProviderIds] = useState<Record<string, boolean>>({});
 	const oauthLoginRequestIdRef = useRef(0);
 	const oauthLoginTimeoutRef = useRef<number | undefined>(undefined);
 	const [sidebarWidth, setSidebarWidth] = useState(() => readSettingsSidebarWidth());
@@ -624,6 +650,15 @@ export function SettingsPage({
 			});
 		});
 	}, [deferredSearch, modelEntries, modelProviders, t]);
+
+	const groupedProviders = useMemo(
+		() =>
+			PROVIDER_GROUPS.map((group) => ({
+				...group,
+				providers: filteredProviders.filter((provider) => providerGroupId(provider) === group.id),
+			})).filter((group) => group.providers.length > 0),
+		[filteredProviders]
+	);
 
 	const modelsVisibleUnderProvider = useCallback(
 		(provider: UserLlmProvider) => {
@@ -849,15 +884,34 @@ export function SettingsPage({
 		[oauthProviderLabel, t]
 	);
 
-	const runProviderOAuthLogin = useCallback(async (provider: OAuthProviderKind) => {
-		const providerLabel = oauthProviderLabel(provider);
-		if (!shell) {
+	const finishOAuthLogin = useCallback(
+		(provider: OAuthProviderKind, ok: boolean, message: string, options?: { toast?: boolean }) => {
+			const trimmed = message.trim();
+			const shouldToast = Boolean(trimmed) && (options?.toast ?? !ok);
+			if (shouldToast && showTransientToast) {
+				showTransientToast(ok, trimmed, ok ? 4200 : 6500);
+			}
 			setOauthLoginState({
 				status: 'done',
 				provider,
-				ok: false,
-				message: t('settings.oauthLoginUnavailable', { provider: providerLabel }),
+				ok,
+				message: ok || !showTransientToast || !shouldToast ? trimmed : undefined,
 			});
+		},
+		[showTransientToast]
+	);
+
+	const toggleProviderExpanded = useCallback((providerId: string) => {
+		setExpandedProviderIds((prev) => ({
+			...prev,
+			[providerId]: prev[providerId] !== true,
+		}));
+	}, []);
+
+	const runProviderOAuthLogin = useCallback(async (provider: OAuthProviderKind) => {
+		const providerLabel = oauthProviderLabel(provider);
+		if (!shell) {
+			finishOAuthLogin(provider, false, t('settings.oauthLoginUnavailable', { provider: providerLabel }));
 			return;
 		}
 		if (oauthLoginState.status === 'loading') {
@@ -866,12 +920,7 @@ export function SettingsPage({
 			}
 			oauthLoginRequestIdRef.current += 1;
 			clearOAuthLoginTimeout();
-			setOauthLoginState({
-				status: 'done',
-				provider,
-				ok: false,
-				message: t('settings.oauthLoginCancelled', { provider: providerLabel }),
-			});
+			finishOAuthLogin(provider, false, t('settings.oauthLoginCancelled', { provider: providerLabel }));
 			void shell.invoke('settings:cancelProviderOAuthLogin').catch(() => undefined);
 			return;
 		}
@@ -885,12 +934,7 @@ export function SettingsPage({
 			}
 			oauthLoginRequestIdRef.current += 1;
 			oauthLoginTimeoutRef.current = undefined;
-			setOauthLoginState({
-				status: 'done',
-				provider,
-				ok: false,
-				message: t('settings.oauthLoginTimedOut', { provider: providerLabel }),
-			});
+			finishOAuthLogin(provider, false, t('settings.oauthLoginTimedOut', { provider: providerLabel }));
 			void shell.invoke('settings:cancelProviderOAuthLogin').catch(() => undefined);
 		}, PROVIDER_OAUTH_LOGIN_UI_TIMEOUT_MS);
 		try {
@@ -917,12 +961,7 @@ export function SettingsPage({
 			}
 			clearOAuthLoginTimeout();
 			if (result?.ok !== true || !Array.isArray(result.providers) || !Array.isArray(result.entries)) {
-				setOauthLoginState({
-					status: 'done',
-					provider,
-					ok: false,
-					message: result?.message?.trim() || t('settings.oauthLoginFailed', { provider: providerLabel }),
-				});
+				finishOAuthLogin(provider, false, result?.message?.trim() || t('settings.oauthLoginFailed', { provider: providerLabel }));
 				return;
 			}
 			onChangeModelProviders(result.providers);
@@ -930,27 +969,22 @@ export function SettingsPage({
 			if (!defaultModel && result.defaultModel) {
 				void onPickDefaultModel(result.defaultModel);
 			}
-			setOauthLoginState({
-				status: 'done',
-				provider,
-				ok: true,
-				message: formatOAuthLoginSuccess(provider, result),
-			});
+			finishOAuthLogin(provider, true, formatOAuthLoginSuccess(provider, result), { toast: false });
 		} catch (error) {
 			if (oauthLoginRequestIdRef.current !== requestId) {
 				return;
 			}
 			clearOAuthLoginTimeout();
-			setOauthLoginState({
-				status: 'done',
+			finishOAuthLogin(
 				provider,
-				ok: false,
-				message: error instanceof Error ? error.message : String(error ?? t('settings.oauthLoginFailed', { provider: providerLabel })),
-			});
+				false,
+				error instanceof Error ? error.message : String(error ?? t('settings.oauthLoginFailed', { provider: providerLabel }))
+			);
 		}
 	}, [
 		clearOAuthLoginTimeout,
 		defaultModel,
+		finishOAuthLogin,
 		formatOAuthLoginSuccess,
 		modelEntries,
 		modelProviders,
@@ -1305,10 +1339,24 @@ export function SettingsPage({
 									</p>
 								) : null}
 
-								<ul className="ref-settings-provider-root-list" aria-label={t('settings.modelCatalog')}>
-									{filteredProviders.map((prov) => {
+								<div className="ref-settings-provider-groups" aria-label={t('settings.modelCatalog')}>
+									{groupedProviders.map((group) => (
+										<section key={group.id} className="ref-settings-provider-group">
+											<div className="ref-settings-provider-group-head">
+												<div className="ref-settings-provider-group-title-wrap">
+													{group.oauthProvider ? <OAuthProviderMark provider={group.oauthProvider} /> : null}
+													<h3 className="ref-settings-provider-group-title">{t(group.labelKey)}</h3>
+												</div>
+												<span className="ref-settings-provider-group-count">
+													{t('settings.providerGroupCount', { count: String(group.providers.length) })}
+												</span>
+											</div>
+											<ul className="ref-settings-provider-root-list" aria-label={t(group.labelKey)}>
+												{group.providers.map((prov) => {
 										const subModels = modelsVisibleUnderProvider(prov);
 										const discoverState = providerDiscoverStateById[prov.id];
+										const providerExpanded = expandedProviderIds[prov.id] === true;
+										const providerBodyId = `settings-provider-body-${prov.id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
 										const identityPreset = providerIdentityOverridePreset(prov);
 										const providerIdentityResolved =
 											identityPreset === 'inherit'
@@ -1316,17 +1364,29 @@ export function SettingsPage({
 												: resolveProviderIdentitySettings(prov.providerIdentity);
 										return (
 											<li key={prov.id} className="ref-settings-provider-shell">
-												<details className="ref-settings-provider-details">
-													<summary className="ref-settings-provider-summary">
+												<div className={`ref-settings-provider-details ${providerExpanded ? 'is-open' : ''}`}>
+													<button
+														type="button"
+														className="ref-settings-provider-summary"
+														aria-expanded={providerExpanded}
+														aria-controls={providerBodyId}
+														onClick={() => toggleProviderExpanded(prov.id)}
+													>
 														<span className="ref-settings-provider-summary-chev" aria-hidden />
 														<span className="ref-settings-provider-summary-text">
 															{prov.displayName.trim() || t('settings.providerUntitled')}
 														</span>
 														<span className="ref-settings-provider-summary-tag">{t(`settings.paradigm.${prov.paradigm}`)}</span>
-													</summary>
+													</button>
 
-													<div className="ref-settings-provider-body">
-														<div className="ref-settings-provider-creds">
+													<div
+														id={providerBodyId}
+														className="ref-settings-provider-collapse"
+														aria-hidden={!providerExpanded}
+													>
+														<div className="ref-settings-provider-collapse-inner">
+															<div className="ref-settings-provider-body">
+																<div className="ref-settings-provider-creds">
 															<label className="ref-settings-field ref-settings-field--compact">
 																<span>{t('settings.providerName')}</span>
 																<input
@@ -1655,12 +1715,17 @@ export function SettingsPage({
 																);
 															})}
 														</ul>
+															</div>
+														</div>
 													</div>
-												</details>
+												</div>
 											</li>
 										);
-									})}
-								</ul>
+												})}
+											</ul>
+										</section>
+									))}
+								</div>
 							</div>
 						) : null}
 

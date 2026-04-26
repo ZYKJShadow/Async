@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from 'electron';
+import { shell } from 'electron';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 
@@ -259,18 +259,6 @@ function closeServer(server: http.Server): void {
 	}
 }
 
-function closeLoginWindow(window: BrowserWindow | undefined, quiet: { current: boolean }): void {
-	if (!window || window.isDestroyed()) {
-		return;
-	}
-	quiet.current = true;
-	try {
-		window.close();
-	} catch {
-		/* ignore */
-	}
-}
-
 export function cancelActiveCodexBrowserLogin(message = 'Codex login cancelled.'): boolean {
 	const cancel = activeCodexLoginCancel;
 	if (!cancel) {
@@ -356,9 +344,7 @@ export async function runCodexBrowserLogin(options?: {
 	let actualPort = requestedPort;
 	let settled = false;
 	let loginTimeout: ReturnType<typeof setTimeout> | undefined;
-	let loginWindow: BrowserWindow | undefined;
 	let server!: http.Server;
-	const loginWindowQuietClose = { current: false };
 
 	let finish!: (value: CodexBrowserLoginResult) => void;
 	let fail!: (error: Error) => void;
@@ -380,7 +366,6 @@ export async function runCodexBrowserLogin(options?: {
 			loginTimeout = undefined;
 		}
 		setImmediate(() => closeServer(server));
-		setTimeout(() => closeLoginWindow(loginWindow, loginWindowQuietClose), 900).unref?.();
 		finish(value);
 	};
 	const settleErr = (server: http.Server, error: Error) => {
@@ -396,7 +381,6 @@ export async function runCodexBrowserLogin(options?: {
 			loginTimeout = undefined;
 		}
 		setImmediate(() => closeServer(server));
-		setTimeout(() => closeLoginWindow(loginWindow, loginWindowQuietClose), 250).unref?.();
 		fail(error);
 	};
 
@@ -504,40 +488,10 @@ export async function runCodexBrowserLogin(options?: {
 	});
 
 	try {
-		loginWindow = new BrowserWindow({
-			width: 960,
-			height: 760,
-			minWidth: 460,
-			minHeight: 560,
-			title: 'Codex Login',
-			show: true,
-			autoHideMenuBar: true,
-			backgroundColor: '#0b0f0d',
-			webPreferences: {
-				contextIsolation: true,
-				nodeIntegration: false,
-				sandbox: true,
-			},
-		});
-		loginWindow.once('closed', () => {
-			loginWindow = undefined;
-			if (!loginWindowQuietClose.current) {
-				settleErr(server, new Error('Codex login cancelled.'));
-			}
-		});
-		void loginWindow.loadURL(authUrl).catch((error) => {
-			if (!settled) {
-				const message = error instanceof Error ? error.message : String(error);
-				settleErr(server, new Error(`Unable to open browser for Codex login: ${message}`));
-			}
-		});
+		await shell.openExternal(authUrl);
 	} catch (error) {
-		try {
-			await shell.openExternal(authUrl);
-		} catch (fallbackError) {
-			const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-			settleErr(server, new Error(`Unable to open browser for Codex login: ${message}`));
-		}
+		const message = error instanceof Error ? error.message : String(error);
+		settleErr(server, new Error(`Unable to open browser for Codex login: ${message}`));
 	}
 	return completed;
 }

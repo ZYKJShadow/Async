@@ -4029,6 +4029,7 @@ function AppMainWorkspaceInner() {
 			effectiveColorScheme: effectiveScheme,
 			appearanceSettings,
 			onChangeAppearanceSettings: setAppearanceSettings,
+			showTransientToast,
 		}),
 		[
 			settingsInitialNav,
@@ -4067,6 +4068,7 @@ function AppMainWorkspaceInner() {
 			effectiveScheme,
 			appearanceSettings,
 			setAppearanceSettings,
+			showTransientToast,
 		]
 	);
 
