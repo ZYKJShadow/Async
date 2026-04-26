@@ -13,9 +13,13 @@ import {
 	ensureAgentFilePreviewLang,
 	getAgentFilePreviewHighlighter,
 } from './agentFilePreviewShiki';
-import { useI18n } from './i18n';
+import { useI18n, type TFunction } from './i18n';
 import { voidShellDebugLog } from './tabCloseDebug';
 import { useDomColorScheme } from './useDomColorScheme';
+import type {
+	AgentFilePreviewKind,
+	AgentFilePreviewUnsupportedReason,
+} from './hooks/useAgentFileReview';
 
 type Props = {
 	filePath: string;
@@ -24,9 +28,15 @@ type Props = {
 	loading?: boolean;
 	readError?: string | null;
 	isBinary?: boolean;
+	previewKind?: AgentFilePreviewKind;
+	fileSize?: number;
+	unsupportedReason?: AgentFilePreviewUnsupportedReason | null;
+	imageUrl?: string;
 	revealLine?: number;
 	revealEndLine?: number;
 	onOpenInEditor?: () => void;
+	onOpenWithDefault?: () => void;
+	onCopyPath?: () => void;
 	onAcceptHunk?: (patch: string) => void;
 	onRevertHunk?: (patch: string) => void;
 	busyHunkPatch?: string | null;
@@ -35,6 +45,72 @@ type Props = {
 function basename(path: string): string {
 	const parts = path.split(/[\\/]/);
 	return parts[parts.length - 1] || path;
+}
+
+function formatFileSize(bytes: number | undefined): string | null {
+	if (bytes == null || !Number.isFinite(bytes) || bytes < 0) {
+		return null;
+	}
+	const units = ['B', 'KB', 'MB', 'GB'];
+	let value = bytes;
+	let unit = 0;
+	while (value >= 1024 && unit < units.length - 1) {
+		value /= 1024;
+		unit += 1;
+	}
+	const digits = unit === 0 || value >= 100 ? 0 : value >= 10 ? 1 : 2;
+	return `${value.toFixed(digits)} ${units[unit]}`;
+}
+
+function previewKindLabel(t: TFunction, kind: AgentFilePreviewKind | undefined): string {
+	switch (kind) {
+		case 'image':
+			return t('app.filePreviewKindImage');
+		case 'pdf':
+			return t('app.filePreviewKindPdf');
+		case 'office':
+			return t('app.filePreviewKindOffice');
+		case 'archive':
+			return t('app.filePreviewKindArchive');
+		case 'media':
+			return t('app.filePreviewKindMedia');
+		case 'font':
+			return t('app.filePreviewKindFont');
+		case 'executable':
+			return t('app.filePreviewKindExecutable');
+		case 'large':
+			return t('app.filePreviewKindLarge');
+		case 'binary':
+			return t('app.filePreviewKindBinary');
+		default:
+			return t('app.filePreviewKindUnknown');
+	}
+}
+
+function unsupportedPreviewMessage(
+	t: TFunction,
+	kind: AgentFilePreviewKind | undefined,
+	reason: AgentFilePreviewUnsupportedReason | null | undefined
+): string {
+	if (reason === 'too-large' || kind === 'large') {
+		return t('app.filePreviewUnsupportedLarge');
+	}
+	if (kind === 'image') {
+		return t('app.filePreviewUnsupportedImage');
+	}
+	if (kind === 'office') {
+		return t('app.filePreviewUnsupportedOffice');
+	}
+	if (kind === 'pdf') {
+		return t('app.filePreviewUnsupportedPdf');
+	}
+	if (kind === 'archive') {
+		return t('app.filePreviewUnsupportedArchive');
+	}
+	if (kind === 'media') {
+		return t('app.filePreviewUnsupportedMedia');
+	}
+	return t('app.filePreviewUnsupportedBinary');
 }
 
 function inRevealRange(line: number | null, start: number | undefined, end: number | undefined): boolean {
@@ -98,9 +174,15 @@ export function AgentFilePreviewPanel({
 	loading = false,
 	readError = null,
 	isBinary = false,
+	previewKind = 'text',
+	fileSize,
+	unsupportedReason = null,
+	imageUrl,
 	revealLine,
 	revealEndLine,
 	onOpenInEditor,
+	onOpenWithDefault,
+	onCopyPath,
 	onAcceptHunk,
 	onRevertHunk,
 	busyHunkPatch = null,
@@ -109,11 +191,16 @@ export function AgentFilePreviewPanel({
 	const colorScheme = useDomColorScheme();
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const [rows, setRows] = useState<AgentFilePreviewRow[]>(() =>
-		String(diff ?? '').trim() ? [] : buildPlainAgentFilePreviewRows(content)
+		isBinary || String(diff ?? '').trim() ? [] : buildPlainAgentFilePreviewRows(content)
 	);
 	const [hunks, setHunks] = useState<AgentFilePreviewHunk[]>([]);
 	const [shikiHtmlByRow, setShikiHtmlByRow] = useState<string[] | null>(null);
 	useEffect(() => {
+		if (loading || readError || isBinary) {
+			setRows([]);
+			setHunks([]);
+			return;
+		}
 		let cancelled = false;
 		const raw = String(diff ?? '').trim();
 		if (!raw) {
@@ -134,7 +221,7 @@ export function AgentFilePreviewPanel({
 		return () => {
 			cancelled = true;
 		};
-	}, [content, diff]);
+	}, [content, diff, loading, readError, isBinary]);
 
 	useEffect(() => {
 		if (loading || readError || isBinary) {
@@ -173,6 +260,10 @@ export function AgentFilePreviewPanel({
 	const hunkMap = useMemo(() => new Map(hunks.map((hunk) => [hunk.id, hunk])), [hunks]);
 	const blocks = useMemo(() => buildPreviewBlocks(rows, hunks), [rows, hunks]);
 	const name = basename(filePath);
+	const displaySize = formatFileSize(fileSize);
+	const showUnsupported = !loading && !readError && (isBinary || unsupportedReason != null);
+	const showImagePreview = showUnsupported && previewKind === 'image' && typeof imageUrl === 'string' && imageUrl.length > 0;
+	const canOpenInEditor = !showUnsupported && onOpenInEditor;
 
 	useEffect(() => {
 		if (loading) {
@@ -301,14 +392,16 @@ export function AgentFilePreviewPanel({
 						</span>
 					</div>
 				</div>
-				{onOpenInEditor ? (
-					<button
-						type="button"
-						className="ref-agent-file-preview-open-btn"
-						onClick={onOpenInEditor}
-					>
-						{t('app.gitOpenInEditorAria')}
-					</button>
+				{canOpenInEditor ? (
+					<div className="ref-agent-file-preview-toolbar-actions">
+						<button
+							type="button"
+							className="ref-agent-file-preview-open-btn"
+							onClick={onOpenInEditor}
+						>
+							{t('app.gitOpenInEditorAria')}
+						</button>
+					</div>
 				) : null}
 			</div>
 
@@ -319,10 +412,59 @@ export function AgentFilePreviewPanel({
 				{!loading && readError ? (
 					<div className="ref-agent-file-preview-state">{t('app.readFileFailed', { detail: readError })}</div>
 				) : null}
-				{!loading && !readError && isBinary ? (
-					<div className="ref-agent-file-preview-state">{t('app.gitBinary')}</div>
+				{showUnsupported ? (
+					<div
+						className={[
+							'ref-agent-file-preview-unsupported',
+							showImagePreview ? 'ref-agent-file-preview-unsupported--image' : '',
+						].filter(Boolean).join(' ')}
+					>
+						{showImagePreview ? (
+							<div className="ref-agent-file-preview-image-stage">
+								<img className="ref-agent-file-preview-image" src={imageUrl} alt={name} />
+							</div>
+						) : null}
+						<div className="ref-agent-file-preview-unsupported-copy">
+							<span className="ref-agent-file-preview-unsupported-badge">
+								{previewKindLabel(t, previewKind)}
+							</span>
+							<div className="ref-agent-file-preview-unsupported-title">
+								{showImagePreview
+									? t('app.filePreviewImageTitle')
+									: t('app.filePreviewUnsupportedTitle')}
+							</div>
+							{showImagePreview ? null : (
+								<p>{unsupportedPreviewMessage(t, previewKind, unsupportedReason)}</p>
+							)}
+							{displaySize ? (
+								<div className="ref-agent-file-preview-unsupported-meta">
+									{t('app.filePreviewFileSize', { size: displaySize })}
+								</div>
+							) : null}
+							<div className="ref-agent-file-preview-unsupported-actions">
+								{onOpenWithDefault ? (
+									<button
+										type="button"
+										className="ref-agent-file-preview-open-btn"
+										onClick={onOpenWithDefault}
+									>
+										{t('app.filePreviewOpenDefault')}
+									</button>
+								) : null}
+								{onCopyPath ? (
+									<button
+										type="button"
+										className="ref-agent-file-preview-open-btn"
+										onClick={onCopyPath}
+									>
+										{t('app.filePreviewCopyPath')}
+									</button>
+								) : null}
+							</div>
+						</div>
+					</div>
 				) : null}
-				{!loading && !readError && !isBinary ? (
+				{!loading && !readError && !showUnsupported ? (
 					<div
 						className={[
 							'ref-agent-file-preview-code',

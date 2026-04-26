@@ -9,11 +9,34 @@ export type AgentFilePreviewState = {
 	content: string;
 	diff: string;
 	isBinary: boolean;
+	previewKind?: AgentFilePreviewKind;
+	fileSize?: number;
+	unsupportedReason?: AgentFilePreviewUnsupportedReason | null;
+	imageUrl?: string;
 	readError: string | null;
 	additions: number;
 	deletions: number;
 	reviewMode: 'snapshot' | 'readonly';
 };
+
+export type AgentFilePreviewKind =
+	| 'text'
+	| 'image'
+	| 'pdf'
+	| 'office'
+	| 'archive'
+	| 'media'
+	| 'font'
+	| 'executable'
+	| 'binary'
+	| 'large'
+	| 'unknown';
+
+export type AgentFilePreviewUnsupportedReason =
+	| 'unsupported-type'
+	| 'too-large'
+	| 'binary-content'
+	| 'not-file';
 
 /**
  * 管理 Agent 文件审阅状态：待审阅 patch 列表、dismiss/revert 跟踪、文件预览。

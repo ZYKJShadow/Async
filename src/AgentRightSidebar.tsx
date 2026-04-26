@@ -963,6 +963,7 @@ const AgentRightSidebarFilePanel = memo(function AgentRightSidebarFilePanel({
 	openView,
 	agentFilePreview,
 	openFileInTab,
+	workspaceRoot,
 	onAcceptAgentFilePreviewHunk,
 	onRevertAgentFilePreviewHunk,
 	agentFilePreviewBusyPatch,
@@ -972,13 +973,19 @@ const AgentRightSidebarFilePanel = memo(function AgentRightSidebarFilePanel({
 	openView: (view: AgentRightSidebarView) => void;
 	agentFilePreview: AgentFilePreviewState | null;
 	openFileInTab: AgentRightSidebarProps['openFileInTab'];
+	workspaceRoot: string | null;
 	onAcceptAgentFilePreviewHunk: (patch: string) => void;
 	onRevertAgentFilePreviewHunk: (patch: string) => void;
 	agentFilePreviewBusyPatch: string | null;
 }) {
-	const { t } = useAppShellChromeCore();
+	const { shell, t } = useAppShellChromeCore();
 	const agentFilePreviewTitle =
 		agentFilePreview?.relPath?.split('/').pop() || agentFilePreview?.relPath || t('app.filePreview');
+	const absolutePreviewPath = agentFilePreview
+		? workspaceRoot
+			? `${workspaceRoot.replace(/[\\/]+$/, '')}/${agentFilePreview.relPath.replace(/^[\\/]+/, '')}`
+			: agentFilePreview.relPath
+		: '';
 
 	return agentFilePreview ? (
 		<div className="ref-agent-review-shell">
@@ -1002,19 +1009,32 @@ const AgentRightSidebarFilePanel = memo(function AgentRightSidebarFilePanel({
 					loading={agentFilePreview.loading}
 					readError={agentFilePreview.readError}
 					isBinary={agentFilePreview.isBinary}
+					previewKind={agentFilePreview.previewKind}
+					fileSize={agentFilePreview.fileSize}
+					unsupportedReason={agentFilePreview.unsupportedReason}
+					imageUrl={agentFilePreview.imageUrl}
 					revealLine={agentFilePreview.revealLine}
 					revealEndLine={agentFilePreview.revealEndLine}
-					onOpenInEditor={() =>
-						openFileInTab(
-							agentFilePreview.relPath,
-							agentFilePreview.revealLine,
-							agentFilePreview.revealEndLine,
-							{
-								diff: agentFilePreview.diff,
-								allowReviewActions: agentFilePreview.reviewMode === 'snapshot',
-							}
-						)
+					onOpenInEditor={
+						agentFilePreview.isBinary || agentFilePreview.unsupportedReason
+							? undefined
+							: () =>
+									openFileInTab(
+										agentFilePreview.relPath,
+										agentFilePreview.revealLine,
+										agentFilePreview.revealEndLine,
+										{
+											diff: agentFilePreview.diff,
+											allowReviewActions: agentFilePreview.reviewMode === 'snapshot',
+										}
+									)
 					}
+					onOpenWithDefault={() => {
+						void shell?.invoke('shell:openDefault', agentFilePreview.relPath);
+					}}
+					onCopyPath={() => {
+						void shell?.invoke('clipboard:writeText', absolutePreviewPath);
+					}}
 					onAcceptHunk={
 						agentFilePreview.reviewMode === 'snapshot'
 							? (patch) => onAcceptAgentFilePreviewHunk(patch)
@@ -2957,6 +2977,7 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 				openView={openView}
 				agentFilePreview={agentFilePreview}
 				openFileInTab={openFileInTab}
+				workspaceRoot={workspaceRoot}
 				onAcceptAgentFilePreviewHunk={onAcceptAgentFilePreviewHunk}
 				onRevertAgentFilePreviewHunk={onRevertAgentFilePreviewHunk}
 				agentFilePreviewBusyPatch={agentFilePreviewBusyPatch}

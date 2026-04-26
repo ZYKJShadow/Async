@@ -425,6 +425,25 @@ function isBinaryBuffer(buf: Buffer): boolean {
 	return false;
 }
 
+function readBinaryDetectionSample(
+	fsModule: typeof import('node:fs'),
+	fullPath: string,
+	size: number
+): Buffer {
+	const sampleSize = Math.min(8000, Math.max(0, size));
+	if (sampleSize <= 0) {
+		return Buffer.alloc(0);
+	}
+	const fd = fsModule.openSync(fullPath, 'r');
+	try {
+		const sample = Buffer.alloc(sampleSize);
+		const bytesRead = fsModule.readSync(fd, sample, 0, sampleSize, 0);
+		return bytesRead === sample.length ? sample : sample.subarray(0, bytesRead);
+	} finally {
+		fsModule.closeSync(fd);
+	}
+}
+
 /** 统计 unified diff 文本中的 +/- 行数（忽略 diff 头与 hunk 头）。 */
 export function countDiffLineStats(diff: string): { additions: number; deletions: number } {
 	let additions = 0;
@@ -562,9 +581,13 @@ export async function getDiffPreview(
 		return { diff: '', isBinary: false, additions: 0, deletions: 0 };
 	}
 
-	const buf = fs.readFileSync(full);
-	if (isBinaryBuffer(buf)) {
+	const stat = fs.statSync(full);
+	if (!stat.isFile()) {
 		return { diff: '', isBinary: false, additions: 0, deletions: 0 };
+	}
+	const sample = readBinaryDetectionSample(fs, full, stat.size);
+	if (isBinaryBuffer(sample)) {
+		return { diff: '', isBinary: true, additions: 0, deletions: 0 };
 	}
 
 	return { diff: '', isBinary: false, additions: 0, deletions: 0 };

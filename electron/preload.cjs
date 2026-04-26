@@ -85,6 +85,7 @@ const INVOKE_CHANNELS = new Set([
 	'chat:editResend',
 	'chat:abort',
 	'fs:readFile',
+	'fs:readTextPreview',
 	'fs:writeFile',
 	'fs:listDir',
 	'fs:renameEntry',

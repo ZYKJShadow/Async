@@ -6,7 +6,11 @@ import { voidShellDebugLog } from '../tabCloseDebug';
 import { debugDiffHead } from '../appDiffUtils';
 import type { ShellLayoutMode } from '../app/shellLayoutStorage';
 import type { AgentConversationFileOpenOptions } from './useFileOperations';
-import type { AgentFilePreviewState } from './useAgentFileReview';
+import type {
+	AgentFilePreviewKind,
+	AgentFilePreviewState,
+	AgentFilePreviewUnsupportedReason,
+} from './useAgentFileReview';
 import type { AgentRightSidebarView } from './useTeamSessionActions';
 
 type DiffPreview = {
@@ -15,6 +19,30 @@ type DiffPreview = {
 	additions: number;
 	deletions: number;
 };
+
+type SafeTextPreviewReadResult =
+	| {
+			ok: true;
+			canReadText: true;
+			content: string;
+			fileSize?: number;
+			previewKind?: AgentFilePreviewKind;
+	  }
+	| {
+			ok: true;
+			canReadText: false;
+			content?: string;
+			fileSize?: number;
+			previewKind?: AgentFilePreviewKind;
+			unsupportedReason?: AgentFilePreviewUnsupportedReason;
+			imageUrl?: string;
+	  }
+	| {
+			ok?: false;
+			error?: string;
+	  };
+
+const AGENT_FILE_PREVIEW_MAX_TEXT_BYTES = 1_500_000;
 
 export type AgentGitPack = {
 	gitStatusOk: boolean;
@@ -52,7 +80,7 @@ export type AgentSidebarFilePreviewOpener = (
  * 实现细节：四级 diff 来源回退，行为与原 App.tsx 完全一致：
  *  1. 来源 diff（assistant 消息直接给出的 patch / preview）；
  *  2. agent 快照（snapshot），通过 createTwoFilesPatch 生成；
- *  3. 权威 git diff（git:diffPreview full=true）；
+ *  3. 权威 git diff（仅当 Git 已报告该路径有变更，或需要校验可撤销快照时）；
  *  4. 缓存的 git preview 兜底。
  *
  * 同时维护 requestId 抗竞态：每次进入 +1，最终写入前若 ref 已变则丢弃。
@@ -97,6 +125,9 @@ export function useAgentSidebarFilePreview(
 			const sourceDiff = typeof options?.diff === 'string' ? options.diff.trim() : '';
 			const sourceAllowsReviewActions = options?.allowReviewActions === true;
 			const useSourceReadonlyFallback = !gitStatusOk && sourceDiff.length > 0;
+			const isGitChanged = gitChangedPaths.some((path) =>
+				workspaceRelPathsEqual(path, normalizedRel)
+			);
 			voidShellDebugLog('agent-file-preview:open:start', {
 				relPath: normalizedRel,
 				revealLine: safeRevealLine ?? null,
@@ -105,6 +136,7 @@ export function useAgentSidebarFilePreview(
 				sourceDiffHead: sourceDiff ? debugDiffHead(sourceDiff) : '',
 				allowReviewActions: sourceAllowsReviewActions,
 				useSourceReadonlyFallback,
+				isGitChanged,
 				layoutMode,
 				currentId: currentId ?? '',
 			});
@@ -119,6 +151,10 @@ export function useAgentSidebarFilePreview(
 				content: prev?.relPath === normalizedRel ? prev.content : '',
 				diff: sourceAllowsReviewActions || useSourceReadonlyFallback ? sourceDiff : '',
 				isBinary: false,
+				previewKind: prev?.relPath === normalizedRel ? prev.previewKind : 'text',
+				fileSize: prev?.relPath === normalizedRel ? prev.fileSize : undefined,
+				unsupportedReason: null,
+				imageUrl: undefined,
 				readError: null,
 				additions: 0,
 				deletions: 0,
@@ -131,26 +167,35 @@ export function useAgentSidebarFilePreview(
 			const requestId = ++agentFilePreviewRequestRef.current;
 			let content = '';
 			let readError: string | null = null;
+			let previewKind: AgentFilePreviewKind = 'text';
+			let fileSize: number | undefined;
+			let unsupportedReason: AgentFilePreviewUnsupportedReason | null = null;
+			let imageUrl: string | undefined;
 			try {
-				const fileResult = (await shell.invoke('fs:readFile', normalizedRel)) as {
-					ok?: boolean;
-					content?: string;
-				};
-				if (fileResult.ok && typeof fileResult.content === 'string') {
-					content = fileResult.content;
+				const fileResult = (await shell.invoke('fs:readTextPreview', normalizedRel, {
+					maxBytes: AGENT_FILE_PREVIEW_MAX_TEXT_BYTES,
+				})) as SafeTextPreviewReadResult;
+				if (fileResult.ok) {
+					fileSize = fileResult.fileSize;
+					previewKind = fileResult.previewKind ?? previewKind;
+					if (fileResult.canReadText) {
+						content = fileResult.content;
+					} else {
+						unsupportedReason = fileResult.unsupportedReason ?? 'unsupported-type';
+						imageUrl = typeof fileResult.imageUrl === 'string' ? fileResult.imageUrl : undefined;
+					}
+				} else {
+					readError = fileResult.error ?? 'Unable to read file preview.';
 				}
 			} catch (err) {
 				readError = err instanceof Error ? err.message : String(err);
 			}
 
 			let previewDiff = sourceAllowsReviewActions || useSourceReadonlyFallback ? sourceDiff : '';
-			let isBinary = false;
+			let isBinary = unsupportedReason !== null;
 			let additions = 0;
 			let deletions = 0;
 			let reviewMode: AgentFilePreviewState['reviewMode'] = 'readonly';
-			const isGitChanged = gitChangedPaths.some((path) =>
-				workspaceRelPathsEqual(path, normalizedRel)
-			);
 			voidShellDebugLog('agent-file-preview:open:path-match', {
 				relPath: normalizedRel,
 				isGitChanged,
@@ -158,7 +203,7 @@ export function useAgentSidebarFilePreview(
 				gitChangedHead: gitChangedPaths.slice(0, 12).join(' | '),
 			});
 
-			if (currentId && sourceAllowsReviewActions) {
+			if (currentId && sourceAllowsReviewActions && unsupportedReason === null && !readError) {
 				try {
 					const snapshotResult = (await shell.invoke(
 						'agent:getFileSnapshot',
@@ -197,7 +242,7 @@ export function useAgentSidebarFilePreview(
 			}
 
 			let authoritativeGitPreviewLoaded = false;
-			if (gitStatusOk) {
+			if (gitStatusOk && unsupportedReason === null && (isGitChanged || sourceAllowsReviewActions)) {
 				try {
 					const fullDiffResult = (await shell.invoke('git:diffPreview', {
 						relPath: normalizedRel,
@@ -212,14 +257,14 @@ export function useAgentSidebarFilePreview(
 						const gitPreviewHead = debugDiffHead(gitPreviewDiff);
 						if (!sourceAllowsReviewActions || reviewMode !== 'snapshot') {
 							previewDiff = gitPreviewDiff;
-							isBinary = gitPreviewIsBinary;
+							isBinary = unsupportedReason !== null || gitPreviewIsBinary;
 							additions = gitPreviewAdditions;
 							deletions = gitPreviewDeletions;
 							reviewMode = 'readonly';
 						} else if (!gitPreviewDiff.trim()) {
 							// Snapshot exists but git shows clean: trust git and hide stale inline diff.
 							previewDiff = '';
-							isBinary = gitPreviewIsBinary;
+							isBinary = unsupportedReason !== null || gitPreviewIsBinary;
 							additions = gitPreviewAdditions;
 							deletions = gitPreviewDeletions;
 							reviewMode = 'readonly';
@@ -227,7 +272,10 @@ export function useAgentSidebarFilePreview(
 						voidShellDebugLog('agent-file-preview:open:git-authoritative', {
 							relPath: normalizedRel,
 							diffLength: gitPreviewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(gitPreviewDiff)).length,
+							hunkCount:
+								unsupportedReason !== null || gitPreviewIsBinary
+									? 0
+									: (await buildAgentFilePreviewHunks(gitPreviewDiff)).length,
 							isBinary: gitPreviewIsBinary,
 							additions: gitPreviewAdditions,
 							deletions: gitPreviewDeletions,
@@ -240,7 +288,7 @@ export function useAgentSidebarFilePreview(
 				}
 			}
 
-			if (!authoritativeGitPreviewLoaded && !previewDiff && gitStatusOk && isGitChanged) {
+			if (!authoritativeGitPreviewLoaded && !previewDiff && gitStatusOk && isGitChanged && unsupportedReason === null) {
 				const cachedPreview = Object.entries(diffPreviews).find(([path]) =>
 					workspaceRelPathsEqual(path, normalizedRel)
 				)?.[1];
@@ -252,7 +300,7 @@ export function useAgentSidebarFilePreview(
 					isGitChanged,
 				});
 				if (cachedPreview) {
-					isBinary = cachedPreview.isBinary === true;
+					isBinary = unsupportedReason !== null || cachedPreview.isBinary === true;
 					additions = cachedPreview.additions ?? 0;
 					deletions = cachedPreview.deletions ?? 0;
 				}
@@ -263,14 +311,14 @@ export function useAgentSidebarFilePreview(
 					})) as { ok: true; preview: DiffPreview } | { ok: false; error?: string };
 					if (fullDiffResult.ok && fullDiffResult.preview) {
 						previewDiff = String(fullDiffResult.preview.diff ?? '');
-						isBinary = fullDiffResult.preview.isBinary === true;
+						isBinary = unsupportedReason !== null || fullDiffResult.preview.isBinary === true;
 						additions = fullDiffResult.preview.additions ?? additions;
 						deletions = fullDiffResult.preview.deletions ?? deletions;
 						reviewMode = 'readonly';
 						voidShellDebugLog('agent-file-preview:open:git-full', {
 							relPath: normalizedRel,
 							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
+							hunkCount: isBinary ? 0 : (await buildAgentFilePreviewHunks(previewDiff)).length,
 							isBinary,
 							additions,
 							deletions,
@@ -280,14 +328,14 @@ export function useAgentSidebarFilePreview(
 				} catch {
 					if (cachedPreview) {
 						previewDiff = String(cachedPreview.diff ?? '');
-						isBinary = cachedPreview.isBinary === true;
+						isBinary = unsupportedReason !== null || cachedPreview.isBinary === true;
 						additions = cachedPreview.additions ?? 0;
 						deletions = cachedPreview.deletions ?? 0;
 						reviewMode = 'readonly';
 						voidShellDebugLog('agent-file-preview:open:git-cached-fallback', {
 							relPath: normalizedRel,
 							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
+							hunkCount: isBinary ? 0 : (await buildAgentFilePreviewHunks(previewDiff)).length,
 							isBinary,
 							additions,
 							deletions,
@@ -301,6 +349,7 @@ export function useAgentSidebarFilePreview(
 				!authoritativeGitPreviewLoaded &&
 				previewDiff &&
 				!isBinary &&
+				isGitChanged &&
 				reviewMode === 'readonly' &&
 				(await buildAgentFilePreviewHunks(previewDiff)).length === 0
 			) {
@@ -311,13 +360,13 @@ export function useAgentSidebarFilePreview(
 					})) as { ok: true; preview: DiffPreview } | { ok: false; error?: string };
 					if (fullDiffResult.ok && fullDiffResult.preview) {
 						previewDiff = String(fullDiffResult.preview.diff ?? '');
-						isBinary = fullDiffResult.preview.isBinary === true;
+						isBinary = unsupportedReason !== null || fullDiffResult.preview.isBinary === true;
 						additions = fullDiffResult.preview.additions ?? additions;
 						deletions = fullDiffResult.preview.deletions ?? deletions;
 						voidShellDebugLog('agent-file-preview:open:git-retry-full', {
 							relPath: normalizedRel,
 							diffLength: previewDiff.length,
-							hunkCount: (await buildAgentFilePreviewHunks(previewDiff)).length,
+							hunkCount: isBinary ? 0 : (await buildAgentFilePreviewHunks(previewDiff)).length,
 							isBinary,
 							additions,
 							deletions,
@@ -391,6 +440,9 @@ export function useAgentSidebarFilePreview(
 				isBinary,
 				additions,
 				deletions,
+				previewKind,
+				fileSize: fileSize ?? null,
+				unsupportedReason: unsupportedReason ?? '',
 				readError: readError ?? '',
 				diffHead: previewDiff ? debugDiffHead(previewDiff) : '',
 			});
@@ -403,6 +455,10 @@ export function useAgentSidebarFilePreview(
 				content,
 				diff: previewDiff,
 				isBinary,
+				previewKind,
+				fileSize,
+				unsupportedReason,
+				imageUrl,
 				readError,
 				additions,
 				deletions,
