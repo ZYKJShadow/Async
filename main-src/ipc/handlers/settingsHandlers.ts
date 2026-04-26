@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -6,11 +7,19 @@ import {
 	patchSettings,
 	updateBotIntegrationFeishuTokens,
 	type UserLlmProvider,
+	type UserModelEntry,
+	type OAuthProviderKind,
+	type ProviderOAuthAuthRecord,
 } from '../../settingsStore.js';
 import { syncBotControllerFromSettings } from '../../bots/botController.js';
 import { testBotIntegrationConnection } from '../../bots/botConnectivity.js';
 import type { BotIntegrationConfig } from '../../botSettingsTypes.js';
 import { discoverProviderModels } from '../../llm/providerModelDiscovery.js';
+import {
+	cancelActiveProviderOAuthLogin,
+	providerOAuthLabel,
+	runProviderOAuthLogin,
+} from '../../llm/providerOAuthLogin.js';
 import { getBuiltinTeamCatalogPayload } from '../../agent/builtinTeamCatalog.js';
 import { cancelFeishuOauth, runFeishuOauth, FEISHU_OAUTH_CALLBACK_URLS } from '../../bots/platforms/feishu/feishuOauth.js';
 
@@ -47,6 +56,202 @@ function sanitizeSkillSlug(raw: string): string {
 		.replace(/[^a-z0-9-]+/g, '-')
 		.replace(/-{2,}/g, '-')
 		.replace(/^-+|-+$/g, '');
+}
+
+const OAUTH_PROVIDER_DEFAULTS: Record<
+	OAuthProviderKind,
+	{
+		displayName: string;
+		modelId: string;
+		paradigm: UserLlmProvider['paradigm'];
+		maxOutputTokens: number;
+		contextWindowTokens: number;
+		providerIdentity: NonNullable<UserLlmProvider['providerIdentity']>;
+	}
+> = {
+	codex: {
+		displayName: 'Codex (ChatGPT)',
+		modelId: 'gpt-5.3-codex',
+		paradigm: 'openai-compatible',
+		maxOutputTokens: 16_384,
+		contextWindowTokens: 272_000,
+		providerIdentity: { preset: 'codex' },
+	},
+	claude: {
+		displayName: 'Claude Code',
+		modelId: 'claude-sonnet-4-5-20250929',
+		paradigm: 'anthropic',
+		maxOutputTokens: 64_000,
+		contextWindowTokens: 200_000,
+		providerIdentity: { preset: 'claude-code' },
+	},
+	antigravity: {
+		displayName: 'Antigravity',
+		modelId: 'gemini-3-pro-preview',
+		paradigm: 'gemini',
+		maxOutputTokens: 65_536,
+		contextWindowTokens: 1_048_576,
+		providerIdentity: { preset: 'antigravity' },
+	},
+};
+
+function createOAuthModelEntry(providerId: string, authProvider: OAuthProviderKind): UserModelEntry {
+	const defaults = OAUTH_PROVIDER_DEFAULTS[authProvider];
+	return {
+		id: randomUUID(),
+		providerId,
+		displayName: defaults.modelId,
+		requestName: defaults.modelId,
+		maxOutputTokens: defaults.maxOutputTokens,
+		contextWindowTokens: defaults.contextWindowTokens,
+		temperatureMode: 'auto',
+	};
+}
+
+function providerLooksLikeOAuth(provider: UserLlmProvider, authProvider: OAuthProviderKind): boolean {
+	const needle = authProvider === 'claude' ? 'claude' : authProvider;
+	return (
+		provider.oauthAuth?.provider === authProvider ||
+		(authProvider === 'codex' && Boolean(provider.codexAuth)) ||
+		provider.displayName.trim().toLowerCase().includes(needle)
+	);
+}
+
+function upsertOAuthLoginProvider(params: {
+	authProvider: OAuthProviderKind;
+	providers: UserLlmProvider[];
+	entries: UserModelEntry[];
+	defaultModel?: string;
+	login: ProviderOAuthAuthRecord;
+}): {
+	providers: UserLlmProvider[];
+	entries: UserModelEntry[];
+	providerId: string;
+	modelId: string;
+	defaultModel: string;
+	accountId?: string;
+	email?: string;
+	projectId?: string;
+} {
+	const defaults = OAUTH_PROVIDER_DEFAULTS[params.authProvider];
+	const providerIndex = params.providers.findIndex(
+		(provider) => provider.paradigm === defaults.paradigm && providerLooksLikeOAuth(provider, params.authProvider)
+	);
+	const existing = providerIndex >= 0 ? params.providers[providerIndex] : undefined;
+	const providerId = existing?.id || randomUUID();
+	const nextProvider: UserLlmProvider = {
+		...(existing ?? {}),
+		id: providerId,
+		displayName: existing?.displayName?.trim() ? existing.displayName : defaults.displayName,
+		paradigm: defaults.paradigm,
+		apiKey: params.login.accessToken,
+		baseURL: existing?.baseURL,
+		proxyUrl: existing?.proxyUrl,
+		providerIdentity: defaults.providerIdentity,
+		oauthAuth: params.login,
+		...(params.authProvider === 'codex'
+			? {
+					codexAuth: {
+						idToken: params.login.idToken ?? '',
+						accessToken: params.login.accessToken,
+						refreshToken: params.login.refreshToken,
+						lastRefreshAt: params.login.lastRefreshAt,
+						...(params.login.accountId ? { accountId: params.login.accountId } : {}),
+					},
+				}
+			: {}),
+	};
+	const providers =
+		providerIndex >= 0
+			? params.providers.map((provider, index) => (index === providerIndex ? nextProvider : provider))
+			: [...params.providers, nextProvider];
+
+	const existingModel = params.entries.find(
+		(entry) =>
+			entry.providerId === providerId &&
+			entry.requestName.trim().toLowerCase() === defaults.modelId
+	);
+	const entries = existingModel
+		? params.entries
+		: [...params.entries, createOAuthModelEntry(providerId, params.authProvider)];
+	const modelId = existingModel?.id ?? entries[entries.length - 1]!.id;
+	const currentDefault = params.defaultModel?.trim() ?? '';
+	return {
+		providers,
+		entries,
+		providerId,
+		modelId,
+		defaultModel: currentDefault || modelId,
+		...(params.login.accountId ? { accountId: params.login.accountId } : {}),
+		...(params.login.email ? { email: params.login.email } : {}),
+		...(params.login.projectId ? { projectId: params.login.projectId } : {}),
+	};
+}
+
+async function handleProviderOAuthLoginPayload(rawPayload: unknown) {
+	try {
+		if (!rawPayload || typeof rawPayload !== 'object') {
+			return {
+				ok: false as const,
+				message: 'Provider login requires a settings payload.',
+			};
+		}
+		const payload = rawPayload as {
+			provider?: unknown;
+			providers?: unknown;
+			entries?: unknown;
+			defaultModel?: unknown;
+			timeoutMs?: unknown;
+		};
+		const authProvider =
+			payload.provider === 'claude' || payload.provider === 'antigravity' || payload.provider === 'codex'
+				? payload.provider
+				: undefined;
+		if (!authProvider) {
+			return {
+				ok: false as const,
+				message: 'Unknown OAuth provider.',
+			};
+		}
+		const current = getSettings();
+		const providers = Array.isArray(payload.providers)
+			? (payload.providers as UserLlmProvider[])
+			: (current.models?.providers ?? []);
+		const entries = Array.isArray(payload.entries)
+			? (payload.entries as UserModelEntry[])
+			: (current.models?.entries ?? []);
+		const defaultModel =
+			typeof payload.defaultModel === 'string'
+				? payload.defaultModel
+				: (current.defaultModel ?? '');
+		const login = await runProviderOAuthLogin({
+			provider: authProvider,
+			timeoutMs:
+				typeof payload.timeoutMs === 'number' && Number.isFinite(payload.timeoutMs)
+					? payload.timeoutMs
+					: undefined,
+		});
+		const next = upsertOAuthLoginProvider({
+			authProvider,
+			providers,
+			entries,
+			defaultModel,
+			login,
+		});
+		patchSettings({
+			defaultModel: next.defaultModel,
+			models: {
+				providers: next.providers,
+				entries: next.entries,
+			},
+		});
+		return { ok: true as const, providerLabel: providerOAuthLabel(authProvider), ...next };
+	} catch (error) {
+		return {
+			ok: false as const,
+			message: error instanceof Error ? error.message : String(error),
+		};
+	}
 }
 
 /**
@@ -91,8 +296,32 @@ export function registerSettingsHandlers(): void {
 			apiKey: typeof provider.apiKey === 'string' ? provider.apiKey : undefined,
 			baseURL: typeof provider.baseURL === 'string' ? provider.baseURL : undefined,
 			proxyUrl: typeof provider.proxyUrl === 'string' ? provider.proxyUrl : undefined,
+			providerIdentity:
+				provider.providerIdentity && typeof provider.providerIdentity === 'object'
+					? provider.providerIdentity
+					: undefined,
 		});
 	});
+
+	ipcMain.handle('settings:runProviderOAuthLogin', async (_e, rawPayload: unknown) => {
+		return await handleProviderOAuthLoginPayload(rawPayload);
+	});
+
+	ipcMain.handle('settings:runCodexLogin', async (_e, rawPayload: unknown) => {
+		const payload = rawPayload && typeof rawPayload === 'object' ? rawPayload as Record<string, unknown> : {};
+		return await handleProviderOAuthLoginPayload({
+			...payload,
+			provider: 'codex',
+		});
+	});
+
+	ipcMain.handle('settings:cancelCodexLogin', () => ({
+		ok: cancelActiveProviderOAuthLogin(),
+	}));
+
+	ipcMain.handle('settings:cancelProviderOAuthLogin', () => ({
+		ok: cancelActiveProviderOAuthLogin(),
+	}));
 
 	ipcMain.handle('settings:testBotConnection', async (_e, rawIntegration: unknown) => {
 		const integration = rawIntegration as BotIntegrationConfig | null | undefined;

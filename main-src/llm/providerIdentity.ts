@@ -6,15 +6,23 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import type { ShellSettings } from '../settingsStore.js';
 import {
+	ANTIGRAVITY_USER_AGENT,
+	CODEX_EMULATED_VERSION,
+	CLAUDE_CODE_EMULATED_VERSION,
 	formatResolvedProviderIdentityUserAgent,
 	resolveProviderIdentitySettings,
+	resolveProviderIdentityWithOverride,
+	type ProviderIdentitySettings,
 } from '../../src/providerIdentitySettings.js';
+import { buildCodexUserAgent } from './codexUserAgent.js';
 
 type OpenAIClientOptions = NonNullable<ConstructorParameters<typeof OpenAI>[0]>;
 type AnthropicClientOptions = NonNullable<ConstructorParameters<typeof Anthropic>[0]>;
 
 const RUNTIME_PROVIDER_SESSION_ID = randomUUID();
 const DEFAULT_APP_VERSION = '0.0.0';
+const CLAUDE_CODE_ANTHROPIC_BETA =
+	'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28';
 let CACHED_PROVIDER_DEVICE_ID: string | null = null;
 
 function getAppVersion(): string {
@@ -29,8 +37,11 @@ function getAppVersion(): string {
 	return process.env.npm_package_version?.trim() || DEFAULT_APP_VERSION;
 }
 
-function providerIdentityFromSettings(settings: ShellSettings): ReturnType<typeof resolveProviderIdentitySettings> {
-	return resolveProviderIdentitySettings(settings.providerIdentity);
+function providerIdentityFromSettings(
+	settings: ShellSettings,
+	override?: ProviderIdentitySettings | null
+): ReturnType<typeof resolveProviderIdentitySettings> {
+	return resolveProviderIdentityWithOverride(settings.providerIdentity, override);
 }
 
 function mergeDefaultHeaders(
@@ -47,27 +58,66 @@ function mergeDefaultHeaders(
 	};
 }
 
-export function buildProviderIdentityHeaders(settings: ShellSettings): Record<string, string> {
-	const identity = providerIdentityFromSettings(settings);
+export function buildProviderIdentityHeaders(
+	settings: ShellSettings,
+	override?: ProviderIdentitySettings | null
+): Record<string, string> {
+	const identity = providerIdentityFromSettings(settings, override);
+	const userAgent =
+		identity.userAgentMode === 'codex'
+			? buildCodexUserAgent(CODEX_EMULATED_VERSION)
+			: identity.userAgentMode === 'antigravity'
+				? ANTIGRAVITY_USER_AGENT
+			: formatResolvedProviderIdentityUserAgent(identity, getAppVersion());
 	const headers: Record<string, string> = {
-		'User-Agent': formatResolvedProviderIdentityUserAgent(identity, getAppVersion()),
-		'x-app': identity.appHeaderValue,
+		'User-Agent': userAgent,
 	};
+	if (identity.appHeaderValue.trim()) {
+		headers['x-app'] = identity.appHeaderValue;
+	}
 	if (identity.clientAppValue.trim()) {
 		headers['x-client-app'] = identity.clientAppValue;
 	}
 	if (identity.originatorHeaderValue) {
 		headers['originator'] = identity.originatorHeaderValue;
 	}
-	headers[identity.sessionHeaderName] = RUNTIME_PROVIDER_SESSION_ID;
+	if (identity.sessionHeaderName.trim()) {
+		headers[identity.sessionHeaderName] = RUNTIME_PROVIDER_SESSION_ID;
+	}
 	return headers;
+}
+
+function buildAnthropicSpecificIdentityHeaders(
+	settings: ShellSettings,
+	override?: ProviderIdentitySettings | null
+): Record<string, string> {
+	const identity = providerIdentityFromSettings(settings, override);
+	if (identity.preset !== 'claude-code') {
+		return {};
+	}
+	return {
+		'Anthropic-Beta': CLAUDE_CODE_ANTHROPIC_BETA,
+		'Anthropic-Version': '2023-06-01',
+		'X-Stainless-Retry-Count': '0',
+		'X-Stainless-Runtime': 'node',
+		'X-Stainless-Lang': 'js',
+		'X-Stainless-Timeout': '600',
+		'X-Stainless-Package-Version': '0.74.0',
+		'X-Stainless-Runtime-Version': 'v24.3.0',
+		'X-Stainless-Os': 'MacOS',
+		'X-Stainless-Arch': 'arm64',
+		'x-client-request-id': randomUUID(),
+		Connection: 'keep-alive',
+		'User-Agent': `claude-cli/${CLAUDE_CODE_EMULATED_VERSION} (external, cli)`,
+	};
 }
 
 export function applyOpenAIProviderIdentity(
 	settings: ShellSettings,
-	options: OpenAIClientOptions
+	options: OpenAIClientOptions,
+	override?: ProviderIdentitySettings | null
 ): OpenAIClientOptions {
-	const identityHeaders = buildProviderIdentityHeaders(settings);
+	const identityHeaders = buildProviderIdentityHeaders(settings, override);
 	if (Object.keys(identityHeaders).length === 0) {
 		return options;
 	}
@@ -79,9 +129,13 @@ export function applyOpenAIProviderIdentity(
 
 export function applyAnthropicProviderIdentity(
 	settings: ShellSettings,
-	options: AnthropicClientOptions
+	options: AnthropicClientOptions,
+	override?: ProviderIdentitySettings | null
 ): AnthropicClientOptions {
-	const identityHeaders = buildProviderIdentityHeaders(settings);
+	const identityHeaders = {
+		...buildProviderIdentityHeaders(settings, override),
+		...buildAnthropicSpecificIdentityHeaders(settings, override),
+	};
 	if (Object.keys(identityHeaders).length === 0) {
 		return options;
 	}
@@ -93,9 +147,10 @@ export function applyAnthropicProviderIdentity(
 
 export function prependProviderIdentitySystemPrompt(
 	settings: ShellSettings,
-	systemText: string | undefined
+	systemText: string | undefined,
+	override?: ProviderIdentitySettings | null
 ): string {
-	const identity = providerIdentityFromSettings(settings);
+	const identity = providerIdentityFromSettings(settings, override);
 	const base = systemText?.trim() ?? '';
 	const prefix = identity.systemPromptPrefix.trim();
 	if (!prefix) {
@@ -137,9 +192,10 @@ function getStableProviderDeviceId(): string {
 }
 
 export function buildAnthropicProviderIdentityMetadata(
-	settings: ShellSettings
+	settings: ShellSettings,
+	override?: ProviderIdentitySettings | null
 ): { user_id: string } | undefined {
-	const identity = providerIdentityFromSettings(settings);
+	const identity = providerIdentityFromSettings(settings, override);
 	if (identity.anthropicMetadataMode === 'claude-code') {
 		return {
 			user_id: JSON.stringify({

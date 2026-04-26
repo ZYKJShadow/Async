@@ -17,6 +17,7 @@ import {
 import type { RuntimeMemoryModel } from '../../memdir/findRelevantMemories.js';
 import { saveConclusion, getRecentConclusions, recordRelationshipMilestone, getLatestRelationshipSnapshot } from '../../sessionDb.js';
 import type { ChatMessage } from '../../threadStore.js';
+import { resolveProviderIdentityWithOverride } from '../../../src/providerIdentitySettings.js';
 
 const DIALECTIC_SYSTEM_PROMPT = `You are a dialectic reasoning engine. Your job is to analyze a completed conversation and derive insights about the user.
 
@@ -189,7 +190,7 @@ async function dialecticWithModel(
 			requestProxyUrl: resolved.proxyUrl,
 			temperatureMode: resolved.temperatureMode,
 			temperature: resolved.temperature,
-			providerIdentity: settings.providerIdentity,
+			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, resolved.providerIdentity),
 		},
 		userPrompt
 	);

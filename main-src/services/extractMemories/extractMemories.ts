@@ -25,6 +25,7 @@ import {
 	type ChatMessage,
 } from '../../threadStore.js';
 import { parseAgentAssistantPayload } from '../../../src/agentStructuredMessage.js';
+import { resolveProviderIdentityWithOverride } from '../../../src/providerIdentitySettings.js';
 import { ensureMemoryDirExists } from '../../memdir/memdir.js';
 import { scanMemoryFiles, type MemoryHeader } from '../../memdir/memoryScan.js';
 import { getAutoMemEntrypoint } from '../../memdir/paths.js';
@@ -383,7 +384,7 @@ async function extractWithModel(
 			requestProxyUrl: resolved.proxyUrl,
 			temperatureMode: resolved.temperatureMode,
 			temperature: resolved.temperature,
-			providerIdentity: settings.providerIdentity,
+			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, resolved.providerIdentity),
 		},
 		userPrompt
 	);

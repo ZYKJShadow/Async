@@ -19,6 +19,7 @@ import {
 import type { SendableMessage } from './sendResolved.js';
 import { userMessageTextForSend } from './sendResolved.js';
 import { buildOpenAIUserContent } from './resolvedUserSerialize.js';
+import { streamCodexOAuth } from './codexOAuthAdapter.js';
 
 export async function streamOpenAICompatible(
 	settings: ShellSettings,
@@ -26,6 +27,11 @@ export async function streamOpenAICompatible(
 	options: UnifiedChatOptions,
 	handlers: StreamHandlers
 ): Promise<void> {
+	if (options.requestOAuthAuth?.provider === 'codex') {
+		await streamCodexOAuth(settings, messages, options, handlers, options.requestOAuthAuth);
+		return;
+	}
+
 	const key = options.requestApiKey.trim();
 	if (!key) {
 		handlers.onError('未配置 OpenAI 兼容 API Key。请在设置 → 模型中填写全局密钥或该模型的独立密钥。');
@@ -59,7 +65,7 @@ export async function streamOpenAICompatible(
 			dangerouslyAllowBrowser: false,
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,
-		})
+		}, options.requestProviderIdentity)
 	);
 
 	const apiMessages = messages
@@ -76,7 +82,8 @@ export async function streamOpenAICompatible(
 	const storedSystem = messages.find((m) => m.role === 'system');
 	const systemContent = prependProviderIdentitySystemPrompt(
 		settings,
-		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend)
+		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend),
+		options.requestProviderIdentity
 	);
 	const requestedTemperature = resolveRequestedTemperature(
 		temperatureForMode(options.mode),

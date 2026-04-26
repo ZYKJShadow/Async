@@ -62,7 +62,7 @@ export async function discoverProviderModels(
 				httpAgent,
 				maxRetries: 0,
 				timeout: 30_000,
-			})
+			}, provider.providerIdentity)
 		);
 		const page = await client.models.list();
 		const seen = new Set<string>();

@@ -1136,6 +1136,9 @@ async function llmPlanTasks(params: {
 		requestApiKey: resolvedModel.apiKey,
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
+		requestProviderId: resolvedModel.providerId,
+		requestProviderIdentity: resolvedModel.providerIdentity,
+		requestOAuthAuth: resolvedModel.oauthAuth,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
@@ -1168,8 +1171,13 @@ async function llmPlanTasks(params: {
 			options.requestApiKey = resolved.apiKey;
 			options.requestBaseURL = resolved.baseURL;
 			options.requestProxyUrl = resolved.proxyUrl;
+			options.requestProviderId = resolved.providerId;
+			options.requestProviderIdentity = resolved.providerIdentity;
+			options.requestOAuthAuth = resolved.oauthAuth;
 			options.maxOutputTokens = resolved.maxOutputTokens;
 			options.contextWindowTokens = resolved.contextWindowTokens;
+			options.temperatureMode = resolved.temperatureMode;
+			options.temperature = resolved.temperature;
 		}
 	}
 
@@ -1531,6 +1539,9 @@ async function runPreflightReviewerAgent(params: {
 		requestApiKey: resolvedModel.apiKey,
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
+		requestProviderId: resolvedModel.providerId,
+		requestProviderIdentity: resolvedModel.providerIdentity,
+		requestOAuthAuth: resolvedModel.oauthAuth,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
@@ -1563,8 +1574,13 @@ async function runPreflightReviewerAgent(params: {
 			options.requestApiKey = resolved.apiKey;
 			options.requestBaseURL = resolved.baseURL;
 			options.requestProxyUrl = resolved.proxyUrl;
+			options.requestProviderId = resolved.providerId;
+			options.requestProviderIdentity = resolved.providerIdentity;
+			options.requestOAuthAuth = resolved.oauthAuth;
 			options.maxOutputTokens = resolved.maxOutputTokens;
 			options.contextWindowTokens = resolved.contextWindowTokens;
+			options.temperatureMode = resolved.temperatureMode;
+			options.temperature = resolved.temperature;
 		}
 	}
 
@@ -1700,6 +1716,9 @@ async function runReviewerAgent(params: {
 		requestApiKey: resolvedModel.apiKey,
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
+		requestProviderId: resolvedModel.providerId,
+		requestProviderIdentity: resolvedModel.providerIdentity,
+		requestOAuthAuth: resolvedModel.oauthAuth,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
@@ -1732,8 +1751,13 @@ async function runReviewerAgent(params: {
 			options.requestApiKey = resolved.apiKey;
 			options.requestBaseURL = resolved.baseURL;
 			options.requestProxyUrl = resolved.proxyUrl;
+			options.requestProviderId = resolved.providerId;
+			options.requestProviderIdentity = resolved.providerIdentity;
+			options.requestOAuthAuth = resolved.oauthAuth;
 			options.maxOutputTokens = resolved.maxOutputTokens;
 			options.contextWindowTokens = resolved.contextWindowTokens;
+			options.temperatureMode = resolved.temperatureMode;
+			options.temperature = resolved.temperature;
 		}
 	}
 
@@ -1949,6 +1973,9 @@ async function runTeamLeadFinalSynthesis(params: {
 		requestApiKey: resolvedModel.apiKey,
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
+		requestProviderId: resolvedModel.providerId,
+		requestProviderIdentity: resolvedModel.providerIdentity,
+		requestOAuthAuth: resolvedModel.oauthAuth,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
@@ -1981,8 +2008,13 @@ async function runTeamLeadFinalSynthesis(params: {
 			options.requestApiKey = resolved.apiKey;
 			options.requestBaseURL = resolved.baseURL;
 			options.requestProxyUrl = resolved.proxyUrl;
+			options.requestProviderId = resolved.providerId;
+			options.requestProviderIdentity = resolved.providerIdentity;
+			options.requestOAuthAuth = resolved.oauthAuth;
 			options.maxOutputTokens = resolved.maxOutputTokens;
 			options.contextWindowTokens = resolved.contextWindowTokens;
+			options.temperatureMode = resolved.temperatureMode;
+			options.temperature = resolved.temperature;
 		}
 	}
 
@@ -2109,6 +2141,9 @@ async function runOneSpecialist(params: {
 		requestApiKey: resolvedModel.apiKey,
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
+		requestProviderId: resolvedModel.providerId,
+		requestProviderIdentity: resolvedModel.providerIdentity,
+		requestOAuthAuth: resolvedModel.oauthAuth,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }
@@ -2203,6 +2238,9 @@ async function runOneSpecialist(params: {
 				options.requestApiKey = resolvedOverride.apiKey;
 				options.requestBaseURL = resolvedOverride.baseURL;
 				options.requestProxyUrl = resolvedOverride.proxyUrl;
+				options.requestProviderId = resolvedOverride.providerId;
+				options.requestProviderIdentity = resolvedOverride.providerIdentity;
+				options.requestOAuthAuth = resolvedOverride.oauthAuth;
 				options.maxOutputTokens = resolvedOverride.maxOutputTokens;
 				options.contextWindowTokens = resolvedOverride.contextWindowTokens;
 				options.temperatureMode = resolvedOverride.temperatureMode;
@@ -2544,6 +2582,9 @@ async function runTeamLeadQuickAnswer(params: {
 		requestApiKey: resolvedModel.apiKey,
 		requestBaseURL: resolvedModel.baseURL,
 		requestProxyUrl: resolvedModel.proxyUrl,
+		requestProviderId: resolvedModel.providerId,
+		requestProviderIdentity: resolvedModel.providerIdentity,
+		requestOAuthAuth: resolvedModel.oauthAuth,
 		maxOutputTokens: resolvedModel.maxOutputTokens,
 		...(resolvedModel.contextWindowTokens != null
 			? { contextWindowTokens: resolvedModel.contextWindowTokens }

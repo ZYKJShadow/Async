@@ -174,7 +174,7 @@ export async function generateThreadTitle(
 					httpAgent,
 					dangerouslyAllowBrowser: false,
 					maxRetries: 0,
-				})
+				}, resolved.providerIdentity)
 			);
 			const response = await client.chat.completions.create({
 				model: resolved.requestModelId,
@@ -185,7 +185,8 @@ export async function generateThreadTitle(
 						role: 'system',
 						content: prependProviderIdentitySystemPrompt(
 							settings,
-							buildThreadTitleSystemPrompt(ruleContext)
+							buildThreadTitleSystemPrompt(ruleContext),
+							resolved.providerIdentity
 						),
 					},
 					{ role: 'user', content: userPrompt },
@@ -195,19 +196,20 @@ export async function generateThreadTitle(
 		}
 
 		if (resolved.paradigm === 'anthropic') {
-			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
+			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, resolved.providerIdentity);
 			const client = new Anthropic(
 				applyAnthropicProviderIdentity(settings, {
 					apiKey: resolved.apiKey,
 					baseURL: resolved.baseURL,
 					maxRetries: 0,
-				})
+				}, resolved.providerIdentity)
 			);
 			const response = await client.messages.create({
 				model: resolved.requestModelId,
 				system: prependProviderIdentitySystemPrompt(
 					settings,
-					buildThreadTitleSystemPrompt(ruleContext)
+					buildThreadTitleSystemPrompt(ruleContext),
+					resolved.providerIdentity
 				),
 				max_tokens: 120,
 				temperature: 0,
@@ -224,7 +226,8 @@ export async function generateThreadTitle(
 			model: resolved.requestModelId,
 			systemInstruction: prependProviderIdentitySystemPrompt(
 				settings,
-				buildThreadTitleSystemPrompt(ruleContext)
+				buildThreadTitleSystemPrompt(ruleContext),
+				resolved.providerIdentity
 			),
 			generationConfig: {
 				temperature: 0,

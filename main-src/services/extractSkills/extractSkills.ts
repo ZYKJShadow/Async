@@ -23,6 +23,7 @@ import {
 	type ChatMessage,
 } from '../../threadStore.js';
 import type { RuntimeMemoryModel } from '../../memdir/findRelevantMemories.js';
+import { resolveProviderIdentityWithOverride } from '../../../src/providerIdentitySettings.js';
 function getSkillDir(workspaceRoot: string): string {
 	return path.join(workspaceRoot, '.async', 'skills');
 }
@@ -363,7 +364,7 @@ async function extractSkillWithModel(
 			requestProxyUrl: resolved.proxyUrl,
 			temperatureMode: resolved.temperatureMode,
 			temperature: resolved.temperature,
-			providerIdentity: settings.providerIdentity,
+			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, resolved.providerIdentity),
 		},
 		userPrompt
 	);

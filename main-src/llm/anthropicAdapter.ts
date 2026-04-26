@@ -28,6 +28,7 @@ import {
 import type { SendableMessage } from './sendResolved.js';
 import { userMessageTextForSend } from './sendResolved.js';
 import { buildAnthropicUserBlocks } from './resolvedUserSerialize.js';
+import { ensureFreshOAuthAuthForRequest } from './providerOAuthLogin.js';
 
 function toAnthropicMessages(messages: SendableMessage[]): MessageParam[] {
 	const nonSystem = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
@@ -63,7 +64,11 @@ export async function streamAnthropic(
 	options: UnifiedChatOptions,
 	handlers: StreamHandlers
 ): Promise<void> {
-	const key = options.requestApiKey.trim();
+	const oauthAuth =
+		options.requestOAuthAuth?.provider === 'claude'
+			? await ensureFreshOAuthAuthForRequest(options.requestProviderId, options.requestOAuthAuth)
+			: undefined;
+	const key = (oauthAuth?.accessToken ?? options.requestApiKey).trim();
 	if (!key) {
 		handlers.onError('未配置 Anthropic API Key。请在设置 → 模型中填写全局密钥或该模型的独立密钥。');
 		return;
@@ -73,11 +78,11 @@ export async function streamAnthropic(
 // maxRetries: 0，避免流式请求自动重试拉长等待
 	const client = new Anthropic(
 		applyAnthropicProviderIdentity(settings, {
-			apiKey: key,
+			...(oauthAuth ? { authToken: key, apiKey: null } : { apiKey: key }),
 			baseURL: baseURL || undefined,
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,
-		})
+		}, options.requestProviderIdentity)
 	);
 
 	const storedSystem = messages.find((m) => m.role === 'system');
@@ -95,8 +100,8 @@ export async function streamAnthropic(
 	const system = buildAnthropicSystemForApi(
 		{
 			...systemSections,
-			staticText: prependProviderIdentitySystemPrompt(settings, systemSections.staticText),
-			fullText: prependProviderIdentitySystemPrompt(settings, systemSections.fullText),
+			staticText: prependProviderIdentitySystemPrompt(settings, systemSections.staticText, options.requestProviderIdentity),
+			fullText: prependProviderIdentitySystemPrompt(settings, systemSections.fullText, options.requestProviderIdentity),
 		},
 		promptCaching
 	);
@@ -109,7 +114,7 @@ export async function streamAnthropic(
 			onDecision: (decision) => { cacheDecision = decision; },
 		}
 	);
-	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, options.requestProviderIdentity);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
 	const requestedTemperature = resolveRequestedTemperature(
 		temperatureForMode(options.mode),

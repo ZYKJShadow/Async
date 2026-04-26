@@ -6,6 +6,14 @@ import { getAutoCompactThresholdForSend, type ModelContextResolveOpts } from '..
 import { withLlmTransportRetry } from '../llm/llmTransportRetry.js';
 import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import { anthropicEffectiveMaxTokens } from '../llm/thinkingLevel.js';
+import type { ShellSettings } from '../settingsStore.js';
+import type { ProviderIdentitySettings } from '../../src/providerIdentitySettings.js';
+import {
+	applyAnthropicProviderIdentity,
+	applyOpenAIProviderIdentity,
+	buildAnthropicProviderIdentityMetadata,
+	prependProviderIdentitySystemPrompt,
+} from '../llm/providerIdentity.js';
 
 export type OpenAIMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 export type AnthropicMessage = MessageParam;
@@ -25,6 +33,7 @@ export type AgentContextCompactionOptions = {
 	apiKey: string;
 	baseURL?: string;
 	proxyUrl?: string;
+	providerIdentity?: ProviderIdentitySettings;
 	contextWindowTokens?: number;
 	maxOutputTokens: number;
 	state?: AgentContextCompactState;
@@ -337,16 +346,27 @@ async function summarizeWithOpenAI(options: AgentContextCompactionOptions, histo
 		throw new Error('missing OpenAI-compatible API key for context compaction');
 	}
 	const client = new OpenAI({
-		apiKey: key,
-		baseURL: options.baseURL?.trim() || undefined,
-		timeout: 60_000,
-		maxRetries: 1,
-		...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
+		...applyOpenAIProviderIdentity(
+			{ providerIdentity: options.providerIdentity } satisfies ShellSettings,
+			{
+				apiKey: key,
+				baseURL: options.baseURL?.trim() || undefined,
+				timeout: 60_000,
+				maxRetries: 1,
+				...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
+			}
+		),
 	});
 	const response = await withLlmTransportRetry(() => client.chat.completions.create({
 		model: options.model,
 		messages: [
-			{ role: 'system', content: 'You summarize coding-agent conversation history for context compaction.' },
+			{
+				role: 'system',
+				content: prependProviderIdentitySystemPrompt(
+					{ providerIdentity: options.providerIdentity },
+					'You summarize coding-agent conversation history for context compaction.'
+				),
+			},
 			{ role: 'user', content: summaryPrompt(historyText) },
 		],
 		stream: false,
@@ -362,18 +382,29 @@ async function summarizeWithAnthropic(options: AgentContextCompactionOptions, hi
 		throw new Error('missing Anthropic API key for context compaction');
 	}
 	const client = new Anthropic({
-		apiKey: key,
-		baseURL: options.baseURL?.trim() || undefined,
-		maxRetries: 1,
-		timeout: 60_000,
-		...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
+		...applyAnthropicProviderIdentity(
+			{ providerIdentity: options.providerIdentity } satisfies ShellSettings,
+			{
+				apiKey: key,
+				baseURL: options.baseURL?.trim() || undefined,
+				maxRetries: 1,
+				timeout: 60_000,
+				...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
+			}
+		),
 	});
+	const identitySettings: ShellSettings = { providerIdentity: options.providerIdentity };
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
 	const response = await withLlmTransportRetry(() => client.messages.create({
 		model: options.model,
 		max_tokens: anthropicEffectiveMaxTokens(0, SUMMARY_OUTPUT_TOKENS),
-		system: 'You summarize coding-agent conversation history for context compaction.',
+		system: prependProviderIdentitySystemPrompt(
+			identitySettings,
+			'You summarize coding-agent conversation history for context compaction.'
+		),
 		messages: [{ role: 'user', content: summaryPrompt(historyText) }],
 		temperature: 0,
+		...(anthropicMetadata ? { metadata: anthropicMetadata } : {}),
 	}), { signal: options.signal });
 	return response.content
 		.map((block) => block.type === 'text' ? block.text : '')

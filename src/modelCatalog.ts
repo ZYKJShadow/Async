@@ -1,4 +1,7 @@
 import type { ModelRequestParadigm } from './llmProvider';
+import type { ProviderIdentitySettings } from './providerIdentitySettings';
+
+export type OAuthProviderKind = 'codex' | 'claude' | 'antigravity';
 
 export type UserModelTemperatureMode = 'auto' | 'custom';
 
@@ -10,6 +13,44 @@ export type UserLlmProvider = {
 	apiKey?: string;
 	baseURL?: string;
 	proxyUrl?: string;
+	/**
+	 * Per-provider override of the global "model provider identity" preset.
+	 * `undefined` (or `{ preset: 'inherit' }`) means: follow the global setting.
+	 */
+	providerIdentity?: ProviderIdentitySettings;
+	/**
+	 * Optional ChatGPT-login OAuth credentials. Populated by the in-app
+	 * "Codex login" flow. When present, `apiKey` is the access token issued
+	 * by the codex token-exchange and gets refreshed transparently.
+	 */
+	codexAuth?: CodexAuthRecord;
+	/** OAuth credentials for CLIProxyAPI-aligned provider login flows. */
+	oauthAuth?: ProviderOAuthAuthRecord;
+};
+
+export type CodexAuthRecord = {
+	idToken: string;
+	accessToken: string;
+	refreshToken: string;
+	/** API key obtained via token-exchange (`urn:ietf:params:oauth:grant-type:token-exchange`). */
+	apiKey?: string;
+	/** Epoch ms of the last successful refresh. */
+	lastRefreshAt: number;
+	/** chatgpt_account_id claim from the id_token, if present. */
+	accountId?: string;
+};
+
+export type ProviderOAuthAuthRecord = {
+	provider: OAuthProviderKind;
+	accessToken: string;
+	refreshToken: string;
+	tokenType?: string;
+	idToken?: string;
+	expiresAt?: number;
+	lastRefreshAt: number;
+	accountId?: string;
+	email?: string;
+	projectId?: string;
 };
 
 /** 与主进程 `UserModelEntry` 对齐 */

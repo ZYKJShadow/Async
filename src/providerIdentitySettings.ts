@@ -1,4 +1,10 @@
-export type ProviderIdentityPreset = 'async-default' | 'claude-code' | 'codex' | 'custom';
+export type ProviderIdentityPreset =
+	| 'async-default'
+	| 'antigravity'
+	| 'claude-code'
+	| 'codex'
+	| 'custom'
+	| 'inherit';
 
 export type ProviderIdentitySettings = {
 	preset?: ProviderIdentityPreset;
@@ -11,7 +17,7 @@ export type ProviderIdentitySettings = {
 
 export type ResolvedProviderIdentitySettings = {
 	preset: ProviderIdentityPreset;
-	userAgentMode: 'generic' | 'claude-code' | 'codex';
+	userAgentMode: 'generic' | 'antigravity' | 'claude-code' | 'codex';
 	userAgentProduct: string;
 	entrypoint: string;
 	appHeaderValue: string;
@@ -27,15 +33,15 @@ export const PROVIDER_IDENTITY_VERSION_PREVIEW = '<version>';
 export const PROVIDER_IDENTITY_SESSION_PREVIEW = '<runtime-session-id>';
 export const PROVIDER_IDENTITY_DEVICE_ID_PREVIEW = '<device-id>';
 
-export const CLAUDE_CODE_EMULATED_VERSION = '2.1.112';
-export const CODEX_EMULATED_VERSION = '0.99.0';
+export const CLAUDE_CODE_EMULATED_VERSION = '2.1.63';
+export const CODEX_EMULATED_VERSION = '0.118.0';
+export const ANTIGRAVITY_EMULATED_VERSION = '1.21.9';
 /**
- * Value for the upstream `originator` request header. Codex's npm/SDK surface
- * advertises itself as `codex-cli` (see e.g.
- * `sdk/python/tests/test_public_api_signatures.py` —
- * `userAgent: "codex-cli/1.2.3"`), so we mirror that token end-to-end.
+ * CLIProxyAPI's Codex executor defaults to the Codex TUI fingerprint:
+ * `codex-tui/0.118.0 (...)` plus `Originator: codex-tui`.
  */
-export const CODEX_ORIGINATOR = 'codex-cli';
+export const CODEX_ORIGINATOR = 'codex-tui';
+export const ANTIGRAVITY_USER_AGENT = `antigravity/${ANTIGRAVITY_EMULATED_VERSION} darwin/arm64`;
 
 const ASYNC_DEFAULT_IDENTITY: ResolvedProviderIdentitySettings = {
 	preset: 'async-default',
@@ -66,13 +72,31 @@ const CODEX_IDENTITY: ResolvedProviderIdentitySettings = {
 	userAgentMode: 'codex',
 	userAgentProduct: CODEX_ORIGINATOR,
 	entrypoint: 'cli',
-	appHeaderValue: 'cli',
-	clientAppValue: CODEX_ORIGINATOR,
-	sessionHeaderName: 'X-Codex-Session-Id',
+	// CLIProxyAPI's Codex executor doesn't send `x-app` / `x-client-app`. We keep these fields
+	// because they're required by the shared shape, but leave them blank so
+	// the identity-headers builder skips them.
+	appHeaderValue: '',
+	clientAppValue: '',
+	// CLIProxyAPI sets Session_id on Mac-like Codex-TUI requests at runtime;
+	// this shared preset leaves the generic session header empty.
+	sessionHeaderName: '',
 	systemPromptPrefix:
-		'You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is an open source project led by OpenAI.',
+		'You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is an open source project led by OpenAI. You are expected to be precise, safe, and helpful.',
 	anthropicMetadataMode: 'async',
 	originatorHeaderValue: CODEX_ORIGINATOR,
+};
+
+const ANTIGRAVITY_IDENTITY: ResolvedProviderIdentitySettings = {
+	preset: 'antigravity',
+	userAgentMode: 'antigravity',
+	userAgentProduct: 'antigravity',
+	entrypoint: 'desktop',
+	appHeaderValue: '',
+	clientAppValue: '',
+	sessionHeaderName: '',
+	systemPromptPrefix:
+		'You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.',
+	anthropicMetadataMode: 'async',
 };
 
 function cleanToken(value: unknown, fallback: string): string {
@@ -83,9 +107,11 @@ function cleanToken(value: unknown, fallback: string): string {
 function isPreset(value: unknown): value is ProviderIdentityPreset {
 	return (
 		value === 'async-default' ||
+		value === 'antigravity' ||
 		value === 'claude-code' ||
 		value === 'codex' ||
-		value === 'custom'
+		value === 'custom' ||
+		value === 'inherit'
 	);
 }
 
@@ -118,6 +144,15 @@ function inferPreset(raw?: ProviderIdentitySettings | null): ProviderIdentityPre
 	if (matchesClaudeCode) {
 		return 'claude-code';
 	}
+	const matchesAntigravity =
+		legacyValues.userAgentProduct === ANTIGRAVITY_IDENTITY.userAgentProduct &&
+		legacyValues.entrypoint === ANTIGRAVITY_IDENTITY.entrypoint &&
+		legacyValues.appHeaderValue === ANTIGRAVITY_IDENTITY.appHeaderValue &&
+		legacyValues.clientAppValue === ANTIGRAVITY_IDENTITY.clientAppValue &&
+		legacyValues.systemPromptPrefix === ANTIGRAVITY_IDENTITY.systemPromptPrefix;
+	if (matchesAntigravity) {
+		return 'antigravity';
+	}
 	const matchesCodex =
 		legacyValues.userAgentProduct === CODEX_IDENTITY.userAgentProduct &&
 		legacyValues.entrypoint === CODEX_IDENTITY.entrypoint &&
@@ -148,6 +183,9 @@ export function resolveProviderIdentitySettings(
 	if (preset === 'claude-code') {
 		return { ...CLAUDE_CODE_IDENTITY };
 	}
+	if (preset === 'antigravity') {
+		return { ...ANTIGRAVITY_IDENTITY };
+	}
 	if (preset === 'codex') {
 		return { ...CODEX_IDENTITY };
 	}
@@ -167,15 +205,32 @@ export function resolveProviderIdentitySettings(
 	return { ...ASYNC_DEFAULT_IDENTITY };
 }
 
+/**
+ * Resolve the effective identity for a per-provider override falling back to global.
+ *
+ * - If `override` is undefined or its `preset` is `'inherit'`, return the global resolution.
+ * - Otherwise, resolve the override directly.
+ */
+export function resolveProviderIdentityWithOverride(
+	global: ProviderIdentitySettings | null | undefined,
+	override: ProviderIdentitySettings | null | undefined
+): ResolvedProviderIdentitySettings {
+	if (!override || override.preset === 'inherit' || override.preset === undefined) {
+		return resolveProviderIdentitySettings(global);
+	}
+	return resolveProviderIdentitySettings(override);
+}
+
 export function providerIdentityPresetOptions(): Array<{
 	id: ProviderIdentityPreset;
-	userAgentMode: 'generic' | 'claude-code' | 'codex';
+	userAgentMode: 'generic' | 'antigravity' | 'claude-code' | 'codex';
 	label: string;
 }> {
 	return [
 		{ id: 'async-default', userAgentMode: 'generic', label: 'Async' },
 		{ id: 'claude-code', userAgentMode: 'claude-code', label: 'Claude Code' },
 		{ id: 'codex', userAgentMode: 'codex', label: 'Codex CLI' },
+		{ id: 'antigravity', userAgentMode: 'antigravity', label: 'Antigravity' },
 		{ id: 'custom', userAgentMode: 'generic', label: 'Custom' },
 	];
 }
@@ -186,14 +241,14 @@ export function formatResolvedProviderIdentityUserAgent(
 	_opts?: { claudeCodeUserType?: string }
 ): string {
 	if (settings.userAgentMode === 'claude-code') {
-		// 与 `claude-code/src/utils/userAgent.ts` 一致：`claude-code/${MACRO.VERSION}`
-		return `claude-code/${CLAUDE_CODE_EMULATED_VERSION}`;
+		// CLIProxyAPI default Claude Code fingerprint.
+		return `claude-cli/${CLAUDE_CODE_EMULATED_VERSION} (external, cli)`;
 	}
 	if (settings.userAgentMode === 'codex') {
-		// 与 codex-rs/login/src/auth/default_client.rs 中 get_codex_user_agent 的格式对齐：
-		// `<originator>/<version> (<os> <os_version>; <arch>) <terminal_info>`
-		// 仅在浏览器侧预览时使用一个稳定的简化形式；运行时由 main 进程拼真实平台信息。
-		return `${CODEX_ORIGINATOR}/${version}`;
+		return `${CODEX_ORIGINATOR}/${version} (Mac OS 26.3.1; arm64) iTerm.app/3.6.9 (${CODEX_ORIGINATOR}; ${version})`;
+	}
+	if (settings.userAgentMode === 'antigravity') {
+		return ANTIGRAVITY_USER_AGENT;
 	}
 	const parts = [settings.entrypoint];
 	if (settings.clientAppValue.trim()) {
@@ -212,15 +267,19 @@ export function buildProviderIdentityPreview(raw?: ProviderIdentitySettings | nu
 	const settings = resolveProviderIdentitySettings(raw);
 	const headers: Array<[string, string]> = [
 		['User-Agent', formatResolvedProviderIdentityUserAgent(settings)],
-		['x-app', settings.appHeaderValue],
 	];
+	if (settings.appHeaderValue.trim()) {
+		headers.push(['x-app', settings.appHeaderValue]);
+	}
 	if (settings.clientAppValue.trim()) {
 		headers.push(['x-client-app', settings.clientAppValue]);
 	}
 	if (settings.originatorHeaderValue) {
 		headers.push(['originator', settings.originatorHeaderValue]);
 	}
-	headers.push([settings.sessionHeaderName, PROVIDER_IDENTITY_SESSION_PREVIEW]);
+	if (settings.sessionHeaderName.trim()) {
+		headers.push([settings.sessionHeaderName, PROVIDER_IDENTITY_SESSION_PREVIEW]);
+	}
 	return {
 		preset: settings.preset,
 		userAgent: formatResolvedProviderIdentityUserAgent(settings),

@@ -186,6 +186,9 @@ export function resolveManagedAgentLoopOptions(
 		requestApiKey: resolved.apiKey,
 		requestBaseURL: resolved.baseURL,
 		requestProxyUrl: resolved.proxyUrl,
+		requestProviderId: resolved.providerId,
+		requestProviderIdentity: resolved.providerIdentity,
+		requestOAuthAuth: resolved.oauthAuth,
 		maxOutputTokens: resolved.maxOutputTokens,
 		...(resolved.contextWindowTokens != null
 			? { contextWindowTokens: resolved.contextWindowTokens }
@@ -253,11 +256,12 @@ export function runChatStream(
 
 			// 发送端压缩：超长线程仅压缩发给 LLM 的副本，磁盘保留完整历史
 			const thread = getThread(threadId);
-			if (resolved.paradigm === 'openai-compatible') {
+			if (resolved.paradigm === 'openai-compatible' && resolved.oauthAuth?.provider !== 'codex') {
 				scheduleRefreshOpenAiModelCapabilitiesIfStale({
 					baseURL: resolved.baseURL,
 					apiKey: resolved.apiKey,
 					proxyUrl: resolved.proxyUrl,
+					providerIdentity: resolved.providerIdentity,
 				});
 			}
 			const compressOptions = {
@@ -268,6 +272,9 @@ export function runChatStream(
 				requestApiKey: resolved.apiKey,
 				requestBaseURL: resolved.baseURL,
 				requestProxyUrl: resolved.proxyUrl,
+				requestProviderId: resolved.providerId,
+				requestProviderIdentity: resolved.providerIdentity,
+				requestOAuthAuth: resolved.oauthAuth,
 				maxOutputTokens: resolved.maxOutputTokens,
 				...(resolved.contextWindowTokens != null
 					? { contextWindowTokens: resolved.contextWindowTokens }
@@ -370,6 +377,9 @@ export function runChatStream(
 					requestApiKey: resolved.apiKey,
 					requestBaseURL: resolved.baseURL,
 					requestProxyUrl: resolved.proxyUrl,
+					requestProviderId: resolved.providerId,
+					requestProviderIdentity: resolved.providerIdentity,
+					requestOAuthAuth: resolved.oauthAuth,
 					maxOutputTokens: resolved.maxOutputTokens,
 					...(resolved.contextWindowTokens != null
 						? { contextWindowTokens: resolved.contextWindowTokens }
@@ -440,6 +450,9 @@ export function runChatStream(
 							requestApiKey: resolved.apiKey,
 							requestBaseURL: resolved.baseURL,
 							requestProxyUrl: resolved.proxyUrl,
+							requestProviderId: resolved.providerId,
+							requestProviderIdentity: resolved.providerIdentity,
+							requestOAuthAuth: resolved.oauthAuth,
 							maxOutputTokens: resolved.maxOutputTokens,
 							...(resolved.contextWindowTokens != null
 								? { contextWindowTokens: resolved.contextWindowTokens }
@@ -542,6 +555,9 @@ export function runChatStream(
 					requestApiKey: resolved.apiKey,
 					requestBaseURL: resolved.baseURL,
 					requestProxyUrl: resolved.proxyUrl,
+					requestProviderId: resolved.providerId,
+					requestProviderIdentity: resolved.providerIdentity,
+					requestOAuthAuth: resolved.oauthAuth,
 					maxOutputTokens: resolved.maxOutputTokens,
 					temperatureMode: resolved.temperatureMode,
 					...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),

@@ -20,6 +20,7 @@ import { formatMemoryManifest, scanMemoryFiles, type MemoryHeader } from './memo
 import { getAutoMemPath } from './paths.js';
 import type { ModelRequestParadigm, ThinkingLevel } from '../settingsStore.js';
 import type { ProviderIdentitySettings } from '../../src/providerIdentitySettings.js';
+import { resolveProviderIdentityWithOverride } from '../../src/providerIdentitySettings.js';
 
 export type RelevantMemory = {
 	path: string;
@@ -273,7 +274,7 @@ export async function findRelevantMemories(
 			requestProxyUrl: resolved.proxyUrl,
 			temperatureMode: resolved.temperatureMode,
 			temperature: resolved.temperature,
-			providerIdentity: settings.providerIdentity,
+			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, resolved.providerIdentity),
 		}
 		: null;
 	return findRelevantMemoriesInDir(query, memoryDir, runtime, alreadySurfaced);
@@ -328,7 +329,7 @@ export async function buildRelevantMemoryContextBlock(params: {
 			requestProxyUrl: resolved.proxyUrl,
 			temperatureMode: resolved.temperatureMode,
 			temperature: resolved.temperature,
-			providerIdentity: params.settings.providerIdentity,
+			providerIdentity: resolveProviderIdentityWithOverride(params.settings.providerIdentity, resolved.providerIdentity),
 		}
 		: null;
 	const memoryDir = params.memoryDirOverride ?? getAutoMemPath(params.workspaceRoot);

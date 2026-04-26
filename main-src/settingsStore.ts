@@ -27,6 +27,7 @@ export type { BotIntegrationConfig } from './botSettingsTypes.js';
 
 /** 单条用户模型实际请求时使用的协议（与适配器一致） */
 export type ModelRequestParadigm = 'openai-compatible' | 'anthropic' | 'gemini';
+export type OAuthProviderKind = 'codex' | 'claude' | 'antigravity';
 
 /** 用户配置的 LLM 提供商（连接信息在提供商级统一维护） */
 export type UserLlmProvider = {
@@ -40,6 +41,37 @@ export type UserLlmProvider = {
 	baseURL?: string;
 	/** 仅 OpenAI 兼容请求使用的 HTTP(S) 代理 */
 	proxyUrl?: string;
+	/**
+	 * 每提供商单独覆盖全局的「模型提供商标识」预设。`undefined` 表示跟随全局。
+	 * preset 为 `'inherit'` 也表示跟随全局，便于 UI 显式选择。
+	 */
+	providerIdentity?: ProviderIdentitySettings;
+	/** Codex（ChatGPT 登录）OAuth 凭据，由内置登录流程写入。 */
+	codexAuth?: CodexAuthRecord;
+	/** CLIProxyAPI 对齐的 OAuth 凭据（Codex / Claude Code / Antigravity）。 */
+	oauthAuth?: ProviderOAuthAuthRecord;
+};
+
+export type CodexAuthRecord = {
+	idToken: string;
+	accessToken: string;
+	refreshToken: string;
+	apiKey?: string;
+	lastRefreshAt: number;
+	accountId?: string;
+};
+
+export type ProviderOAuthAuthRecord = {
+	provider: OAuthProviderKind;
+	accessToken: string;
+	refreshToken: string;
+	tokenType?: string;
+	idToken?: string;
+	expiresAt?: number;
+	lastRefreshAt: number;
+	accountId?: string;
+	email?: string;
+	projectId?: string;
 };
 
 export type UserModelTemperatureMode = 'auto' | 'custom';
