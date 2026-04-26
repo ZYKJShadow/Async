@@ -11,6 +11,7 @@ import { resolveRequestedTemperature } from './thinkingLevel.js';
 import { prependProviderIdentitySystemPrompt } from './providerIdentity.js';
 import { ANTIGRAVITY_USER_AGENT } from '../../src/providerIdentitySettings.js';
 import { ensureFreshOAuthAuthForRequest } from './providerOAuthLogin.js';
+import { electronNetFetch } from './electronNetFetch.js';
 
 const ANTIGRAVITY_BASE_URL = 'https://cloudcode-pa.googleapis.com';
 
@@ -172,7 +173,7 @@ export async function streamAntigravityOAuth(
 	let usage: TurnTokenUsage | undefined;
 	try {
 		const baseURL = (options.requestBaseURL?.trim() || ANTIGRAVITY_BASE_URL).replace(/\/$/, '');
-		const response = await fetch(`${baseURL}/v1internal:streamGenerateContent?alt=sse`, {
+		const response = await electronNetFetch(`${baseURL}/v1internal:streamGenerateContent?alt=sse`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${token}`,

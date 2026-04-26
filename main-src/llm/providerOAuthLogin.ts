@@ -13,6 +13,7 @@ import {
 	CODEX_ORIGINATOR,
 } from '../../src/providerIdentitySettings.js';
 import { buildCodexUserAgent } from './codexUserAgent.js';
+import { electronNetFetch } from './electronNetFetch.js';
 
 const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60_000;
 
@@ -126,7 +127,7 @@ async function postFormJson<T>(
 	fields: Record<string, string>,
 	headers?: Record<string, string>
 ): Promise<T> {
-	const response = await fetch(url, {
+	const response = await electronNetFetch(url, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/x-www-form-urlencoded',
@@ -143,7 +144,7 @@ async function postFormJson<T>(
 }
 
 async function postJson<T>(url: string, body: Record<string, unknown>): Promise<T> {
-	const response = await fetch(url, {
+	const response = await electronNetFetch(url, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -216,7 +217,7 @@ function parseClaudeCodeAndState(code: string): { code: string; state?: string }
 }
 
 async function fetchAntigravityEmail(accessToken: string): Promise<string | undefined> {
-	const response = await fetch(ANTIGRAVITY_USERINFO_URL, {
+	const response = await electronNetFetch(ANTIGRAVITY_USERINFO_URL, {
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
 	if (!response.ok) {
@@ -237,7 +238,7 @@ async function onboardAntigravityUser(accessToken: string, tierId: string): Prom
 		},
 	};
 	for (let attempt = 0; attempt < 5; attempt += 1) {
-		const response = await fetch(`${ANTIGRAVITY_API_ENDPOINT}/${ANTIGRAVITY_API_VERSION}:onboardUser`, {
+		const response = await electronNetFetch(`${ANTIGRAVITY_API_ENDPOINT}/${ANTIGRAVITY_API_VERSION}:onboardUser`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${accessToken}`,
@@ -271,7 +272,7 @@ async function onboardAntigravityUser(accessToken: string, tierId: string): Prom
 }
 
 async function fetchAntigravityProjectId(accessToken: string): Promise<string | undefined> {
-	const response = await fetch(`${ANTIGRAVITY_API_ENDPOINT}/${ANTIGRAVITY_API_VERSION}:loadCodeAssist`, {
+	const response = await electronNetFetch(`${ANTIGRAVITY_API_ENDPOINT}/${ANTIGRAVITY_API_VERSION}:loadCodeAssist`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${accessToken}`,

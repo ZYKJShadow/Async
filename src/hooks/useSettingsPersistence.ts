@@ -265,14 +265,13 @@ export function useSettingsPersistence(
 		[shell, setBotIntegrations]
 	);
 
-	/** 离开设置页时写入磁盘（返回、点遮罩、Esc 等） */
+	/** 离开设置页时立即关闭 UI，再把最新设置写入磁盘。 */
 	const closeSettingsPage = useCallback(async () => {
+		setSettingsPageOpen(false);
 		try {
 			await persistSettings();
 		} catch (e) {
 			console.error('Failed to persist settings:', e);
-		} finally {
-			setSettingsPageOpen(false);
 		}
 	}, [persistSettings, setSettingsPageOpen]);
 

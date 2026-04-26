@@ -13,6 +13,7 @@ import { CODEX_EMULATED_VERSION, CODEX_ORIGINATOR } from '../../src/providerIden
 import { buildCodexUserAgent } from './codexUserAgent.js';
 import { ensureFreshOAuthAuthForRequest } from './providerOAuthLogin.js';
 import { prependProviderIdentitySystemPrompt } from './providerIdentity.js';
+import { electronNetFetch } from './electronNetFetch.js';
 
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 
@@ -141,7 +142,7 @@ export async function streamCodexOAuth(
 	let full = '';
 	let usage: TurnTokenUsage | undefined;
 	try {
-		const response = await fetch(`${(options.requestBaseURL?.trim() || CODEX_BASE_URL).replace(/\/$/, '')}/responses`, {
+		const response = await electronNetFetch(`${(options.requestBaseURL?.trim() || CODEX_BASE_URL).replace(/\/$/, '')}/responses`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${token}`,

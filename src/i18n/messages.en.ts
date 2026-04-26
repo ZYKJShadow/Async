@@ -1564,15 +1564,13 @@ export const messagesEn: Record<string, string> = {
 	'agent.mistakeLimit.hintPlaceholder':
 		'e.g. Read only lines 20–40 of src/foo.ts first; do not edit package.json.',
 	'agentSettings.backgroundForkTitle': 'Background fork',
-	'agentSettings.backgroundForkDesc':
-		'When on, omitting `subagent_type` on the Agent tool runs the sub-agent in the background: the tool returns immediately while work continues; nested activity still streams, and you get a toast when done. You can also set `run_in_background: true` on any Agent call. Env `ASYNC_AGENT_BACKGROUND_FORK=1` enables the same gate.',
+	'agentSettings.backgroundForkDesc': 'Let longer Agent tasks run in the background and notify when done.',
 	'agentSettings.mistakeLimitTitle': 'Pause after repeated failures',
-	'agentSettings.mistakeLimitDesc':
-		'After several failed tool calls or denials, show a dialog to continue, add a hint, or stop (Cline-style).',
+	'agentSettings.mistakeLimitDesc': 'Pause at the failure threshold and wait for confirmation.',
 	'agentSettings.maxMistakesLabel': 'Threshold (failures)',
 	'agent.settings.confirmShell': 'Ask before running shell commands',
 	'agent.settings.confirmWrites': 'Ask before Write / Edit',
-	'agent.settings.skipSafeShell': 'Auto-approve safe read-only commands (e.g. git status, npm test)',
+	'agent.settings.skipSafeShell': 'Auto-approve common read-only commands',
 
 	'agent.review.regionAria': 'Agent changes review',
 	'agent.review.title': 'Review changes',
@@ -1662,33 +1660,27 @@ export const messagesEn: Record<string, string> = {
 
 	'agentSettings.leadCursor':
 		'Rules, skills, and subagents for the agent. Filter by scope above. Workspace folders for `.cursor`, `.claude`, and `.async` are merged automatically.',
-	'agentBehavior.lead':
-		'Execution behavior, safety gates, and agent runtime controls. Library-style items such as rules, skills, and subagents are grouped separately.',
-	'agentBehavior.executionTitle': 'Execution & safety',
+	'agentBehavior.lead': 'Control execution permissions and safety prompts.',
+	'agentBehavior.executionTitle': 'Execution policy',
 	'agentBehavior.libraryTitle': 'Agent library',
-	'agentBehavior.libraryHint':
-		'Rules, skills, subagents, and custom slash commands now live under “Rules, Skills, Subagents” so behavior settings and reusable prompt assets are easier to find.',
+	'agentBehavior.libraryHint': 'Rules, skills, subagents, and commands moved to “Rules, Skills, Subagents”.',
 	'agentBehavior.shellPermissionMode': 'Shell command permission',
-	'agentBehavior.shellPermissionModeDesc':
-		'Matches the three-way control next to the Agent composer: always run, allow within rules, or ask every time.',
-	'agentBehavior.shellComposerHint':
-		'Matches the composer’s three-way “command permission” control. “Allow within rules”: explicit allow rules or the low-risk allowlist can skip prompts. “Ask every time”: every Bash needs confirmation (even allow rules). Fine-grained rules are below. Session memory extraction is under Settings → “Project Memory”.',
+	'agentBehavior.shellPermissionModeDesc': 'Mirrors the composer command permission control.',
+	'agentBehavior.shellComposerHint': 'Default approval policy for shell commands.',
 	'agentBehavior.toolRulesTitle': 'Tool permission rules',
-	'agentBehavior.toolRulesDesc':
-		'Per tool name and optional matcher: allow / deny / ask. Precedence: deny > ask > allow. If no rule matches, the shell / write toggles above still apply. For Bash use globs (e.g. `git *`) or a full command prefix; for Write/Edit use a relative path glob.',
+	'agentBehavior.toolRulesDesc': 'Set allow, ask, or deny by tool name and matcher; deny wins.',
 	'agentBehavior.toolRuleBehavior': 'Behavior',
 	'agentBehavior.toolRuleAllow': 'Allow',
 	'agentBehavior.toolRuleDeny': 'Deny',
-	'agentBehavior.toolRuleAsk': 'Ask (use default prompts)',
+	'agentBehavior.toolRuleAsk': 'Ask',
 	'agentBehavior.toolRuleToolName': 'Tool name',
 	'agentBehavior.toolRuleContent': 'Matcher (optional)',
 	'agentBehavior.toolRuleContentPh': 'Empty = all invocations; or Bash command / file glob',
 	'agentBehavior.toolRuleAdd': '+ Add rule',
-	'agentBehavior.toolRulesEmpty': 'No tool permission rules yet. Use “Add rule”; deny takes precedence over allow.',
+	'agentBehavior.toolRulesEmpty': 'No rules yet.',
 	'agentBehavior.toolRuleRemove': 'Remove rule',
-	'agentBehavior.avoidPromptsTitle': 'Deny “ask” rules when no UI',
-	'agentBehavior.avoidPromptsDesc':
-		'When enabled, rules set to “ask” are treated as deny if the app cannot show a prompt (e.g. some background subagents). Leave off for normal desktop use.',
+	'agentBehavior.avoidPromptsTitle': 'Deny ask when no UI',
+	'agentBehavior.avoidPromptsDesc': 'When prompts are unavailable, treat “ask” as deny.',
 	'agentBehavior.memoryExtractionTitle': 'Session memory extraction',
 	'agentBehavior.memoryExtractionDesc':
 		'Throttles background extraction into `.async/memory`. Turn off to stop queueing extractions.',
@@ -1788,8 +1780,8 @@ export const messagesEn: Record<string, string> = {
 	'agentSettings.importDesc': '',
 	'agentSettings.safetyTitle': 'Tools & safety',
 	'agentSettings.safetyShellDesc': 'When off, the agent runs terminal commands without a prompt (still scoped to the workspace).',
-	'agentSettings.safetySkipDesc': 'When on, common read-only commands like git status or npm test skip the prompt.',
-	'agentSettings.safetyWritesDesc': 'When on, every Write / Edit requires confirmation (safer but slower).',
+	'agentSettings.safetySkipDesc': 'For git status, npm test, and similar commands.',
+	'agentSettings.safetyWritesDesc': 'Confirm before file writes.',
 	'agentSettings.rulesTitle': 'Rules',
 	'agentSettings.rulesInfo': 'Inject by scope into system prompt',
 	'agentSettings.new': 'New',

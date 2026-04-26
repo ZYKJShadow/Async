@@ -1541,14 +1541,13 @@ export const messagesZhCN: Record<string, string> = {
 	'agent.mistakeLimit.sendHint': '发送说明并继续',
 	'agent.mistakeLimit.hintPlaceholder': '例如：先只读 src/foo.ts 第 20–40 行，不要改 package.json',
 	'agentSettings.backgroundForkTitle': '后台 Fork',
-	'agentSettings.backgroundForkDesc':
-		'开启后，调用 Agent 时省略 `subagent_type` 即后台运行：工具立即返回占位说明，嵌套区域仍流式展示过程，结束后弹出提示。也可在单次调用中加 `run_in_background: true`。环境变量 `ASYNC_AGENT_BACKGROUND_FORK=1` 等同开启本开关。',
+	'agentSettings.backgroundForkDesc': '允许 Agent 在后台执行较长任务，完成后提示。',
 	'agentSettings.mistakeLimitTitle': '连续失败暂停',
-	'agentSettings.mistakeLimitDesc': '工具多次报错或被你拒绝后，弹出对话框让你选择继续、补充说明或停止（类似 Cline）。',
+	'agentSettings.mistakeLimitDesc': '连续失败达到阈值后暂停，等待你确认。',
 	'agentSettings.maxMistakesLabel': '触发阈值（次）',
 	'agent.settings.confirmShell': '执行 shell 命令前询问',
 	'agent.settings.confirmWrites': 'Write / Edit 写入前询问',
-	'agent.settings.skipSafeShell': '对常见只读命令（如 git status、npm test）自动放行',
+	'agent.settings.skipSafeShell': '常见只读命令自动放行',
 
 	// agent review
 	'agent.review.regionAria': '智能体改动审阅',
@@ -1643,33 +1642,27 @@ export const messagesZhCN: Record<string, string> = {
 	// agent settings (Rules / Skills panel)
 	'agentSettings.leadCursor':
 		'用于智能体的规则、技能与子代理。可用上方按存储范围筛选。工作区中的 `.cursor`、`.claude` 与 `.async` 目录会自动合并读取。',
-	'agentBehavior.lead':
-		'执行行为、安全门禁与运行时控制。规则、技能、子代理等库类条目已单独分组，便于查找。',
-	'agentBehavior.executionTitle': '执行与安全',
+	'agentBehavior.lead': '控制执行权限与安全确认。',
+	'agentBehavior.executionTitle': '执行策略',
 	'agentBehavior.libraryTitle': '智能体库',
-	'agentBehavior.libraryHint':
-		'规则、技能、子代理与自定义斜杠命令现统一放在「规则、技能与子代理」中，便于区分行为设置与可复用的提示资源。',
+	'agentBehavior.libraryHint': '规则、技能、子代理与命令已移到「规则、技能与子代理」。',
 	'agentBehavior.shellPermissionMode': 'Shell 命令权限',
-	'agentBehavior.shellPermissionModeDesc':
-		'与 Agent 输入栏旁三档下拉同步：总是执行、规则内放行、每次询问。',
-	'agentBehavior.shellComposerHint':
-		'与输入栏「执行命令权限」三档一致。规则内放行：权限规则命中允许或低风险白名单可免确认；每次询问：每条 Bash 都需确认（允许类规则也不跳过）。细粒度见下方「工具权限规则」。会话记忆抽取在「项目记忆」页底部。',
+	'agentBehavior.shellPermissionModeDesc': '与输入栏的命令权限同步。',
+	'agentBehavior.shellComposerHint': 'Shell 命令的默认放行策略。',
 	'agentBehavior.toolRulesTitle': '工具权限规则',
-	'agentBehavior.toolRulesDesc':
-		'按工具名与可选匹配内容决定 allow / deny / ask；优先级：deny > ask > allow。未命中规则时仍使用本页上方的 shell / 写入确认开关。Bash 可用 glob（如 `git *`）或完整命令前缀；Write/Edit 可填相对路径 glob。',
+	'agentBehavior.toolRulesDesc': '按工具名和匹配内容设置允许、询问或拒绝；拒绝优先。',
 	'agentBehavior.toolRuleBehavior': '策略',
 	'agentBehavior.toolRuleAllow': '允许',
 	'agentBehavior.toolRuleDeny': '拒绝',
-	'agentBehavior.toolRuleAsk': '询问（沿用默认确认流）',
+	'agentBehavior.toolRuleAsk': '询问',
 	'agentBehavior.toolRuleToolName': '工具名',
 	'agentBehavior.toolRuleContent': '匹配内容（可选）',
 	'agentBehavior.toolRuleContentPh': '留空表示该工具全部调用；或 Bash 命令 / 文件 glob',
 	'agentBehavior.toolRuleAdd': '+ 添加规则',
-	'agentBehavior.toolRulesEmpty': '暂无工具权限规则。点击「添加规则」进行配置；deny 优先于 allow。',
+	'agentBehavior.toolRulesEmpty': '暂无规则。',
 	'agentBehavior.toolRuleRemove': '删除规则',
-	'agentBehavior.avoidPromptsTitle': '无 UI 时拒绝「应询问」的规则',
-	'agentBehavior.avoidPromptsDesc':
-		'开启后，若某条规则为「询问」但当前无法弹窗（例如纯后台子 Agent），将直接拒绝该次调用。一般保持关闭即可。',
+	'agentBehavior.avoidPromptsTitle': '无 UI 时拒绝询问',
+	'agentBehavior.avoidPromptsDesc': '后台无法弹窗时，把“询问”视为拒绝。',
 	'agentBehavior.memoryExtractionTitle': '会话记忆抽取',
 	'agentBehavior.memoryExtractionDesc':
 		'控制向 `.async/memory` 写入前的后台抽取频率。关闭后不再排队抽取。',
@@ -1766,8 +1759,8 @@ export const messagesZhCN: Record<string, string> = {
 	'agentSettings.importDesc': '',
 	'agentSettings.safetyTitle': '工具与安全',
 	'agentSettings.safetyShellDesc': '关闭后 Agent 将直接执行终端命令（仍有工作区目录限制）。',
-	'agentSettings.safetySkipDesc': '开启时，git status、npm test 等常见命令不再弹窗。',
-	'agentSettings.safetyWritesDesc': '开启后每次 Write / Edit 前需手动确认（更稳妥但更打断）。',
+	'agentSettings.safetySkipDesc': '如 git status、npm test。',
+	'agentSettings.safetyWritesDesc': '写入前先确认。',
 	'agentSettings.rulesTitle': '规则',
 	'agentSettings.rulesInfo': '按作用域注入系统提示',
 	'agentSettings.new': '新建',

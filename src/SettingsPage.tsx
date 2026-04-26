@@ -1003,8 +1003,18 @@ export function SettingsPage({
 			<div className="ref-settings-layout">
 				<aside className="ref-settings-sidebar" style={{ width: sidebarWidth }}>
 					<div className="ref-settings-sidebar-tools">
-						<button type="button" className="ref-settings-icon-btn" onClick={onClose} aria-label={t('common.back')} title={t('common.back')}>
+						<button
+							type="button"
+							className="ref-settings-icon-btn ref-settings-back-btn"
+							onClick={(event) => {
+								event.stopPropagation();
+								onClose();
+							}}
+							aria-label={t('common.back')}
+							title={t('common.back')}
+						>
 							<IconBack />
+							<span className="ref-settings-back-btn-label">{t('common.back')}</span>
 						</button>
 					</div>
 					<nav className="ref-settings-nav" aria-label={t('settings.navAria')}>
