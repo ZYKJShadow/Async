@@ -12,6 +12,11 @@ import {
 import { ANTIGRAVITY_USER_AGENT } from '../../src/providerIdentitySettings.js';
 import { electronNetFetch } from './electronNetFetch.js';
 import { providerIdentityForOAuthProvider } from './providerIdentity.js';
+import {
+	antigravityProjectRequiredMessage,
+	isSyntheticAntigravityProjectId,
+	normalizeAntigravityProjectId,
+} from './antigravityProject.js';
 
 const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60_000;
 
@@ -578,11 +583,7 @@ export async function discoverProviderOAuthModels(
 		try {
 			const response = await electronNetFetch(`${baseURL}/${ANTIGRAVITY_API_VERSION}:fetchAvailableModels`, {
 				method: 'POST',
-				headers: {
-					Authorization: `Bearer ${token}`,
-					'Content-Type': 'application/json',
-					'User-Agent': ANTIGRAVITY_USER_AGENT,
-				},
+				headers: antigravityApiHeaders(token, ANTIGRAVITY_USER_AGENT),
 				body: JSON.stringify(payload),
 			});
 			const raw = await response.text();
@@ -833,9 +834,13 @@ const LOGIN_CONFIGS: Record<OAuthProviderKind, LoginConfig> = {
 			}
 			const email = await fetchAntigravityEmail(accessToken);
 			const [projectId, usage] = await Promise.all([
-				fetchAntigravityProjectId(accessToken).catch(() => undefined),
+				fetchAntigravityProjectId(accessToken),
 				fetchAntigravityUsageSummary(accessToken).catch(() => undefined),
 			]);
+			const normalizedProjectId = normalizeAntigravityProjectId(projectId);
+			if (!normalizedProjectId) {
+				throw new Error(antigravityProjectRequiredMessage());
+			}
 			return {
 				provider: 'antigravity',
 				accessToken,
@@ -844,7 +849,7 @@ const LOGIN_CONFIGS: Record<OAuthProviderKind, LoginConfig> = {
 				expiresAt: expiresAtFromSeconds(body.expires_in),
 				lastRefreshAt: Date.now(),
 				...(email ? { email } : {}),
-				...(projectId ? { projectId } : {}),
+				projectId: normalizedProjectId,
 				...(usage ? { usage } : {}),
 			};
 		},
@@ -1212,12 +1217,22 @@ async function refreshAntigravityOAuth(auth: ProviderOAuthAuthRecord): Promise<P
 		{ 'User-Agent': 'Go-http-client/2.0' }
 	);
 	const accessToken = body.access_token.trim();
+	const existingProjectId = normalizeAntigravityProjectId(auth.projectId) || undefined;
 	const [projectId, usage] = accessToken
 		? await Promise.all([
-				fetchAntigravityProjectId(accessToken).catch(() => auth.projectId),
+				fetchAntigravityProjectId(accessToken).catch((error) => {
+					console.warn(`[AntigravityProjectDebug] ${JSON.stringify({
+						phase: 'refresh-project-fetch-failed',
+						message: error instanceof Error ? error.message : String(error),
+						hadExistingProjectId: Boolean(existingProjectId),
+						existingProjectLooksSynthetic: isSyntheticAntigravityProjectId(auth.projectId),
+					})}`);
+					return existingProjectId;
+				}),
 				fetchAntigravityUsageSummary(accessToken).catch(() => auth.usage),
 			])
-		: [auth.projectId, auth.usage] as const;
+		: [existingProjectId, auth.usage] as const;
+	const normalizedProjectId = normalizeAntigravityProjectId(projectId);
 	return {
 		...auth,
 		accessToken,
@@ -1225,7 +1240,7 @@ async function refreshAntigravityOAuth(auth: ProviderOAuthAuthRecord): Promise<P
 		tokenType: body.token_type ?? auth.tokenType,
 		expiresAt: expiresAtFromSeconds(body.expires_in),
 		lastRefreshAt: Date.now(),
-		...(projectId ? { projectId } : {}),
+		projectId: normalizedProjectId || undefined,
 		...(usage ? { usage } : {}),
 	};
 }
@@ -1289,15 +1304,6 @@ function persistProviderOAuthAuth(providerId: string | undefined, auth: Provider
 	});
 }
 
-function isSyntheticAsyncProjectId(projectId: string | undefined): boolean {
-	return /^async-[0-9a-f]{8}$/i.test(projectId?.trim() ?? '');
-}
-
-function normalizeAntigravityProjectId(projectId: string | undefined): string {
-	const trimmed = projectId?.trim() ?? '';
-	return isSyntheticAsyncProjectId(trimmed) ? '' : trimmed;
-}
-
 async function ensureAntigravityProjectIdForRequest(
 	providerId: string | undefined,
 	auth: ProviderOAuthAuthRecord
@@ -1306,21 +1312,32 @@ async function ensureAntigravityProjectIdForRequest(
 		return auth;
 	}
 	const currentProjectId = auth.projectId?.trim();
-	if (currentProjectId && !isSyntheticAsyncProjectId(currentProjectId)) {
+	if (currentProjectId && !isSyntheticAntigravityProjectId(currentProjectId)) {
 		return auth;
 	}
-	const projectId = await fetchAntigravityProjectId(auth.accessToken).catch(() => undefined);
-	if (!projectId?.trim()) {
-		if (currentProjectId && isSyntheticAsyncProjectId(currentProjectId)) {
-			const cleaned = { ...auth, projectId: undefined };
+	const projectId = await fetchAntigravityProjectId(auth.accessToken).catch((error) => {
+		console.warn(`[AntigravityProjectDebug] ${JSON.stringify({
+			phase: 'request-project-fetch-failed',
+			providerId: providerId ?? '',
+			message: error instanceof Error ? error.message : String(error),
+			hadProjectId: Boolean(currentProjectId),
+			projectLooksSynthetic: isSyntheticAntigravityProjectId(currentProjectId),
+		})}`);
+		return undefined;
+	});
+	const normalizedProjectId = normalizeAntigravityProjectId(projectId);
+	if (!normalizedProjectId) {
+		const cleaned = currentProjectId && isSyntheticAntigravityProjectId(currentProjectId)
+			? { ...auth, projectId: undefined }
+			: auth;
+		if (cleaned !== auth) {
 			persistProviderOAuthAuth(providerId, cleaned);
-			return cleaned;
 		}
-		return auth;
+		throw new Error(antigravityProjectRequiredMessage());
 	}
 	const enriched = {
 		...auth,
-		projectId: projectId.trim(),
+		projectId: normalizedProjectId,
 	};
 	persistProviderOAuthAuth(providerId, enriched);
 	return enriched;

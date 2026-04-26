@@ -15,10 +15,13 @@ import {
 import { ANTIGRAVITY_USER_AGENT } from '../../src/providerIdentitySettings.js';
 import { ensureFreshOAuthAuthForRequest } from './providerOAuthLogin.js';
 import { electronNetFetch } from './electronNetFetch.js';
+import {
+	antigravityProjectRequiredMessage,
+	isSyntheticAntigravityProjectId,
+	normalizeAntigravityProjectId,
+} from './antigravityProject.js';
 
 const ANTIGRAVITY_BASE_URL = 'https://cloudcode-pa.googleapis.com';
-const ANTIGRAVITY_FALLBACK_PROJECT_ADJECTIVES = ['useful', 'bright', 'swift', 'calm', 'bold'];
-const ANTIGRAVITY_FALLBACK_PROJECT_NOUNS = ['fuze', 'wave', 'spark', 'flow', 'core'];
 
 function appendTextToLastTextPart(last: Content, text: string): boolean {
 	for (let i = last.parts.length - 1; i >= 0; i--) {
@@ -62,23 +65,6 @@ function stableSessionId(contents: Content[]): string {
 	const hash = createHash('sha256').update(text).digest();
 	const value = hash.readBigUInt64BE(0) & BigInt('0x7fffffffffffffff');
 	return `-${value.toString(10)}`;
-}
-
-function generateAntigravityFallbackProjectId(): string {
-	const adjective =
-		ANTIGRAVITY_FALLBACK_PROJECT_ADJECTIVES[
-			Math.floor(Math.random() * ANTIGRAVITY_FALLBACK_PROJECT_ADJECTIVES.length)
-		] ?? 'useful';
-	const noun =
-		ANTIGRAVITY_FALLBACK_PROJECT_NOUNS[
-			Math.floor(Math.random() * ANTIGRAVITY_FALLBACK_PROJECT_NOUNS.length)
-		] ?? 'fuze';
-	return `${adjective}-${noun}-${randomUUID().toLowerCase().slice(0, 5)}`;
-}
-
-function normalizedAntigravityProjectId(projectId: string | undefined): string {
-	const trimmed = projectId?.trim() ?? '';
-	return /^async-[0-9a-f]{8}$/i.test(trimmed) ? '' : trimmed;
 }
 
 function parseSsePayload(line: string): Record<string, unknown> | undefined {
@@ -128,6 +114,40 @@ function extractUsage(response: Record<string, unknown>): TurnTokenUsage | undef
 	return inputTokens != null || outputTokens != null ? { inputTokens, outputTokens } : undefined;
 }
 
+function logAntigravityWireDebug(params: {
+	url: string;
+	model: string;
+	projectId: string;
+	body: Record<string, unknown>;
+}): void {
+	try {
+		const url = new URL(params.url);
+		const request = params.body.request && typeof params.body.request === 'object'
+			? params.body.request as Record<string, unknown>
+			: {};
+		const contents = Array.isArray(request.contents) ? request.contents : [];
+		console.log(`[AntigravityWireDebug] ${JSON.stringify({
+			origin: url.origin,
+			path: `${url.pathname}${url.search}`,
+			method: 'post',
+			stream: true,
+			hasAuthorization: true,
+			contentType: 'application/json',
+			userAgent: ANTIGRAVITY_USER_AGENT,
+			hasXGoogApiClient: false,
+			hasClientMetadata: false,
+			bodyModel: params.model,
+			bodyProject: params.projectId ? '<set>' : '<empty>',
+			projectLooksSynthetic: isSyntheticAntigravityProjectId(params.projectId),
+			bodyRequestType: typeof params.body.requestType === 'string' ? params.body.requestType : '',
+			messageCount: contents.length,
+			hasSystemInstruction: Boolean(request.systemInstruction),
+		})}`);
+	} catch {
+		/* best-effort debug only */
+	}
+}
+
 export async function streamAntigravityOAuth(
 	settings: ShellSettings,
 	messages: SendableMessage[],
@@ -144,6 +164,17 @@ export async function streamAntigravityOAuth(
 	const model = options.requestModelId.trim();
 	if (!model) {
 		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
+		return;
+	}
+	const project = normalizeAntigravityProjectId(freshAuth.projectId);
+	if (!project) {
+		console.warn(`[AntigravityProjectDebug] ${JSON.stringify({
+			phase: 'missing-project-before-request',
+			providerId: options.requestProviderId ?? '',
+			hadProjectId: Boolean(freshAuth.projectId?.trim()),
+			projectLooksSynthetic: isSyntheticAntigravityProjectId(freshAuth.projectId),
+		})}`);
+		handlers.onError(antigravityProjectRequiredMessage());
 		return;
 	}
 	const requestProviderIdentity = providerIdentityForOAuthAuth(freshAuth) ?? options.requestProviderIdentity;
@@ -179,7 +210,7 @@ export async function streamAntigravityOAuth(
 		model,
 		userAgent: 'antigravity',
 		requestType: model.includes('image') ? 'image_gen' : 'agent',
-		project: normalizedAntigravityProjectId(freshAuth.projectId) || generateAntigravityFallbackProjectId(),
+		project,
 		requestId: `agent-${randomUUID()}`,
 		request,
 	};
@@ -196,7 +227,9 @@ export async function streamAntigravityOAuth(
 	let usage: TurnTokenUsage | undefined;
 	try {
 		const baseURL = (options.requestBaseURL?.trim() || ANTIGRAVITY_BASE_URL).replace(/\/$/, '');
-		const response = await electronNetFetch(`${baseURL}/v1internal:streamGenerateContent?alt=sse`, {
+		const requestUrl = `${baseURL}/v1internal:streamGenerateContent?alt=sse`;
+		logAntigravityWireDebug({ url: requestUrl, model, projectId: project, body });
+		const response = await electronNetFetch(requestUrl, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${token}`,
