@@ -19,6 +19,7 @@ import {
 	openAICompatibleEffectiveTemperature,
 	resolveRequestedTemperature,
 } from '../llm/thinkingLevel.js';
+import { runCodexOAuthResponseText } from '../llm/codexOAuthAdapter.js';
 import { formatMemoryManifest, scanMemoryFiles, type MemoryHeader } from './memoryScan.js';
 import { getAutoMemPath } from './paths.js';
 import type { ModelRequestParadigm, ProviderOAuthAuthRecord, ThinkingLevel } from '../settingsStore.js';
@@ -163,6 +164,29 @@ async function selectRelevantMemoriesWithRuntimeModel(
 	try {
 		throwIfAborted(signal);
 		if (runtime.paradigm === 'openai-compatible') {
+			if (runtime.requestOAuthAuth?.provider === 'codex') {
+				const requestProviderIdentity = providerIdentityForOAuthAuth(runtime.requestOAuthAuth) ?? runtime.providerIdentity;
+				const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
+				const temperature =
+					runtime.temperatureMode === 'custom' && runtime.temperature != null
+						? resolveRequestedTemperature(0, runtime.temperatureMode, runtime.temperature)
+						: openAICompatibleEffectiveTemperature(runtime.requestModelId, 0);
+				const text = await runCodexOAuthResponseText({
+					auth: runtime.requestOAuthAuth,
+					providerId: runtime.requestProviderId,
+					model: runtime.requestModelId,
+					baseURL: runtime.requestBaseURL,
+					instructions: prependProviderIdentitySystemPrompt(
+						identitySettings,
+						SELECT_MEMORIES_SYSTEM_PROMPT
+					),
+					input: userPrompt,
+					temperature,
+					maxOutputTokens: 256,
+					signal,
+				});
+				return parseSelectedFilenames(text, validFilenames);
+			}
 			const proxyRaw = runtime.requestProxyUrl?.trim() ?? '';
 			const httpAgent = proxyRaw ? new HttpsProxyAgent(proxyRaw) : undefined;
 			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };

@@ -17,6 +17,7 @@ import {
 	providerIdentityForOAuthAuth,
 } from '../llm/providerIdentity.js';
 import { ensureFreshOAuthAuthForRequest } from '../llm/providerOAuthLogin.js';
+import { runCodexOAuthResponseText } from '../llm/codexOAuthAdapter.js';
 
 export type OpenAIMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 export type AnthropicMessage = MessageParam;
@@ -346,6 +347,24 @@ function summaryPrompt(historyText: string): string {
 }
 
 async function summarizeWithOpenAI(options: AgentContextCompactionOptions, historyText: string): Promise<string> {
+	if (options.oauthAuth?.provider === 'codex') {
+		const requestProviderIdentity = providerIdentityForOAuthAuth(options.oauthAuth) ?? options.providerIdentity;
+		const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
+		return await withLlmTransportRetry(() => runCodexOAuthResponseText({
+			auth: options.oauthAuth!,
+			providerId: options.providerId,
+			model: options.model,
+			baseURL: options.baseURL,
+			instructions: prependProviderIdentitySystemPrompt(
+				identitySettings,
+				'You summarize coding-agent conversation history for context compaction.'
+			),
+			input: summaryPrompt(historyText),
+			temperature: 0,
+			maxOutputTokens: SUMMARY_OUTPUT_TOKENS,
+			signal: options.signal,
+		}), { signal: options.signal });
+	}
 	const key = options.apiKey.trim();
 	if (!key) {
 		throw new Error('missing OpenAI-compatible API key for context compaction');

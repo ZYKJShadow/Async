@@ -170,6 +170,16 @@ function accountIdFromIdToken(idToken: string): string | undefined {
 	return typeof accountId === 'string' && accountId.trim() ? accountId.trim() : undefined;
 }
 
+function planTypeFromIdToken(idToken: string): string | undefined {
+	const claims = decodeJwtPayload(idToken);
+	const authClaims = claims['https://api.openai.com/auth'];
+	if (!authClaims || typeof authClaims !== 'object') {
+		return undefined;
+	}
+	const planType = (authClaims as Record<string, unknown>).chatgpt_plan_type;
+	return typeof planType === 'string' && planType.trim() ? planType.trim() : undefined;
+}
+
 function isMissingCodexEntitlementError(errorCode: string, errorDescription: string | null): boolean {
 	return (
 		errorCode === 'access_denied' &&
@@ -424,12 +434,14 @@ export async function runCodexBrowserLogin(options?: {
 					return;
 				}
 				const accountId = accountIdFromIdToken(tokens.id_token);
+				const planType = planTypeFromIdToken(tokens.id_token);
 				const result: CodexBrowserLoginResult = {
 					idToken: tokens.id_token,
 					accessToken: tokens.access_token,
 					refreshToken: tokens.refresh_token,
 					lastRefreshAt: Date.now(),
 					...(accountId ? { accountId } : {}),
+					...(planType ? { planType } : {}),
 					issuer,
 				};
 				sendHtml(
@@ -493,11 +505,13 @@ export async function refreshCodexAuth(auth: CodexAuthRecord, issuer = DEFAULT_I
 	const accessToken = body.access_token ?? auth.accessToken;
 	const refreshToken = body.refresh_token ?? auth.refreshToken;
 	const accountId = accountIdFromIdToken(idToken);
+	const planType = planTypeFromIdToken(idToken);
 	return {
 		idToken,
 		accessToken,
 		refreshToken,
 		lastRefreshAt: Date.now(),
 		...(accountId ? { accountId } : {}),
+		...(planType ? { planType } : {}),
 	};
 }

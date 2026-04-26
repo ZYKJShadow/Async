@@ -38,6 +38,8 @@ export type CodexAuthRecord = {
 	lastRefreshAt: number;
 	/** chatgpt_account_id claim from the id_token, if present. */
 	accountId?: string;
+	/** chatgpt_plan_type claim from the id_token, if present. */
+	planType?: string;
 };
 
 export type ProviderOAuthAuthRecord = {
@@ -49,6 +51,7 @@ export type ProviderOAuthAuthRecord = {
 	expiresAt?: number;
 	lastRefreshAt: number;
 	accountId?: string;
+	planType?: string;
 	email?: string;
 	projectId?: string;
 	usage?: ProviderOAuthUsageSummary;

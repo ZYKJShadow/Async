@@ -59,6 +59,7 @@ export type CodexAuthRecord = {
 	apiKey?: string;
 	lastRefreshAt: number;
 	accountId?: string;
+	planType?: string;
 };
 
 export type ProviderOAuthAuthRecord = {
@@ -70,6 +71,7 @@ export type ProviderOAuthAuthRecord = {
 	expiresAt?: number;
 	lastRefreshAt: number;
 	accountId?: string;
+	planType?: string;
 	email?: string;
 	projectId?: string;
 	usage?: ProviderOAuthUsageSummary;

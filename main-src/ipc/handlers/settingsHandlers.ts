@@ -77,8 +77,8 @@ const OAUTH_PROVIDER_DEFAULTS: Record<
 		displayName: 'Codex (ChatGPT)',
 		modelId: 'gpt-5.3-codex',
 		paradigm: 'openai-compatible',
-		maxOutputTokens: 16_384,
-		contextWindowTokens: 272_000,
+		maxOutputTokens: 128_000,
+		contextWindowTokens: 400_000,
 		providerIdentity: { preset: 'codex' },
 	},
 	claude: {
@@ -142,6 +142,7 @@ function appendOAuthLoginProvider(params: {
 	defaultModel: string;
 	modelCount: number;
 	accountId?: string;
+	planType?: string;
 	email?: string;
 	projectId?: string;
 } {
@@ -167,6 +168,7 @@ function appendOAuthLoginProvider(params: {
 						refreshToken: params.login.refreshToken,
 						lastRefreshAt: params.login.lastRefreshAt,
 						...(params.login.accountId ? { accountId: params.login.accountId } : {}),
+						...(params.login.planType ? { planType: params.login.planType } : {}),
 					},
 				}
 			: {}),
@@ -184,6 +186,7 @@ function appendOAuthLoginProvider(params: {
 		defaultModel: currentDefault || preferredModelEntry?.id || '',
 		modelCount: modelEntries.length,
 		...(params.login.accountId ? { accountId: params.login.accountId } : {}),
+		...(params.login.planType ? { planType: params.login.planType } : {}),
 		...(params.login.email ? { email: params.login.email } : {}),
 		...(params.login.projectId ? { projectId: params.login.projectId } : {}),
 	};
@@ -265,7 +268,7 @@ async function handleProviderOAuthLoginPayload(rawPayload: unknown) {
 					: undefined,
 		});
 		const discoveredModels =
-			authProvider === 'claude' || authProvider === 'antigravity'
+			authProvider === 'codex' || authProvider === 'claude' || authProvider === 'antigravity'
 				? await discoverProviderOAuthModels(login).catch(() => [])
 				: [];
 		const next = appendOAuthLoginProvider({
@@ -328,7 +331,11 @@ export function registerSettingsHandlers(): void {
 		) {
 			return { ok: false as const, message: 'Invalid provider payload.' };
 		}
-		if (provider.oauthAuth?.provider === 'claude' || provider.oauthAuth?.provider === 'antigravity') {
+		if (
+			provider.oauthAuth?.provider === 'codex' ||
+			provider.oauthAuth?.provider === 'claude' ||
+			provider.oauthAuth?.provider === 'antigravity'
+		) {
 			try {
 				const auth = await ensureFreshOAuthAuthForRequest(provider.id, provider.oauthAuth);
 				const [models, usage] = await Promise.all([

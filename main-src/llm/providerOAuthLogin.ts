@@ -115,6 +115,59 @@ const CLAUDE_OAUTH_MODELS: ProviderOAuthDiscoveredModel[] = [
 		maxOutputTokens: 8_192,
 	},
 ];
+
+const CODEX_BASE_MODELS: ProviderOAuthDiscoveredModel[] = [
+	{
+		id: 'gpt-5.2',
+		displayName: 'GPT 5.2',
+		contextWindowTokens: 400_000,
+		maxOutputTokens: 128_000,
+	},
+	{
+		id: 'gpt-5.3-codex',
+		displayName: 'GPT 5.3 Codex',
+		contextWindowTokens: 400_000,
+		maxOutputTokens: 128_000,
+	},
+	{
+		id: 'gpt-5.4',
+		displayName: 'GPT 5.4',
+		contextWindowTokens: 1_050_000,
+		maxOutputTokens: 128_000,
+	},
+	{
+		id: 'gpt-5.4-mini',
+		displayName: 'GPT 5.4 Mini',
+		contextWindowTokens: 400_000,
+		maxOutputTokens: 128_000,
+	},
+];
+
+const CODEX_PLUS_MODELS: ProviderOAuthDiscoveredModel[] = [
+	CODEX_BASE_MODELS[0]!,
+	CODEX_BASE_MODELS[1]!,
+	{
+		id: 'gpt-5.3-codex-spark',
+		displayName: 'GPT 5.3 Codex Spark',
+		contextWindowTokens: 128_000,
+		maxOutputTokens: 128_000,
+	},
+	CODEX_BASE_MODELS[2]!,
+	CODEX_BASE_MODELS[3]!,
+	{
+		id: 'gpt-5.5',
+		displayName: 'GPT 5.5',
+		contextWindowTokens: 272_000,
+		maxOutputTokens: 128_000,
+	},
+];
+
+const CODEX_OAUTH_MODELS_BY_PLAN: Record<string, ProviderOAuthDiscoveredModel[]> = {
+	free: CODEX_BASE_MODELS,
+	team: [...CODEX_BASE_MODELS, CODEX_PLUS_MODELS[5]!],
+	plus: CODEX_PLUS_MODELS,
+	pro: CODEX_PLUS_MODELS,
+};
 const ANTIGRAVITY_SCOPES = [
 	'https://www.googleapis.com/auth/cloud-platform',
 	'https://www.googleapis.com/auth/userinfo.email',
@@ -260,6 +313,38 @@ function codexAccountIdFromIdToken(idToken: string): string | undefined {
 	}
 	const accountId = (authClaims as Record<string, unknown>).chatgpt_account_id;
 	return typeof accountId === 'string' && accountId.trim() ? accountId.trim() : undefined;
+}
+
+function codexPlanTypeFromIdToken(idToken: string): string | undefined {
+	const claims = decodeJwtPayload(idToken);
+	const authClaims = claims['https://api.openai.com/auth'];
+	if (!authClaims || typeof authClaims !== 'object') {
+		return undefined;
+	}
+	const planType = (authClaims as Record<string, unknown>).chatgpt_plan_type;
+	return typeof planType === 'string' && planType.trim() ? planType.trim() : undefined;
+}
+
+function normalizeCodexPlanType(planType: string | undefined): string {
+	switch ((planType ?? '').trim().toLowerCase()) {
+		case 'free':
+			return 'free';
+		case 'team':
+		case 'business':
+		case 'go':
+			return 'team';
+		case 'plus':
+			return 'plus';
+		case 'pro':
+			return 'pro';
+		default:
+			return 'pro';
+	}
+}
+
+function codexOAuthModelsForPlan(planType: string | undefined): ProviderOAuthDiscoveredModel[] {
+	const normalized = normalizeCodexPlanType(planType);
+	return (CODEX_OAUTH_MODELS_BY_PLAN[normalized] ?? CODEX_OAUTH_MODELS_BY_PLAN.pro).map((model) => ({ ...model }));
 }
 
 function emailFromIdToken(idToken: string): string | undefined {
@@ -473,6 +558,9 @@ export async function fetchProviderOAuthUsageSummary(
 export async function discoverProviderOAuthModels(
 	auth: ProviderOAuthAuthRecord
 ): Promise<ProviderOAuthDiscoveredModel[]> {
+	if (auth.provider === 'codex') {
+		return codexOAuthModelsForPlan(auth.planType ?? (auth.idToken ? codexPlanTypeFromIdToken(auth.idToken) : undefined));
+	}
 	if (auth.provider === 'claude') {
 		return CLAUDE_OAUTH_MODELS.map((model) => ({ ...model }));
 	}
@@ -647,6 +735,7 @@ const LOGIN_CONFIGS: Record<OAuthProviderKind, LoginConfig> = {
 				code_verifier: pkce.codeVerifier,
 			});
 			const accountId = codexAccountIdFromIdToken(body.id_token);
+			const planType = codexPlanTypeFromIdToken(body.id_token);
 			const email = emailFromIdToken(body.id_token);
 			return {
 				provider: 'codex',
@@ -657,6 +746,7 @@ const LOGIN_CONFIGS: Record<OAuthProviderKind, LoginConfig> = {
 				expiresAt: expiresAtFromSeconds(body.expires_in),
 				lastRefreshAt: Date.now(),
 				...(accountId ? { accountId } : {}),
+				...(planType ? { planType } : {}),
 				...(email ? { email } : {}),
 			};
 		},
@@ -1076,6 +1166,7 @@ async function refreshCodexOAuth(auth: ProviderOAuthAuthRecord): Promise<Provide
 	});
 	const idToken = body.id_token || auth.idToken;
 	const accountId = idToken ? codexAccountIdFromIdToken(idToken) : auth.accountId;
+	const planType = idToken ? codexPlanTypeFromIdToken(idToken) : auth.planType;
 	const email = idToken ? emailFromIdToken(idToken) : auth.email;
 	return {
 		...auth,
@@ -1086,6 +1177,7 @@ async function refreshCodexOAuth(auth: ProviderOAuthAuthRecord): Promise<Provide
 		expiresAt: expiresAtFromSeconds(body.expires_in),
 		lastRefreshAt: Date.now(),
 		...(accountId ? { accountId } : {}),
+		...(planType ? { planType } : {}),
 		...(email ? { email } : {}),
 	};
 }
@@ -1181,6 +1273,7 @@ function persistProviderOAuthAuth(providerId: string | undefined, auth: Provider
 							refreshToken: auth.refreshToken,
 							lastRefreshAt: auth.lastRefreshAt,
 							...(auth.accountId ? { accountId: auth.accountId } : {}),
+							...(auth.planType ? { planType: auth.planType } : {}),
 						},
 					}
 				: {}),

@@ -14,6 +14,7 @@ import {
 } from './llm/providerIdentity.js';
 import { ensureFreshOAuthAuthForRequest } from './llm/providerOAuthLogin.js';
 import { openAICompatibleEffectiveTemperature } from './llm/thinkingLevel.js';
+import { runCodexOAuthResponseText } from './llm/codexOAuthAdapter.js';
 
 export const THREAD_TITLE_PLACEHOLDER = '???';
 
@@ -168,6 +169,24 @@ export async function generateThreadTitle(
 
 	try {
 		if (resolved.paradigm === 'openai-compatible') {
+			if (resolved.oauthAuth?.provider === 'codex') {
+				const requestProviderIdentity = providerIdentityForOAuthAuth(resolved.oauthAuth) ?? resolved.providerIdentity;
+				const text = await runCodexOAuthResponseText({
+					auth: resolved.oauthAuth,
+					providerId: resolved.providerId,
+					model: resolved.requestModelId,
+					baseURL: resolved.baseURL,
+					instructions: prependProviderIdentitySystemPrompt(
+						settings,
+						buildThreadTitleSystemPrompt(ruleContext),
+						requestProviderIdentity
+					),
+					input: userPrompt,
+					temperature: openAICompatibleEffectiveTemperature(resolved.requestModelId, 0),
+					maxOutputTokens: 120,
+				});
+				return parseGeneratedThreadTitle(text);
+			}
 			const proxyRaw = resolved.proxyUrl?.trim() ?? '';
 			const httpAgent = proxyRaw ? new HttpsProxyAgent(proxyRaw) : undefined;
 			const client = new OpenAI(

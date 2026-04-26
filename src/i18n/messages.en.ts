@@ -1353,6 +1353,8 @@ export const messagesEn: Record<string, string> = {
 	'settings.oauthLoginSuccessWithDetail': '{{provider}} completed. The model provider was added ({{detail}}).',
 	'settings.oauthLoginModelsImported': 'Imported {{count}} available model(s) automatically.',
 	'settings.oauthUsage.remainingTitle': 'Account remaining usage',
+	'settings.oauthUsage.codexPlan': 'ChatGPT plan: {{plan}}. Codex does not expose displayable remaining quota.',
+	'settings.oauthUsage.codexUnknown': 'Codex did not expose displayable remaining quota. Models are imported from the CLIProxyAPI Codex catalog.',
 	'settings.oauthUsage.antigravityUnknown': 'Antigravity did not return displayable remaining usage.',
 	'settings.oauthUsage.antigravityCredits': 'Google One AI credits: {{amount}}',
 	'settings.oauthUsage.antigravityMinimum': 'Minimum usable threshold {{minimum}}',

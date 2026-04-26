@@ -136,6 +136,16 @@ function formatOAuthNumber(value: number | undefined, locale: AppLocale): string
 
 function providerOAuthUsageDisplay(provider: UserLlmProvider, locale: AppLocale, t: TFunction): OAuthUsageDisplay | null {
 	const auth = provider.oauthAuth;
+	if (auth?.provider === 'codex') {
+		const plan = auth.planType?.trim();
+		return {
+			tone: 'muted',
+			title: t('settings.oauthUsage.remainingTitle'),
+			body: plan
+				? t('settings.oauthUsage.codexPlan', { plan })
+				: t('settings.oauthUsage.codexUnknown'),
+		};
+	}
 	if (auth?.provider !== 'antigravity') {
 		return null;
 	}
@@ -937,7 +947,7 @@ export function SettingsPage({
 	);
 
 	const formatOAuthLoginSuccess = useCallback(
-		(provider: OAuthProviderKind, result: { accountId?: string; email?: string; projectId?: string; modelCount?: number }) => {
+		(provider: OAuthProviderKind, result: { accountId?: string; planType?: string; email?: string; projectId?: string; modelCount?: number }) => {
 			const detail = result.email || result.accountId || result.projectId || '';
 			const base = detail
 				? t('settings.oauthLoginSuccessWithDetail', { provider: oauthProviderLabel(provider), detail })
@@ -1016,6 +1026,7 @@ export function SettingsPage({
 						entries?: UserModelEntry[];
 						defaultModel?: string;
 						accountId?: string;
+						planType?: string;
 						email?: string;
 						projectId?: string;
 						modelCount?: number;

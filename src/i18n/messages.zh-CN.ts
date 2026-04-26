@@ -1335,6 +1335,8 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.oauthLoginSuccessWithDetail': '{{provider}} 完成，已添加模型提供商（{{detail}}）。',
 	'settings.oauthLoginModelsImported': '已自动导入 {{count}} 个可用模型。',
 	'settings.oauthUsage.remainingTitle': '账号剩余用量',
+	'settings.oauthUsage.codexPlan': 'ChatGPT 套餐：{{plan}}。Codex 未提供可展示的剩余额度。',
+	'settings.oauthUsage.codexUnknown': 'Codex 未提供可展示的剩余额度；模型按 CLIProxyAPI 的 Codex 目录导入。',
 	'settings.oauthUsage.antigravityUnknown': 'Antigravity 未返回可展示的剩余用量。',
 	'settings.oauthUsage.antigravityCredits': 'Google One AI credits：{{amount}}',
 	'settings.oauthUsage.antigravityMinimum': '最低可用阈值 {{minimum}}',
