@@ -4,10 +4,9 @@ import type { ShellSettings, ProviderOAuthAuthRecord } from '../settingsStore.js
 import type { StreamHandlers, TurnTokenUsage, UnifiedChatOptions } from './types.js';
 import type { SendableMessage } from './sendResolved.js';
 import { userMessageTextForSend } from './sendResolved.js';
-import { composeSystem, temperatureForMode } from './modePrompts.js';
+import { composeSystem } from './modePrompts.js';
 import {
 	openAIReasoningEffort,
-	resolveRequestedTemperature,
 } from './thinkingLevel.js';
 import { CODEX_EMULATED_VERSION, CODEX_ORIGINATOR } from '../../src/providerIdentitySettings.js';
 import { buildCodexUserAgent } from './codexUserAgent.js';
@@ -185,8 +184,9 @@ export async function runCodexOAuthResponseText(options: CodexOAuthTextRequest):
 		instructions: options.instructions,
 		input: normalizeCodexInput(options.input),
 		stream: true,
-		temperature: options.temperature ?? 0,
-		...(options.maxOutputTokens != null ? { max_output_tokens: options.maxOutputTokens } : {}),
+		store: false,
+		parallel_tool_calls: true,
+		include: ['reasoning.encrypted_content'],
 		...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
 	};
 
@@ -269,19 +269,15 @@ export async function streamCodexOAuth(
 		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend),
 		requestProviderIdentity
 	);
-	const requestedTemperature = resolveRequestedTemperature(
-		temperatureForMode(options.mode),
-		options.temperatureMode,
-		options.temperature
-	);
 	const effort = openAIReasoningEffort(options.thinkingLevel ?? 'off');
 	const body = {
 		model,
 		instructions: systemContent,
 		input: buildResponsesInput(messages),
 		stream: true,
-		temperature: requestedTemperature,
-		max_output_tokens: options.maxOutputTokens,
+		store: false,
+		parallel_tool_calls: true,
+		include: ['reasoning.encrypted_content'],
 		...(effort ? { reasoning: { effort } } : {}),
 	};
 
