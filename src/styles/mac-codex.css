@@ -3220,7 +3220,20 @@
 	background: transparent;
 }
 
+:root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: -2px;
+	right: -2px;
+	cursor: col-resize;
+}
+
 :root[data-ui-style='mac-codex'] .ref-body--agent-shell .ref-resize-handle::after {
+	left: 0;
+	width: 1px;
+	transform: none;
 	background: color-mix(in srgb, var(--surface-glass-stroke) 40%, transparent);
 }
 
@@ -3517,7 +3530,8 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-center--agent-layout {
-	padding: 20px 30px 22px;
+	--ref-agent-center-inline-pad: 30px;
+	padding: 20px var(--ref-agent-center-inline-pad) 22px;
 }
 
 /* Agent：须写在 agent-layout padding shorthand 之后。有/无对话底距一致 */

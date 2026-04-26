@@ -3376,7 +3376,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-center--agent-layout {
 	position: relative;
-	padding-inline: 28px;
+	--ref-agent-center-inline-pad: 28px;
+	padding-inline: var(--ref-agent-center-inline-pad);
 }
 
 /* Agent 中间栏底边距：有/无对话同一套堆叠输入，离底一致（mac-codex 见 mac-codex.css） */
@@ -3415,6 +3416,12 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	/* Firefox???????????????????????? */
 	scrollbar-color: rgba(58, 58, 66, 0) transparent;
 	transition: scrollbar-color 0.35s var(--void-ease-out-expo);
+}
+
+.ref-center--agent-layout.ref-center--chat .ref-messages {
+	box-sizing: border-box;
+	margin-right: calc(-1 * var(--ref-agent-center-inline-pad));
+	padding-right: var(--ref-agent-center-inline-pad);
 }
 
 .ref-center--chat .ref-messages:hover {

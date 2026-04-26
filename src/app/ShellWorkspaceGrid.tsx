@@ -5,7 +5,7 @@ import {
 	type ShellLeftRailGroupProps,
 	type ShellCenterRightGroupProps,
 } from './ShellWorkspaceColumns';
-import { RESIZE_HANDLE_PX, type ShellLayoutMode } from './shellLayoutStorage';
+import { AGENT_RESIZE_HANDLE_PX, RESIZE_HANDLE_PX, type ShellLayoutMode } from './shellLayoutStorage';
 
 export type ShellWorkspaceGridProps = {
 	layoutMode: ShellLayoutMode;
@@ -27,6 +27,8 @@ export const ShellWorkspaceGrid = memo(function ShellWorkspaceGrid({
 	leftRail,
 	centerRight,
 }: ShellWorkspaceGridProps) {
+	const handlePx = layoutMode === 'agent' ? AGENT_RESIZE_HANDLE_PX : RESIZE_HANDLE_PX;
+
 	return (
 		<div
 			className={`ref-body ${
@@ -35,8 +37,8 @@ export const ShellWorkspaceGrid = memo(function ShellWorkspaceGrid({
 			style={{
 				gridTemplateColumns:
 					layoutMode === 'agent' && !agentRightSidebarOpen
-						? `${leftSidebarOpen ? railWidths.left : 0}px ${leftSidebarOpen ? RESIZE_HANDLE_PX : 0}px minmax(0, 1fr) 0px 0px`
-						: `${leftSidebarOpen ? railWidths.left : 0}px ${leftSidebarOpen ? RESIZE_HANDLE_PX : 0}px minmax(0, 1fr) ${RESIZE_HANDLE_PX}px ${railWidths.right}px`,
+						? `${leftSidebarOpen ? railWidths.left : 0}px ${leftSidebarOpen ? handlePx : 0}px minmax(0, 1fr) 0px 0px`
+						: `${leftSidebarOpen ? railWidths.left : 0}px ${leftSidebarOpen ? handlePx : 0}px minmax(0, 1fr) ${handlePx}px ${railWidths.right}px`,
 			}}
 		>
 			<ShellLeftRailGroup {...leftRail} />

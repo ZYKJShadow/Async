@@ -6,6 +6,7 @@ export const DEFAULT_SIDEBAR_LAYOUT_KEY = 'async:sidebar-widths-v1';
 export const DEFAULT_SHELL_LAYOUT_MODE_KEY = 'async:shell-layout-mode-v1';
 
 export const RESIZE_HANDLE_PX = 5;
+export const AGENT_RESIZE_HANDLE_PX = 1;
 const LEFT_RAIL_MIN = 200;
 const LEFT_RAIL_MAX = 960;
 const RIGHT_RAIL_MIN = 260;
