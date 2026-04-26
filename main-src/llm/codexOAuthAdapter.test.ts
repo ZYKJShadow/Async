@@ -44,7 +44,7 @@ describe('Codex OAuth Responses requests', () => {
 		mocks.ensureFreshOAuthAuthForRequest.mockImplementation(async (_providerId: string | undefined, inputAuth: ProviderOAuthAuthRecord) => inputAuth);
 	});
 
-	it('sets store false on text helper requests', async () => {
+	it('matches Codex Responses body compatibility on text helper requests', async () => {
 		mocks.electronNetFetch.mockResolvedValueOnce(sseResponse([
 			{
 				type: 'response.completed',
@@ -59,12 +59,19 @@ describe('Codex OAuth Responses requests', () => {
 			model: 'gpt-5.3-codex',
 			instructions: 'Summarize.',
 			input: 'hello',
+			temperature: 0,
+			maxOutputTokens: 100,
 		});
 
-		expect(capturedBody().store).toBe(false);
+		const body = capturedBody();
+		expect(body.store).toBe(false);
+		expect(body.parallel_tool_calls).toBe(true);
+		expect(body.include).toEqual(['reasoning.encrypted_content']);
+		expect(body).not.toHaveProperty('temperature');
+		expect(body).not.toHaveProperty('max_output_tokens');
 	});
 
-	it('sets store false on chat streaming requests', async () => {
+	it('matches Codex Responses body compatibility on chat streaming requests', async () => {
 		mocks.electronNetFetch.mockResolvedValueOnce(sseResponse([
 			{ type: 'response.output_text.delta', delta: 'ok' },
 			{ type: 'response.completed', response: { usage: { input_tokens: 1, output_tokens: 1 } } },
@@ -81,7 +88,8 @@ describe('Codex OAuth Responses requests', () => {
 			requestModelId: 'gpt-5.3-codex',
 			requestOAuthAuth: auth,
 			maxOutputTokens: 100,
-			temperatureMode: 'auto',
+			temperatureMode: 'custom',
+			temperature: 0.4,
 			thinkingLevel: 'off',
 		} as UnifiedChatOptions;
 
@@ -91,7 +99,12 @@ describe('Codex OAuth Responses requests', () => {
 			onError: vi.fn(),
 		}, auth);
 
-		expect(capturedBody().store).toBe(false);
+		const body = capturedBody();
+		expect(body.store).toBe(false);
+		expect(body.parallel_tool_calls).toBe(true);
+		expect(body.include).toEqual(['reasoning.encrypted_content']);
+		expect(body).not.toHaveProperty('temperature');
+		expect(body).not.toHaveProperty('max_output_tokens');
 		expect(done).toHaveBeenCalled();
 	});
 });
