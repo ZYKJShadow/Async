@@ -1,5 +1,4 @@
 import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { getAutoCompactThresholdForSend, type ModelContextResolveOpts } from '../llm/modelContext.js';
@@ -13,6 +12,7 @@ import {
 	applyOpenAIProviderIdentity,
 	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
 } from '../llm/providerIdentity.js';
@@ -410,8 +410,8 @@ async function summarizeWithAnthropic(options: AgentContextCompactionOptions, hi
 		throw new Error('missing Anthropic API key for context compaction');
 	}
 	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.providerIdentity;
-	const client = new Anthropic({
-		...applyAnthropicProviderIdentity(
+	const client = createAnthropicClient(
+		applyAnthropicProviderIdentity(
 			{ providerIdentity: requestProviderIdentity } satisfies ShellSettings,
 			{
 				...buildAnthropicAuthOptions(key, oauthAuth),
@@ -420,8 +420,8 @@ async function summarizeWithAnthropic(options: AgentContextCompactionOptions, hi
 				timeout: 60_000,
 				...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
 			}
-		),
-	});
+		)
+	);
 	const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
 	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
 	const response = await withLlmTransportRetry(() => client.messages.create({

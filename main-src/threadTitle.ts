@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import OpenAI from 'openai';
@@ -9,6 +8,7 @@ import {
 	applyOpenAIProviderIdentity,
 	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
 } from './llm/providerIdentity.js';
@@ -225,7 +225,7 @@ export async function generateThreadTitle(
 			const key = (oauthAuth?.accessToken ?? resolved.apiKey).trim();
 			const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? resolved.providerIdentity;
 			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, requestProviderIdentity);
-			const client = new Anthropic(
+			const client = createAnthropicClient(
 				applyAnthropicProviderIdentity(settings, {
 					...buildAnthropicAuthOptions(key, oauthAuth),
 					baseURL: resolved.baseURL,

@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { ShellSettings } from '../settingsStore.js';
 import { composeSystemSections, temperatureForMode } from './modePrompts.js';
@@ -24,6 +23,7 @@ import {
 	applyAnthropicProviderIdentity,
 	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
 	logAnthropicAuthDebug,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
@@ -95,7 +95,7 @@ export async function streamAnthropic(
 		providerIdentity: requestProviderIdentity,
 	});
 // maxRetries: 0，避免流式请求自动重试拉长等待
-	const client = new Anthropic(
+	const client = createAnthropicClient(
 		applyAnthropicProviderIdentity(settings, {
 			...authOptions,
 			baseURL: baseURL || undefined,

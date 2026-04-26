@@ -86,6 +86,227 @@ export function buildAnthropicAuthOptions(
 	return { apiKey: trimmedApiKey };
 }
 
+type MutableRequestHeaders = Record<string, string | null | undefined> | Headers;
+
+function isClaudeOAuthClientOptions(options: AnthropicClientOptions): boolean {
+	const authToken = typeof options.authToken === 'string' ? options.authToken.trim() : '';
+	const defaultQuery =
+		options.defaultQuery && typeof options.defaultQuery === 'object'
+			? options.defaultQuery as Record<string, unknown>
+			: {};
+	return Boolean(authToken) && (isClaudeOAuthAccessToken(authToken) || defaultQuery.beta === 'true');
+}
+
+function ensureMutableRequestHeaders(request: { headers?: unknown }): MutableRequestHeaders {
+	const raw = request.headers;
+	if (!raw) {
+		const headers: Record<string, string> = {};
+		request.headers = headers;
+		return headers;
+	}
+	if (raw instanceof Headers) {
+		return raw;
+	}
+	if (Array.isArray(raw)) {
+		const headers: Record<string, string> = {};
+		for (const pair of raw) {
+			if (!Array.isArray(pair) || pair.length < 2) {
+				continue;
+			}
+			const name = String(pair[0] ?? '').trim();
+			const value = String(pair[1] ?? '');
+			if (name) {
+				headers[name] = value;
+			}
+		}
+		request.headers = headers;
+		return headers;
+	}
+	if (typeof raw === 'object') {
+		return raw as Record<string, string | null | undefined>;
+	}
+	const headers: Record<string, string> = {};
+	request.headers = headers;
+	return headers;
+}
+
+function headerKey(headers: MutableRequestHeaders, name: string): string | undefined {
+	if (headers instanceof Headers) {
+		return undefined;
+	}
+	const target = name.toLowerCase();
+	return Object.keys(headers).find((key) => key.toLowerCase() === target);
+}
+
+function getRequestHeader(headers: MutableRequestHeaders, name: string): string {
+	if (headers instanceof Headers) {
+		return headers.get(name) ?? '';
+	}
+	const key = headerKey(headers, name);
+	const value = key ? headers[key] : undefined;
+	return typeof value === 'string' ? value : '';
+}
+
+function setRequestHeader(headers: MutableRequestHeaders, name: string, value: string): void {
+	if (headers instanceof Headers) {
+		headers.set(name, value);
+		return;
+	}
+	const existing = headerKey(headers, name);
+	if (existing && existing !== name) {
+		delete headers[existing];
+	}
+	headers[name] = value;
+}
+
+function deleteRequestHeader(headers: MutableRequestHeaders, name: string): void {
+	if (headers instanceof Headers) {
+		headers.delete(name);
+		return;
+	}
+	const target = name.toLowerCase();
+	for (const key of Object.keys(headers)) {
+		if (key.toLowerCase() === target) {
+			delete headers[key];
+		}
+	}
+}
+
+function safeUrlParts(rawUrl: string): { origin: string; path: string } {
+	try {
+		const parsed = new URL(rawUrl);
+		return {
+			origin: `${parsed.protocol}//${parsed.host}`,
+			path: `${parsed.pathname}${parsed.search}`,
+		};
+	} catch {
+		return { origin: '<invalid-url>', path: rawUrl };
+	}
+}
+
+function summarizeAnthropicBody(body: unknown): Record<string, unknown> | undefined {
+	if (typeof body !== 'string' || !body.trim().startsWith('{')) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(body) as Record<string, unknown>;
+		const system = parsed.system;
+		const firstSystemText =
+			Array.isArray(system) && system[0] && typeof system[0] === 'object'
+				? (system[0] as Record<string, unknown>).text
+				: undefined;
+		const metadata = parsed.metadata && typeof parsed.metadata === 'object'
+			? parsed.metadata as Record<string, unknown>
+			: undefined;
+		return {
+			bodyModel: typeof parsed.model === 'string' ? parsed.model : '',
+			bodyStream: parsed.stream === true,
+			messageCount: Array.isArray(parsed.messages) ? parsed.messages.length : undefined,
+			toolCount: Array.isArray(parsed.tools) ? parsed.tools.length : undefined,
+			systemKind: Array.isArray(system) ? 'array' : typeof system,
+			systemBlockCount: Array.isArray(system) ? system.length : undefined,
+			hasBillingHeader: typeof firstSystemText === 'string' && firstSystemText.startsWith('x-anthropic-billing-header:'),
+			hasMetadataUserId: typeof metadata?.user_id === 'string' && metadata.user_id.length > 0,
+			hasThinking: parsed.thinking != null,
+		};
+	} catch {
+		return { bodyParse: 'failed' };
+	}
+}
+
+function logAnthropicWireDebug(params: {
+	url: string;
+	method?: string;
+	stream: boolean;
+	headers: MutableRequestHeaders;
+	body: unknown;
+}): void {
+	const { origin, path } = safeUrlParts(params.url);
+	const authorization = getRequestHeader(params.headers, 'Authorization');
+	const anthropicBeta = getRequestHeader(params.headers, 'Anthropic-Beta');
+	const summary = {
+		origin,
+		path,
+		method: params.method ?? '',
+		stream: params.stream,
+		hasAuthorization: Boolean(authorization),
+		authorizationKind: authorization.startsWith('Bearer ') ? 'bearer' : authorization ? 'other' : 'none',
+		hasXApiKey: Boolean(getRequestHeader(params.headers, 'x-api-key')),
+		contentType: getRequestHeader(params.headers, 'Content-Type'),
+		accept: getRequestHeader(params.headers, 'Accept'),
+		acceptEncoding: getRequestHeader(params.headers, 'Accept-Encoding'),
+		anthropicVersion: getRequestHeader(params.headers, 'Anthropic-Version'),
+		anthropicBetaIncludesClaudeCode: anthropicBeta.includes('claude-code-20250219'),
+		anthropicBetaIncludesOAuth: anthropicBeta.includes('oauth-2025-04-20'),
+		xApp: getRequestHeader(params.headers, 'X-App') || getRequestHeader(params.headers, 'x-app'),
+		hasClaudeCodeSessionId: Boolean(getRequestHeader(params.headers, 'X-Claude-Code-Session-Id')),
+		hasClientRequestId: Boolean(getRequestHeader(params.headers, 'x-client-request-id')),
+		stainlessRuntime: getRequestHeader(params.headers, 'X-Stainless-Runtime'),
+		stainlessLang: getRequestHeader(params.headers, 'X-Stainless-Lang'),
+		stainlessTimeout: getRequestHeader(params.headers, 'X-Stainless-Timeout'),
+		stainlessPackageVersion: getRequestHeader(params.headers, 'X-Stainless-Package-Version'),
+		stainlessRuntimeVersion: getRequestHeader(params.headers, 'X-Stainless-Runtime-Version'),
+		stainlessOs: getRequestHeader(params.headers, 'X-Stainless-OS'),
+		stainlessArch: getRequestHeader(params.headers, 'X-Stainless-Arch'),
+		userAgent: getRequestHeader(params.headers, 'User-Agent'),
+		connection: getRequestHeader(params.headers, 'Connection'),
+		...summarizeAnthropicBody(params.body),
+	};
+	console.log(`[AnthropicWireDebug] ${JSON.stringify(summary)}`);
+}
+
+class ClaudeCodeOAuthAnthropicClient extends Anthropic {
+	protected override async prepareRequest(request: any, context: any): Promise<void> {
+		await super.prepareRequest(request, context);
+		const authToken = typeof this.authToken === 'string' ? this.authToken.trim() : '';
+		if (!authToken) {
+			return;
+		}
+		const headers = ensureMutableRequestHeaders(request);
+		deleteRequestHeader(headers, 'x-api-key');
+		deleteRequestHeader(headers, 'X-Api-Key');
+		deleteRequestHeader(headers, 'anthropic-dangerous-direct-browser-access');
+		setRequestHeader(headers, 'Authorization', `Bearer ${authToken}`);
+		setRequestHeader(headers, 'Content-Type', 'application/json');
+		setRequestHeader(headers, 'Anthropic-Beta', CLAUDE_CODE_ANTHROPIC_BETA);
+		setRequestHeader(headers, 'Anthropic-Version', '2023-06-01');
+		setRequestHeader(headers, 'X-App', 'cli');
+		setRequestHeader(headers, 'X-Stainless-Retry-Count', '0');
+		setRequestHeader(headers, 'X-Stainless-Runtime', 'node');
+		setRequestHeader(headers, 'X-Stainless-Lang', 'js');
+		setRequestHeader(headers, 'X-Stainless-Timeout', '600');
+		setRequestHeader(headers, 'X-Stainless-Package-Version', '0.74.0');
+		setRequestHeader(headers, 'X-Stainless-Runtime-Version', 'v24.3.0');
+		setRequestHeader(headers, 'X-Stainless-OS', 'MacOS');
+		setRequestHeader(headers, 'X-Stainless-Arch', 'arm64');
+		setRequestHeader(headers, 'X-Claude-Code-Session-Id', RUNTIME_PROVIDER_SESSION_ID);
+		setRequestHeader(headers, 'x-client-request-id', randomUUID());
+		setRequestHeader(headers, 'Connection', 'keep-alive');
+		setRequestHeader(headers, 'User-Agent', `claude-cli/${CLAUDE_CODE_EMULATED_VERSION} (external, cli)`);
+		if (context?.options?.stream === true) {
+			setRequestHeader(headers, 'Accept', 'text/event-stream');
+			setRequestHeader(headers, 'Accept-Encoding', 'identity');
+		} else {
+			setRequestHeader(headers, 'Accept', 'application/json');
+			setRequestHeader(headers, 'Accept-Encoding', 'gzip, deflate, br, zstd');
+		}
+		logAnthropicWireDebug({
+			url: String(context?.url ?? ''),
+			method: typeof request.method === 'string' ? request.method : undefined,
+			stream: context?.options?.stream === true,
+			headers,
+			body: request.body,
+		});
+	}
+}
+
+export function createAnthropicClient(options: AnthropicClientOptions): Anthropic {
+	if (isClaudeOAuthClientOptions(options)) {
+		return new ClaudeCodeOAuthAnthropicClient(options);
+	}
+	return new Anthropic(options);
+}
+
 function safeOrigin(raw: string | undefined): string {
 	const value = raw?.trim() || 'https://api.anthropic.com';
 	try {

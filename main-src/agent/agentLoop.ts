@@ -66,6 +66,7 @@ import {
 	applyOpenAIProviderIdentity,
 	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
 	logAnthropicAuthDebug,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
@@ -1336,7 +1337,7 @@ async function runAnthropicLoop(
 		oauthAuth,
 		providerIdentity: requestProviderIdentity,
 	});
-	const client = new Anthropic(
+	const client = createAnthropicClient(
 		applyAnthropicProviderIdentity(settings, {
 			...authOptions,
 			baseURL: baseURL || undefined,

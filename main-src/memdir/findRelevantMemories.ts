@@ -1,7 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { ShellSettings } from '../settingsStore.js';
@@ -11,6 +10,7 @@ import {
 	applyOpenAIProviderIdentity,
 	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
 } from '../llm/providerIdentity.js';
@@ -228,7 +228,7 @@ async function selectRelevantMemoriesWithRuntimeModel(
 			const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? runtime.providerIdentity;
 			const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
 			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
-			const client = new Anthropic(
+			const client = createAnthropicClient(
 				applyAnthropicProviderIdentity(identitySettings, {
 					...buildAnthropicAuthOptions(key, oauthAuth),
 					baseURL: runtime.requestBaseURL || undefined,
