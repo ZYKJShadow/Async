@@ -307,7 +307,7 @@ async function ensureBrowserWindowForHostId(hostId: number): Promise<number | nu
 			const { createAppWindow } = await import('../appWindow.js');
 			const browserWin = createAppWindow({
 				blank: true,
-				surface: 'agent',
+				surface: 'browser',
 				initialWorkspace,
 				queryParams: {
 					browserWindow: '1',

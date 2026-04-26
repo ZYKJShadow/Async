@@ -27,7 +27,8 @@ export function configureAppWindowIcon(icon: string | undefined): void {
 	appIconPath = icon;
 }
 
-export type AppWindowSurface = 'agent' | 'editor';
+export type LayoutWindowSurface = 'agent' | 'editor';
+export type AppWindowSurface = LayoutWindowSurface | 'browser';
 
 const surfaceByWebContentsId = new Map<number, AppWindowSurface>();
 

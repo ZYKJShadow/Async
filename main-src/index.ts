@@ -9,7 +9,7 @@ import { initAgentSnapshotStore } from './agent/agentSnapshotStore.js';
 import { agentRevertSnapshotsByThread } from './ipc/chatRuntime.js';
 import { getMcpManager } from './mcp/index.js';
 import { getEffectiveMcpServerConfigs } from './plugins/pluginRuntimeService.js';
-import { configureAppWindowIcon, createAppWindow } from './appWindow.js';
+import { configureAppWindowIcon, createAppWindow, getAppWindowSurfaceForWebContents } from './appWindow.js';
 import {
 	nativeWindowChromeFromAppearance,
 	normalizeAppearanceSettings,
@@ -86,6 +86,9 @@ app.on('before-quit', (e) => {
 
 app.on('browser-window-created', (_event, win) => {
 	win.on('close', (event) => {
+		if (getAppWindowSurfaceForWebContents(win.webContents) === 'browser') {
+			return;
+		}
 		if (forceQuitFromTray || appIsQuitting || process.platform === 'darwin') {
 			return;
 		}
