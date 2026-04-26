@@ -7,12 +7,9 @@ import {
 	patchSettings,
 	type OAuthProviderKind,
 	type ProviderOAuthAuthRecord,
+	type ProviderOAuthUsageSummary,
 } from '../settingsStore.js';
-import {
-	CODEX_EMULATED_VERSION,
-	CODEX_ORIGINATOR,
-} from '../../src/providerIdentitySettings.js';
-import { buildCodexUserAgent } from './codexUserAgent.js';
+import { ANTIGRAVITY_USER_AGENT } from '../../src/providerIdentitySettings.js';
 import { electronNetFetch } from './electronNetFetch.js';
 
 const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60_000;
@@ -36,6 +33,19 @@ const ANTIGRAVITY_API_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
 const ANTIGRAVITY_API_VERSION = 'v1internal';
 const ANTIGRAVITY_API_CLIENT = 'google-cloud-sdk vscode_cloudshelleditor/0.1';
 const ANTIGRAVITY_CLIENT_METADATA = '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}';
+const ANTIGRAVITY_MODEL_BASE_URLS = [
+	ANTIGRAVITY_API_ENDPOINT,
+	'https://daily-cloudcode-pa.googleapis.com',
+	'https://daily-cloudcode-pa.sandbox.googleapis.com',
+];
+const ANTIGRAVITY_SKIPPED_DYNAMIC_MODELS = new Set([
+	'chat_20706',
+	'chat_23310',
+	'tab_flash_lite_preview',
+	'tab_jump_flash_lite_preview',
+	'gemini-2.5-flash-thinking',
+	'gemini-2.5-pro',
+]);
 const ANTIGRAVITY_SCOPES = [
 	'https://www.googleapis.com/auth/cloud-platform',
 	'https://www.googleapis.com/auth/userinfo.email',
@@ -54,6 +64,7 @@ type LoginConfig = {
 	label: string;
 	port: number;
 	callbackPath: string;
+	successPath?: string;
 	windowTitle: string;
 	usesPkce: boolean;
 	buildAuthorizeUrl: (params: {
@@ -320,6 +331,142 @@ async function fetchAntigravityProjectId(accessToken: string): Promise<string | 
 	return await onboardAntigravityUser(accessToken, tierId);
 }
 
+async function fetchAntigravityUsageSummary(accessToken: string): Promise<ProviderOAuthUsageSummary | undefined> {
+	const token = accessToken.trim();
+	if (!token) {
+		return undefined;
+	}
+	const response = await electronNetFetch(`${ANTIGRAVITY_API_ENDPOINT}/${ANTIGRAVITY_API_VERSION}:loadCodeAssist`, {
+		method: 'POST',
+		headers: antigravityApiHeaders(token),
+		body: JSON.stringify({
+			metadata: {
+				ideType: 'ANTIGRAVITY',
+				platform: 'PLATFORM_UNSPECIFIED',
+				pluginType: 'GEMINI',
+			},
+		}),
+	});
+	const raw = await response.text();
+	if (!response.ok) {
+		throw new Error(`antigravity loadCodeAssist returned ${response.status}: ${raw.trim()}`);
+	}
+	const body = JSON.parse(raw) as Record<string, unknown>;
+	const paidTier = objectRecord(body.paidTier);
+	const paidTierId = typeof paidTier?.id === 'string' ? paidTier.id.trim() : undefined;
+	const credits = paidTier?.availableCredits;
+	if (!Array.isArray(credits)) {
+		return {
+			provider: 'antigravity',
+			updatedAt: Date.now(),
+			known: true,
+			available: false,
+			...(paidTierId ? { paidTierId } : {}),
+		};
+	}
+	for (const rawCredit of credits) {
+		const credit = objectRecord(rawCredit);
+		if (!credit || String(credit.creditType ?? '').trim().toUpperCase() !== 'GOOGLE_ONE_AI') {
+			continue;
+		}
+		const creditAmount = floatFromUnknown(credit.creditAmount);
+		const minCreditAmount = floatFromUnknown(credit.minimumCreditAmountForUsage);
+		const known = creditAmount != null && minCreditAmount != null;
+		return {
+			provider: 'antigravity',
+			updatedAt: Date.now(),
+			known,
+			creditType: 'GOOGLE_ONE_AI',
+			...(creditAmount != null ? { creditAmount } : {}),
+			...(minCreditAmount != null ? { minCreditAmount } : {}),
+			...(known ? { available: creditAmount >= minCreditAmount } : {}),
+			...(paidTierId ? { paidTierId } : {}),
+		};
+	}
+	return {
+		provider: 'antigravity',
+		updatedAt: Date.now(),
+		known: true,
+		available: false,
+		...(paidTierId ? { paidTierId } : {}),
+	};
+}
+
+export async function fetchProviderOAuthUsageSummary(
+	auth: ProviderOAuthAuthRecord
+): Promise<ProviderOAuthUsageSummary | undefined> {
+	if (auth.provider !== 'antigravity') {
+		return undefined;
+	}
+	return await fetchAntigravityUsageSummary(auth.accessToken);
+}
+
+export async function discoverProviderOAuthModels(
+	auth: ProviderOAuthAuthRecord
+): Promise<ProviderOAuthDiscoveredModel[]> {
+	if (auth.provider !== 'antigravity') {
+		return [];
+	}
+	const token = auth.accessToken.trim();
+	if (!token) {
+		return [];
+	}
+	const payload = auth.projectId?.trim() ? { project: auth.projectId.trim() } : {};
+	let lastError = '';
+	for (const baseURL of ANTIGRAVITY_MODEL_BASE_URLS) {
+		try {
+			const response = await electronNetFetch(`${baseURL}/${ANTIGRAVITY_API_VERSION}:fetchAvailableModels`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${token}`,
+					'Content-Type': 'application/json',
+					'User-Agent': ANTIGRAVITY_USER_AGENT,
+				},
+				body: JSON.stringify(payload),
+			});
+			const raw = await response.text();
+			if (!response.ok) {
+				lastError = raw.trim() || response.statusText;
+				continue;
+			}
+			const body = JSON.parse(raw) as Record<string, unknown>;
+			const models = objectRecord(body.models);
+			if (!models) {
+				lastError = 'response missing models';
+				continue;
+			}
+			const discovered: ProviderOAuthDiscoveredModel[] = [];
+			for (const [modelIdRaw, modelDataRaw] of Object.entries(models)) {
+				const id = modelIdRaw.trim();
+				if (!id || ANTIGRAVITY_SKIPPED_DYNAMIC_MODELS.has(id)) {
+					continue;
+				}
+				const modelData = objectRecord(modelDataRaw) ?? {};
+				const displayName =
+					typeof modelData.displayName === 'string' && modelData.displayName.trim()
+						? modelData.displayName.trim()
+						: id;
+				const contextWindowTokens = positiveIntFromUnknown(modelData.maxTokens);
+				const maxOutputTokens = positiveIntFromUnknown(modelData.maxOutputTokens);
+				discovered.push({
+					id,
+					displayName,
+					...(contextWindowTokens != null ? { contextWindowTokens } : {}),
+					...(maxOutputTokens != null ? { maxOutputTokens } : {}),
+				});
+			}
+			discovered.sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }));
+			return discovered;
+		} catch (error) {
+			lastError = error instanceof Error ? error.message : String(error);
+		}
+	}
+	if (lastError) {
+		throw new Error(lastError);
+	}
+	return [];
+}
+
 type CodexTokenResponse = {
 	access_token: string;
 	refresh_token: string;
@@ -343,12 +490,58 @@ type AntigravityTokenResponse = {
 	expires_in?: number;
 };
 
+export type ProviderOAuthDiscoveredModel = {
+	id: string;
+	displayName?: string;
+	contextWindowTokens?: number;
+	maxOutputTokens?: number;
+};
+
+function positiveIntFromUnknown(value: unknown): number | undefined {
+	if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+		return Math.floor(value);
+	}
+	if (typeof value === 'string' && value.trim()) {
+		const parsed = Number.parseInt(value.trim(), 10);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+	}
+	return undefined;
+}
+
+function floatFromUnknown(value: unknown): number | undefined {
+	if (typeof value === 'number' && Number.isFinite(value)) {
+		return value;
+	}
+	if (typeof value === 'string' && value.trim()) {
+		const parsed = Number.parseFloat(value.trim());
+		return Number.isFinite(parsed) ? parsed : undefined;
+	}
+	return undefined;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === 'object' && !Array.isArray(value)
+		? value as Record<string, unknown>
+		: undefined;
+}
+
+function antigravityApiHeaders(accessToken: string, userAgent = 'google-api-nodejs-client/9.15.1'): Record<string, string> {
+	return {
+		Authorization: `Bearer ${accessToken}`,
+		'Content-Type': 'application/json',
+		'User-Agent': userAgent,
+		'X-Goog-Api-Client': ANTIGRAVITY_API_CLIENT,
+		'Client-Metadata': ANTIGRAVITY_CLIENT_METADATA,
+	};
+}
+
 const LOGIN_CONFIGS: Record<OAuthProviderKind, LoginConfig> = {
 	codex: {
 		provider: 'codex',
 		label: 'Codex',
 		port: 1455,
 		callbackPath: '/auth/callback',
+		successPath: '/success',
 		windowTitle: 'Codex Login',
 		usesPkce: true,
 		buildAuthorizeUrl: ({ redirectUri, state, pkce }) => {
@@ -400,6 +593,7 @@ const LOGIN_CONFIGS: Record<OAuthProviderKind, LoginConfig> = {
 		label: 'Claude Code',
 		port: 54545,
 		callbackPath: '/callback',
+		successPath: '/success',
 		windowTitle: 'Claude Code Login',
 		usesPkce: true,
 		buildAuthorizeUrl: ({ redirectUri, state, pkce }) => {
@@ -475,7 +669,10 @@ const LOGIN_CONFIGS: Record<OAuthProviderKind, LoginConfig> = {
 				throw new Error('Antigravity token exchange returned an empty access token.');
 			}
 			const email = await fetchAntigravityEmail(accessToken);
-			const projectId = await fetchAntigravityProjectId(accessToken).catch(() => undefined);
+			const [projectId, usage] = await Promise.all([
+				fetchAntigravityProjectId(accessToken).catch(() => undefined),
+				fetchAntigravityUsageSummary(accessToken).catch(() => undefined),
+			]);
 			return {
 				provider: 'antigravity',
 				accessToken,
@@ -485,6 +682,7 @@ const LOGIN_CONFIGS: Record<OAuthProviderKind, LoginConfig> = {
 				lastRefreshAt: Date.now(),
 				...(email ? { email } : {}),
 				...(projectId ? { projectId } : {}),
+				...(usage ? { usage } : {}),
 			};
 		},
 	},
@@ -522,12 +720,62 @@ function sendHtml(res: http.ServerResponse, status: number, title: string, body:
 	res.end(html);
 }
 
+function sendRedirect(res: http.ServerResponse, location: string): void {
+	res.writeHead(302, {
+		Location: location,
+		'Content-Length': '0',
+		Connection: 'close',
+	});
+	res.end();
+}
+
+function oauthCloseWindowMessage(config: LoginConfig): string {
+	if (config.provider === 'codex') {
+		return 'You have successfully authenticated with Codex. You can now close this window and return to your terminal to continue.';
+	}
+	if (config.provider === 'claude') {
+		return 'You have successfully authenticated with Claude. You can now close this window and return to your terminal to continue.';
+	}
+	return 'You can close this window.';
+}
+
+function oauthStateMismatchMessage(): string {
+	return 'State mismatch. Please retry the login.';
+}
+
+function oauthSuccessTitle(config: LoginConfig): string {
+	if (config.provider === 'codex') {
+		return 'Authentication Successful - Codex';
+	}
+	if (config.provider === 'claude') {
+		return 'Authentication Successful - Claude';
+	}
+	return 'Login successful';
+}
+
+function sendOAuthSuccess(res: http.ServerResponse, config: LoginConfig): void {
+	if (config.successPath) {
+		sendRedirect(res, config.successPath);
+		return;
+	}
+	sendHtml(res, 200, oauthSuccessTitle(config), oauthCloseWindowMessage(config));
+}
+
 function closeServer(server: http.Server): void {
 	try {
 		server.close();
 	} catch {
 		/* ignore */
 	}
+}
+
+function scheduleCloseServer(server: http.Server, delayMs: number): void {
+	if (delayMs > 0) {
+		const timer = setTimeout(() => closeServer(server), delayMs);
+		timer.unref?.();
+		return;
+	}
+	setImmediate(() => closeServer(server));
 }
 
 export function cancelActiveProviderOAuthLogin(message = 'Login cancelled.'): boolean {
@@ -633,7 +881,7 @@ export async function runProviderOAuthLogin(options: {
 			clearTimeout(loginTimeout);
 			loginTimeout = undefined;
 		}
-		setImmediate(() => closeServer(server));
+		scheduleCloseServer(server, config.successPath ? 2_000 : 0);
 		finish(value);
 	};
 	const settleErr = (error: Error) => {
@@ -648,7 +896,7 @@ export async function runProviderOAuthLogin(options: {
 			clearTimeout(loginTimeout);
 			loginTimeout = undefined;
 		}
-		setImmediate(() => closeServer(server));
+		scheduleCloseServer(server, config.successPath ? 2_000 : 0);
 		fail(error);
 	};
 
@@ -663,8 +911,12 @@ export async function runProviderOAuthLogin(options: {
 	server = http.createServer((req, res) => {
 		void (async () => {
 			const parsed = new URL(req.url ?? '/', `http://localhost:${actualPort}`);
+			if (config.successPath && parsed.pathname === config.successPath) {
+				sendHtml(res, 200, oauthSuccessTitle(config), oauthCloseWindowMessage(config));
+				return;
+			}
 			if (parsed.pathname === '/cancel') {
-				sendHtml(res, 200, `${config.label} login cancelled`, 'You can close this tab and return to Async IDE.');
+				sendHtml(res, 200, `${config.label} login cancelled`, 'You can close this window.');
 				settleErr(new Error(`${config.label} login cancelled.`));
 				return;
 			}
@@ -673,7 +925,7 @@ export async function runProviderOAuthLogin(options: {
 				return;
 			}
 			if (parsed.searchParams.get('state') !== state) {
-				sendHtml(res, 400, `${config.label} login failed`, 'State mismatch. Please retry login from Async IDE.');
+				sendHtml(res, 400, `${config.label} login failed`, oauthStateMismatchMessage());
 				settleErr(new Error('OAuth state mismatch.'));
 				return;
 			}
@@ -691,6 +943,7 @@ export async function runProviderOAuthLogin(options: {
 				settleErr(new Error('Missing authorization code.'));
 				return;
 			}
+			sendOAuthSuccess(res, config);
 			try {
 				const redirectUri = `http://localhost:${actualPort}${config.callbackPath}`;
 				const auth = await config.exchangeCode({
@@ -699,11 +952,9 @@ export async function runProviderOAuthLogin(options: {
 					state,
 					pkce,
 				});
-				sendHtml(res, 200, `${config.label} login complete`, 'You can close this tab and return to Async IDE.');
 				settleOk(auth);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				sendHtml(res, 500, `${config.label} login failed`, message);
 				settleErr(new Error(message));
 			}
 		})();
@@ -744,19 +995,12 @@ export function providerOAuthLabel(provider: OAuthProviderKind): string {
 }
 
 async function refreshCodexOAuth(auth: ProviderOAuthAuthRecord): Promise<ProviderOAuthAuthRecord> {
-	const body = await postFormJson<CodexTokenResponse>(
-		CODEX_TOKEN_URL,
-		{
-			client_id: CODEX_CLIENT_ID,
-			grant_type: 'refresh_token',
-			refresh_token: auth.refreshToken,
-			scope: 'openid profile email',
-		},
-		{
-			'User-Agent': buildCodexUserAgent(CODEX_EMULATED_VERSION),
-			Originator: CODEX_ORIGINATOR,
-		}
-	);
+	const body = await postFormJson<CodexTokenResponse>(CODEX_TOKEN_URL, {
+		client_id: CODEX_CLIENT_ID,
+		grant_type: 'refresh_token',
+		refresh_token: auth.refreshToken,
+		scope: 'openid profile email',
+	});
 	const idToken = body.id_token || auth.idToken;
 	const accountId = idToken ? codexAccountIdFromIdToken(idToken) : auth.accountId;
 	const email = idToken ? emailFromIdToken(idToken) : auth.email;
@@ -803,9 +1047,12 @@ async function refreshAntigravityOAuth(auth: ProviderOAuthAuthRecord): Promise<P
 		{ 'User-Agent': 'Go-http-client/2.0' }
 	);
 	const accessToken = body.access_token.trim();
-	const projectId = accessToken
-		? await fetchAntigravityProjectId(accessToken).catch(() => auth.projectId)
-		: auth.projectId;
+	const [projectId, usage] = accessToken
+		? await Promise.all([
+				fetchAntigravityProjectId(accessToken).catch(() => auth.projectId),
+				fetchAntigravityUsageSummary(accessToken).catch(() => auth.usage),
+			])
+		: [auth.projectId, auth.usage] as const;
 	return {
 		...auth,
 		accessToken,
@@ -814,6 +1061,7 @@ async function refreshAntigravityOAuth(auth: ProviderOAuthAuthRecord): Promise<P
 		expiresAt: expiresAtFromSeconds(body.expires_in),
 		lastRefreshAt: Date.now(),
 		...(projectId ? { projectId } : {}),
+		...(usage ? { usage } : {}),
 	};
 }
 

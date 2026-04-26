@@ -72,6 +72,18 @@ export type ProviderOAuthAuthRecord = {
 	accountId?: string;
 	email?: string;
 	projectId?: string;
+	usage?: ProviderOAuthUsageSummary;
+};
+
+export type ProviderOAuthUsageSummary = {
+	provider: OAuthProviderKind;
+	updatedAt: number;
+	known: boolean;
+	available?: boolean;
+	creditType?: string;
+	creditAmount?: number;
+	minCreditAmount?: number;
+	paidTierId?: string;
 };
 
 export type UserModelTemperatureMode = 'auto' | 'custom';

@@ -23,7 +23,7 @@ import type { AppAppearanceSettings } from './appearanceSettings';
 import type { EditorSettings } from './EditorSettingsPanel';
 import type { AppColorMode, ThemeTransitionOrigin } from './colorMode';
 import type { McpServerConfig, McpServerStatus } from './mcpTypes';
-import { useI18n, type AppLocale } from './i18n';
+import { useI18n, type AppLocale, type TFunction } from './i18n';
 import { VoidSelect } from './VoidSelect';
 
 const SettingsAgentPanel = lazy(() => import('./SettingsAgentPanel').then((m) => ({ default: m.SettingsAgentPanel })));
@@ -116,6 +116,60 @@ function providerGroupId(provider: UserLlmProvider): ProviderGroupId {
 		return 'codex';
 	}
 	return 'manual';
+}
+
+type OAuthUsageDisplay = {
+	tone: 'ok' | 'warn' | 'muted';
+	title: string;
+	body: string;
+	meta?: string;
+};
+
+function formatOAuthNumber(value: number | undefined, locale: AppLocale): string {
+	if (value == null || !Number.isFinite(value)) {
+		return '';
+	}
+	return new Intl.NumberFormat(locale === 'zh-CN' ? 'zh-CN' : 'en-US', {
+		maximumFractionDigits: 2,
+	}).format(value);
+}
+
+function providerOAuthUsageDisplay(provider: UserLlmProvider, locale: AppLocale, t: TFunction): OAuthUsageDisplay | null {
+	const auth = provider.oauthAuth;
+	if (auth?.provider !== 'antigravity') {
+		return null;
+	}
+	const usage = auth.usage;
+	if (!usage || usage.provider !== 'antigravity' || !usage.known) {
+		return {
+			tone: 'muted',
+			title: t('settings.oauthUsage.remainingTitle'),
+			body: t('settings.oauthUsage.antigravityUnknown'),
+		};
+	}
+	const amount = formatOAuthNumber(usage.creditAmount, locale);
+	const minimum = formatOAuthNumber(usage.minCreditAmount, locale);
+	const parts = [
+		amount
+			? t('settings.oauthUsage.antigravityCredits', { amount })
+			: t('settings.oauthUsage.antigravityUnknown'),
+		minimum ? t('settings.oauthUsage.antigravityMinimum', { minimum }) : '',
+		usage.paidTierId ? t('settings.oauthUsage.tier', { tier: usage.paidTierId }) : '',
+	].filter(Boolean);
+	const updated = usage.updatedAt
+		? new Intl.DateTimeFormat(locale === 'zh-CN' ? 'zh-CN' : 'en-US', {
+				month: '2-digit',
+				day: '2-digit',
+				hour: '2-digit',
+				minute: '2-digit',
+			}).format(new Date(usage.updatedAt))
+		: '';
+	return {
+		tone: usage.available === false ? 'warn' : 'ok',
+		title: t('settings.oauthUsage.remainingTitle'),
+		body: parts.join(' · '),
+		meta: updated ? t('settings.oauthUsage.updated', { time: updated }) : undefined,
+	};
 }
 
 type ProviderDiscoverModalState = {
@@ -808,7 +862,8 @@ export function SettingsPage({
 				const result = (await shell.invoke('settings:discoverProviderModels', provider)) as
 					| {
 							ok?: boolean;
-							models?: { id?: string; contextWindowTokens?: number; maxOutputTokens?: number }[];
+							models?: { id?: string; displayName?: string; contextWindowTokens?: number; maxOutputTokens?: number }[];
+							oauthAuth?: UserLlmProvider['oauthAuth'];
 							message?: string;
 					  }
 					| undefined;
@@ -828,9 +883,16 @@ export function SettingsPage({
 					.filter((model) => typeof model?.id === 'string' && model.id.trim().length > 0)
 					.map((model) => ({
 						requestName: String(model.id).trim(),
+						displayName: typeof model.displayName === 'string' ? model.displayName.trim() : undefined,
 						contextWindowTokens: model.contextWindowTokens,
 						maxOutputTokens: model.maxOutputTokens,
 					}));
+				if (result.oauthAuth) {
+					patchProvider(provider.id, {
+						oauthAuth: result.oauthAuth,
+						apiKey: result.oauthAuth.accessToken,
+					});
+				}
 				const merged = mergeDiscoveredProviderModels(modelEntries, provider.id, discoveredModels);
 				setProviderDiscoverStateById((prev) => ({
 					...prev,
@@ -859,7 +921,7 @@ export function SettingsPage({
 				}));
 			}
 		},
-		[modelEntries, shell, t]
+		[modelEntries, patchProvider, shell, t]
 	);
 
 	const clearOAuthLoginTimeout = useCallback(() => {
@@ -875,11 +937,14 @@ export function SettingsPage({
 	);
 
 	const formatOAuthLoginSuccess = useCallback(
-		(provider: OAuthProviderKind, result: { accountId?: string; email?: string; projectId?: string }) => {
+		(provider: OAuthProviderKind, result: { accountId?: string; email?: string; projectId?: string; modelCount?: number }) => {
 			const detail = result.email || result.accountId || result.projectId || '';
-			return detail
+			const base = detail
 				? t('settings.oauthLoginSuccessWithDetail', { provider: oauthProviderLabel(provider), detail })
 				: t('settings.oauthLoginSuccess', { provider: oauthProviderLabel(provider) });
+			return result.modelCount && result.modelCount > 1
+				? `${base} ${t('settings.oauthLoginModelsImported', { count: String(result.modelCount) })}`
+				: base;
 		},
 		[oauthProviderLabel, t]
 	);
@@ -953,6 +1018,7 @@ export function SettingsPage({
 						accountId?: string;
 						email?: string;
 						projectId?: string;
+						modelCount?: number;
 						message?: string;
 				  }
 				| undefined;
@@ -1368,6 +1434,7 @@ export function SettingsPage({
 											identityPreset === 'inherit'
 												? resolveProviderIdentityWithOverride(providerIdentity, prov.providerIdentity)
 												: resolveProviderIdentitySettings(prov.providerIdentity);
+										const oauthUsage = providerOAuthUsageDisplay(prov, locale, t);
 										return (
 											<li key={prov.id} className="ref-settings-provider-shell">
 												<div className={`ref-settings-provider-details ${providerExpanded ? 'is-open' : ''}`}>
@@ -1532,11 +1599,20 @@ export function SettingsPage({
 																</div>
 															) : null}
 														</div>
+														{oauthUsage ? (
+															<div className={`ref-settings-oauth-usage ref-settings-oauth-usage--${oauthUsage.tone}`}>
+																<div className="ref-settings-oauth-usage-title">{oauthUsage.title}</div>
+																<div className="ref-settings-oauth-usage-body">{oauthUsage.body}</div>
+																{oauthUsage.meta ? (
+																	<div className="ref-settings-oauth-usage-meta">{oauthUsage.meta}</div>
+																) : null}
+															</div>
+														) : null}
 
 														<div className="ref-settings-provider-models-head">
 															<h3 className="ref-settings-provider-models-title">{t('settings.modelsInProvider')}</h3>
 															<div className="ref-settings-provider-models-actions">
-																{prov.paradigm === 'openai-compatible' ? (
+																{prov.paradigm === 'openai-compatible' || prov.oauthAuth?.provider === 'antigravity' ? (
 																	<button
 																		type="button"
 																		className="ref-settings-add-model ref-settings-add-model--small ref-settings-provider-search-btn"

@@ -3637,6 +3637,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 .ref-messages {
 	flex: 1 1 auto;
 	min-height: 0;
+	min-width: 0;
 	max-height: min(58vh, 640px);
 	overflow: auto;
 	display: flex;
@@ -3688,6 +3689,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	align-items: center;
 	gap: 22px;
 	width: 100%;
+	min-width: 0;
 }
 
 .ref-turn-container:not(:last-child) {
@@ -3707,6 +3709,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	align-items: stretch;
 	max-width: min(100%, 720px);
 	width: min(100%, 720px);
+	min-width: 0;
 	box-sizing: border-box;
 	align-self: center;
 }
@@ -3747,6 +3750,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	align-self: center;
 	width: min(100%, 720px);
 	max-width: min(100%, 720px);
+	min-width: 0;
 	box-sizing: border-box;
 	overflow: visible;
 }
@@ -3875,6 +3879,11 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font-size: 13px;
 	line-height: 1.55;
 	color: var(--void-fg-1);
+	min-width: 0;
+	max-width: 100%;
+	box-sizing: border-box;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 	/* 左右各 24px 内 padding：把回复区（assistant outcome + 上方 preflight 过程区，
 	   两者复用同一 .ref-msg-assistant-body 容器）的内容相对外层 slot 左右各内缩 24px
 	   （总宽收窄 48px），视觉上比 user 气泡更紧凑；slot/box 自身宽度不变。 */
@@ -4225,6 +4234,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font-size: 13px;
 	line-height: 1.55;
 	color: var(--void-fg-1);
+	min-width: 0;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 }
 
 /* 对话里模型/网络错误等助手行：与次要说明色区分，保证可见 */
@@ -4287,6 +4300,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	overflow: auto;
 	max-width: 100%;
 	color: var(--void-fg-1);
+	overflow-wrap: normal;
+	word-break: normal;
 }
 
 .ref-md-root code {
@@ -4306,11 +4321,15 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font-size: 11px;
 	line-height: 1.45;
 	color: inherit;
+	overflow-wrap: normal;
+	word-break: normal;
 }
 
 .ref-md-root a {
 	color: var(--void-ring);
 	text-decoration: none;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 }
 
 .ref-md-root a:hover {
@@ -4443,6 +4462,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.ref-md-root--agent-chat > * {
+	min-width: 0;
+	max-width: 100%;
 }
 
 /**
@@ -16874,6 +16900,46 @@ select.ref-settings-native-select:focus {
 .ref-settings-oauth-login-message {
 	margin-top: -6px;
 	margin-bottom: 14px;
+}
+
+.ref-settings-oauth-usage {
+	margin: 12px 0 14px;
+	padding: 10px 12px;
+	border: 1px solid var(--void-border);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--void-bg-2) 86%, transparent);
+}
+
+.ref-settings-oauth-usage--ok {
+	border-color: color-mix(in srgb, #22c55e 38%, var(--void-border));
+	background: color-mix(in srgb, #22c55e 10%, var(--void-bg-2));
+}
+
+.ref-settings-oauth-usage--warn {
+	border-color: color-mix(in srgb, #f59e0b 44%, var(--void-border));
+	background: color-mix(in srgb, #f59e0b 11%, var(--void-bg-2));
+}
+
+.ref-settings-oauth-usage-title {
+	color: var(--void-fg-0);
+	font-size: 12px;
+	font-weight: 750;
+	line-height: 1.35;
+}
+
+.ref-settings-oauth-usage-body {
+	margin-top: 4px;
+	color: var(--void-fg-1);
+	font-size: 12px;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.ref-settings-oauth-usage-meta {
+	margin-top: 3px;
+	color: var(--void-fg-3);
+	font-size: 11px;
+	line-height: 1.35;
 }
 
 @media (max-width: 760px) {

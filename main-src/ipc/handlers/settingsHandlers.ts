@@ -17,8 +17,12 @@ import type { BotIntegrationConfig } from '../../botSettingsTypes.js';
 import { discoverProviderModels } from '../../llm/providerModelDiscovery.js';
 import {
 	cancelActiveProviderOAuthLogin,
+	discoverProviderOAuthModels,
+	ensureFreshOAuthAuthForRequest,
+	fetchProviderOAuthUsageSummary,
 	providerOAuthLabel,
 	runProviderOAuthLogin,
+	type ProviderOAuthDiscoveredModel,
 } from '../../llm/providerOAuthLogin.js';
 import { getBuiltinTeamCatalogPayload } from '../../agent/builtinTeamCatalog.js';
 import { cancelFeishuOauth, runFeishuOauth, FEISHU_OAUTH_CALLBACK_URLS } from '../../bots/platforms/feishu/feishuOauth.js';
@@ -95,15 +99,20 @@ const OAUTH_PROVIDER_DEFAULTS: Record<
 	},
 };
 
-function createOAuthModelEntry(providerId: string, authProvider: OAuthProviderKind): UserModelEntry {
+function createOAuthModelEntry(
+	providerId: string,
+	authProvider: OAuthProviderKind,
+	model?: ProviderOAuthDiscoveredModel
+): UserModelEntry {
 	const defaults = OAUTH_PROVIDER_DEFAULTS[authProvider];
+	const requestName = model?.id?.trim() || defaults.modelId;
 	return {
 		id: randomUUID(),
 		providerId,
-		displayName: defaults.modelId,
-		requestName: defaults.modelId,
-		maxOutputTokens: defaults.maxOutputTokens,
-		contextWindowTokens: defaults.contextWindowTokens,
+		displayName: model?.displayName?.trim() || requestName,
+		requestName,
+		maxOutputTokens: model?.maxOutputTokens ?? defaults.maxOutputTokens,
+		contextWindowTokens: model?.contextWindowTokens ?? defaults.contextWindowTokens,
 		temperatureMode: 'auto',
 	};
 }
@@ -124,19 +133,25 @@ function appendOAuthLoginProvider(params: {
 	entries: UserModelEntry[];
 	defaultModel?: string;
 	login: ProviderOAuthAuthRecord;
+	discoveredModels?: ProviderOAuthDiscoveredModel[];
 }): {
 	providers: UserLlmProvider[];
 	entries: UserModelEntry[];
 	providerId: string;
 	modelId: string;
 	defaultModel: string;
+	modelCount: number;
 	accountId?: string;
 	email?: string;
 	projectId?: string;
 } {
 	const defaults = OAUTH_PROVIDER_DEFAULTS[params.authProvider];
 	const providerId = randomUUID();
-	const modelEntry = createOAuthModelEntry(providerId, params.authProvider);
+	const discoveredModels = dedupeDiscoveredOAuthModels(params.discoveredModels ?? []);
+	const modelEntries =
+		discoveredModels.length > 0
+			? discoveredModels.map((model) => createOAuthModelEntry(providerId, params.authProvider, model))
+			: [createOAuthModelEntry(providerId, params.authProvider)];
 	const nextProvider: UserLlmProvider = {
 		id: providerId,
 		displayName: oauthProviderDisplayName(params.authProvider, params.login),
@@ -157,18 +172,53 @@ function appendOAuthLoginProvider(params: {
 			: {}),
 	};
 	const providers = [...params.providers, nextProvider];
-	const entries = [...params.entries, modelEntry];
+	const entries = [...params.entries, ...modelEntries];
 	const currentDefault = params.defaultModel?.trim() ?? '';
+	const preferredModelEntry =
+		modelEntries.find((entry) => entry.requestName.trim() === defaults.modelId) ?? modelEntries[0];
 	return {
 		providers,
 		entries,
 		providerId,
-		modelId: modelEntry.id,
-		defaultModel: currentDefault || modelEntry.id,
+		modelId: preferredModelEntry?.id ?? '',
+		defaultModel: currentDefault || preferredModelEntry?.id || '',
+		modelCount: modelEntries.length,
 		...(params.login.accountId ? { accountId: params.login.accountId } : {}),
 		...(params.login.email ? { email: params.login.email } : {}),
 		...(params.login.projectId ? { projectId: params.login.projectId } : {}),
 	};
+}
+
+function dedupeDiscoveredOAuthModels(models: ProviderOAuthDiscoveredModel[]): ProviderOAuthDiscoveredModel[] {
+	const seen = new Set<string>();
+	const out: ProviderOAuthDiscoveredModel[] = [];
+	for (const model of models) {
+		const id = model.id?.trim();
+		const key = id.toLowerCase();
+		if (!id || seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		out.push({ ...model, id });
+	}
+	return out;
+}
+
+function mergeEnabledIdsWithEntries(entries: UserModelEntry[], enabledIds: string[] | undefined): string[] {
+	const entryIds = entries.map((entry) => entry.id);
+	const valid = new Set(entryIds);
+	const out: string[] = [];
+	for (const id of enabledIds ?? []) {
+		if (valid.has(id) && !out.includes(id)) {
+			out.push(id);
+		}
+	}
+	for (const id of entryIds) {
+		if (!out.includes(id)) {
+			out.push(id);
+		}
+	}
+	return out;
 }
 
 async function handleProviderOAuthLoginPayload(rawPayload: unknown) {
@@ -214,18 +264,24 @@ async function handleProviderOAuthLoginPayload(rawPayload: unknown) {
 					? payload.timeoutMs
 					: undefined,
 		});
+		const discoveredModels =
+			authProvider === 'antigravity'
+				? await discoverProviderOAuthModels(login).catch(() => [])
+				: [];
 		const next = appendOAuthLoginProvider({
 			authProvider,
 			providers,
 			entries,
 			defaultModel,
 			login,
+			discoveredModels,
 		});
 		patchSettings({
 			defaultModel: next.defaultModel,
 			models: {
 				providers: next.providers,
 				entries: next.entries,
+				enabledIds: mergeEnabledIdsWithEntries(next.entries, current.models?.enabledIds),
 			},
 		});
 		return { ok: true as const, providerLabel: providerOAuthLabel(authProvider), ...next };
@@ -271,6 +327,26 @@ export function registerSettingsHandlers(): void {
 			typeof provider.paradigm !== 'string'
 		) {
 			return { ok: false as const, message: 'Invalid provider payload.' };
+		}
+		if (provider.oauthAuth?.provider === 'antigravity') {
+			try {
+				const auth = await ensureFreshOAuthAuthForRequest(provider.id, provider.oauthAuth);
+				const [models, usage] = await Promise.all([
+					discoverProviderOAuthModels(auth),
+					fetchProviderOAuthUsageSummary(auth).catch(() => auth.usage),
+				]);
+				const oauthAuth = usage ? { ...auth, usage } : auth;
+				return {
+					ok: true as const,
+					models,
+					oauthAuth,
+				};
+			} catch (error) {
+				return {
+					ok: false as const,
+					message: error instanceof Error ? error.message : String(error),
+				};
+			}
 		}
 		return await discoverProviderModels({
 			id: provider.id,
