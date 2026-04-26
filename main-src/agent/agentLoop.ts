@@ -1770,6 +1770,8 @@ async function runAnthropicLoop(
 					},
 						{ signal: roundSignalA }
 					);
+					s.on('error', () => undefined);
+					s.on('abort', () => undefined);
 					await s.withResponse();
 					return s;
 				},

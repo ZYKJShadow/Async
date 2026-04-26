@@ -185,6 +185,8 @@ export async function streamAnthropic(
 					},
 					{ signal: timeoutAc.signal }
 				);
+				s.on('error', () => undefined);
+				s.on('abort', () => undefined);
 				await s.withResponse();
 				return s;
 			},
