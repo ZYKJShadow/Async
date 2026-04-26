@@ -79,6 +79,7 @@ export function AgentCommandPermissionDropdown({
 	const titleId = `${triggerId}-title`;
 	const listId = `${triggerId}-listbox`;
 	const [open, setOpen] = useState(false);
+	const [rendered, setRendered] = useState(open);
 	const [layout, setLayout] = useState<ClampedPopoverLayout>({
 		placement: 'below',
 		left: 0,
@@ -105,12 +106,15 @@ export function AgentCommandPermissionDropdown({
 	const recompute = useCallback(() => {
 		const trigger = triggerRef.current;
 		const menu = menuRef.current;
-		if (!trigger || !menu) {
+		if (!trigger) {
 			return;
 		}
 		const rect = trigger.getBoundingClientRect();
 		const menuWidth = Math.max(200, Math.ceil(rect.width));
-		const naturalHeight = Math.min(280, Math.max(menu.scrollHeight, options.length * 46 + 12));
+		const naturalHeight = Math.min(
+			280,
+			Math.max(menu?.scrollHeight ?? 0, options.length * 46 + 12)
+		);
 		setLayout(
 			computeClampedPopoverLayout(rect, {
 				viewportWidth: window.innerWidth,
@@ -128,7 +132,7 @@ export function AgentCommandPermissionDropdown({
 		recompute();
 		const id = requestAnimationFrame(recompute);
 		return () => cancelAnimationFrame(id);
-	}, [open, recompute, value]);
+	}, [open, rendered, recompute, value]);
 
 	useEffect(() => {
 		if (!open) {
@@ -174,6 +178,18 @@ export function AgentCommandPermissionDropdown({
 		return () => document.removeEventListener('keydown', onKey);
 	}, [open]);
 
+	useEffect(() => {
+		if (open) {
+			setRendered(true);
+			return;
+		}
+		if (!rendered) {
+			return;
+		}
+		const id = window.setTimeout(() => setRendered(false), 120);
+		return () => window.clearTimeout(id);
+	}, [open, rendered]);
+
 	const menuStyle: CSSProperties = {
 		position: 'fixed',
 		zIndex: MENU_Z,
@@ -185,10 +201,10 @@ export function AgentCommandPermissionDropdown({
 		...(layout.placement === 'below' ? { top: layout.top } : { bottom: layout.bottom }),
 	};
 
-	const menu = open ? (
+	const menu = rendered ? (
 		<div
 			ref={menuRef}
-			className="ref-command-permission-menu"
+			className={`ref-command-permission-menu ${!open ? 'is-closing' : ''}`}
 			role="dialog"
 			aria-labelledby={titleId}
 			style={menuStyle}

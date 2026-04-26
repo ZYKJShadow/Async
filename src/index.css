@@ -7180,6 +7180,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	border: 1px solid var(--void-border);
 	background: var(--void-bg-2);
 	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+	animation: ref-popover-fade-in 0.12s ease-out both;
+	will-change: opacity;
 }
 
 .ref-command-permission-menu-title {
@@ -7350,6 +7352,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	border: 1px solid var(--void-border);
 	background: var(--void-bg-1);
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+	animation: ref-popover-fade-in 0.12s ease-out both;
+	will-change: opacity;
 }
 
 :root[data-color-scheme='light'] .ref-git-branch-dd {
@@ -12985,7 +12989,38 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	border: 1px solid var(--void-border);
 	background: var(--void-bg-1);
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+	animation: ref-popover-fade-in 0.12s ease-out both;
+	will-change: opacity;
 	/* max-height / min-height / overflow ????????????? */
+}
+
+.ref-model-dd.is-closing,
+.ref-command-permission-menu.is-closing,
+.ref-git-branch-dd.is-closing,
+.ref-plus-menu.is-closing,
+.ref-plus-submenu.is-closing {
+	pointer-events: none;
+	animation: ref-popover-fade-out 0.1s ease-in both;
+}
+
+@keyframes ref-popover-fade-in {
+	from {
+		opacity: 0;
+	}
+
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes ref-popover-fade-out {
+	from {
+		opacity: 1;
+	}
+
+	to {
+		opacity: 0;
+	}
 }
 
 .ref-model-dd--split {
@@ -13475,6 +13510,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
 	pointer-events: auto;
 	z-index: 2195;
+	animation: ref-popover-fade-in 0.12s ease-out both;
+	will-change: opacity;
 }
 
 .ref-plus-menu--above {
@@ -13573,6 +13610,8 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	min-height: 0;
 	pointer-events: auto;
 	z-index: 2195;
+	animation: ref-popover-fade-in 0.12s ease-out both;
+	will-change: opacity;
 }
 
 .ref-plus-submenu--above {
@@ -13775,6 +13814,16 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 
 .ref-plus-switch input:disabled + .ref-plus-switch-track {
 	opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-model-dd,
+	.ref-command-permission-menu,
+	.ref-git-branch-dd,
+	.ref-plus-menu,
+	.ref-plus-submenu {
+		animation: none !important;
+	}
 }
 
 /* ?? ????? ?? */

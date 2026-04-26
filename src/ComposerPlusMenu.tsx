@@ -268,6 +268,7 @@ export function ComposerPlusMenu({
 	const [submenu, setSubmenu] = useState<'skills' | 'mcp' | null>(null);
 	const [pickingImages, setPickingImages] = useState(false);
 	const [busyMcpIds, setBusyMcpIds] = useState<string[]>([]);
+	const [rendered, setRendered] = useState(open);
 	const [mainLayout, setMainLayout] = useState<ClampedPopoverLayout>({
 		placement: 'below',
 		left: 0,
@@ -400,12 +401,25 @@ export function ComposerPlusMenu({
 	}, [open, onClose, anchorRef]);
 
 	useEffect(() => {
-		if (!open) {
-			setSubmenu(null);
-			setPickingImages(false);
-			setBusyMcpIds([]);
+		if (open) {
+			setRendered(true);
+			return;
 		}
-	}, [open]);
+		if (!rendered) {
+			return;
+		}
+		const id = window.setTimeout(() => setRendered(false), 120);
+		return () => window.clearTimeout(id);
+	}, [open, rendered]);
+
+	useEffect(() => {
+		if (open || rendered) {
+			return;
+		}
+		setSubmenu(null);
+		setPickingImages(false);
+		setBusyMcpIds([]);
+	}, [open, rendered]);
 
 	const handlePickImages = useCallback(async () => {
 		if (!onPickImages || pickingImages) {
@@ -446,7 +460,7 @@ export function ComposerPlusMenu({
 		[busyMcpIds, onToggleMcpServer]
 	);
 
-	if (!open) {
+	if (!rendered) {
 		return null;
 	}
 
@@ -456,7 +470,7 @@ export function ComposerPlusMenu({
 		<>
 			<div
 				ref={plusMainRef}
-				className={`ref-plus-menu ${mainLayout.placement === 'above' ? 'ref-plus-menu--above' : ''}`}
+				className={`ref-plus-menu ${mainLayout.placement === 'above' ? 'ref-plus-menu--above' : ''} ${!open ? 'is-closing' : ''}`}
 				style={{
 					position: 'fixed',
 					left: mainLayout.left,
@@ -546,7 +560,7 @@ export function ComposerPlusMenu({
 			{submenuOpen && subLayout ? (
 				<div
 					ref={plusSubRef}
-					className={`ref-plus-submenu ${mainLayout.placement === 'above' ? 'ref-plus-submenu--above' : ''}`}
+					className={`ref-plus-submenu ${mainLayout.placement === 'above' ? 'ref-plus-submenu--above' : ''} ${!open ? 'is-closing' : ''}`}
 					style={{
 						position: 'fixed',
 						left: subLayout.left,
