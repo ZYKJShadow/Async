@@ -48,7 +48,7 @@ describe('buildAnthropicAuthOptions', () => {
 		vi.spyOn(console, 'log').mockImplementation(() => undefined);
 		vi.stubEnv('ANTHROPIC_BASE_URL', 'https://coder.api.visioncoder.cn');
 		let capturedUrl = '';
-		let capturedInit: { headers?: unknown } = {};
+		let capturedInit: { headers?: unknown; body?: unknown } = {};
 		const client = createAnthropicClient({
 			apiKey: null,
 			authToken: 'sk-ant-oat-test',
@@ -86,5 +86,16 @@ describe('buildAnthropicAuthOptions', () => {
 		expect(capturedHeader(capturedInit.headers, 'Anthropic-Beta')).toContain('oauth-2025-04-20');
 		expect(capturedHeader(capturedInit.headers, 'X-App')).toBe('cli');
 		expect(capturedHeader(capturedInit.headers, 'X-Claude-Code-Session-Id')).toBeTruthy();
+		const body = JSON.parse(String(capturedInit.body)) as {
+			system: Array<{ text?: string }>;
+			metadata: { user_id?: string };
+		};
+		expect(body.system).toHaveLength(3);
+		expect(body.system[0]?.text).toMatch(/^x-anthropic-billing-header: .* cch=(?!00000)[0-9a-f]{5};$/);
+		expect(body.system[1]?.text).toBe("You are Claude Code, Anthropic's official CLI for Claude.");
+		expect(body.metadata.user_id).toMatch(
+			/^user_[a-f0-9]{64}_account_[0-9a-f-]{36}_session_[0-9a-f-]{36}$/
+		);
+		expect(capturedHeader(capturedInit.headers, 'Content-Length')).toBe(String(Buffer.byteLength(String(capturedInit.body))));
 	});
 });
