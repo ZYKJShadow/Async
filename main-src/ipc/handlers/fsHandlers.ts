@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveWorkspacePath, isPathInsideRoot } from '../../workspace.js';
 import { senderWorkspaceRoot } from '../agentRuntime.js';
+import { isProbablyTextBuffer, readTextFileSyncWithMetadata, writeTextFileAtomicSync, type TextEncoding } from '../../textEncoding.js';
 
 const DEFAULT_TEXT_PREVIEW_MAX_BYTES = 1_500_000;
 const TEXT_PREVIEW_SAMPLE_BYTES = 8192;
@@ -122,22 +123,6 @@ function readSampleBuffer(fullPath: string, size: number): Buffer {
 	}
 }
 
-function isLikelyBinarySample(buf: Buffer): boolean {
-	if (buf.length === 0) {
-		return false;
-	}
-	let suspicious = 0;
-	for (const byte of buf) {
-		if (byte === 0) {
-			return true;
-		}
-		if (byte < 7 || (byte > 13 && byte < 32)) {
-			suspicious += 1;
-		}
-	}
-	return suspicious / buf.length > 0.08;
-}
-
 /**
  * `fs:*` IPC：工作区内的文件读写、列目录、重命名、删除、文件选择对话框。
  * 与原 register.ts 的实现行为完全一致，所有失败均包装为 `{ ok: false, error }`。
@@ -197,7 +182,7 @@ export function registerFsHandlers(): void {
 			return { ok: false as const, error: 'no-workspace' as const };
 		}
 		const full = resolveWorkspacePath(relPath, root);
-		return { ok: true as const, content: fs.readFileSync(full, 'utf8') };
+		return { ok: true as const, content: readTextFileSyncWithMetadata(full).text };
 	});
 
 	ipcMain.handle('fs:readTextPreview', (event, relPath: string, opts?: { maxBytes?: number }) => {
@@ -254,7 +239,7 @@ export function registerFsHandlers(): void {
 			}
 
 			const sample = readSampleBuffer(full, stat.size);
-			if (isLikelyBinarySample(sample)) {
+			if (!isProbablyTextBuffer(sample)) {
 				return {
 					ok: true as const,
 					canReadText: false as const,
@@ -268,7 +253,7 @@ export function registerFsHandlers(): void {
 			return {
 				ok: true as const,
 				canReadText: true as const,
-				content: fs.readFileSync(full, 'utf8'),
+				content: readTextFileSyncWithMetadata(full).text,
 				fileSize: stat.size,
 				previewKind: 'text' as const,
 			};
@@ -283,8 +268,11 @@ export function registerFsHandlers(): void {
 			return { ok: false as const, error: 'no-workspace' as const };
 		}
 		const full = resolveWorkspacePath(relPath, root);
-		fs.mkdirSync(path.dirname(full), { recursive: true });
-		fs.writeFileSync(full, content, 'utf8');
+		let encoding: TextEncoding = 'utf8';
+		if (fs.existsSync(full)) {
+			encoding = readTextFileSyncWithMetadata(full).encoding;
+		}
+		writeTextFileAtomicSync(full, content, encoding);
 		return { ok: true as const };
 	});
 

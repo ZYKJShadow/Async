@@ -7,6 +7,12 @@ import { applyPatch } from 'diff';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveWorkspacePath, isPathInsideRoot } from '../workspace.js';
+import {
+	isProbablyTextBuffer,
+	readTextFileSyncWithMetadata,
+	writeTextFileAtomicSync,
+	type TextEncoding,
+} from '../textEncoding.js';
 
 export type ApplyAgentDiffsResult = {
 	applied: string[];
@@ -201,14 +207,17 @@ export function applyAgentDiffChunk(chunk: string, workspaceRoot: string | null)
 	}
 
 	let source = '';
+	let encoding: TextEncoding = 'utf8';
 	try {
 		if (fs.existsSync(full)) {
 			const buf = fs.readFileSync(full);
-			if (buf.includes(0)) {
+			if (!isProbablyTextBuffer(buf)) {
 				result.failed.push({ path: rel, reason: '跳过二进制文件' });
 				return result;
 			}
-			source = buf.toString('utf8');
+			const meta = readTextFileSyncWithMetadata(full);
+			source = meta.text;
+			encoding = meta.encoding;
 		} else if (!isNewFileChunk(chunk)) {
 			source = '';
 		}
@@ -228,7 +237,7 @@ export function applyAgentDiffChunk(chunk: string, workspaceRoot: string | null)
 
 	try {
 		fs.mkdirSync(path.dirname(full), { recursive: true });
-		fs.writeFileSync(full, patched, 'utf8');
+		writeTextFileAtomicSync(full, patched, encoding);
 		result.applied.push(rel);
 	} catch (e) {
 		result.failed.push({ path: rel, reason: `写入失败: ${e}` });

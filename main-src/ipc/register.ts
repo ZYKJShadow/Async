@@ -146,6 +146,7 @@ import { registerMcpHandlers } from './handlers/mcpHandlers.js';
 import { registerPluginsHandlers } from './handlers/pluginsHandlers.js';
 import { registerSettingsHandlers } from './handlers/settingsHandlers.js';
 import { registerTerminalExecHandlers } from './handlers/terminalExecHandlers.js';
+import { readTextFileSyncWithMetadata, writeTextFileAtomicSync, type TextEncoding } from '../textEncoding.js';
 import { senderWorkspaceRoot, workspaceRootsEqual } from './agentRuntime.js';
 import {
 	abortByThread,
@@ -256,10 +257,18 @@ function readWorkspaceTextFileIfExists(relPath: string, workspaceRoot: string | 
 		if (!fs.existsSync(full)) {
 			return null;
 		}
-		return fs.readFileSync(full, 'utf8');
+		return readTextFileSyncWithMetadata(full).text;
 	} catch {
 		return null;
 	}
+}
+
+function writeWorkspaceTextFilePreservingEncoding(full: string, content: string): void {
+	let encoding: TextEncoding = 'utf8';
+	if (fs.existsSync(full)) {
+		encoding = readTextFileSyncWithMetadata(full).encoding;
+	}
+	writeTextFileAtomicSync(full, content, encoding);
 }
 
 function contentsEqual(a: string | null, b: string | null): boolean {
@@ -1781,8 +1790,7 @@ export function registerIpc(): void {
 				}
 				continue;
 			}
-			fs.mkdirSync(path.dirname(full), { recursive: true });
-			fs.writeFileSync(full, previousContent, 'utf8');
+			writeWorkspaceTextFilePreservingEncoding(full, previousContent);
 		}
 
 		const reverted = snapshots.size;
@@ -1935,8 +1943,7 @@ ipcMain.handle(
 					fs.unlinkSync(full);
 				}
 			} else {
-				fs.mkdirSync(path.dirname(full), { recursive: true });
-				fs.writeFileSync(full, reverted, 'utf8');
+				writeWorkspaceTextFilePreservingEncoding(full, reverted);
 			}
 
 			const nextContent = readWorkspaceTextFileIfExists(relPath, wr);
@@ -1967,8 +1974,7 @@ ipcMain.handle(
 		if (previousContent === null) {
 			if (fs.existsSync(full)) fs.unlinkSync(full);
 		} else {
-			fs.mkdirSync(path.dirname(full), { recursive: true });
-			fs.writeFileSync(full, previousContent, 'utf8');
+			writeWorkspaceTextFilePreservingEncoding(full, previousContent);
 		}
 		snapshots.delete(relPath);
 		if (snapshots.size === 0) {

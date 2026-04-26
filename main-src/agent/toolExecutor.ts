@@ -29,6 +29,13 @@ import { executeTeamPeerRequestTool } from './teamPeerRequestTool.js';
 import { executeTeamReplyToPeerTool } from './teamReplyToPeerTool.js';
 import { shouldRunAgentInBackground } from './agentForkPolicy.js';
 import { executeShellCommand } from '../shell/commandExecutor.js';
+import {
+	isProbablyTextBuffer,
+	readTextFileIfExistsSync,
+	readTextFileSyncWithMetadata,
+	writeTextFileAtomicSync,
+	type TextEncoding,
+} from '../textEncoding.js';
 import { setTodos, type TodoItem } from './todoStore.js';
 import { minimatch } from 'minimatch';
 import * as gitService from '../gitService.js';
@@ -1681,11 +1688,11 @@ function executeReadFile(call: ToolCall, execCtx: ToolExecutionContext): ToolRes
 	}
 
 	const buf = fs.readFileSync(full);
-	if (buf.includes(0)) {
+	if (!isProbablyTextBuffer(buf)) {
 		return { toolCallId: call.id, name: call.name, content: `Skipped binary file: ${rel}`, isError: true };
 	}
 
-	let text = buf.toString('utf8').replace(/\r\n/g, '\n');
+	let text = readTextFileSyncWithMetadata(full).text.replace(/\r\n/g, '\n');
 	const lines = text.split('\n');
 
 	let offset = Math.max(1, Number(call.arguments.offset) || 1);
@@ -1751,10 +1758,27 @@ function executeWriteToFile(call: ToolCall, hooks: ToolExecutionHooks, execCtx: 
 		};
 	}
 	const existed = fs.existsSync(full);
-	const previousContent = existed ? fs.readFileSync(full, 'utf8') : null;
+	if (existed && !fs.statSync(full).isFile()) {
+		return { toolCallId: call.id, name: call.name, content: `Not a file: ${relPath}`, isError: true };
+	}
+	let previousContent: string | null = null;
+	let encoding: TextEncoding = 'utf8';
+	if (existed) {
+		try {
+			const meta = readTextFileSyncWithMetadata(full);
+			previousContent = meta.text;
+			encoding = meta.encoding;
+		} catch (e) {
+			return {
+				toolCallId: call.id,
+				name: call.name,
+				content: `Error: cannot safely overwrite ${relPath}: ${e instanceof Error ? e.message : String(e)}`,
+				isError: true,
+			};
+		}
+	}
 	void hooks.beforeWrite?.({ path: relPath, previousContent });
-	fs.mkdirSync(path.dirname(full), { recursive: true });
-	fs.writeFileSync(full, content, 'utf8');
+	writeTextFileAtomicSync(full, content, encoding);
 	void hooks.afterWrite?.({ path: relPath, previousContent, nextContent: content });
 
 	const lineCount = content.split('\n').length;
@@ -1802,11 +1826,12 @@ function executeStrReplace(call: ToolCall, hooks: ToolExecutionHooks, execCtx: T
 	}
 
 	const buf = fs.readFileSync(full);
-	if (buf.includes(0)) {
+	if (!isProbablyTextBuffer(buf)) {
 		return { toolCallId: call.id, name: call.name, content: `Skipped binary file: ${relPath}`, isError: true };
 	}
 
-	const source = buf.toString('utf8');
+	const meta = readTextFileSyncWithMetadata(full);
+	const source = meta.text;
 	const fileHasCRLF = source.includes('\r\n');
 
 	const oldStr = fileHasCRLF
@@ -1840,7 +1865,7 @@ function executeStrReplace(call: ToolCall, hooks: ToolExecutionHooks, execCtx: T
 			};
 		}
 		void hooks.beforeWrite?.({ path: relPath, previousContent: source });
-		fs.writeFileSync(full, patchedAll, 'utf8');
+		writeTextFileAtomicSync(full, patchedAll, meta.encoding);
 		void hooks.afterWrite?.({ path: relPath, previousContent: source, nextContent: patchedAll });
 		return {
 			toolCallId: call.id,
@@ -1904,7 +1929,7 @@ function executeStrReplace(call: ToolCall, hooks: ToolExecutionHooks, execCtx: T
 	const lineNumber = source.slice(0, idx).split('\n').length;
 	const patched = source.slice(0, idx) + newStr + source.slice(idx + matchLen);
 	void hooks.beforeWrite?.({ path: relPath, previousContent: source });
-	fs.writeFileSync(full, patched, 'utf8');
+	writeTextFileAtomicSync(full, patched, meta.encoding);
 	void hooks.afterWrite?.({ path: relPath, previousContent: source, nextContent: patched });
 
 	return {
@@ -2307,18 +2332,7 @@ function parseGitPorcelainEntriesForWorkspace(
 }
 
 function readUtf8TextFileIfExists(fullPath: string): string | null {
-	try {
-		if (!fs.existsSync(fullPath)) {
-			return null;
-		}
-		const buf = fs.readFileSync(fullPath);
-		if (buf.includes(0)) {
-			return null;
-		}
-		return buf.toString('utf8');
-	} catch {
-		return null;
-	}
+	return readTextFileIfExistsSync(fullPath);
 }
 
 async function captureBashGitDirtyState(workspaceRoot: string): Promise<BashGitDirtyState | null> {
@@ -2434,6 +2448,65 @@ async function recordBashWorkspaceSnapshots(
 	}
 }
 
+function maskShellQuotedText(command: string): string {
+	let out = '';
+	let quote: '"' | "'" | null = null;
+	let escaped = false;
+	for (const ch of command) {
+		if (escaped) {
+			out += ' ';
+			escaped = false;
+			continue;
+		}
+		if (ch === '\\') {
+			out += quote ? ' ' : ch;
+			escaped = quote !== "'";
+			continue;
+		}
+		if (quote) {
+			if (ch === quote) {
+				quote = null;
+				out += ch;
+			} else {
+				out += ' ';
+			}
+			continue;
+		}
+		if (ch === '"' || ch === "'") {
+			quote = ch;
+			out += ch;
+			continue;
+		}
+		out += ch;
+	}
+	return out;
+}
+
+function validateBashCommandDoesNotDirectlyWriteFiles(command: string): string | null {
+	const inspected = maskShellQuotedText(command);
+	const allowedRedirectTarget = String.raw`(?:&?\d\b|/dev/null\b|/dev/fd/\d+\b|nul\b)`;
+	const fileRedirect = new RegExp(String.raw`(?:^|[^&])(?:\d*>>?|\d*>\||&>)\s*(?!${allowedRedirectTarget})`, 'i');
+	if (fileRedirect.test(inspected)) {
+		return 'Bash is not allowed to write files with shell redirection. Use Write/Edit for source files, or let the command output be captured by the tool.';
+	}
+	if (/(?:^|[;&|()]\s*)tee(?:\s+-[a-zA-Z]+)*\s+(?!\/dev\/null\b|nul\b|-($|\s))/i.test(inspected)) {
+		return 'Bash is not allowed to write files with tee. Use Write/Edit for source files.';
+	}
+	if (/(?:^|[;&|()]\s*)sed\b[^;&|]*\s-i(?:\s|$)/i.test(inspected)) {
+		return 'Bash is not allowed to edit files with sed -i. Use Edit instead.';
+	}
+	if (/(?:^|[;&|()]\s*)perl\b[^;&|]*\s-pi(?:\s|$)/i.test(inspected)) {
+		return 'Bash is not allowed to edit files with perl -pi. Use Edit instead.';
+	}
+	if (/\b(?:Set-Content|Add-Content|Out-File|Export-Csv)\b/i.test(inspected)) {
+		return 'Bash is not allowed to call PowerShell file-writing cmdlets. Use Write/Edit so the app controls encoding.';
+	}
+	if (/(?:^|[;&|()]\s*)(?:rm|rmdir|mv|cp|touch|mkdir)\b/i.test(inspected)) {
+		return 'Bash is not allowed to directly create, remove, copy, or move files. Use workspace tools for file changes.';
+	}
+	return null;
+}
+
 async function executeCommand(
 	call: ToolCall,
 	hooks: ToolExecutionHooks,
@@ -2443,6 +2516,10 @@ async function executeCommand(
 	const root = requireWorkspace(execCtx);
 	const command = String(call.arguments.command ?? '').trim();
 	if (!command) return { toolCallId: call.id, name: call.name, content: 'Error: command is required', isError: true };
+	const blockedReason = validateBashCommandDoesNotDirectlyWriteFiles(command);
+	if (blockedReason) {
+		return { toolCallId: call.id, name: call.name, content: `Blocked unsafe Bash command: ${blockedReason}`, isError: true };
+	}
 
 	const timeoutMsRaw = Number(call.arguments.timeout_ms);
 	const timeoutMs =
