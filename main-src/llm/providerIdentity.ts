@@ -21,6 +21,7 @@ type AnthropicClientOptions = NonNullable<ConstructorParameters<typeof Anthropic
 
 const RUNTIME_PROVIDER_SESSION_ID = randomUUID();
 const DEFAULT_APP_VERSION = '0.0.0';
+const ANTHROPIC_OFFICIAL_BASE_URL = 'https://api.anthropic.com';
 const CLAUDE_CODE_ANTHROPIC_BETA =
 	'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28';
 let CACHED_PROVIDER_DEVICE_ID: string | null = null;
@@ -95,6 +96,14 @@ function isClaudeOAuthClientOptions(options: AnthropicClientOptions): boolean {
 			? options.defaultQuery as Record<string, unknown>
 			: {};
 	return Boolean(authToken) && (isClaudeOAuthAccessToken(authToken) || defaultQuery.beta === 'true');
+}
+
+function withClaudeOAuthBaseURL(options: AnthropicClientOptions): AnthropicClientOptions {
+	const explicitBaseURL = typeof options.baseURL === 'string' ? options.baseURL.trim() : '';
+	return {
+		...options,
+		baseURL: explicitBaseURL || ANTHROPIC_OFFICIAL_BASE_URL,
+	};
 }
 
 function ensureMutableRequestHeaders(request: { headers?: unknown }): MutableRequestHeaders {
@@ -302,7 +311,7 @@ class ClaudeCodeOAuthAnthropicClient extends Anthropic {
 
 export function createAnthropicClient(options: AnthropicClientOptions): Anthropic {
 	if (isClaudeOAuthClientOptions(options)) {
-		return new ClaudeCodeOAuthAnthropicClient(options);
+		return new ClaudeCodeOAuthAnthropicClient(withClaudeOAuthBaseURL(options));
 	}
 	return new Anthropic(options);
 }

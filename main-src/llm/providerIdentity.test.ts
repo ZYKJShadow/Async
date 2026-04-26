@@ -46,6 +46,7 @@ describe('buildAnthropicAuthOptions', () => {
 
 	it('forces Claude Code OAuth wire headers on streaming requests', async () => {
 		vi.spyOn(console, 'log').mockImplementation(() => undefined);
+		vi.stubEnv('ANTHROPIC_BASE_URL', 'https://coder.api.visioncoder.cn');
 		let capturedUrl = '';
 		let capturedInit: { headers?: unknown } = {};
 		const client = createAnthropicClient({
@@ -74,8 +75,10 @@ describe('buildAnthropicAuthOptions', () => {
 			},
 		})).rejects.toThrow();
 
-		expect(new URL(capturedUrl).pathname).toBe('/v1/messages');
-		expect(new URL(capturedUrl).searchParams.get('beta')).toBe('true');
+		const captured = new URL(capturedUrl);
+		expect(captured.origin).toBe('https://api.anthropic.com');
+		expect(captured.pathname).toBe('/v1/messages');
+		expect(captured.searchParams.get('beta')).toBe('true');
 		expect(capturedHeader(capturedInit.headers, 'Authorization')).toBe('Bearer sk-ant-oat-test');
 		expect(capturedHeader(capturedInit.headers, 'x-api-key')).toBe('');
 		expect(capturedHeader(capturedInit.headers, 'Accept')).toBe('text/event-stream');
