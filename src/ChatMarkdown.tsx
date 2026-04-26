@@ -372,6 +372,18 @@ function ActivityLine({
 	);
 }
 
+function LiveThinkingStatus() {
+	const { t } = useI18n();
+	const label = t('agent.preflight.liveThinking');
+	return (
+		<div className="ref-live-thinking-status" aria-live="polite">
+			<span className="ref-live-thinking-status-text" data-text={label}>
+				{label}
+			</span>
+		</div>
+	);
+}
+
 const TypewriterMd = memo(function TypewriterMd({
 	text,
 	enabled,
@@ -520,6 +532,11 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 	// 流式期间 markdown 永远留在 preflight，回合结束（liveTurn=false）才一次性切到 outcome。
 	// 这避免了「文字外置→收回」的视觉抖动 —— 任意 unit 在流式期间不会在 preflight ↔ outcome 之间反向迁移。
 	const splitAsLiveTurn = showAgentWorking || preserveLivePreflight;
+	const showLiveThinkingTail =
+		agentMarkdown &&
+		splitAsLiveTurn &&
+		liveThoughtMeta != null &&
+		liveThoughtMeta.phase !== 'done';
 	const { preflight, outcome } = useMemo(
 		() => splitPreflightAndOutcome(renderUnits, { liveTurn: splitAsLiveTurn }),
 		[renderUnits, splitAsLiveTurn]
@@ -560,6 +577,9 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 			case 'markdown':
 				return <TypewriterMd key={`u-${i}`} text={seg.text} enabled={typewriter} />;
 			case 'thinking_group': {
+				if (showLiveThinkingTail) {
+					return null;
+				}
 				const thoughtMeta = thinkingGroupRenderMeta(seg.chunks, liveThoughtMeta);
 				if (insideShell) {
 					return (
@@ -773,6 +793,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 					onLayoutChange={onPreflightLayoutChange}
 				>
 					{preflight.map((seg, i) => renderUnitNode(seg, i, { insideShell: true }))}
+					{showLiveThinkingTail ? <LiveThinkingStatus key="live-thinking-tail" /> : null}
 				</AgentPreflightShell>
 			</div>
 		);
@@ -849,6 +870,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 			style={rootTurnFocusFillStyle}
 		>
 			{renderUnits.map((seg, i) => renderUnitNode(seg, i))}
+			{showLiveThinkingTail ? <LiveThinkingStatus key="live-thinking-tail" /> : null}
 		</div>
 	);
 });

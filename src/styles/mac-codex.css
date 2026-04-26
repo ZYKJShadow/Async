@@ -411,7 +411,9 @@
 :root[data-ui-style='mac-codex'] .ref-menu-submenu,
 :root[data-ui-style='mac-codex'] .ref-at-menu,
 :root[data-ui-style='mac-codex'] .ref-slash-menu,
+:root[data-ui-style='mac-codex'] .ref-model-dd,
 :root[data-ui-style='mac-codex'] .ref-plus-menu,
+:root[data-ui-style='mac-codex'] .ref-plus-submenu,
 :root[data-ui-style='mac-codex'] .ref-command-permission-menu,
 :root[data-ui-style='mac-codex'] .ref-void-select-menu,
 :root[data-ui-style='mac-codex'] .ref-explorer-ctx-menu {

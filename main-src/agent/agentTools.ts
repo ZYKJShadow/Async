@@ -122,7 +122,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Write',
 		description:
-			'Create a new file or completely overwrite an existing file. For small targeted edits on existing files, prefer **Edit**. When asked to persist Async/Cursor-style project rules as `.mdc` files, use `.async/rules/` under the workspace unless the user specifies another path.',
+			'Create a new file or completely overwrite an existing file. This tool writes through Async\'s encoding-safe file path: existing text file encodings/BOMs are preserved when possible, and new files default to UTF-8. For small targeted edits on existing files, prefer **Edit**. When asked to persist Async/Cursor-style project rules as `.mdc` files, use `.async/rules/` under the workspace unless the user specifies another path.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -138,7 +138,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Edit',
 		description:
-			'Edit a file by replacing **old_string** with **new_string**. When **replace_all** is false (default), **old_string** must match exactly once. When **replace_all** is true, every occurrence is replaced. If the match is not unique, read more context with **Read** and retry with a longer snippet.',
+			'Edit a file by replacing **old_string** with **new_string**. This tool preserves the existing text file encoding/BOM when possible. When **replace_all** is false (default), **old_string** must match exactly once. When **replace_all** is true, every occurrence is replaced. If the match is not unique, read more context with **Read** and retry with a longer snippet.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -262,7 +262,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Bash',
 		description:
-			'Run a shell command in the workspace directory. Use Unix shell syntax (POSIX bash) — on Windows the runtime executes via Git Bash / WSL, so commands like `cat`, `sed`, `awk`, forward-slash paths and `/dev/null` work everywhere. Use for tests, installs, builds, git, etc. Do not use Bash for reading or discovering source files when **Read**, **Glob**, or **Grep** can do the job. Do not use Bash to run `grep` or `rg` for codebase search — use **Grep**. Default timeout is 120 seconds; set **timeout_ms** for slower installs/downloads.',
+			'Run a shell command in the workspace directory. Use Unix shell syntax (POSIX bash) — on Windows the runtime prefers a validated Git Bash/MSYS/Cygwin bash and only accepts WSL if it can successfully run a probe command. Use for tests, builds, installs, git status/log/diff, and other command execution. Do not use Bash for reading or discovering source files when **Read**, **Glob**, or **Grep** can do the job. Do not use Bash to run `grep` or `rg` for codebase search — use **Grep**. Do not use Bash to create, edit, delete, copy, move, or overwrite files; use **Write**/**Edit** so file encodings are controlled by the app. Shell redirection to files, `tee`, `sed -i`, `perl -pi`, and PowerShell file-writing cmdlets are blocked. Default timeout is 120 seconds; set **timeout_ms** for slower installs/downloads.',
 		parameters: {
 			type: 'object',
 			properties: {

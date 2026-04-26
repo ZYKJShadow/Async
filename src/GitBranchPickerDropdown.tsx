@@ -83,6 +83,7 @@ export function GitBranchPickerDropdown({
 	const [busy, setBusy] = useState(false);
 	const [createOpen, setCreateOpen] = useState(false);
 	const [newBranchDraft, setNewBranchDraft] = useState('');
+	const [rendered, setRendered] = useState(open);
 	const [layout, setLayout] = useState(() =>
 		computeGitBranchPopoverLayout(
 			new DOMRect(0, 0, 0, 0),
@@ -175,7 +176,7 @@ export function GitBranchPickerDropdown({
 			window.removeEventListener('resize', onWin);
 			window.removeEventListener('scroll', onWin, true);
 		};
-	}, [open, computeLayout, branches.length, filtered.length, createOpen, query, listRefreshing, listFetchErr]);
+	}, [open, rendered, computeLayout, branches.length, filtered.length, createOpen, query, listRefreshing, listFetchErr]);
 
 	useEffect(() => {
 		if (!open || !shell?.subscribeLayout) {
@@ -187,27 +188,39 @@ export function GitBranchPickerDropdown({
 	}, [open, shell, computeLayout]);
 
 	useEffect(() => {
-		if (!open) {
-			setQuery('');
-			setCreateOpen(false);
-			setNewBranchDraft('');
-			setListFetchErr('');
-			setListRefreshing(false);
+		if (open) {
+			setRendered(true);
 			return;
 		}
-	}, [open]);
+		if (!rendered) {
+			return;
+		}
+		const id = window.setTimeout(() => setRendered(false), 120);
+		return () => window.clearTimeout(id);
+	}, [open, rendered]);
 
 	useEffect(() => {
-		if (open && createOpen) {
+		if (open || rendered) {
+			return;
+		}
+		setQuery('');
+		setCreateOpen(false);
+		setNewBranchDraft('');
+		setListFetchErr('');
+		setListRefreshing(false);
+	}, [open, rendered]);
+
+	useEffect(() => {
+		if (open && rendered && createOpen) {
 			requestAnimationFrame(() => createInputRef.current?.focus());
 		}
-	}, [open, createOpen]);
+	}, [open, rendered, createOpen]);
 
 	useEffect(() => {
-		if (open && !createOpen) {
+		if (open && rendered && !createOpen) {
 			requestAnimationFrame(() => searchRef.current?.focus());
 		}
-	}, [open, createOpen]);
+	}, [open, rendered, createOpen]);
 
 	useEffect(() => {
 		if (!open) {
@@ -277,7 +290,7 @@ export function GitBranchPickerDropdown({
 		}
 	};
 
-	if (!open) {
+	if (!rendered) {
 		return null;
 	}
 
@@ -287,7 +300,7 @@ export function GitBranchPickerDropdown({
 	const node = (
 		<div
 			ref={menuRef}
-			className={`ref-git-branch-dd ${layout.placement === 'above' ? 'ref-git-branch-dd--above' : ''}`}
+			className={`ref-git-branch-dd ${layout.placement === 'above' ? 'ref-git-branch-dd--above' : ''} ${!open ? 'is-closing' : ''}`}
 			role="dialog"
 			aria-label={t('git.branchPicker.dialogAria')}
 			style={{

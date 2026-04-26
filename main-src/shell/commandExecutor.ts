@@ -3,6 +3,7 @@ import { getShellProvider } from './detectShell.js';
 import { createBashProviderWithPath } from './bashProvider.js';
 import { createPowerShellProviderWithPath } from './powershellProvider.js';
 import type { ShellProvider, ShellType } from './shellProvider.js';
+import { decodeShellOutput } from '../textEncoding.js';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
@@ -76,16 +77,13 @@ async function resolveCommand(
 	return { executable: built.command, args: built.args, shellType: provider.type };
 }
 
-function appendChunk(current: string, chunk: string, maxBytes: number): { value: string; truncated: boolean } {
-	const next = current + chunk;
-	if (Buffer.byteLength(next, 'utf8') <= maxBytes) {
+function appendChunk(current: Buffer, chunk: Buffer | string, maxBytes: number): { value: Buffer; truncated: boolean } {
+	const chunkBuffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+	const next = current.length === 0 ? chunkBuffer : Buffer.concat([current, chunkBuffer], current.length + chunkBuffer.length);
+	if (next.length <= maxBytes) {
 		return { value: next, truncated: false };
 	}
-	let value = next;
-	while (Buffer.byteLength(value, 'utf8') > maxBytes && value.length > 0) {
-		value = value.slice(Math.max(1, value.length - maxBytes));
-	}
-	return { value, truncated: true };
+	return { value: Buffer.from(next.subarray(next.length - maxBytes)), truncated: true };
 }
 
 export async function executeShellCommand(command: string, opts: CommandExecutorOptions = {}): Promise<CommandExecutorResult> {
@@ -99,8 +97,8 @@ export async function executeShellCommand(command: string, opts: CommandExecutor
 			return;
 		}
 
-		let stdout = '';
-		let stderr = '';
+		let stdoutBuffer: Buffer = Buffer.alloc(0);
+		let stderrBuffer: Buffer = Buffer.alloc(0);
 		let truncated = false;
 		let timedOut = false;
 		let settled = false;
@@ -120,6 +118,8 @@ export async function executeShellCommand(command: string, opts: CommandExecutor
 			}
 			settled = true;
 			for (const cleanup of cleanupFns) cleanup();
+			const stdout = decodeShellOutput(stdoutBuffer);
+			const stderr = decodeShellOutput(stderrBuffer);
 			const output = stdout + (stderr ? `${stdout ? '\n--- stderr ---\n' : ''}${stderr}` : '');
 			resolve({
 				command,
@@ -163,16 +163,14 @@ export async function executeShellCommand(command: string, opts: CommandExecutor
 		opts.signal?.addEventListener('abort', abort, { once: true });
 		cleanupFns.push(() => opts.signal?.removeEventListener('abort', abort));
 
-		child.stdout?.setEncoding('utf8');
-		child.stderr?.setEncoding('utf8');
-		child.stdout?.on('data', (chunk: string) => {
-			const next = appendChunk(stdout, chunk, maxOutputBytes);
-			stdout = next.value;
+		child.stdout?.on('data', (chunk: Buffer | string) => {
+			const next = appendChunk(stdoutBuffer, chunk, maxOutputBytes);
+			stdoutBuffer = next.value;
 			truncated ||= next.truncated;
 		});
-		child.stderr?.on('data', (chunk: string) => {
-			const next = appendChunk(stderr, chunk, maxOutputBytes);
-			stderr = next.value;
+		child.stderr?.on('data', (chunk: Buffer | string) => {
+			const next = appendChunk(stderrBuffer, chunk, maxOutputBytes);
+			stderrBuffer = next.value;
 			truncated ||= next.truncated;
 		});
 		child.once('error', (error) => {

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { decodeTextBuffer, encodeTextBuffer, readTextFileSyncWithMetadata } from '../textEncoding.js';
 
 const resolveTerminalToolExecCreateOptsMock = vi.fn();
 const createTerminalSessionMock = vi.fn();
@@ -66,6 +67,76 @@ describe('executeTool Bash', () => {
 
 		expect(result.isError).toBe(false);
 		expect(result.content).not.toContain('hooks is not defined');
+	});
+
+	it('blocks direct shell redirection writes', async () => {
+		const result = await executeTool(
+			{
+				id: 'bash-write-1',
+				name: 'Bash',
+				arguments: { command: 'echo hello > notes.txt' },
+			},
+			undefined,
+			{ workspaceRoot: process.cwd() }
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain('Blocked unsafe Bash command');
+		expect(executeShellCommandMock).not.toHaveBeenCalled();
+	});
+});
+
+describe('executeTool file encoding', () => {
+	it('preserves UTF-16LE BOM when Write overwrites an existing text file', async () => {
+		const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-write-encoding-'));
+		const file = path.join(workspaceRoot, 'utf16.txt');
+		fs.writeFileSync(file, encodeTextBuffer('旧内容', 'utf16le-bom'));
+
+		const result = await executeTool(
+			{
+				id: 'write-utf16-1',
+				name: 'Write',
+				arguments: { file_path: 'utf16.txt', content: '新内容' },
+			},
+			undefined,
+			{ workspaceRoot }
+		);
+
+		expect(result.isError).toBe(false);
+		const raw = fs.readFileSync(file);
+		expect([...raw.subarray(0, 2)]).toEqual([0xff, 0xfe]);
+		expect(readTextFileSyncWithMetadata(file).text).toBe('新内容');
+	});
+
+	it('preserves GB18030 when Edit modifies an existing legacy-encoded file', async () => {
+		const previous = process.env.ASYNC_LEGACY_TEXT_ENCODING;
+		process.env.ASYNC_LEGACY_TEXT_ENCODING = 'gb18030';
+		try {
+			const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-edit-encoding-'));
+			const file = path.join(workspaceRoot, 'gbk.txt');
+			fs.writeFileSync(file, encodeTextBuffer('中文 old', 'gb18030'));
+
+			const result = await executeTool(
+				{
+					id: 'edit-gb18030-1',
+					name: 'Edit',
+					arguments: { file_path: 'gbk.txt', old_string: 'old', new_string: 'new' },
+				},
+				undefined,
+				{ workspaceRoot }
+			);
+
+			expect(result.isError).toBe(false);
+			const decoded = decodeTextBuffer(fs.readFileSync(file), { preferredLegacyEncoding: 'gb18030' });
+			expect(decoded.text).toBe('中文 new');
+			expect(decoded.encoding).toBe('gb18030');
+		} finally {
+			if (previous === undefined) {
+				delete process.env.ASYNC_LEGACY_TEXT_ENCODING;
+			} else {
+				process.env.ASYNC_LEGACY_TEXT_ENCODING = previous;
+			}
+		}
 	});
 });
 

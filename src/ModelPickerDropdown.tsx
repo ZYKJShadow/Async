@@ -79,17 +79,31 @@ export function ModelPickerDropdown({
 	/** 点击「编辑」后展开右栏，并锁定为该条模型展示说明 */
 	const [optsOpen, setOptsOpen] = useState(false);
 	const [optsModelId, setOptsModelId] = useState<string | null>(null);
+	const [rendered, setRendered] = useState(open);
 
 	const panelModelId = optsOpen ? (optsModelId ?? selectedId) : selectedId;
 	const thinkingLevel = getThinkingLevel(panelModelId);
 	const thinkingOn = thinkingLevel !== 'off';
 
 	useEffect(() => {
-		if (!open) {
-			setOptsOpen(false);
-			setOptsModelId(null);
+		if (open) {
+			setRendered(true);
+			return;
 		}
-	}, [open]);
+		if (!rendered) {
+			return;
+		}
+		const id = window.setTimeout(() => setRendered(false), 120);
+		return () => window.clearTimeout(id);
+	}, [open, rendered]);
+
+	useEffect(() => {
+		if (open || rendered) {
+			return;
+		}
+		setOptsOpen(false);
+		setOptsModelId(null);
+	}, [open, rendered]);
 
 	const computeLayout = useCallback(() => {
 		const el = anchorRef.current;
@@ -166,7 +180,7 @@ export function ModelPickerDropdown({
 		};
 	}, [open, onClose, anchorRef]);
 
-	if (!open) {
+	if (!rendered) {
 		return null;
 	}
 
@@ -185,7 +199,7 @@ export function ModelPickerDropdown({
 	const node = (
 		<div
 			ref={menuRef}
-			className={`ref-model-dd ref-model-dd--split ${optsOpen ? 'ref-model-dd--opts-open' : ''} ${menuLayout.placement === 'above' ? 'ref-model-dd--above' : ''}`}
+			className={`ref-model-dd ref-model-dd--split ${optsOpen ? 'ref-model-dd--opts-open' : ''} ${menuLayout.placement === 'above' ? 'ref-model-dd--above' : ''} ${!open ? 'is-closing' : ''}`}
 			style={{
 				left: menuLayout.left,
 				width: menuLayout.minWidth,

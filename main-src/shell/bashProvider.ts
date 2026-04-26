@@ -5,7 +5,9 @@
  * 适用于 macOS, Linux, WSL 等类 Unix 系统
  */
 
+import { execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
+import * as path from 'node:path';
 import type { ShellProvider, ShellCommandResult, ShellCommandOptions } from './shellProvider';
 
 /** Bash Shell Provider 实现 */
@@ -57,6 +59,73 @@ function isExecutable(shellPath: string): boolean {
   }
 }
 
+function isSupportedShellPath(shellPath: string): boolean {
+	return /(?:^|[\\/])(bash|zsh|sh)(?:\.exe)?$/i.test(shellPath) || /^(bash|zsh|sh)(?:\.exe)?$/i.test(shellPath);
+}
+
+function uniquePaths(paths: string[]): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	for (const p of paths) {
+		const normalized = p.trim();
+		if (!normalized) continue;
+		const key = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(normalized);
+	}
+	return out;
+}
+
+function findCommandsOnPath(command: string): string[] {
+	const pathEnv = process.env.PATH ?? '';
+	const pathExts =
+		process.platform === 'win32'
+			? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+			: [''];
+	const names =
+		process.platform === 'win32' && !path.extname(command)
+			? pathExts.map((ext) => `${command}${ext.toLowerCase()}`)
+			: [command];
+	const found: string[] = [];
+	for (const rawDir of pathEnv.split(path.delimiter)) {
+		const dir = rawDir.trim().replace(/^"|"$/g, '');
+		if (!dir) continue;
+		for (const name of names) {
+			const candidate = path.join(dir, name);
+			if (isExecutable(candidate)) {
+				found.push(candidate);
+			}
+		}
+	}
+	return uniquePaths(found);
+}
+
+function getGitBashCandidatesFromGitExe(gitExe: string): string[] {
+	const gitDir = path.dirname(gitExe);
+	const rootFromCmd = path.basename(gitDir).toLowerCase() === 'cmd' ? path.dirname(gitDir) : null;
+	const rootFromMingw = path.basename(path.dirname(gitDir)).toLowerCase().startsWith('mingw') ? path.dirname(path.dirname(gitDir)) : null;
+	const root = rootFromCmd ?? rootFromMingw;
+	if (!root) return [];
+	return [path.join(root, 'bin', 'bash.exe'), path.join(root, 'usr', 'bin', 'bash.exe')];
+}
+
+export function probeUnixShell(shellPath: string): boolean {
+	if (!isSupportedShellPath(shellPath) || !isExecutable(shellPath)) {
+		return false;
+	}
+	try {
+		const out = execFileSync(shellPath, ['-lc', 'printf __async_bash_ok__'], {
+			timeout: 3000,
+			stdio: ['ignore', 'pipe', 'ignore'],
+			windowsHide: true,
+		});
+		return Buffer.isBuffer(out) && out.toString('ascii').includes('__async_bash_ok__');
+	} catch {
+		return false;
+	}
+}
+
 /**
  * 常见的 Bash/Zsh 路径列表（按优先级排序）
  */
@@ -82,6 +151,8 @@ function getWindowsBashCandidates(): string[] {
   const systemRoot = process.env.SystemRoot ?? 'C:\\Windows';
 
   const candidates = [
+    'C:\\Git\\bin\\bash.exe',
+    'C:\\Git\\usr\\bin\\bash.exe',
     `${programFiles}\\Git\\bin\\bash.exe`,
     `${programFiles}\\Git\\usr\\bin\\bash.exe`,
     `${programFilesX86}\\Git\\bin\\bash.exe`,
@@ -93,7 +164,9 @@ function getWindowsBashCandidates(): string[] {
   if (localAppData) {
     candidates.unshift(`${localAppData}\\Programs\\Git\\bin\\bash.exe`);
   }
-  return candidates;
+  const fromGitExe = findCommandsOnPath('git').flatMap(getGitBashCandidatesFromGitExe);
+  const fromPath = findCommandsOnPath('bash');
+  return uniquePaths([...candidates, ...fromGitExe, ...fromPath]);
 }
 
 /**
@@ -105,25 +178,29 @@ function getWindowsBashCandidates(): string[] {
  * 3. 平台默认搜索路径（POSIX 系统下的常见 bash/zsh，Windows 下的 Git Bash / MSYS2 / WSL）
  */
 export async function findUnixShell(): Promise<string | null> {
+  const candidates: string[] = [];
+
   // 1. 检查自定义 Shell 覆盖
   const shellOverride = process.env.CLAUDE_CODE_SHELL;
-  if (shellOverride && isExecutable(shellOverride)) {
-    return shellOverride;
+  if (shellOverride && isSupportedShellPath(shellOverride)) {
+    candidates.push(shellOverride);
   }
 
   // 2. 检查 SHELL 环境变量
   const envShell = process.env.SHELL;
-  if (envShell && isExecutable(envShell)) {
-    // 只支持 bash 和 zsh
-    if (envShell.includes('bash') || envShell.includes('zsh')) {
-      return envShell;
-    }
+  if (envShell && isSupportedShellPath(envShell)) {
+    candidates.push(envShell);
   }
 
   // 3. 搜索平台默认路径
   const searchPaths = process.platform === 'win32' ? getWindowsBashCandidates() : COMMON_UNIX_SHELLS;
-  for (const shellPath of searchPaths) {
-    if (isExecutable(shellPath)) {
+  candidates.push(...searchPaths);
+  if (process.platform !== 'win32') {
+    candidates.push(...findCommandsOnPath('zsh'), ...findCommandsOnPath('bash'), ...findCommandsOnPath('sh'));
+  }
+
+  for (const shellPath of uniquePaths(candidates)) {
+    if (probeUnixShell(shellPath)) {
       return shellPath;
     }
   }
