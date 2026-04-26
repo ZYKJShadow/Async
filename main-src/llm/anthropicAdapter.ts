@@ -22,6 +22,7 @@ import { withLlmTransportRetry } from './llmTransportRetry.js';
 import { formatLlmSdkError } from './formatLlmSdkError.js';
 import {
 	applyAnthropicProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
@@ -80,7 +81,7 @@ export async function streamAnthropic(
 // maxRetries: 0，避免流式请求自动重试拉长等待
 	const client = new Anthropic(
 		applyAnthropicProviderIdentity(settings, {
-			...(oauthAuth ? { authToken: key, apiKey: null } : { apiKey: key }),
+			...buildAnthropicAuthOptions(key, oauthAuth),
 			baseURL: baseURL || undefined,
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,

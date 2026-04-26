@@ -265,7 +265,7 @@ async function handleProviderOAuthLoginPayload(rawPayload: unknown) {
 					: undefined,
 		});
 		const discoveredModels =
-			authProvider === 'antigravity'
+			authProvider === 'claude' || authProvider === 'antigravity'
 				? await discoverProviderOAuthModels(login).catch(() => [])
 				: [];
 		const next = appendOAuthLoginProvider({
@@ -328,7 +328,7 @@ export function registerSettingsHandlers(): void {
 		) {
 			return { ok: false as const, message: 'Invalid provider payload.' };
 		}
-		if (provider.oauthAuth?.provider === 'antigravity') {
+		if (provider.oauthAuth?.provider === 'claude' || provider.oauthAuth?.provider === 'antigravity') {
 			try {
 				const auth = await ensureFreshOAuthAuthForRequest(provider.id, provider.oauthAuth);
 				const [models, usage] = await Promise.all([

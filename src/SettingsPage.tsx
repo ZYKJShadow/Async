@@ -1612,7 +1612,7 @@ export function SettingsPage({
 														<div className="ref-settings-provider-models-head">
 															<h3 className="ref-settings-provider-models-title">{t('settings.modelsInProvider')}</h3>
 															<div className="ref-settings-provider-models-actions">
-																{prov.paradigm === 'openai-compatible' || prov.oauthAuth?.provider === 'antigravity' ? (
+																{prov.paradigm === 'openai-compatible' || prov.oauthAuth?.provider === 'claude' || prov.oauthAuth?.provider === 'antigravity' ? (
 																	<button
 																		type="button"
 																		className="ref-settings-add-model ref-settings-add-model--small ref-settings-provider-search-btn"

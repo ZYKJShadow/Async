@@ -64,6 +64,7 @@ import { getEffectiveMcpServerConfigs } from '../plugins/pluginRuntimeService.js
 import {
 	applyAnthropicProviderIdentity,
 	applyOpenAIProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
@@ -1324,7 +1325,7 @@ async function runAnthropicLoop(
 	}
 	const client = new Anthropic(
 		applyAnthropicProviderIdentity(settings, {
-			...(oauthAuth ? { authToken: key, apiKey: null } : { apiKey: key }),
+			...buildAnthropicAuthOptions(key, oauthAuth),
 			baseURL: baseURL || undefined,
 			...(httpAgent ? { httpAgent } : {}),
 			timeout: llmSdkResponseHeadTimeoutMs(),
@@ -1677,7 +1678,9 @@ async function runAnthropicLoop(
 			apiKey: key,
 			baseURL,
 			proxyUrl: proxyRaw || undefined,
+			providerId: options.requestProviderId,
 			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, options.requestProviderIdentity),
+			oauthAuth,
 			contextWindowTokens: options.contextWindowTokens,
 			maxOutputTokens: options.maxOutputTokens,
 			state: options.contextCompactState,

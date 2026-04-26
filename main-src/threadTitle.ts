@@ -7,9 +7,12 @@ import { resolveModelRequest } from './llm/modelResolve.js';
 import {
 	applyAnthropicProviderIdentity,
 	applyOpenAIProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from './llm/providerIdentity.js';
+import { ensureFreshOAuthAuthForRequest } from './llm/providerOAuthLogin.js';
 import { openAICompatibleEffectiveTemperature } from './llm/thinkingLevel.js';
 
 export const THREAD_TITLE_PLACEHOLDER = '???';
@@ -196,20 +199,26 @@ export async function generateThreadTitle(
 		}
 
 		if (resolved.paradigm === 'anthropic') {
-			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, resolved.providerIdentity);
+			const oauthAuth =
+				resolved.oauthAuth?.provider === 'claude'
+					? await ensureFreshOAuthAuthForRequest(resolved.providerId, resolved.oauthAuth)
+					: undefined;
+			const key = (oauthAuth?.accessToken ?? resolved.apiKey).trim();
+			const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? resolved.providerIdentity;
+			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, requestProviderIdentity);
 			const client = new Anthropic(
 				applyAnthropicProviderIdentity(settings, {
-					apiKey: resolved.apiKey,
+					...buildAnthropicAuthOptions(key, oauthAuth),
 					baseURL: resolved.baseURL,
 					maxRetries: 0,
-				}, resolved.providerIdentity)
+				}, requestProviderIdentity)
 			);
 			const response = await client.messages.create({
 				model: resolved.requestModelId,
 				system: prependProviderIdentitySystemPrompt(
 					settings,
 					buildThreadTitleSystemPrompt(ruleContext),
-					resolved.providerIdentity
+					requestProviderIdentity
 				),
 				max_tokens: 120,
 				temperature: 0,

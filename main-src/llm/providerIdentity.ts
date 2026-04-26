@@ -65,6 +65,17 @@ export function providerIdentityForOAuthAuth(
 	return providerIdentityForOAuthProvider(auth?.provider);
 }
 
+export function buildAnthropicAuthOptions(
+	apiKey: string,
+	auth?: Pick<ProviderOAuthAuthRecord, 'provider' | 'accessToken'> | null
+): Pick<AnthropicClientOptions, 'apiKey' | 'authToken'> {
+	const oauthToken = auth?.provider === 'claude' ? auth.accessToken.trim() : '';
+	if (oauthToken) {
+		return { authToken: oauthToken, apiKey: null };
+	}
+	return { apiKey: apiKey.trim() };
+}
+
 function mergeDefaultHeaders(
 	existing: OpenAIClientOptions['defaultHeaders'] | AnthropicClientOptions['defaultHeaders'],
 	identityHeaders: Record<string, string>

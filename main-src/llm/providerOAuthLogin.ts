@@ -47,6 +47,74 @@ const ANTIGRAVITY_SKIPPED_DYNAMIC_MODELS = new Set([
 	'gemini-2.5-flash-thinking',
 	'gemini-2.5-pro',
 ]);
+const CLAUDE_OAUTH_MODELS: ProviderOAuthDiscoveredModel[] = [
+	{
+		id: 'claude-haiku-4-5-20251001',
+		displayName: 'Claude 4.5 Haiku',
+		contextWindowTokens: 200_000,
+		maxOutputTokens: 64_000,
+	},
+	{
+		id: 'claude-sonnet-4-5-20250929',
+		displayName: 'Claude 4.5 Sonnet',
+		contextWindowTokens: 200_000,
+		maxOutputTokens: 64_000,
+	},
+	{
+		id: 'claude-sonnet-4-6',
+		displayName: 'Claude 4.6 Sonnet',
+		contextWindowTokens: 200_000,
+		maxOutputTokens: 64_000,
+	},
+	{
+		id: 'claude-opus-4-6',
+		displayName: 'Claude 4.6 Opus',
+		contextWindowTokens: 1_000_000,
+		maxOutputTokens: 128_000,
+	},
+	{
+		id: 'claude-opus-4-7',
+		displayName: 'Claude Opus 4.7',
+		contextWindowTokens: 1_000_000,
+		maxOutputTokens: 128_000,
+	},
+	{
+		id: 'claude-opus-4-5-20251101',
+		displayName: 'Claude 4.5 Opus',
+		contextWindowTokens: 200_000,
+		maxOutputTokens: 64_000,
+	},
+	{
+		id: 'claude-opus-4-1-20250805',
+		displayName: 'Claude 4.1 Opus',
+		contextWindowTokens: 200_000,
+		maxOutputTokens: 32_000,
+	},
+	{
+		id: 'claude-opus-4-20250514',
+		displayName: 'Claude 4 Opus',
+		contextWindowTokens: 200_000,
+		maxOutputTokens: 32_000,
+	},
+	{
+		id: 'claude-sonnet-4-20250514',
+		displayName: 'Claude 4 Sonnet',
+		contextWindowTokens: 200_000,
+		maxOutputTokens: 64_000,
+	},
+	{
+		id: 'claude-3-7-sonnet-20250219',
+		displayName: 'Claude 3.7 Sonnet',
+		contextWindowTokens: 128_000,
+		maxOutputTokens: 8_192,
+	},
+	{
+		id: 'claude-3-5-haiku-20241022',
+		displayName: 'Claude 3.5 Haiku',
+		contextWindowTokens: 128_000,
+		maxOutputTokens: 8_192,
+	},
+];
 const ANTIGRAVITY_SCOPES = [
 	'https://www.googleapis.com/auth/cloud-platform',
 	'https://www.googleapis.com/auth/userinfo.email',
@@ -405,6 +473,9 @@ export async function fetchProviderOAuthUsageSummary(
 export async function discoverProviderOAuthModels(
 	auth: ProviderOAuthAuthRecord
 ): Promise<ProviderOAuthDiscoveredModel[]> {
+	if (auth.provider === 'claude') {
+		return CLAUDE_OAUTH_MODELS.map((model) => ({ ...model }));
+	}
 	if (auth.provider !== 'antigravity') {
 		return [];
 	}

@@ -6,14 +6,17 @@ import { getAutoCompactThresholdForSend, type ModelContextResolveOpts } from '..
 import { withLlmTransportRetry } from '../llm/llmTransportRetry.js';
 import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import { anthropicEffectiveMaxTokens } from '../llm/thinkingLevel.js';
-import type { ShellSettings } from '../settingsStore.js';
+import type { ProviderOAuthAuthRecord, ShellSettings } from '../settingsStore.js';
 import type { ProviderIdentitySettings } from '../../src/providerIdentitySettings.js';
 import {
 	applyAnthropicProviderIdentity,
 	applyOpenAIProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from '../llm/providerIdentity.js';
+import { ensureFreshOAuthAuthForRequest } from '../llm/providerOAuthLogin.js';
 
 export type OpenAIMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 export type AnthropicMessage = MessageParam;
@@ -33,7 +36,9 @@ export type AgentContextCompactionOptions = {
 	apiKey: string;
 	baseURL?: string;
 	proxyUrl?: string;
+	providerId?: string;
 	providerIdentity?: ProviderIdentitySettings;
+	oauthAuth?: ProviderOAuthAuthRecord;
 	contextWindowTokens?: number;
 	maxOutputTokens: number;
 	state?: AgentContextCompactState;
@@ -377,15 +382,20 @@ async function summarizeWithOpenAI(options: AgentContextCompactionOptions, histo
 }
 
 async function summarizeWithAnthropic(options: AgentContextCompactionOptions, historyText: string): Promise<string> {
-	const key = options.apiKey.trim();
+	const oauthAuth =
+		options.oauthAuth?.provider === 'claude'
+			? await ensureFreshOAuthAuthForRequest(options.providerId, options.oauthAuth)
+			: undefined;
+	const key = (oauthAuth?.accessToken ?? options.apiKey).trim();
 	if (!key) {
 		throw new Error('missing Anthropic API key for context compaction');
 	}
+	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.providerIdentity;
 	const client = new Anthropic({
 		...applyAnthropicProviderIdentity(
-			{ providerIdentity: options.providerIdentity } satisfies ShellSettings,
+			{ providerIdentity: requestProviderIdentity } satisfies ShellSettings,
 			{
-				apiKey: key,
+				...buildAnthropicAuthOptions(key, oauthAuth),
 				baseURL: options.baseURL?.trim() || undefined,
 				maxRetries: 1,
 				timeout: 60_000,
@@ -393,7 +403,7 @@ async function summarizeWithAnthropic(options: AgentContextCompactionOptions, hi
 			}
 		),
 	});
-	const identitySettings: ShellSettings = { providerIdentity: options.providerIdentity };
+	const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
 	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
 	const response = await withLlmTransportRetry(() => client.messages.create({
 		model: options.model,
