@@ -1467,6 +1467,7 @@ export const messagesEn: Record<string, string> = {
 	'agent.edit.streamingPlaceholder': 'Streaming patch…',
 	'agent.working': 'Continuing to work on this change…',
 	'agent.preflight.working': 'Thinking & exploring…',
+	'agent.preflight.liveThinking': 'Thinking',
 	'agent.preflight.summary.idle': 'Thinking & exploration',
 	'agent.preflight.summary.done': 'Thinking & exploration (done)',
 	'agent.emptyStructuredReply':

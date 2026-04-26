@@ -5194,6 +5194,60 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	opacity: 0.75;
 }
 
+.ref-live-thinking-status {
+	display: inline-flex;
+	align-self: flex-start;
+	min-width: 0;
+	padding: 2px 0;
+	font-size: 12px;
+	line-height: 1.45;
+	font-weight: 500;
+	letter-spacing: 0;
+}
+
+.ref-live-thinking-status-text {
+	display: inline-block;
+	position: relative;
+	color: color-mix(in srgb, var(--void-fg-3) 82%, var(--void-fg-2));
+	overflow: hidden;
+}
+
+.ref-live-thinking-status-text::after {
+	content: attr(data-text);
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	color: transparent;
+	background:
+		linear-gradient(
+			100deg,
+			transparent 0%,
+			transparent 42%,
+			color-mix(in srgb, var(--void-fg-2) 96%, #ffffff) 50%,
+			transparent 58%,
+			transparent 100%
+		);
+	background-size: 300% 100%;
+	background-position: 100% 50%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	will-change: background-position;
+	animation: ref-live-thinking-sweep 2.2s linear infinite;
+}
+
+@keyframes ref-live-thinking-sweep {
+	from { background-position: 100% 50%; }
+	to   { background-position: 0% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-live-thinking-status-text::after {
+		content: none;
+		animation: none;
+	}
+}
+
 /* ===== 壳内紧凑思考条目 (PreflightThinkingItem) ===== */
 .ref-preflight-thinking {
 	display: flex;

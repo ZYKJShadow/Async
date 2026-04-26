@@ -1450,6 +1450,7 @@ export const messagesZhCN: Record<string, string> = {
 	'agent.edit.streamingPlaceholder': '正在流式接收补丁…',
 	'agent.working': '正在继续处理本次改动…',
 	'agent.preflight.working': '正在分析…',
+	'agent.preflight.liveThinking': '正在思考',
 	'agent.preflight.summary.idle': '分析中',
 	'agent.preflight.summary.done': '分析完成',
 	'agent.emptyStructuredReply':
