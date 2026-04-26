@@ -89,7 +89,7 @@ export function registerGitHandlers(): void {
 						changedPaths.push(wsRel);
 					}
 				}
-				const branch = branchListPack.current?.trim() ? branchListPack.current : 'master';
+				const branch = branchListPack.current?.trim() ? branchListPack.current : '';
 				const branches = branchListPack.branches;
 				const current = branchListPack.current;
 				let previews: Record<string, gitService.DiffPreview> = {};
@@ -161,6 +161,76 @@ export function registerGitHandlers(): void {
 			return await gitService.withGitWorkspaceRootAsync(root, async () => {
 				await gitService.gitPush();
 				return { ok: true as const };
+			});
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	ipcMain.handle(
+		'git:pushSetUpstream',
+		async (event, payload: { branch?: string; remote?: string } | string | undefined) => {
+			const root = senderWorkspaceRoot(event);
+			if (!root) {
+				return { ok: false as const, error: 'No workspace' };
+			}
+			const branch =
+				typeof payload === 'string' ? payload : typeof payload?.branch === 'string' ? payload.branch : '';
+			const remote =
+				typeof payload === 'object' && payload && typeof payload.remote === 'string' && payload.remote
+					? payload.remote
+					: 'origin';
+			try {
+				return await gitService.withGitWorkspaceRootAsync(root, async () => {
+					await gitService.gitPushSetUpstream(branch, remote);
+					return { ok: true as const };
+				});
+			} catch (e) {
+				return { ok: false as const, error: String(e) };
+			}
+		}
+	);
+
+	ipcMain.handle('git:hasStaged', async (event) => {
+		const root = senderWorkspaceRoot(event);
+		if (!root) {
+			return { ok: false as const, error: 'No workspace' };
+		}
+		try {
+			return await gitService.withGitWorkspaceRootAsync(root, async () => {
+				const hasStaged = await gitService.gitHasStaged();
+				return { ok: true as const, hasStaged };
+			});
+		} catch (e) {
+			return { ok: false as const, error: String(e) };
+		}
+	});
+
+	ipcMain.handle('git:remoteInfo', async (event) => {
+		const root = senderWorkspaceRoot(event);
+		if (!root) {
+			return { ok: false as const, error: 'No workspace' };
+		}
+		try {
+			return await gitService.withGitWorkspaceRootAsync(root, async () => {
+				const probe = await gitService.gitProbeContext();
+				if (!probe.ok) {
+					return { ok: false as const, error: probe.message };
+				}
+				const [branch, upstream, remoteUrl, defaultBranch] = await Promise.all([
+					gitService.gitBranch(),
+					gitService.gitUpstreamRef(),
+					gitService.gitRemoteOriginUrl(),
+					gitService.gitRemoteDefaultBranch(),
+				]);
+				return {
+					ok: true as const,
+					branch,
+					upstream,
+					hasUpstream: Boolean(upstream),
+					remoteUrl,
+					defaultBranch,
+				};
 			});
 		} catch (e) {
 			return { ok: false as const, error: String(e) };

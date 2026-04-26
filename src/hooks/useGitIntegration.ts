@@ -65,7 +65,7 @@ export function useGitIntegration(shell: Shell | undefined, workspace: string | 
 			previewPathsLoadedRef.current = new Set();
 			startTransition(() => {
 				setGitStatusOk(true);
-				setGitBranch(currentBranch || statusR.branch || 'master');
+				setGitBranch(currentBranch || statusR.branch || '—');
 				setGitLines(statusR.lines);
 				setGitPathStatus(statusR.pathStatus ?? {});
 				setGitChangedPaths(changedPaths);

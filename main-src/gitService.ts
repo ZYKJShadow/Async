@@ -310,6 +310,62 @@ export async function gitPush(): Promise<void> {
 	await git(['push']);
 }
 
+export async function gitPushSetUpstream(branch: string, remote = 'origin'): Promise<void> {
+	const b = assertSafeBranchSegment(branch);
+	const r = assertSafeBranchSegment(remote);
+	await git(['push', '-u', r, b]);
+}
+
+/** 是否有任何已暂存（index）变更 */
+export async function gitHasStaged(): Promise<boolean> {
+	try {
+		await git(['diff', '--cached', '--quiet']);
+		return false;
+	} catch (e) {
+		const code = (e && typeof e === 'object' && 'code' in e ? (e as { code?: unknown }).code : undefined) as
+			| number
+			| string
+			| undefined;
+		// `--quiet` 退出码 1 == 有差异；其他错误码视为异常
+		if (code === 1 || code === '1') {
+			return true;
+		}
+		throw e;
+	}
+}
+
+/** 远端 origin 的 URL（如配置）；无远端时为空字符串 */
+export async function gitRemoteOriginUrl(): Promise<string> {
+	try {
+		return (await git(['config', '--get', 'remote.origin.url'])).trim();
+	} catch {
+		return '';
+	}
+}
+
+/** 当前分支是否设置了 upstream（upstream ref，如 `origin/feature-x`）；无则空串 */
+export async function gitUpstreamRef(): Promise<string> {
+	try {
+		return (await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])).trim();
+	} catch {
+		return '';
+	}
+}
+
+/** 远端 HEAD 指向的默认分支（如 `main`）；推断不到则空串 */
+export async function gitRemoteDefaultBranch(remote = 'origin'): Promise<string> {
+	try {
+		const ref = (await git(['symbolic-ref', `refs/remotes/${remote}/HEAD`])).trim();
+		const prefix = `refs/remotes/${remote}/`;
+		if (ref.startsWith(prefix)) {
+			return ref.slice(prefix.length);
+		}
+		return '';
+	} catch {
+		return '';
+	}
+}
+
 /** 本地分支列表（按最近提交排序）；`current` 为 `git branch --show-current`，detached 时可能为空 */
 export async function gitListLocalBranches(): Promise<{ branches: string[]; current: string }> {
 	try {

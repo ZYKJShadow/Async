@@ -12084,6 +12084,12 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	justify-content: center;
 	z-index: 1000;
 	backdrop-filter: blur(4px);
+	animation: ref-commit-modal-overlay-in 0.16s ease-out both;
+}
+
+.ref-commit-modal-overlay.is-closing {
+	pointer-events: none;
+	animation: ref-commit-modal-overlay-out 0.18s ease-in both;
 }
 
 .ref-commit-modal {
@@ -12095,6 +12101,65 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	max-height: 90vh;
 	overflow-y: auto;
 	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+	transform-origin: center;
+	animation: ref-commit-modal-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ref-commit-modal-overlay.is-closing .ref-commit-modal {
+	animation: ref-commit-modal-out 0.16s ease-in both;
+}
+
+@keyframes ref-commit-modal-overlay-in {
+	from {
+		opacity: 0;
+		backdrop-filter: blur(0);
+	}
+	to {
+		opacity: 1;
+		backdrop-filter: blur(4px);
+	}
+}
+
+@keyframes ref-commit-modal-overlay-out {
+	from {
+		opacity: 1;
+		backdrop-filter: blur(4px);
+	}
+	to {
+		opacity: 0;
+		backdrop-filter: blur(0);
+	}
+}
+
+@keyframes ref-commit-modal-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.98);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes ref-commit-modal-out {
+	from {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: translateY(6px) scale(0.985);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-commit-modal-overlay,
+	.ref-commit-modal-overlay.is-closing,
+	.ref-commit-modal,
+	.ref-commit-modal-overlay.is-closing .ref-commit-modal {
+		animation-duration: 0.01ms;
+	}
 }
 
 .ref-commit-modal-header {
@@ -12244,6 +12309,11 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	color: var(--void-fg-0);
 }
 
+.ref-commit-modal-link:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
 .ref-commit-modal-textarea {
 	width: 100%;
 	min-height: 80px;
@@ -12348,8 +12418,58 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	transition: opacity 0.15s ease;
 }
 
-.ref-commit-modal-continue:hover {
+.ref-commit-modal-continue:hover:not(:disabled) {
 	opacity: 0.9;
+}
+
+.ref-commit-modal-continue:disabled,
+.ref-commit-modal-continue[aria-busy='true'] {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.ref-commit-modal-action:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.ref-commit-modal-close:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.ref-commit-modal-toggle input:disabled + .ref-commit-modal-toggle-slider {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.ref-commit-modal-textarea:disabled {
+	opacity: 0.7;
+	cursor: not-allowed;
+}
+
+.ref-commit-modal-hint {
+	margin-top: 6px;
+	font-size: 11px;
+	color: var(--void-fg-2);
+	line-height: 1.4;
+}
+
+.ref-commit-modal-hint--warn {
+	color: #f59e0b;
+}
+
+.ref-commit-modal-error {
+	margin: 0 24px 12px;
+	padding: 10px 14px;
+	border-radius: 8px;
+	background: rgba(248, 113, 113, 0.12);
+	border: 1px solid rgba(248, 113, 113, 0.35);
+	color: #fca5a5;
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
 }
 
 .ref-drawer {
