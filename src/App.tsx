@@ -3057,6 +3057,7 @@ function AppMainWorkspaceInner() {
 		messages,
 		messagesThreadId,
 		messagesThreadIdRef,
+		awaitingReply,
 	});
 
 	useEffect(() => {
