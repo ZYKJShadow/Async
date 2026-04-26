@@ -5,6 +5,8 @@ import { initWindowsConsoleUtf8 } from './winUtf8.js';
 import { initSettingsStore, getRestorableWorkspace, getSettings, getMcpServerConfigs } from './settingsStore.js';
 import { ensureDefaultThread, flushPendingSave, initThreadStore } from './threadStore.js';
 import { registerIpc } from './ipc/register.js';
+import { initAgentSnapshotStore } from './agent/agentSnapshotStore.js';
+import { agentRevertSnapshotsByThread } from './ipc/chatRuntime.js';
 import { getMcpManager } from './mcp/index.js';
 import { getEffectiveMcpServerConfigs } from './plugins/pluginRuntimeService.js';
 import { configureAppWindowIcon, createAppWindow } from './appWindow.js';
@@ -137,6 +139,9 @@ app.whenReady().then(() => {
 
 	ensureDefaultThread(restoredUsable);
 	lap('defaultThread ensured');
+
+	initAgentSnapshotStore(userData, agentRevertSnapshotsByThread);
+	lap('agentSnapshotStore init');
 
 	registerIpc();
 	lap('IPC registered');

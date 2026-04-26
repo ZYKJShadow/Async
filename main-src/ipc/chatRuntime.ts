@@ -36,6 +36,7 @@ import { countLineChangesBetweenTexts } from '../diffLineCount.js';
 import { recordAgentLineDelta, recordTokenUsageEvent } from '../workspaceUsageStats.js';
 import { runAgentLoop, type AgentLoopOptions } from '../agent/agentLoop.js';
 import { runTeamSession } from '../agent/teamOrchestrator.js';
+import { flushThreadSnapshots } from '../agent/agentSnapshotStore.js';
 import {
 	createMistakeLimitReachedHandler,
 	type MistakeLimitDecision,
@@ -232,6 +233,8 @@ export function runChatStream(
 	const prev = abortByThread.get(threadId);
 	prev?.abort();
 	agentRevertSnapshotsByThread.set(threadId, new Map());
+	// 新一轮开始：把上一轮残留的磁盘快照清掉，否则旧文件会和本轮 beforeWrite 写进来的内容混在一起。
+	flushThreadSnapshots(threadId, null);
 	const ac = new AbortController();
 	abortByThread.set(threadId, ac);
 
@@ -488,6 +491,7 @@ export function runChatStream(
 										return;
 									}
 									snapshots.set(path, previousContent);
+									flushThreadSnapshots(threadId, snapshots);
 									touchFileInThread(
 										threadId,
 										path,

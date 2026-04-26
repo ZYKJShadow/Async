@@ -152,6 +152,7 @@ const INVOKE_CHANNELS = new Set([
 	'agent:keepFile',
 	'agent:revertFile',
 	'agent:getFileSnapshot',
+	'agent:hasSnapshots',
 	'agent:seedFileSnapshot',
 	'agent:acceptFileHunk',
 	'agent:revertFileHunk',

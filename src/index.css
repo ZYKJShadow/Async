@@ -18857,8 +18857,56 @@ select.ref-settings-native-select:focus {
 	border-color: rgba(239, 68, 68, 0.2);
 }
 
-.ref-fcp-btn--revert:hover {
+.ref-fcp-btn--revert:hover:not(:disabled) {
 	background: rgba(239, 68, 68, 0.2);
+}
+
+.ref-fcp-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.ref-fc-file-btn:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.ref-fcp-notice {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 0 12px 8px;
+	padding: 8px 10px;
+	border-radius: 4px;
+	font-size: 12px;
+	background: rgba(245, 158, 11, 0.12);
+	color: #f59e0b;
+	border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.ref-fcp-notice-text {
+	flex: 1 1 auto;
+	line-height: 1.45;
+}
+
+.ref-fcp-notice-close {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	border-radius: 3px;
+	opacity: 0.75;
+}
+
+.ref-fcp-notice-close:hover {
+	opacity: 1;
+	background: rgba(245, 158, 11, 0.18);
 }
 
 .ref-fcp-list {

@@ -158,6 +158,7 @@ import {
 	resolveManagedAgentLoopOptions,
 	runChatStream,
 } from './chatRuntime.js';
+import { flushThreadSnapshots, removeThreadSnapshots } from '../agent/agentSnapshotStore.js';
 import {
 	attachManagedAgentEmitter,
 	closeManagedAgent,
@@ -1044,6 +1045,12 @@ export function registerIpc(): void {
 		const scope = resolveWorkspaceScopeForThreads(event, workspaceRootOverride);
 		deleteThread(scope, id);
 		ensureDefaultThread(scope);
+		// 该 thread 的撤销快照彻底失效，连内存和磁盘一起清理。
+		const tid = String(id ?? '');
+		if (tid) {
+			agentRevertSnapshotsByThread.delete(tid);
+			removeThreadSnapshots(tid);
+		}
 		return { ok: true as const, currentId: getCurrentThreadId(scope) };
 	});
 
@@ -1750,8 +1757,10 @@ export function registerIpc(): void {
 
 
 	ipcMain.handle('agent:keepLastTurn', (_e, threadId: string) => {
+		const had = (agentRevertSnapshotsByThread.get(threadId)?.size ?? 0) > 0;
 		agentRevertSnapshotsByThread.delete(threadId);
-		return { ok: true as const };
+		removeThreadSnapshots(threadId);
+		return { ok: true as const, hadSnapshots: had };
 	});
 
 	ipcMain.handle('agent:revertLastTurn', (event, threadId: string) => {
@@ -1776,16 +1785,36 @@ export function registerIpc(): void {
 			fs.writeFileSync(full, previousContent, 'utf8');
 		}
 
+		const reverted = snapshots.size;
 		agentRevertSnapshotsByThread.delete(threadId);
-		return { ok: true as const, reverted: snapshots.size };
+		removeThreadSnapshots(threadId);
+		return { ok: true as const, reverted };
 	});
 
 	ipcMain.handle('agent:keepFile', (_e, threadId: string, relPath: string) => {
 		const snapshots = agentRevertSnapshotsByThread.get(threadId);
-		if (!snapshots) return { ok: true as const };
+		if (!snapshots) return { ok: true as const, hadSnapshot: false };
+		const had = snapshots.has(relPath);
 		snapshots.delete(relPath);
-		if (snapshots.size === 0) agentRevertSnapshotsByThread.delete(threadId);
-		return { ok: true as const };
+		if (snapshots.size === 0) {
+			agentRevertSnapshotsByThread.delete(threadId);
+			removeThreadSnapshots(threadId);
+		} else {
+			flushThreadSnapshots(threadId, snapshots);
+		}
+		return { ok: true as const, hadSnapshot: had };
+	});
+
+	ipcMain.handle('agent:hasSnapshots', (_e, threadId: string) => {
+		const snapshots = agentRevertSnapshotsByThread.get(String(threadId ?? ''));
+		if (!snapshots || snapshots.size === 0) {
+			return { ok: true as const, hasAny: false, paths: [] as string[] };
+		}
+		return {
+			ok: true as const,
+			hasAny: true,
+			paths: Array.from(snapshots.keys()),
+		};
 	});
 
 ipcMain.handle('agent:getFileSnapshot', (_e, threadId: string, relPath: string) => {
@@ -1825,6 +1854,7 @@ ipcMain.handle(
 		const snapshots = agentRevertSnapshotsByThread.get(threadId) ?? new Map<string, string | null>();
 		snapshots.set(relPath, previousContent);
 		agentRevertSnapshotsByThread.set(threadId, snapshots);
+		flushThreadSnapshots(threadId, snapshots);
 		return {
 			ok: true as const,
 			seeded: true as const,
@@ -1863,6 +1893,9 @@ ipcMain.handle(
 			}
 			if (snapshots.size === 0) {
 				agentRevertSnapshotsByThread.delete(threadId);
+				removeThreadSnapshots(threadId);
+			} else {
+				flushThreadSnapshots(threadId, snapshots);
 			}
 			return { ok: true as const, cleared: !snapshots.has(relPath) };
 		}
@@ -1912,6 +1945,9 @@ ipcMain.handle(
 			}
 			if (snapshots.size === 0) {
 				agentRevertSnapshotsByThread.delete(threadId);
+				removeThreadSnapshots(threadId);
+			} else {
+				flushThreadSnapshots(threadId, snapshots);
 			}
 			return { ok: true as const, cleared: !snapshots.has(relPath) };
 		}
@@ -1935,7 +1971,12 @@ ipcMain.handle(
 			fs.writeFileSync(full, previousContent, 'utf8');
 		}
 		snapshots.delete(relPath);
-		if (snapshots.size === 0) agentRevertSnapshotsByThread.delete(threadId);
+		if (snapshots.size === 0) {
+			agentRevertSnapshotsByThread.delete(threadId);
+			removeThreadSnapshots(threadId);
+		} else {
+			flushThreadSnapshots(threadId, snapshots);
+		}
 		return { ok: true as const, reverted: true };
 	});
 

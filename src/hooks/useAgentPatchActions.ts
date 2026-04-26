@@ -30,9 +30,12 @@ export type UseAgentPatchActionsParams = {
 	setRevertedFiles: Dispatch<SetStateAction<Set<string>>>;
 	setRevertedChangeKeys: Dispatch<SetStateAction<Set<string>>>;
 	setFileChangesDismissed: Dispatch<SetStateAction<boolean>>;
+	setRevertableSnapshotPaths: Dispatch<SetStateAction<Set<string>>>;
+	setRevertNotice: Dispatch<SetStateAction<string | null>>;
 	dismissedFilesRef: MutableRefObject<Set<string>>;
 	revertedFilesRef: MutableRefObject<Set<string>>;
 	revertedChangeKeysRef: MutableRefObject<Set<string>>;
+	revertableSnapshotPathsRef: MutableRefObject<Set<string>>;
 	fileChangesDismissedRef: MutableRefObject<boolean>;
 	clearAgentReviewForThread: (threadId: string) => void;
 	loadMessages: (id: string) => Promise<unknown>;
@@ -49,6 +52,7 @@ export type UseAgentPatchActionsResult = {
 	onRevertAllEdits: () => Promise<void>;
 	onKeepFileEdit: (relPath: string) => Promise<void>;
 	onRevertFileEdit: (relPath: string) => Promise<void>;
+	refreshRevertableSnapshots: (cid: string | null) => Promise<Set<string>>;
 };
 
 /**
@@ -74,14 +78,43 @@ export function useAgentPatchActions(params: UseAgentPatchActionsParams): UseAge
 		setRevertedFiles,
 		setRevertedChangeKeys,
 		setFileChangesDismissed,
+		setRevertableSnapshotPaths,
+		setRevertNotice,
 		dismissedFilesRef,
 		revertedFilesRef,
 		revertedChangeKeysRef,
+		revertableSnapshotPathsRef,
 		fileChangesDismissedRef,
 		clearAgentReviewForThread,
 		loadMessages,
 		refreshGit,
 	} = params;
+
+	/** 询问 main 进程当前 thread 还剩哪些可撤销的快照路径，写回 state；用于按钮置灰。 */
+	const refreshRevertableSnapshots = useCallback(
+		async (cid: string | null): Promise<Set<string>> => {
+			if (!shell || !cid) {
+				const empty = new Set<string>();
+				setRevertableSnapshotPaths(empty);
+				return empty;
+			}
+			try {
+				const r = (await shell.invoke('agent:hasSnapshots', cid)) as {
+					ok?: boolean;
+					hasAny?: boolean;
+					paths?: string[];
+				};
+				const next = new Set<string>(Array.isArray(r?.paths) ? r.paths : []);
+				setRevertableSnapshotPaths(next);
+				return next;
+			} catch {
+				const empty = new Set<string>();
+				setRevertableSnapshotPaths(empty);
+				return empty;
+			}
+		},
+		[shell, setRevertableSnapshotPaths]
+	);
 
 	const onApplyAgentPatchOne = useCallback(
 		async (id: string) => {
@@ -250,6 +283,8 @@ export function useAgentPatchActions(params: UseAgentPatchActionsParams): UseAge
 		}
 		setDismissedFiles(new Set());
 		setFileChangesDismissed(true);
+		setRevertableSnapshotPaths(new Set());
+		setRevertNotice(null);
 		const last = [...messagesRef.current].reverse().find((m) => m.role === 'assistant');
 		writePersistedAgentFileChanges(
 			currentId,
@@ -264,6 +299,8 @@ export function useAgentPatchActions(params: UseAgentPatchActionsParams): UseAge
 		currentId,
 		setDismissedFiles,
 		setFileChangesDismissed,
+		setRevertableSnapshotPaths,
+		setRevertNotice,
 		messagesRef,
 		revertedFilesRef,
 		revertedChangeKeysRef,
@@ -286,21 +323,38 @@ export function useAgentPatchActions(params: UseAgentPatchActionsParams): UseAge
 				null
 			).map((file) => file.path)
 		);
+		// 撤销前先看 main 进程承认能撤销多少个；如果数量为 0，直接告知用户而不是装作成功隐藏面板。
+		const hadRevertable = revertableSnapshotPathsRef.current.size;
+		let reverted = 0;
 		try {
 			const result = (await shell.invoke('agent:revertLastTurn', currentId)) as {
 				ok?: boolean;
 				reverted?: number;
 			};
-			if ((result.reverted ?? 0) > 0) {
+			reverted = result?.reverted ?? 0;
+			if (reverted > 0) {
 				void refreshGit();
 			}
 		} catch {
-			/* IPC error — still dismiss panel to unblock the user */
+			/* IPC error — fall through to notice path */
+		}
+		// 同步刷新内存中的"可撤销集合"，因为 main 端撤销成功后会清空。
+		void refreshRevertableSnapshots(currentId);
+		if (reverted === 0) {
+			// 后端没还原任何文件 —— 通常是因为应用重启把内存快照清掉了（磁盘也没有，比如旧版本生成）。
+			// 不再隐藏面板，让用户能继续看到这些"agent 改过但已无法回滚"的文件，并显式提示。
+			if (hadRevertable === 0) {
+				setRevertNotice(t('agent.revert.snapshotMissing'));
+			} else {
+				setRevertNotice(t('agent.revert.failedAfterRestart'));
+			}
+			return;
 		}
 		setRevertedFiles(revertedPaths);
 		setRevertedChangeKeys(new Set());
 		setDismissedFiles(new Set());
 		setFileChangesDismissed(true);
+		setRevertNotice(null);
 		const last = [...messagesRef.current].reverse().find((m) => m.role === 'assistant');
 		writePersistedAgentFileChanges(
 			currentId,
@@ -315,14 +369,17 @@ export function useAgentPatchActions(params: UseAgentPatchActionsParams): UseAge
 		composerMode,
 		currentId,
 		refreshGit,
+		refreshRevertableSnapshots,
 		t,
 		agentGitPackRef,
 		messagesRef,
 		dismissedFilesRef,
+		revertableSnapshotPathsRef,
 		setRevertedFiles,
 		setRevertedChangeKeys,
 		setDismissedFiles,
 		setFileChangesDismissed,
+		setRevertNotice,
 	]);
 
 	const onKeepFileEdit = useCallback(
@@ -333,24 +390,47 @@ export function useAgentPatchActions(params: UseAgentPatchActionsParams): UseAge
 			} catch {
 				/* ignore */
 			}
+			void refreshRevertableSnapshots(currentId);
 			dismissAgentChangedFile(relPath);
 		},
-		[dismissAgentChangedFile, shell, currentId]
+		[dismissAgentChangedFile, refreshRevertableSnapshots, shell, currentId]
 	);
 
 	const onRevertFileEdit = useCallback(
 		async (relPath: string) => {
 			if (!shell || !currentId) return;
+			let reverted = false;
 			try {
-				await shell.invoke('agent:revertFile', currentId, relPath);
-				void refreshGit();
+				const result = (await shell.invoke('agent:revertFile', currentId, relPath)) as {
+					ok?: boolean;
+					reverted?: boolean;
+				};
+				reverted = !!result?.reverted;
+				if (reverted) {
+					void refreshGit();
+				}
 			} catch {
-				/* ignore */
+				/* fall through to notice path */
+			}
+			void refreshRevertableSnapshots(currentId);
+			if (!reverted) {
+				// 没有可用快照（应用重启或更早一轮的文件已经被 keep 掉了）。
+				setRevertNotice(t('agent.revert.singleFailedAfterRestart'));
+				return;
 			}
 			markAgentConversationChangeReverted(null, relPath);
 			dismissAgentChangedFile(relPath);
 		},
-		[dismissAgentChangedFile, markAgentConversationChangeReverted, shell, currentId, refreshGit]
+		[
+			dismissAgentChangedFile,
+			markAgentConversationChangeReverted,
+			refreshRevertableSnapshots,
+			setRevertNotice,
+			t,
+			shell,
+			currentId,
+			refreshGit,
+		]
 	);
 
 	return {
@@ -363,5 +443,6 @@ export function useAgentPatchActions(params: UseAgentPatchActionsParams): UseAge
 		onRevertAllEdits,
 		onKeepFileEdit,
 		onRevertFileEdit,
+		refreshRevertableSnapshots,
 	};
 }

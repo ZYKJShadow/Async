@@ -118,6 +118,9 @@ export function useAgentChatPanelProps({
 		toolApprovalRequest: rest.toolApprovalRequest,
 		respondToolApproval: rest.respondToolApproval,
 		snapshotPaths: rest.snapshotPaths,
+		revertableSnapshotPaths: rest.revertableSnapshotPaths,
+		revertNotice: rest.revertNotice,
+		onDismissRevertNotice: rest.onDismissRevertNotice,
 		onKeepAllEdits: rest.onKeepAllEdits,
 		onRevertAllEdits: rest.onRevertAllEdits,
 		onKeepFileEdit: rest.onKeepFileEdit,
@@ -135,6 +138,7 @@ export function useAgentChatPanelProps({
 		rest.defaultModel, rest.modelPickerItems, rest.planReviewIsBuilt,
 		rest.onPlanBuild, rest.onPlanReviewClose, rest.onPlanTodoToggle,
 		rest.toolApprovalRequest, rest.respondToolApproval, rest.snapshotPaths,
+		rest.revertableSnapshotPaths, rest.revertNotice, rest.onDismissRevertNotice,
 		rest.onKeepAllEdits, rest.onRevertAllEdits, rest.onKeepFileEdit, rest.onRevertFileEdit,
 	]);
 
