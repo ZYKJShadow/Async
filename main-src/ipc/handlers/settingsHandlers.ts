@@ -26,6 +26,7 @@ import {
 } from '../../llm/providerOAuthLogin.js';
 import { getBuiltinTeamCatalogPayload } from '../../agent/builtinTeamCatalog.js';
 import { cancelFeishuOauth, runFeishuOauth, FEISHU_OAUTH_CALLBACK_URLS } from '../../bots/platforms/feishu/feishuOauth.js';
+import { isClaudeOAuthAccessToken } from '../../llm/providerIdentity.js';
 
 function stripSkillFrontmatter(md: string): { body: string; name?: string; description?: string } {
 	const t = md.trim();
@@ -125,6 +126,53 @@ function oauthProviderDisplayName(authProvider: OAuthProviderKind, login: Provid
 	const defaults = OAUTH_PROVIDER_DEFAULTS[authProvider];
 	const detail = oauthLoginDisplayDetail(login);
 	return detail ? `${defaults.displayName} (${detail})` : defaults.displayName;
+}
+
+function oauthIsoTime(ms: number | undefined): string | undefined {
+	if (ms == null || !Number.isFinite(ms)) {
+		return undefined;
+	}
+	try {
+		return new Date(ms).toISOString();
+	} catch {
+		return undefined;
+	}
+}
+
+function oauthTokenKind(provider: OAuthProviderKind, token: string): string {
+	if (provider === 'claude' || isClaudeOAuthAccessToken(token)) {
+		return 'claude-oauth';
+	}
+	if (provider === 'codex') {
+		return 'codex-oauth';
+	}
+	if (provider === 'antigravity') {
+		return 'google-oauth';
+	}
+	return token.trim() ? 'other' : 'none';
+}
+
+function logProviderOAuthDebug(
+	phase: string,
+	authProvider: OAuthProviderKind,
+	login: ProviderOAuthAuthRecord,
+	extra: Record<string, unknown> = {}
+): void {
+	const summary = {
+		phase,
+		provider: authProvider,
+		tokenKind: oauthTokenKind(authProvider, login.accessToken),
+		hasAccessToken: Boolean(login.accessToken?.trim()),
+		hasRefreshToken: Boolean(login.refreshToken?.trim()),
+		tokenType: login.tokenType ?? '',
+		expiresAt: oauthIsoTime(login.expiresAt),
+		lastRefreshAt: oauthIsoTime(login.lastRefreshAt),
+		hasEmail: Boolean(login.email?.trim()),
+		hasAccountId: Boolean(login.accountId?.trim()),
+		hasProjectId: Boolean(login.projectId?.trim()),
+		...extra,
+	};
+	console.log(`[ProviderOAuthDebug] ${JSON.stringify(summary)}`);
 }
 
 function appendOAuthLoginProvider(params: {
@@ -267,6 +315,7 @@ async function handleProviderOAuthLoginPayload(rawPayload: unknown) {
 					? payload.timeoutMs
 					: undefined,
 		});
+		logProviderOAuthDebug('login-complete', authProvider, login);
 		const discoveredModels =
 			authProvider === 'codex' || authProvider === 'claude' || authProvider === 'antigravity'
 				? await discoverProviderOAuthModels(login).catch(() => [])
@@ -278,6 +327,11 @@ async function handleProviderOAuthLoginPayload(rawPayload: unknown) {
 			defaultModel,
 			login,
 			discoveredModels,
+		});
+		logProviderOAuthDebug('provider-appended', authProvider, login, {
+			providerId: next.providerId,
+			modelCount: next.modelCount,
+			defaultModel: next.defaultModel ? '<set>' : '<empty>',
 		});
 		patchSettings({
 			defaultModel: next.defaultModel,
@@ -343,6 +397,11 @@ export function registerSettingsHandlers(): void {
 					fetchProviderOAuthUsageSummary(auth).catch(() => auth.usage),
 				]);
 				const oauthAuth = usage ? { ...auth, usage } : auth;
+				logProviderOAuthDebug('models-discovered', auth.provider, oauthAuth, {
+					providerId: provider.id,
+					modelCount: models.length,
+					usageKnown: usage?.known ?? false,
+				});
 				return {
 					ok: true as const,
 					models,

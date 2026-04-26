@@ -24,6 +24,7 @@ import {
 	applyAnthropicProviderIdentity,
 	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	logAnthropicAuthDebug,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
 } from './providerIdentity.js';
@@ -78,10 +79,25 @@ export async function streamAnthropic(
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
 	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.requestProviderIdentity;
+	const model = options.requestModelId.trim();
+	if (!model) {
+		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
+		return;
+	}
+	const authOptions = buildAnthropicAuthOptions(key, oauthAuth);
+	logAnthropicAuthDebug({
+		source: 'chat',
+		providerId: options.requestProviderId,
+		model,
+		baseURL,
+		authOptions,
+		oauthAuth,
+		providerIdentity: requestProviderIdentity,
+	});
 // maxRetries: 0，避免流式请求自动重试拉长等待
 	const client = new Anthropic(
 		applyAnthropicProviderIdentity(settings, {
-			...buildAnthropicAuthOptions(key, oauthAuth),
+			...authOptions,
 			baseURL: baseURL || undefined,
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,
@@ -89,11 +105,6 @@ export async function streamAnthropic(
 	);
 
 	const storedSystem = messages.find((m) => m.role === 'system');
-	const model = options.requestModelId.trim();
-	if (!model) {
-		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
-		return;
-	}
 	const promptCaching = isAnthropicPromptCachingEnabled(model);
 	const systemSections = composeSystemSections(
 		storedSystem?.content,

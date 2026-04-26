@@ -86,6 +86,66 @@ export function buildAnthropicAuthOptions(
 	return { apiKey: trimmedApiKey };
 }
 
+function safeOrigin(raw: string | undefined): string {
+	const value = raw?.trim() || 'https://api.anthropic.com';
+	try {
+		const parsed = new URL(value);
+		return `${parsed.protocol}//${parsed.host}`;
+	} catch {
+		return '<invalid-base-url>';
+	}
+}
+
+function isoTime(ms: number | undefined): string | undefined {
+	if (ms == null || !Number.isFinite(ms)) {
+		return undefined;
+	}
+	try {
+		return new Date(ms).toISOString();
+	} catch {
+		return undefined;
+	}
+}
+
+export function logAnthropicAuthDebug(params: {
+	source: string;
+	providerId?: string;
+	model?: string;
+	baseURL?: string;
+	authOptions: Pick<AnthropicClientOptions, 'apiKey' | 'authToken' | 'defaultQuery'>;
+	oauthAuth?: Pick<ProviderOAuthAuthRecord, 'provider' | 'accessToken' | 'refreshToken' | 'expiresAt' | 'lastRefreshAt'>;
+	providerIdentity?: ProviderIdentitySettings | null;
+}): void {
+	const authToken = typeof params.authOptions.authToken === 'string' ? params.authOptions.authToken : '';
+	const apiKey = typeof params.authOptions.apiKey === 'string' ? params.authOptions.apiKey : '';
+	const tokenForKind = authToken || apiKey;
+	const isClaudeOAuth = params.oauthAuth?.provider === 'claude' || isClaudeOAuthAccessToken(tokenForKind);
+	if (!isClaudeOAuth) {
+		return;
+	}
+	const defaultQuery =
+		params.authOptions.defaultQuery && typeof params.authOptions.defaultQuery === 'object'
+			? (params.authOptions.defaultQuery as Record<string, unknown>)
+			: {};
+	const summary = {
+		source: params.source,
+		providerId: params.providerId ?? '',
+		model: params.model ?? '',
+		baseOrigin: safeOrigin(params.baseURL),
+		authMode: authToken ? 'bearer' : apiKey ? 'x-api-key' : 'none',
+		tokenKind: isClaudeOAuthAccessToken(tokenForKind) ? 'claude-oauth' : tokenForKind ? 'other' : 'none',
+		hasOAuthAuth: Boolean(params.oauthAuth),
+		oauthProvider: params.oauthAuth?.provider ?? '',
+		hasRefreshToken: Boolean(params.oauthAuth?.refreshToken?.trim()),
+		expiresAt: isoTime(params.oauthAuth?.expiresAt),
+		lastRefreshAt: isoTime(params.oauthAuth?.lastRefreshAt),
+		betaQuery: defaultQuery.beta === 'true' ? 'true' : String(defaultQuery.beta ?? ''),
+		providerIdentityPreset: params.providerIdentity?.preset ?? '',
+		expectedPath: defaultQuery.beta === 'true' ? '/v1/messages?beta=true' : '/v1/messages',
+	};
+	console.log(`[AnthropicAuthDebug] ${JSON.stringify(summary)}`);
+}
+
 function mergeDefaultHeaders(
 	existing: OpenAIClientOptions['defaultHeaders'] | AnthropicClientOptions['defaultHeaders'],
 	identityHeaders: Record<string, string>

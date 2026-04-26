@@ -58,6 +58,38 @@ function providerById(providers: UserLlmProvider[], id: string): UserLlmProvider
 	return providers.find((p) => p.id === id);
 }
 
+function logModelResolveOAuthDebug(params: {
+	entryId: string;
+	provider: UserLlmProvider;
+	requestModelId: string;
+	apiKey: string;
+	oauthAuth?: ProviderOAuthAuthRecord;
+}): void {
+	const tokenKind = isClaudeOAuthAccessToken(params.oauthAuth?.accessToken ?? params.apiKey)
+		? 'claude-oauth'
+		: params.oauthAuth?.provider
+			? `${params.oauthAuth.provider}-oauth`
+			: 'none';
+	if (tokenKind === 'none') {
+		return;
+	}
+	const summary = {
+		entryId: params.entryId,
+		providerId: params.provider.id,
+		providerName: params.provider.displayName?.trim() || '',
+		paradigm: params.provider.paradigm,
+		requestModelId: params.requestModelId,
+		tokenKind,
+		hasOAuthAuth: Boolean(params.oauthAuth),
+		oauthProvider: params.oauthAuth?.provider ?? '',
+		hasRefreshToken: Boolean(params.oauthAuth?.refreshToken?.trim()),
+		authMode: tokenKind === 'claude-oauth' ? 'bearer' : 'provider-oauth',
+		providerIdentityPreset:
+			(providerIdentityForOAuthAuth(params.oauthAuth) ?? params.provider.providerIdentity)?.preset ?? '',
+	};
+	console.log(`[ModelResolveOAuthDebug] ${JSON.stringify(summary)}`);
+}
+
 function isUsable(e: UserModelEntry): boolean {
 	return e.requestName.trim().length > 0;
 }
@@ -167,6 +199,13 @@ export function resolveModelRequest(settings: ShellSettings, selectionId: string
 		ctx != null && Number.isFinite(ctx) && ctx > 0 ? Math.floor(ctx) : undefined;
 	const temperatureMode = entry.temperatureMode === 'custom' ? 'custom' : 'auto';
 	const temperature = normalizeUserModelTemperature(entry.temperature);
+	logModelResolveOAuthDebug({
+		entryId: entry.id,
+		provider: prov,
+		requestModelId: entry.requestName.trim(),
+		apiKey: creds.apiKey,
+		oauthAuth: creds.oauthAuth,
+	});
 
 	return {
 		ok: true,

@@ -66,6 +66,7 @@ import {
 	applyOpenAIProviderIdentity,
 	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	logAnthropicAuthDebug,
 	prependProviderIdentitySystemPrompt,
 	providerIdentityForOAuthAuth,
 } from '../llm/providerIdentity.js';
@@ -1316,6 +1317,8 @@ async function runAnthropicLoop(
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
 	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.requestProviderIdentity;
+	const model = options.requestModelId.trim();
+	if (!model) { handlers.onError('模型请求名称为空。'); return; }
 	const proxyRaw = (options.requestProxyUrl?.trim() || settings.openAI?.proxyUrl?.trim()) ?? '';
 	let httpAgent: InstanceType<typeof HttpsProxyAgent> | undefined;
 	if (proxyRaw) {
@@ -1323,9 +1326,19 @@ async function runAnthropicLoop(
 			handlers.onError('代理地址无效。'); return;
 		}
 	}
+	const authOptions = buildAnthropicAuthOptions(key, oauthAuth);
+	logAnthropicAuthDebug({
+		source: 'agent-loop',
+		providerId: options.requestProviderId,
+		model,
+		baseURL,
+		authOptions,
+		oauthAuth,
+		providerIdentity: requestProviderIdentity,
+	});
 	const client = new Anthropic(
 		applyAnthropicProviderIdentity(settings, {
-			...buildAnthropicAuthOptions(key, oauthAuth),
+			...authOptions,
 			baseURL: baseURL || undefined,
 			...(httpAgent ? { httpAgent } : {}),
 			timeout: llmSdkResponseHeadTimeoutMs(),
@@ -1333,8 +1346,6 @@ async function runAnthropicLoop(
 		}, requestProviderIdentity)
 	);
 	const storedSystem = threadMessages.find((m) => m.role === 'system');
-	const model = options.requestModelId.trim();
-	if (!model) { handlers.onError('模型请求名称为空。'); return; }
 	const anthropicPromptCaching = isAnthropicPromptCachingEnabled(model);
 	const systemSectionsBase = composeSystemSections(
 		storedSystem?.content,
