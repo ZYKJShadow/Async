@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
@@ -25,6 +28,48 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 type CapturedHandler = { channel: string; fn: (...args: unknown[]) => unknown };
 let capturedHandlers: CapturedHandler[] = [];
+
+const HANDLER_SMOKE_TIMEOUT_MS = 1_000;
+
+// This smoke test cares about immediate ReferenceErrors, not completion of
+// long-running IPC side effects such as login flows or network operations.
+async function invokeHandlerWithTimeout(
+	channel: string,
+	fn: (...args: unknown[]) => unknown,
+	args: unknown[],
+	timeoutMs = HANDLER_SMOKE_TIMEOUT_MS
+): Promise<void> {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timeout = setTimeout(() => {
+			reject(new Error(`Handler '${channel}' did not settle within ${timeoutMs}ms`));
+		}, timeoutMs);
+	});
+	try {
+		await Promise.race([Promise.resolve(fn(...args)), timeoutPromise]);
+	} finally {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
+	}
+}
+
+function createSmokeWorkspace(): string {
+	return fs.mkdtempSync(path.join(os.tmpdir(), 'async-shell-ipc-smoke-'));
+}
+
+function removeSmokeWorkspace(workspaceRoot: string): void {
+	try {
+		fs.rmSync(workspaceRoot, {
+			recursive: true,
+			force: true,
+			maxRetries: 3,
+			retryDelay: 50,
+		});
+	} catch {
+		// Best effort only; Windows can briefly hold handles after mocked IPC flows.
+	}
+}
 
 vi.mock('electron', () => {
 	const ipcMain = {
@@ -89,6 +134,76 @@ vi.mock('electron', () => {
 		},
 	};
 });
+
+vi.mock('../appWindow.js', () => {
+	const fakeWindow = {
+		webContents: { id: 999, once: () => {} },
+		once: () => {},
+		isDestroyed: () => false,
+		close: () => {},
+	};
+	return {
+		createAppWindow: vi.fn(() => fakeWindow),
+		findAppWindowBySurface: vi.fn(() => null),
+		focusAppWindow: vi.fn(),
+	};
+});
+
+vi.mock('../autoUpdate.js', () => ({
+	checkForUpdates: vi.fn(async () => ({ state: 'idle' })),
+	downloadUpdate: vi.fn(async () => {}),
+	getStatus: vi.fn(() => ({ state: 'idle' })),
+	quitAndInstall: vi.fn(),
+	openUpdateFolder: vi.fn(),
+}));
+
+vi.mock('../gitService.js', () => ({
+	withGitWorkspaceRootAsync: vi.fn(async (_root: string, fn: () => Promise<unknown>) => await fn()),
+	gitProbeContext: vi.fn(async () => ({ ok: true, topLevel: process.cwd() })),
+	gitStatusPorcelain: vi.fn(async () => ''),
+	gitBranch: vi.fn(async () => 'main'),
+	parseGitPathStatus: vi.fn(() => ({})),
+	listPorcelainPaths: vi.fn(() => []),
+	workspaceRelativeFromRepoRelative: vi.fn((repoRel: string) => repoRel),
+	gitDiffHeadUnified: vi.fn(async () => ''),
+	buildDiffPreviewsMap: vi.fn(async () => ({})),
+	gitStageAll: vi.fn(async () => {}),
+	gitCommit: vi.fn(async () => {}),
+	gitPush: vi.fn(async () => {}),
+	getDiffPreview: vi.fn(async () => null),
+	gitListLocalBranches: vi.fn(async () => ({ branches: ['main'], current: 'main' })),
+	gitSwitchBranch: vi.fn(async () => {}),
+	gitCreateBranchAndSwitch: vi.fn(async () => {}),
+	normalizeGitFailureMessage: vi.fn((error: unknown, fallback = 'Git command failed') =>
+		error instanceof Error ? error.message : fallback
+	),
+}));
+
+vi.mock('../llm/providerOAuthLogin.js', () => ({
+	cancelActiveProviderOAuthLogin: vi.fn(() => true),
+	discoverProviderOAuthModels: vi.fn(async () => []),
+	ensureFreshOAuthAuthForRequest: vi.fn(async (_providerId: string, auth: unknown) => auth),
+	fetchProviderOAuthUsageSummary: vi.fn(async () => undefined),
+	providerOAuthLabel: vi.fn((provider: string) => provider),
+	runProviderOAuthLogin: vi.fn(async () => {
+		throw new Error('OAuth login is disabled in IPC smoke tests.');
+	}),
+}));
+
+vi.mock('../workspaceFileIndex.js', () => ({
+	ensureWorkspaceFileIndex: vi.fn(async () => []),
+	searchWorkspaceFiles: vi.fn(async () => []),
+	acquireWorkspaceFileIndexRef: vi.fn(),
+	releaseWorkspaceFileIndexRef: vi.fn(),
+	registerKnownWorkspaceRelPath: vi.fn(),
+	setWorkspaceFileIndexReadyBroadcaster: vi.fn(),
+	setWorkspaceFsTouchNotifier: vi.fn(),
+}));
+
+vi.mock('../workspaceSymbolIndex.js', () => ({
+	ensureSymbolIndexLoaded: vi.fn(async () => {}),
+	searchWorkspaceSymbols: vi.fn(() => []),
+}));
 
 beforeEach(() => {
 	capturedHandlers = [];
@@ -194,7 +309,7 @@ describe('IPC register smoke', () => {
 	 */
 	it('every handler body evaluates without ReferenceError', async () => {
 		const { bindWorkspaceRootToWebContents } = await import('../workspace.js');
-		const cwd = process.cwd();
+		const workspaceRoot = createSmokeWorkspace();
 
 		// Per-channel payload nudges: these are channels whose interesting code
 		// path only runs when given non-empty input (e.g. threads:listAgentSidebar
@@ -202,36 +317,41 @@ describe('IPC register smoke', () => {
 		// Add new entries here whenever a handler grows a branch that early-out
 		// on default empty args.
 		const channelPayloads: Record<string, unknown[]> = {
-			'threads:listAgentSidebar': [[cwd]],
+			'threads:listAgentSidebar': [[workspaceRoot]],
+			'workspace:openPath': [workspaceRoot],
 		};
 
-		for (const { load } of handlerCases) {
-			const { register } = await load();
-			capturedHandlers = [];
-			register();
-			const sender = {
-				id: 1,
-				send: () => {},
-				isDestroyed: () => false,
-			};
-			const fakeEvent = { sender };
-			for (const { channel, fn } of capturedHandlers) {
-				// Re-bind workspace root before every call: some handlers
-				// (e.g. workspace:closeFolder) intentionally clear the binding.
-				bindWorkspaceRootToWebContents(sender as never, cwd);
-				const extraArgs = channelPayloads[channel] ?? ['', '', '', ''];
-				try {
-					await Promise.resolve(fn(fakeEvent, ...extraArgs));
-				} catch (err) {
-					if (err instanceof ReferenceError) {
-						throw new Error(
-							`Handler '${channel}' threw ReferenceError: ${err.message}`
-						);
+		try {
+			for (const { load } of handlerCases) {
+				const { register } = await load();
+				capturedHandlers = [];
+				register();
+				const sender = {
+					id: 1,
+					send: () => {},
+					isDestroyed: () => false,
+				};
+				const fakeEvent = { sender };
+				for (const { channel, fn } of capturedHandlers) {
+					// Re-bind workspace root before every call: some handlers
+					// (e.g. workspace:closeFolder) intentionally clear the binding.
+					bindWorkspaceRootToWebContents(sender as never, workspaceRoot);
+					const extraArgs = channelPayloads[channel] ?? ['', '', '', ''];
+					try {
+						await invokeHandlerWithTimeout(channel, fn, [fakeEvent, ...extraArgs]);
+					} catch (err) {
+						if (err instanceof ReferenceError) {
+							throw new Error(
+								`Handler '${channel}' threw ReferenceError: ${err.message}`
+							);
+						}
+						/* other errors are expected — downstream services are mocked */
 					}
-					/* other errors are expected — downstream services are mocked */
 				}
+				bindWorkspaceRootToWebContents(sender as never, null);
 			}
-			bindWorkspaceRootToWebContents(sender as never, null);
+		} finally {
+			removeSmokeWorkspace(workspaceRoot);
 		}
 	}, 15_000);
 });
