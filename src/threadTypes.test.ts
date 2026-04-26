@@ -108,6 +108,39 @@ describe('layered thread rows', () => {
 		expect(next).toBe(prev);
 	});
 
+	it('propagates isAwaitingReply from a fresh light row when updatedAt changes', () => {
+		const prev: ThreadInfo[] = [
+			{
+				id: 't1',
+				title: 'Existing',
+				updatedAt: 10,
+				previewCount: 2,
+				hasUserMessages: true,
+				isAwaitingReply: false,
+				hasAgentDiff: true,
+				filePaths: ['src/a.ts'],
+				fileCount: 1,
+				subtitleFallback: 'Edited src/a.ts',
+			},
+		];
+
+		// 用户刚发出新消息：updatedAt 变更，light row 携带 isAwaitingReply=true。
+		// 修复目标：必须在 light → detail 异步缝隙期间也立刻反映「正在回复」。
+		const next = applyThreadRowsPreservingDetails(prev, [
+			{
+				id: 't1',
+				title: 'Existing',
+				updatedAt: 11,
+				previewCount: 3,
+				hasUserMessages: true,
+				isAwaitingReply: true,
+			},
+		]);
+
+		expect(next[0]?.isAwaitingReply).toBe(true);
+		expect(next[0]?.updatedAt).toBe(11);
+	});
+
 	it('returns id and updatedAt pairs for detail hydration requests', () => {
 		expect(
 			threadListVersions([

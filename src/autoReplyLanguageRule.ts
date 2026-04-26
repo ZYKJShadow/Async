@@ -43,8 +43,8 @@ function buildRuleName(locale: string, uiLocale: AppLocale): string {
  *
  * Why so verbose: the previous wording ("reply in {label}") was too narrow —
  * models read "reply" as "the final assistant bubble only" and happily produced
- * tool arguments (TodoWrite content/activeForm, ask_plan_question prompts, etc.)
- * and chain-of-thought in English. This expanded form spells out every channel
+ * tool arguments (TaskCreate prompt, ask_plan_question prompts, etc.) and
+ * chain-of-thought in English. This expanded form spells out every channel
  * that should follow the user's language, and explicitly carves out the
  * technical tokens that MUST stay verbatim so the model doesn't translate file
  * paths or identifiers.
@@ -56,7 +56,7 @@ function buildRuleContent(locale: string, uiLocale: AppLocale): string {
 			`Use ${label} by default for every natural-language output you produce, including:`,
 			`- the final user-facing reply;`,
 			`- internal reasoning / thinking tokens;`,
-			`- natural-language fields inside tool arguments (e.g. TodoWrite \`content\` and \`activeForm\`, ask_plan_question prompts and options, request_user_input prompts);`,
+			`- natural-language fields inside tool arguments (e.g. TaskCreate \`prompt\`, TaskUpdate \`message\`, ask_plan_question prompts and options, request_user_input prompts);`,
 			`- comments inside code that are addressed to the user.`,
 			`Keep technical tokens verbatim — file paths, CLI flags, identifiers, library / framework / tool names, error strings copied from logs, etc. — even when the surrounding sentence is in ${label}.`,
 			`Switch to another language only when the user explicitly asks for it in the current turn.`,
@@ -66,7 +66,7 @@ function buildRuleContent(locale: string, uiLocale: AppLocale): string {
 		`默认始终使用${label}进行所有自然语言输出，包括：`,
 		`- 面向用户的最终回答；`,
 		`- 内部思考与推理（thinking / reasoning）；`,
-		`- 工具调用参数中的自然语言字段（例如 TodoWrite 的 \`content\` 与 \`activeForm\`、ask_plan_question 的题面与选项、request_user_input 的题面等）；`,
+		`- 工具调用参数中的自然语言字段（例如 TaskCreate 的 \`prompt\`、TaskUpdate 的 \`message\`、ask_plan_question 的题面与选项、request_user_input 的题面等）；`,
 		`- 写给用户阅读的代码注释。`,
 		`文件路径、命令行参数、代码标识符、库 / 框架 / 工具名、原样引用的日志或错误字符串等技术 token 即便出现在${label}句子里也保持原样，不要翻译。`,
 		`仅当用户在当前轮次中明确要求切换语言时，才使用其他语言。`,

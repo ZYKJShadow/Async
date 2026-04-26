@@ -36,6 +36,7 @@ import { countLineChangesBetweenTexts } from '../diffLineCount.js';
 import { recordAgentLineDelta, recordTokenUsageEvent } from '../workspaceUsageStats.js';
 import { runAgentLoop, type AgentLoopOptions } from '../agent/agentLoop.js';
 import { runTeamSession } from '../agent/teamOrchestrator.js';
+import { flushThreadSnapshots } from '../agent/agentSnapshotStore.js';
 import {
 	createMistakeLimitReachedHandler,
 	type MistakeLimitDecision,
@@ -186,6 +187,9 @@ export function resolveManagedAgentLoopOptions(
 		requestApiKey: resolved.apiKey,
 		requestBaseURL: resolved.baseURL,
 		requestProxyUrl: resolved.proxyUrl,
+		requestProviderId: resolved.providerId,
+		requestProviderIdentity: resolved.providerIdentity,
+		requestOAuthAuth: resolved.oauthAuth,
 		maxOutputTokens: resolved.maxOutputTokens,
 		...(resolved.contextWindowTokens != null
 			? { contextWindowTokens: resolved.contextWindowTokens }
@@ -229,6 +233,8 @@ export function runChatStream(
 	const prev = abortByThread.get(threadId);
 	prev?.abort();
 	agentRevertSnapshotsByThread.set(threadId, new Map());
+	// 新一轮开始：把上一轮残留的磁盘快照清掉，否则旧文件会和本轮 beforeWrite 写进来的内容混在一起。
+	flushThreadSnapshots(threadId, null);
 	const ac = new AbortController();
 	abortByThread.set(threadId, ac);
 
@@ -253,11 +259,12 @@ export function runChatStream(
 
 			// 发送端压缩：超长线程仅压缩发给 LLM 的副本，磁盘保留完整历史
 			const thread = getThread(threadId);
-			if (resolved.paradigm === 'openai-compatible') {
+			if (resolved.paradigm === 'openai-compatible' && resolved.oauthAuth?.provider !== 'codex') {
 				scheduleRefreshOpenAiModelCapabilitiesIfStale({
 					baseURL: resolved.baseURL,
 					apiKey: resolved.apiKey,
 					proxyUrl: resolved.proxyUrl,
+					providerIdentity: resolved.providerIdentity,
 				});
 			}
 			const compressOptions = {
@@ -268,6 +275,9 @@ export function runChatStream(
 				requestApiKey: resolved.apiKey,
 				requestBaseURL: resolved.baseURL,
 				requestProxyUrl: resolved.proxyUrl,
+				requestProviderId: resolved.providerId,
+				requestProviderIdentity: resolved.providerIdentity,
+				requestOAuthAuth: resolved.oauthAuth,
 				maxOutputTokens: resolved.maxOutputTokens,
 				...(resolved.contextWindowTokens != null
 					? { contextWindowTokens: resolved.contextWindowTokens }
@@ -370,6 +380,9 @@ export function runChatStream(
 					requestApiKey: resolved.apiKey,
 					requestBaseURL: resolved.baseURL,
 					requestProxyUrl: resolved.proxyUrl,
+					requestProviderId: resolved.providerId,
+					requestProviderIdentity: resolved.providerIdentity,
+					requestOAuthAuth: resolved.oauthAuth,
 					maxOutputTokens: resolved.maxOutputTokens,
 					...(resolved.contextWindowTokens != null
 						? { contextWindowTokens: resolved.contextWindowTokens }
@@ -440,6 +453,9 @@ export function runChatStream(
 							requestApiKey: resolved.apiKey,
 							requestBaseURL: resolved.baseURL,
 							requestProxyUrl: resolved.proxyUrl,
+							requestProviderId: resolved.providerId,
+							requestProviderIdentity: resolved.providerIdentity,
+							requestOAuthAuth: resolved.oauthAuth,
 							maxOutputTokens: resolved.maxOutputTokens,
 							...(resolved.contextWindowTokens != null
 								? { contextWindowTokens: resolved.contextWindowTokens }
@@ -475,6 +491,7 @@ export function runChatStream(
 										return;
 									}
 									snapshots.set(path, previousContent);
+									flushThreadSnapshots(threadId, snapshots);
 									touchFileInThread(
 										threadId,
 										path,
@@ -542,6 +559,9 @@ export function runChatStream(
 					requestApiKey: resolved.apiKey,
 					requestBaseURL: resolved.baseURL,
 					requestProxyUrl: resolved.proxyUrl,
+					requestProviderId: resolved.providerId,
+					requestProviderIdentity: resolved.providerIdentity,
+					requestOAuthAuth: resolved.oauthAuth,
 					maxOutputTokens: resolved.maxOutputTokens,
 					temperatureMode: resolved.temperatureMode,
 					...(resolved.temperature != null ? { temperature: resolved.temperature } : {}),

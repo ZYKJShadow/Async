@@ -49,6 +49,9 @@ export const READ_ONLY_AGENT_TOOL_NAMES = [
 	'ToolSearch',
 	'WebSearch',
 	'Fetch',
+	'TaskList',
+	'TaskGet',
+	'TaskOutput',
 ] as const;
 
 export function isReadOnlyAgentTool(name: string): boolean {
@@ -259,7 +262,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Bash',
 		description:
-			'Run a shell command in the workspace directory (on Windows the runtime uses PowerShell for the same purpose). Use for tests, installs, builds, git, etc. Do not use Bash for reading or discovering source files when **Read**, **Glob**, or **Grep** can do the job. Do not use Bash to run `grep` or `rg` for codebase search — use **Grep**. Default timeout is 120 seconds; set **timeout_ms** for slower installs/downloads.',
+			'Run a shell command in the workspace directory. Use Unix shell syntax (POSIX bash) — on Windows the runtime executes via Git Bash / WSL, so commands like `cat`, `sed`, `awk`, forward-slash paths and `/dev/null` work everywhere. Use for tests, installs, builds, git, etc. Do not use Bash for reading or discovering source files when **Read**, **Glob**, or **Grep** can do the job. Do not use Bash to run `grep` or `rg` for codebase search — use **Grep**. Default timeout is 120 seconds; set **timeout_ms** for slower installs/downloads.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -827,37 +830,98 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 		},
 	},
 	{
-		name: 'TodoWrite',
+		name: 'TaskCreate',
 		description:
-			'Update the todo list for the current session. Use proactively to track progress on complex multi-step tasks. Always provide the COMPLETE updated todo list (not just changes). Maintain exactly one task as in_progress at all times. Provide both content (imperative form) and activeForm (present continuous form) for each task.',
+			'Spawn a sub-agent task that runs asynchronously. Returns immediately with a task id (#N) that you can later inspect via **TaskGet** / **TaskOutput**, drive via **TaskUpdate**, or cancel via **TaskStop**. Use for scoped sub-work you want to fire-and-forget while you keep working: deep exploration, isolated refactors, parallel investigations. Set **subagent_type** to `explore` for read-only, or to a configured custom subagent name. Set **fork_context** to copy the current visible thread history. Do NOT use TaskCreate as a todo list — only spawn one when there is real work for a sub-agent to do.',
 		parameters: {
 			type: 'object',
 			properties: {
-				todos: {
-					type: 'array',
-					description: 'The complete updated todo list. Each call replaces the entire list.',
-					items: {
-						type: 'object',
-						properties: {
-							content: {
-								type: 'string',
-								description: 'Task description in imperative form (e.g. "Add unit tests for auth module")',
-							},
-							status: {
-								type: 'string',
-								enum: ['pending', 'in_progress', 'completed'],
-								description: 'Current task status. Exactly one task should be in_progress at a time.',
-							},
-							activeForm: {
-								type: 'string',
-								description: 'Present continuous form shown during execution (e.g. "Adding unit tests")',
-							},
-						},
-						required: ['content', 'status', 'activeForm'],
-					},
+				prompt: {
+					type: 'string',
+					description: 'Instructions for the sub-agent (the task it should execute).',
+				},
+				subagent_type: {
+					type: 'string',
+					description:
+						'Optional: "explore" for read-only exploration; or match a configured subagent name/id for tailored instructions.',
+				},
+				context: {
+					type: 'string',
+					description: 'Optional paths, constraints, or background to give the sub-agent.',
+				},
+				fork_context: {
+					type: 'boolean',
+					description: 'If true, copy the current visible conversation history into the spawned task before adding the new prompt.',
 				},
 			},
-			required: ['todos'],
+			required: ['prompt'],
+		},
+	},
+	{
+		name: 'TaskList',
+		description:
+			'List all sub-agent tasks in the current session, with id, status (running / waiting_input / completed / failed / closed), background flag, subagent type, and short title. Optional **status** filter narrows results to a single lifecycle state.',
+		parameters: {
+			type: 'object',
+			properties: {
+				status: {
+					type: 'string',
+					enum: ['running', 'waiting_input', 'completed', 'failed', 'closed'],
+					description: 'Optional: only list tasks matching this status.',
+				},
+			},
+			required: [],
+		},
+	},
+	{
+		name: 'TaskGet',
+		description:
+			'Get full metadata (status, title, subagent type, parent/child relationships, timestamps, last result/error summaries) for a single sub-agent task by id. Read-only and non-blocking. Use this to check progress of a task spawned via **TaskCreate** without consuming its full output.',
+		parameters: {
+			type: 'object',
+			properties: {
+				taskId: { type: 'string', description: 'The task id (e.g. "agent-3"), as returned by TaskCreate or TaskList.' },
+			},
+			required: ['taskId'],
+		},
+	},
+	{
+		name: 'TaskOutput',
+		description:
+			'Read the conversation messages produced so far by a sub-agent task. Returns immediately (does NOT wait for the task to finish). Set **last** to limit to the last N messages. Use this to inspect partial output of a long-running TaskCreate, or to retrieve the final result after TaskGet shows status=completed.',
+		parameters: {
+			type: 'object',
+			properties: {
+				taskId: { type: 'string', description: 'The task id.' },
+				last: { type: 'number', description: 'Optional: only return the last N messages.' },
+			},
+			required: ['taskId'],
+		},
+	},
+	{
+		name: 'TaskUpdate',
+		description:
+			'Send a follow-up message to an existing sub-agent task. Use **interrupt: true** to stop the task\'s current run and prioritize this new message. Use this to clarify, redirect, or supply missing input to a running task — equivalent to typing a follow-up message in the sub-agent\'s thread.',
+		parameters: {
+			type: 'object',
+			properties: {
+				taskId: { type: 'string', description: 'The target task id.' },
+				message: { type: 'string', description: 'Plain text message to deliver to the task.' },
+				interrupt: { type: 'boolean', description: 'If true, abort the current run and prioritize this new message.' },
+			},
+			required: ['taskId', 'message'],
+		},
+	},
+	{
+		name: 'TaskStop',
+		description:
+			'Stop a running or resumable sub-agent task and release its resources. The task ends in `closed` status and any nested children are also stopped. Use only when you no longer need the task\'s output.',
+		parameters: {
+			type: 'object',
+			properties: {
+				taskId: { type: 'string', description: 'The task id to stop.' },
+			},
+			required: ['taskId'],
 		},
 	},
 	{

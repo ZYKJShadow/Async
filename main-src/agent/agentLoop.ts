@@ -25,6 +25,7 @@ import {
 	filterMcpToolsByDenyPrefixes,
 	isDeferredAgentTool,
 } from './agentToolPool.js';
+import type { ProviderOAuthAuthRecord } from '../settingsStore.js';
 import type { TurnTokenUsage } from '../llm/types.js';
 import { llmSdkResponseHeadTimeoutMs } from '../llm/sdkResponseHeadTimeoutMs.js';
 import { withLlmTransportRetry } from '../llm/llmTransportRetry.js';
@@ -63,9 +64,17 @@ import { getEffectiveMcpServerConfigs } from '../plugins/pluginRuntimeService.js
 import {
 	applyAnthropicProviderIdentity,
 	applyOpenAIProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
+	logAnthropicAuthDebug,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from '../llm/providerIdentity.js';
+import {
+	resolveProviderIdentityWithOverride,
+	type ProviderIdentitySettings,
+} from '../../src/providerIdentitySettings.js';
 import {
 	buildAnthropicUserBlocks,
 	buildOpenAIUserContent,
@@ -96,6 +105,8 @@ import {
 	compactOpenAIConversationForContext,
 	type AgentContextCompactState,
 } from './agentConversationContext.js';
+import { streamCodexOAuth } from '../llm/codexOAuthAdapter.js';
+import { ensureFreshOAuthAuthForRequest } from '../llm/providerOAuthLogin.js';
 
 export type { MistakeLimitContext, MistakeLimitDecision } from './mistakeLimitGate.js';
 
@@ -222,6 +233,12 @@ export type AgentLoopOptions = {
 	requestBaseURL?: string;
 	/** OpenAI 兼容：提供商级代理 */
 	requestProxyUrl?: string;
+	/** 当前提供商 id（来自 modelResolve）。 */
+	requestProviderId?: string;
+	/** 当前提供商对全局「模型提供商标识」的覆盖。 */
+	requestProviderIdentity?: ProviderIdentitySettings;
+	/** 当前提供商的 OAuth 凭据（Codex / Claude Code / Antigravity）。 */
+	requestOAuthAuth?: ProviderOAuthAuthRecord;
 	maxOutputTokens: number;
 	contextWindowTokens?: number;
 	temperatureMode?: 'auto' | 'custom';
@@ -695,6 +712,40 @@ async function runOpenAILoop(
 	options: AgentLoopOptions,
 	handlers: AgentLoopHandlers
 ): Promise<void> {
+	if (options.requestOAuthAuth?.provider === 'codex') {
+		await streamCodexOAuth(
+			settings,
+			threadMessages,
+			{
+				mode: options.composerMode,
+				signal: options.signal,
+				requestModelId: options.requestModelId,
+				paradigm: options.paradigm,
+				requestApiKey: options.requestApiKey,
+				requestBaseURL: options.requestBaseURL,
+				requestProxyUrl: options.requestProxyUrl,
+				requestProviderId: options.requestProviderId,
+				requestProviderIdentity: options.requestProviderIdentity,
+				requestOAuthAuth: options.requestOAuthAuth,
+				maxOutputTokens: options.maxOutputTokens,
+				contextWindowTokens: options.contextWindowTokens,
+				temperatureMode: options.temperatureMode,
+				temperature: options.temperature,
+				agentSystemAppend: options.agentSystemAppend,
+				thinkingLevel: options.thinkingLevel,
+				workspaceRoot: options.workspaceRoot,
+			},
+			{
+				onDelta: handlers.onTextDelta,
+				onThinkingDelta: handlers.onThinkingDelta,
+				onDone: handlers.onDone,
+				onError: handlers.onError,
+			},
+			options.requestOAuthAuth
+		);
+		return;
+	}
+
 	const key = options.requestApiKey.trim();
 	if (!key) { handlers.onError('未配置 OpenAI 兼容 API Key。请在设置 → 模型中填写。'); return; }
 
@@ -720,13 +771,14 @@ async function runOpenAILoop(
 			dangerouslyAllowBrowser: false,
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,
-		})
+		}, options.requestProviderIdentity)
 	);
 	const storedSystem = threadMessages.find((m) => m.role === 'system');
 	const systemContent = appendMcpToolsSystemHint(
 		prependProviderIdentitySystemPrompt(
 			settings,
-			composeSystem(storedSystem?.content, options.composerMode, options.agentSystemAppend)
+			composeSystem(storedSystem?.content, options.composerMode, options.agentSystemAppend),
+			options.requestProviderIdentity
 		),
 		options.composerMode,
 		settings
@@ -1000,6 +1052,7 @@ async function runOpenAILoop(
 			apiKey: key,
 			baseURL,
 			proxyUrl: proxyRaw || undefined,
+			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, options.requestProviderIdentity),
 			contextWindowTokens: options.contextWindowTokens,
 			maxOutputTokens: options.maxOutputTokens,
 			state: options.contextCompactState,
@@ -1256,10 +1309,17 @@ async function runAnthropicLoop(
 	options: AgentLoopOptions,
 	handlers: AgentLoopHandlers
 ): Promise<void> {
-	const key = options.requestApiKey.trim();
+	const oauthAuth =
+		options.requestOAuthAuth?.provider === 'claude'
+			? await ensureFreshOAuthAuthForRequest(options.requestProviderId, options.requestOAuthAuth)
+			: undefined;
+	const key = (oauthAuth?.accessToken ?? options.requestApiKey).trim();
 	if (!key) { handlers.onError('未配置 Anthropic API Key。请在设置 → 模型中填写。'); return; }
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
+	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.requestProviderIdentity;
+	const model = options.requestModelId.trim();
+	if (!model) { handlers.onError('模型请求名称为空。'); return; }
 	const proxyRaw = (options.requestProxyUrl?.trim() || settings.openAI?.proxyUrl?.trim()) ?? '';
 	let httpAgent: InstanceType<typeof HttpsProxyAgent> | undefined;
 	if (proxyRaw) {
@@ -1267,18 +1327,26 @@ async function runAnthropicLoop(
 			handlers.onError('代理地址无效。'); return;
 		}
 	}
-	const client = new Anthropic(
+	const authOptions = buildAnthropicAuthOptions(key, oauthAuth);
+	logAnthropicAuthDebug({
+		source: 'agent-loop',
+		providerId: options.requestProviderId,
+		model,
+		baseURL,
+		authOptions,
+		oauthAuth,
+		providerIdentity: requestProviderIdentity,
+	});
+	const client = createAnthropicClient(
 		applyAnthropicProviderIdentity(settings, {
-			apiKey: key,
+			...authOptions,
 			baseURL: baseURL || undefined,
 			...(httpAgent ? { httpAgent } : {}),
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,
-		})
+		}, requestProviderIdentity)
 	);
 	const storedSystem = threadMessages.find((m) => m.role === 'system');
-	const model = options.requestModelId.trim();
-	if (!model) { handlers.onError('模型请求名称为空。'); return; }
 	const anthropicPromptCaching = isAnthropicPromptCachingEnabled(model);
 	const systemSectionsBase = composeSystemSections(
 		storedSystem?.content,
@@ -1287,7 +1355,8 @@ async function runAnthropicLoop(
 	);
 	const staticSystemText = prependProviderIdentitySystemPrompt(
 		settings,
-		systemSectionsBase.staticText
+		systemSectionsBase.staticText,
+		requestProviderIdentity
 	);
 	const dynamicSystemText = appendMcpToolsSystemHint(
 		systemSectionsBase.dynamicText,
@@ -1417,7 +1486,7 @@ async function runAnthropicLoop(
 		...(options.customToolHandlers ?? {}),
 	};
 	const structured = new StructuredAssistantBuilder();
-	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, requestProviderIdentity);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
 	const requestedTemperature = resolveRequestedTemperature(
 		temperatureForMode(options.composerMode),
@@ -1621,6 +1690,9 @@ async function runAnthropicLoop(
 			apiKey: key,
 			baseURL,
 			proxyUrl: proxyRaw || undefined,
+			providerId: options.requestProviderId,
+			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, options.requestProviderIdentity),
+			oauthAuth,
 			contextWindowTokens: options.contextWindowTokens,
 			maxOutputTokens: options.maxOutputTokens,
 			state: options.contextCompactState,
@@ -1698,6 +1770,8 @@ async function runAnthropicLoop(
 					},
 						{ signal: roundSignalA }
 					);
+					s.on('error', () => undefined);
+					s.on('abort', () => undefined);
 					await s.withResponse();
 					return s;
 				},

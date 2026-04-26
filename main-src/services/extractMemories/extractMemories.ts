@@ -1,7 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { ShellSettings } from '../../settingsStore.js';
@@ -9,13 +8,18 @@ import { resolveModelRequest } from '../../llm/modelResolve.js';
 import {
 	applyAnthropicProviderIdentity,
 	applyOpenAIProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from '../../llm/providerIdentity.js';
+import { ensureFreshOAuthAuthForRequest } from '../../llm/providerOAuthLogin.js';
 import {
 	openAICompatibleEffectiveTemperature,
 	resolveRequestedTemperature,
 } from '../../llm/thinkingLevel.js';
+import { runCodexOAuthResponseText } from '../../llm/codexOAuthAdapter.js';
 import {
 	getAgentToolCallsSinceMemoryBaseline,
 	getMemoryExtractedMessageCount,
@@ -25,6 +29,7 @@ import {
 	type ChatMessage,
 } from '../../threadStore.js';
 import { parseAgentAssistantPayload } from '../../../src/agentStructuredMessage.js';
+import { resolveProviderIdentityWithOverride } from '../../../src/providerIdentitySettings.js';
 import { ensureMemoryDirExists } from '../../memdir/memdir.js';
 import { scanMemoryFiles, type MemoryHeader } from '../../memdir/memoryScan.js';
 import { getAutoMemEntrypoint } from '../../memdir/paths.js';
@@ -298,6 +303,28 @@ async function extractWithRuntimeModel(
 ): Promise<ExtractionResponse | null> {
 	try {
 		if (runtime.paradigm === 'openai-compatible') {
+			if (runtime.requestOAuthAuth?.provider === 'codex') {
+				const requestProviderIdentity = providerIdentityForOAuthAuth(runtime.requestOAuthAuth) ?? runtime.providerIdentity;
+				const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
+				const temperature =
+					runtime.temperatureMode === 'custom' && runtime.temperature != null
+						? resolveRequestedTemperature(0, runtime.temperatureMode, runtime.temperature)
+						: openAICompatibleEffectiveTemperature(runtime.requestModelId, 0);
+				const text = await runCodexOAuthResponseText({
+					auth: runtime.requestOAuthAuth,
+					providerId: runtime.requestProviderId,
+					model: runtime.requestModelId,
+					baseURL: runtime.requestBaseURL,
+					instructions: prependProviderIdentitySystemPrompt(
+						identitySettings,
+						EXTRACTION_SYSTEM_PROMPT
+					),
+					input: userPrompt,
+					temperature,
+					maxOutputTokens: 700,
+				});
+				return parseJsonResponse(text);
+			}
 			const proxyRaw = runtime.requestProxyUrl?.trim() ?? '';
 			const httpAgent = proxyRaw ? new HttpsProxyAgent(proxyRaw) : undefined;
 			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };
@@ -330,11 +357,17 @@ async function extractWithRuntimeModel(
 			return parseJsonResponse(typeof resp.choices[0]?.message?.content === 'string' ? resp.choices[0]!.message!.content! : '');
 		}
 		if (runtime.paradigm === 'anthropic') {
-			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };
+			const oauthAuth =
+				runtime.requestOAuthAuth?.provider === 'claude'
+					? await ensureFreshOAuthAuthForRequest(runtime.requestProviderId, runtime.requestOAuthAuth)
+					: undefined;
+			const key = (oauthAuth?.accessToken ?? runtime.requestApiKey).trim();
+			const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? runtime.providerIdentity;
+			const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
 			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
-			const client = new Anthropic(
+			const client = createAnthropicClient(
 				applyAnthropicProviderIdentity(identitySettings, {
-					apiKey: runtime.requestApiKey,
+					...buildAnthropicAuthOptions(key, oauthAuth),
 					baseURL: runtime.requestBaseURL || undefined,
 				})
 			);
@@ -381,9 +414,11 @@ async function extractWithModel(
 			requestApiKey: resolved.apiKey,
 			requestBaseURL: resolved.baseURL,
 			requestProxyUrl: resolved.proxyUrl,
+			requestProviderId: resolved.providerId,
+			requestOAuthAuth: resolved.oauthAuth,
 			temperatureMode: resolved.temperatureMode,
 			temperature: resolved.temperature,
-			providerIdentity: settings.providerIdentity,
+			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, resolved.providerIdentity),
 		},
 		userPrompt
 	);

@@ -191,8 +191,29 @@ function makeBrowserCommandId(): string {
 	return `browser-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function looksLikeLocalFilesystemPath(raw: string): boolean {
+	// Windows drive path: C:\foo, d:/bar
+	if (/^[a-zA-Z]:[\\/]/.test(raw)) {
+		return true;
+	}
+	// UNC path: \\server\share
+	if (/^\\\\/.test(raw)) {
+		return true;
+	}
+	// POSIX absolute path: /foo/bar (but not //host which could be protocol-relative)
+	if (/^\/[^/]/.test(raw)) {
+		return true;
+	}
+	// Relative path with backslashes
+	if (/\\/.test(raw) && !/^[a-zA-Z][a-zA-Z\d+\-.]+:\/\//.test(raw)) {
+		return true;
+	}
+	return false;
+}
+
 function looksLikeBrowserDirectUrl(raw: string): boolean {
-	if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw)) {
+	// Require scheme to be at least 2 chars to avoid matching Windows drive letters (C:, D:)
+	if (/^[a-zA-Z][a-zA-Z\d+\-.]+:/.test(raw)) {
 		return true;
 	}
 	return /^(localhost|(?:\d{1,3}\.){3}\d{1,3}|(?:[\w-]+\.)+[a-z]{2,})(?::\d+)?(?:[/?#].*)?$/i.test(raw);
@@ -203,8 +224,11 @@ function normalizeBrowserNavigateTarget(raw: string): string {
 	if (!text) {
 		return 'https://www.bing.com/';
 	}
+	if (looksLikeLocalFilesystemPath(text)) {
+		return `https://www.bing.com/search?q=${encodeURIComponent(text)}`;
+	}
 	if (looksLikeBrowserDirectUrl(text)) {
-		return /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(text) ? text : `https://${text}`;
+		return /^[a-zA-Z][a-zA-Z\d+\-.]+:/.test(text) ? text : `https://${text}`;
 	}
 	return `https://www.bing.com/search?q=${encodeURIComponent(text)}`;
 }
@@ -1388,6 +1412,47 @@ export async function executeTool(
 			};
 		case 'TodoWrite':
 			return executeTodoWrite(call, execCtx);
+		case 'TaskCreate':
+			return await executeAgentDelegate(
+				{
+					...call,
+					arguments: {
+						...call.arguments,
+						// TaskCreate 始终异步：把 run_in_background 强制为 true，模型再用
+						// TaskList / TaskGet / TaskOutput 取状态，TaskUpdate / TaskStop 操作进度。
+						run_in_background: true,
+					},
+				},
+				execCtx
+			);
+		case 'TaskUpdate':
+			return await executeAgentSendInput(
+				{
+					...call,
+					arguments: {
+						...call.arguments,
+						target: call.arguments.target ?? call.arguments.taskId ?? call.arguments.id,
+					},
+				},
+				execCtx
+			);
+		case 'TaskList':
+			return executeTaskList(call, execCtx);
+		case 'TaskGet':
+			return executeTaskGet(call, execCtx);
+		case 'TaskOutput':
+			return executeTaskOutput(call, execCtx);
+		case 'TaskStop':
+			return await executeAgentClose(
+				{
+					...call,
+					arguments: {
+						...call.arguments,
+						target: call.arguments.target ?? call.arguments.taskId ?? call.arguments.id,
+					},
+				},
+				execCtx
+			);
 		case 'ask_plan_question':
 			return await executeAskPlanQuestionTool(
 				call,
@@ -2195,22 +2260,6 @@ async function executeGrepTool(call: ToolCall, execCtx: ToolExecutionContext): P
 	return { toolCallId: call.id, name: call.name, content: `${prefix}\n${items.join('\n')}`, isError: false };
 }
 
-const UNIX_INSPECT_RE = /^\s*(ls\b|cat\b|head\b|tail\b|wc\b|file\b|stat\b|less\b|more\b|sed\b|awk\b|find\s)/;
-const UNIX_REDIRECT: Record<string, string> = {
-	ls: 'Use Glob or Bash to list files; use Read to inspect a file.',
-	cat: 'Use Read to read file contents.',
-	head: 'Use Read with offset=1 and limit=N.',
-	tail: 'Use Read with offset near the end and a limit.',
-	wc: 'Use Read to get file content, then count in your response.',
-	file: 'Use Read to inspect file contents.',
-	stat: 'Use Glob or Read to check if a path exists.',
-	less: 'Use Read to read file contents.',
-	more: 'Use Read to read file contents.',
-	sed: 'Use Edit to make targeted edits to files.',
-	awk: 'Use Read then process the content in your response.',
-	find: 'Use Glob or Grep instead.',
-};
-
 type BashGitDirtyState = {
 	topLevel: string;
 	orderedEntries: Array<{ repoRel: string; wsRel: string }>;
@@ -2394,20 +2443,6 @@ async function executeCommand(
 	const root = requireWorkspace(execCtx);
 	const command = String(call.arguments.command ?? '').trim();
 	if (!command) return { toolCallId: call.id, name: call.name, content: 'Error: command is required', isError: true };
-
-	if (process.platform === 'win32') {
-		const unixMatch = command.match(UNIX_INSPECT_RE);
-		if (unixMatch) {
-			const cmd = unixMatch[1]!.trim();
-			const hint = UNIX_REDIRECT[cmd] ?? 'Use the dedicated tools (Read, Glob, Grep) instead.';
-			return {
-				toolCallId: call.id,
-				name: call.name,
-				content: `"${cmd}" is a Unix command and will not work on this Windows system. ${hint}`,
-				isError: true,
-			};
-		}
-	}
 
 	const timeoutMsRaw = Number(call.arguments.timeout_ms);
 	const timeoutMs =
@@ -2976,6 +3011,152 @@ async function executeAgentClose(call: ToolCall, execCtx: ToolExecutionContext =
 	};
 }
 
+function summarizeManagedAgentForTaskList(agent: {
+	id: string;
+	title: string;
+	status: string;
+	subagentType?: string;
+	background: boolean;
+	parentAgentId: string | null;
+	updatedAt: number;
+	closedAt: number | null;
+	lastError: string | null;
+}): string {
+	const parts = [
+		`#${agent.id}`,
+		`[${agent.status}]`,
+		agent.background ? '(bg)' : '',
+		agent.subagentType ? `<${agent.subagentType}>` : '',
+		agent.title,
+	].filter(Boolean);
+	if (agent.lastError) parts.push(`error="${agent.lastError}"`);
+	return parts.join(' ');
+}
+
+function executeTaskList(call: ToolCall, execCtx: ToolExecutionContext = {}): ToolResult {
+	const threadId = execCtx.threadId ?? _delegateContext?.threadId ?? '_default';
+	const session = getManagedAgentSession(threadId);
+	if (!session) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'No tasks. Use TaskCreate to spawn a sub-agent task.',
+			isError: false,
+		};
+	}
+	const filter = typeof call.arguments.status === 'string' ? String(call.arguments.status) : null;
+	const all = Object.values(session.agents);
+	const filtered = filter ? all.filter((a) => a.status === filter) : all;
+	if (filtered.length === 0) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: filter ? `No tasks with status "${filter}".` : 'No tasks.',
+			isError: false,
+		};
+	}
+	const lines = filtered
+		.sort((a, b) => a.startedAt - b.startedAt)
+		.map((a) => summarizeManagedAgentForTaskList(a));
+	return {
+		toolCallId: call.id,
+		name: call.name,
+		content: lines.join('\n'),
+		isError: false,
+	};
+}
+
+function executeTaskGet(call: ToolCall, execCtx: ToolExecutionContext = {}): ToolResult {
+	const id = String(call.arguments.taskId ?? call.arguments.id ?? '').trim();
+	if (!id) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'Error: taskId is required',
+			isError: true,
+		};
+	}
+	const threadId = execCtx.threadId ?? _delegateContext?.threadId ?? '_default';
+	const session = getManagedAgentSession(threadId);
+	const agent = session?.agents[id];
+	if (!agent) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: task ${id} not found in this session.`,
+			isError: true,
+		};
+	}
+	const meta = {
+		id: agent.id,
+		title: agent.title,
+		status: agent.status,
+		subagentType: agent.subagentType ?? null,
+		background: agent.background,
+		runProfile: agent.runProfile,
+		parentAgentId: agent.parentAgentId,
+		parentToolCallId: agent.parentToolCallId,
+		startedAt: agent.startedAt,
+		updatedAt: agent.updatedAt,
+		closedAt: agent.closedAt,
+		childAgentIds: agent.childAgentIds,
+		lastInputSummary: agent.lastInputSummary,
+		lastOutputSummary: agent.lastOutputSummary,
+		lastResultSummary: agent.lastResultSummary,
+		lastError: agent.lastError,
+	};
+	return {
+		toolCallId: call.id,
+		name: call.name,
+		content: JSON.stringify(meta, null, 2),
+		isError: false,
+	};
+}
+
+function executeTaskOutput(call: ToolCall, execCtx: ToolExecutionContext = {}): ToolResult {
+	const id = String(call.arguments.taskId ?? call.arguments.id ?? '').trim();
+	if (!id) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: 'Error: taskId is required',
+			isError: true,
+		};
+	}
+	const threadId = execCtx.threadId ?? _delegateContext?.threadId ?? '_default';
+	const session = getManagedAgentSession(threadId);
+	const agent = session?.agents[id];
+	if (!agent) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: task ${id} not found in this session.`,
+			isError: true,
+		};
+	}
+	const last = call.arguments.last;
+	const tail = typeof last === 'number' && Number.isFinite(last) && last > 0 ? Math.floor(last) : null;
+	const messages = tail ? agent.messages.slice(-tail) : agent.messages;
+	if (messages.length === 0) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `(task ${id} has no output yet; current status=${agent.status})`,
+			isError: false,
+		};
+	}
+	const formatted = messages
+		.map((m) => `[${m.role}] ${m.content}`)
+		.join('\n\n---\n\n');
+	const header = `Task #${id} status=${agent.status}\n\n`;
+	return {
+		toolCallId: call.id,
+		name: call.name,
+		content: header + formatted,
+		isError: false,
+	};
+}
+
 function executeTodoWrite(call: ToolCall, execCtx: ToolExecutionContext): ToolResult {
 	const rawTodos = call.arguments.todos;
 	if (!Array.isArray(rawTodos)) {
@@ -2986,7 +3167,7 @@ function executeTodoWrite(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 			isError: true,
 		};
 	}
-	const todos: TodoItem[] = rawTodos.map((t: Record<string, unknown>) => ({
+	const todos = rawTodos.map((t: Record<string, unknown>) => ({
 		content: String(t.content ?? ''),
 		status: (['pending', 'in_progress', 'completed'].includes(String(t.status)) ? String(t.status) : 'pending') as TodoItem['status'],
 		activeForm: String(t.activeForm ?? t.content ?? ''),

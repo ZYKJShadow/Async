@@ -1,9 +1,20 @@
-import type { ModelRequestParadigm, ShellSettings, UserLlmProvider, UserModelEntry } from '../settingsStore.js';
+import type {
+	ModelRequestParadigm,
+	ProviderOAuthAuthRecord,
+	ShellSettings,
+	UserLlmProvider,
+	UserModelEntry,
+} from '../settingsStore.js';
+import type { ProviderIdentitySettings } from '../../src/providerIdentitySettings.js';
 import {
 	normalizeThinkingLevel,
 	normalizeUserModelTemperature,
 	type ThinkingLevel,
 } from './thinkingLevel.js';
+import {
+	isClaudeOAuthAccessToken,
+	providerIdentityForOAuthAuth,
+} from './providerIdentity.js';
 
 export type ResolvedChatModel = {
 	requestModelId: string;
@@ -30,6 +41,12 @@ export type ResolvedModelRequest =
 			baseURL?: string;
 			/** 仅 OpenAI 兼容：来自提供商的 HTTP 代理 */
 			proxyUrl?: string;
+			/** 当前提供商的 id，便于上层定位提供商级别配置（如标识覆盖）。 */
+			providerId: string;
+			/** 当前提供商对全局「模型提供商标识」的覆盖（undefined / `'inherit'` 表示跟随全局）。 */
+			providerIdentity?: ProviderIdentitySettings;
+			/** 当前提供商的 OAuth 凭据（Codex / Claude Code / Antigravity）。 */
+			oauthAuth?: ProviderOAuthAuthRecord;
 	  }
 	| { ok: false; message: string };
 
@@ -39,6 +56,38 @@ function entryById(entries: UserModelEntry[], id: string): UserModelEntry | unde
 
 function providerById(providers: UserLlmProvider[], id: string): UserLlmProvider | undefined {
 	return providers.find((p) => p.id === id);
+}
+
+function logModelResolveOAuthDebug(params: {
+	entryId: string;
+	provider: UserLlmProvider;
+	requestModelId: string;
+	apiKey: string;
+	oauthAuth?: ProviderOAuthAuthRecord;
+}): void {
+	const tokenKind = isClaudeOAuthAccessToken(params.oauthAuth?.accessToken ?? params.apiKey)
+		? 'claude-oauth'
+		: params.oauthAuth?.provider
+			? `${params.oauthAuth.provider}-oauth`
+			: 'none';
+	if (tokenKind === 'none') {
+		return;
+	}
+	const summary = {
+		entryId: params.entryId,
+		providerId: params.provider.id,
+		providerName: params.provider.displayName?.trim() || '',
+		paradigm: params.provider.paradigm,
+		requestModelId: params.requestModelId,
+		tokenKind,
+		hasOAuthAuth: Boolean(params.oauthAuth),
+		oauthProvider: params.oauthAuth?.provider ?? '',
+		hasRefreshToken: Boolean(params.oauthAuth?.refreshToken?.trim()),
+		authMode: tokenKind === 'claude-oauth' ? 'bearer' : 'provider-oauth',
+		providerIdentityPreset:
+			(providerIdentityForOAuthAuth(params.oauthAuth) ?? params.provider.providerIdentity)?.preset ?? '',
+	};
+	console.log(`[ModelResolveOAuthDebug] ${JSON.stringify(summary)}`);
 }
 
 function isUsable(e: UserModelEntry): boolean {
@@ -56,9 +105,10 @@ export function clampMaxOutputTokens(n: number | undefined): number {
 
 function resolveProviderCredentials(
 	provider: UserLlmProvider
-): { ok: true; apiKey: string; baseURL?: string; proxyUrl?: string } | { ok: false; message: string } {
+): { ok: true; apiKey: string; baseURL?: string; proxyUrl?: string; oauthAuth?: ProviderOAuthAuthRecord } | { ok: false; message: string } {
+	let oauthAuth = provider.oauthAuth?.accessToken?.trim() ? provider.oauthAuth : undefined;
 	if (provider.paradigm === 'openai-compatible') {
-		const key = provider.apiKey?.trim() ?? '';
+		const key = oauthAuth?.accessToken.trim() || provider.apiKey?.trim() || '';
 		if (!key) {
 			return {
 				ok: false,
@@ -68,11 +118,19 @@ function resolveProviderCredentials(
 		}
 		const base = provider.baseURL?.trim() || undefined;
 		const proxyUrl = provider.proxyUrl?.trim() || undefined;
-		return { ok: true, apiKey: key, baseURL: base, proxyUrl };
+		return { ok: true, apiKey: key, baseURL: base, proxyUrl, ...(oauthAuth ? { oauthAuth } : {}) };
 	}
 
 	if (provider.paradigm === 'anthropic') {
-		const key = provider.apiKey?.trim() ?? '';
+		const key = oauthAuth?.accessToken.trim() || provider.apiKey?.trim() || '';
+		if (!oauthAuth && isClaudeOAuthAccessToken(key)) {
+			oauthAuth = {
+				provider: 'claude',
+				accessToken: key,
+				refreshToken: '',
+				lastRefreshAt: 0,
+			};
+		}
 		if (!key) {
 			return {
 				ok: false,
@@ -80,17 +138,17 @@ function resolveProviderCredentials(
 			};
 		}
 		const base = provider.baseURL?.trim() || undefined;
-		return { ok: true, apiKey: key, baseURL: base };
+		return { ok: true, apiKey: key, baseURL: base, ...(oauthAuth ? { oauthAuth } : {}) };
 	}
 
-	const key = provider.apiKey?.trim() ?? '';
+	const key = oauthAuth?.accessToken.trim() || provider.apiKey?.trim() || '';
 	if (!key) {
 		return {
 			ok: false,
 			message: '未配置 Google Gemini API Key。请在设置 → 模型 → 对应提供商中填写。',
 		};
 	}
-	return { ok: true, apiKey: key, baseURL: undefined };
+	return { ok: true, apiKey: key, baseURL: undefined, ...(oauthAuth ? { oauthAuth } : {}) };
 }
 
 /**
@@ -141,6 +199,13 @@ export function resolveModelRequest(settings: ShellSettings, selectionId: string
 		ctx != null && Number.isFinite(ctx) && ctx > 0 ? Math.floor(ctx) : undefined;
 	const temperatureMode = entry.temperatureMode === 'custom' ? 'custom' : 'auto';
 	const temperature = normalizeUserModelTemperature(entry.temperature);
+	logModelResolveOAuthDebug({
+		entryId: entry.id,
+		provider: prov,
+		requestModelId: entry.requestName.trim(),
+		apiKey: creds.apiKey,
+		oauthAuth: creds.oauthAuth,
+	});
 
 	return {
 		ok: true,
@@ -154,6 +219,9 @@ export function resolveModelRequest(settings: ShellSettings, selectionId: string
 		apiKey: creds.apiKey,
 		baseURL: creds.baseURL,
 		proxyUrl: creds.proxyUrl,
+		providerId: prov.id,
+		providerIdentity: providerIdentityForOAuthAuth(creds.oauthAuth) ?? prov.providerIdentity,
+		oauthAuth: creds.oauthAuth,
 	};
 }
 

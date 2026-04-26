@@ -38,6 +38,7 @@ export type UseMessagesScrollParams = {
 	messages: ChatMessage[];
 	messagesThreadId: string | null;
 	messagesThreadIdRef: MutableRefObject<string | null>;
+	awaitingReply: boolean;
 };
 
 export type UseMessagesScrollResult = {
@@ -68,8 +69,10 @@ function resolveViewportBottomInset(viewport: HTMLElement): number {
 
 export function resolveContentBottomScroll(
 	viewport: HTMLElement,
-	track: HTMLElement | null
+	track: HTMLElement | null,
+	options: { protectActivePreflight?: boolean } = {}
 ): number {
+	const { protectActivePreflight = true } = options;
 	const bottomInset = resolveViewportBottomInset(viewport);
 	if (!track) {
 		return Math.max(0, viewport.scrollHeight - viewport.clientHeight - bottomInset);
@@ -103,7 +106,7 @@ export function resolveContentBottomScroll(
 	   计算允许的最大 scrollTop:让 preflight 顶端至少落在 sticky 下沿,并额外
 	   预留 STICKY_USER_BOTTOM_GAP_PX 让 user 气泡视觉上不贴顶。 */
 	const STICKY_USER_BOTTOM_GAP_PX = 16;
-	if (activePreflightTopInTrack != null) {
+	if (protectActivePreflight && activePreflightTopInTrack != null) {
 		const stickyEl = viewport.querySelector?.('.ref-msg-sticky-user-wrap') as HTMLElement | null;
 		const stickyH = stickyEl ? stickyEl.getBoundingClientRect().height : 0;
 		if (stickyH > 0) {
@@ -183,6 +186,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		messages,
 		messagesThreadId,
 		messagesThreadIdRef,
+		awaitingReply,
 	} = params;
 
 	const messagesViewportRef = useRef<HTMLDivElement>(null);
@@ -199,6 +203,8 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	const messagesTrackScrollHeightRef = useRef(0);
 	const messagesViewportClientHeightRef = useRef(0);
 	const prevMessagesLenForScrollRef = useRef(0);
+	const awaitingReplyRef = useRef(awaitingReply);
+	awaitingReplyRef.current = awaitingReply;
 
 	const clearScrollToBottomButtonSuppression = useCallback(() => {
 		suppressScrollToBottomButtonRef.current = false;
@@ -216,7 +222,9 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			}
 			const rawMetrics = measureMessagesScroll(el);
 			const track = messagesTrackRef.current;
-			const contentMaxScroll = resolveContentBottomScroll(el, track);
+			const contentMaxScroll = resolveContentBottomScroll(el, track, {
+				protectActivePreflight: awaitingReplyRef.current,
+			});
 			const metrics: MessagesScrollMetrics = {
 				maxScroll: contentMaxScroll,
 				clampedTop: rawMetrics.clampedTop,
@@ -255,7 +263,12 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				prev === shouldShowJumpButton ? prev : shouldShowJumpButton
 			);
 		},
-		[currentIdRef, messagesThreadIdRef, clearScrollToBottomButtonSuppression, messagesTrackRef]
+		[
+			currentIdRef,
+			messagesThreadIdRef,
+			clearScrollToBottomButtonSuppression,
+			messagesTrackRef,
+		]
 	);
 
 	const syncMessagesScrollIndicators = useCallback(() => {
@@ -269,7 +282,9 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				return false;
 			}
 			const track = messagesTrackRef.current;
-			const targetScroll = resolveContentBottomScroll(el, track);
+			const targetScroll = resolveContentBottomScroll(el, track, {
+				protectActivePreflight: awaitingReplyRef.current,
+			});
 			if (behavior === 'auto') {
 				el.scrollTop = targetScroll;
 			} else {

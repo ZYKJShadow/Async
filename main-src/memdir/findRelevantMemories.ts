@@ -1,7 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { ShellSettings } from '../settingsStore.js';
@@ -9,17 +8,23 @@ import { resolveModelRequest } from '../llm/modelResolve.js';
 import {
 	applyAnthropicProviderIdentity,
 	applyOpenAIProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from '../llm/providerIdentity.js';
+import { ensureFreshOAuthAuthForRequest } from '../llm/providerOAuthLogin.js';
 import {
 	openAICompatibleEffectiveTemperature,
 	resolveRequestedTemperature,
 } from '../llm/thinkingLevel.js';
+import { runCodexOAuthResponseText } from '../llm/codexOAuthAdapter.js';
 import { formatMemoryManifest, scanMemoryFiles, type MemoryHeader } from './memoryScan.js';
 import { getAutoMemPath } from './paths.js';
-import type { ModelRequestParadigm, ThinkingLevel } from '../settingsStore.js';
+import type { ModelRequestParadigm, ProviderOAuthAuthRecord, ThinkingLevel } from '../settingsStore.js';
 import type { ProviderIdentitySettings } from '../../src/providerIdentitySettings.js';
+import { resolveProviderIdentityWithOverride } from '../../src/providerIdentitySettings.js';
 
 export type RelevantMemory = {
 	path: string;
@@ -32,6 +37,8 @@ export type RuntimeMemoryModel = {
 	requestApiKey: string;
 	requestBaseURL?: string;
 	requestProxyUrl?: string;
+	requestProviderId?: string;
+	requestOAuthAuth?: ProviderOAuthAuthRecord;
 	temperatureMode?: 'auto' | 'custom';
 	temperature?: number;
 	thinkingLevel?: ThinkingLevel;
@@ -157,6 +164,29 @@ async function selectRelevantMemoriesWithRuntimeModel(
 	try {
 		throwIfAborted(signal);
 		if (runtime.paradigm === 'openai-compatible') {
+			if (runtime.requestOAuthAuth?.provider === 'codex') {
+				const requestProviderIdentity = providerIdentityForOAuthAuth(runtime.requestOAuthAuth) ?? runtime.providerIdentity;
+				const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
+				const temperature =
+					runtime.temperatureMode === 'custom' && runtime.temperature != null
+						? resolveRequestedTemperature(0, runtime.temperatureMode, runtime.temperature)
+						: openAICompatibleEffectiveTemperature(runtime.requestModelId, 0);
+				const text = await runCodexOAuthResponseText({
+					auth: runtime.requestOAuthAuth,
+					providerId: runtime.requestProviderId,
+					model: runtime.requestModelId,
+					baseURL: runtime.requestBaseURL,
+					instructions: prependProviderIdentitySystemPrompt(
+						identitySettings,
+						SELECT_MEMORIES_SYSTEM_PROMPT
+					),
+					input: userPrompt,
+					temperature,
+					maxOutputTokens: 256,
+					signal,
+				});
+				return parseSelectedFilenames(text, validFilenames);
+			}
 			const proxyRaw = runtime.requestProxyUrl?.trim() ?? '';
 			const httpAgent = proxyRaw ? new HttpsProxyAgent(proxyRaw) : undefined;
 			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };
@@ -190,11 +220,17 @@ async function selectRelevantMemoriesWithRuntimeModel(
 		}
 
 		if (runtime.paradigm === 'anthropic') {
-			const identitySettings: ShellSettings = { providerIdentity: runtime.providerIdentity };
+			const oauthAuth =
+				runtime.requestOAuthAuth?.provider === 'claude'
+					? await ensureFreshOAuthAuthForRequest(runtime.requestProviderId, runtime.requestOAuthAuth)
+					: undefined;
+			const key = (oauthAuth?.accessToken ?? runtime.requestApiKey).trim();
+			const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? runtime.providerIdentity;
+			const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
 			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
-			const client = new Anthropic(
+			const client = createAnthropicClient(
 				applyAnthropicProviderIdentity(identitySettings, {
-					apiKey: runtime.requestApiKey,
+					...buildAnthropicAuthOptions(key, oauthAuth),
 					baseURL: runtime.requestBaseURL || undefined,
 				})
 			);
@@ -271,9 +307,11 @@ export async function findRelevantMemories(
 			requestApiKey: resolved.apiKey,
 			requestBaseURL: resolved.baseURL,
 			requestProxyUrl: resolved.proxyUrl,
+			requestProviderId: resolved.providerId,
+			requestOAuthAuth: resolved.oauthAuth,
 			temperatureMode: resolved.temperatureMode,
 			temperature: resolved.temperature,
-			providerIdentity: settings.providerIdentity,
+			providerIdentity: resolveProviderIdentityWithOverride(settings.providerIdentity, resolved.providerIdentity),
 		}
 		: null;
 	return findRelevantMemoriesInDir(query, memoryDir, runtime, alreadySurfaced);
@@ -326,9 +364,11 @@ export async function buildRelevantMemoryContextBlock(params: {
 			requestApiKey: resolved.apiKey,
 			requestBaseURL: resolved.baseURL,
 			requestProxyUrl: resolved.proxyUrl,
+			requestProviderId: resolved.providerId,
+			requestOAuthAuth: resolved.oauthAuth,
 			temperatureMode: resolved.temperatureMode,
 			temperature: resolved.temperature,
-			providerIdentity: params.settings.providerIdentity,
+			providerIdentity: resolveProviderIdentityWithOverride(params.settings.providerIdentity, resolved.providerIdentity),
 		}
 		: null;
 	const memoryDir = params.memoryDirOverride ?? getAutoMemPath(params.workspaceRoot);

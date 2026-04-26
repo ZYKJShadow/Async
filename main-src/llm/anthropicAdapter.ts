@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { ShellSettings } from '../settingsStore.js';
 import { composeSystemSections, temperatureForMode } from './modePrompts.js';
@@ -22,12 +21,17 @@ import { withLlmTransportRetry } from './llmTransportRetry.js';
 import { formatLlmSdkError } from './formatLlmSdkError.js';
 import {
 	applyAnthropicProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
+	logAnthropicAuthDebug,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from './providerIdentity.js';
 import type { SendableMessage } from './sendResolved.js';
 import { userMessageTextForSend } from './sendResolved.js';
 import { buildAnthropicUserBlocks } from './resolvedUserSerialize.js';
+import { ensureFreshOAuthAuthForRequest } from './providerOAuthLogin.js';
 
 function toAnthropicMessages(messages: SendableMessage[]): MessageParam[] {
 	const nonSystem = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
@@ -63,29 +67,44 @@ export async function streamAnthropic(
 	options: UnifiedChatOptions,
 	handlers: StreamHandlers
 ): Promise<void> {
-	const key = options.requestApiKey.trim();
+	const oauthAuth =
+		options.requestOAuthAuth?.provider === 'claude'
+			? await ensureFreshOAuthAuthForRequest(options.requestProviderId, options.requestOAuthAuth)
+			: undefined;
+	const key = (oauthAuth?.accessToken ?? options.requestApiKey).trim();
 	if (!key) {
 		handlers.onError('未配置 Anthropic API Key。请在设置 → 模型中填写全局密钥或该模型的独立密钥。');
 		return;
 	}
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
-// maxRetries: 0，避免流式请求自动重试拉长等待
-	const client = new Anthropic(
-		applyAnthropicProviderIdentity(settings, {
-			apiKey: key,
-			baseURL: baseURL || undefined,
-			timeout: llmSdkResponseHeadTimeoutMs(),
-			maxRetries: 0,
-		})
-	);
-
-	const storedSystem = messages.find((m) => m.role === 'system');
+	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.requestProviderIdentity;
 	const model = options.requestModelId.trim();
 	if (!model) {
 		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
 		return;
 	}
+	const authOptions = buildAnthropicAuthOptions(key, oauthAuth);
+	logAnthropicAuthDebug({
+		source: 'chat',
+		providerId: options.requestProviderId,
+		model,
+		baseURL,
+		authOptions,
+		oauthAuth,
+		providerIdentity: requestProviderIdentity,
+	});
+// maxRetries: 0，避免流式请求自动重试拉长等待
+	const client = createAnthropicClient(
+		applyAnthropicProviderIdentity(settings, {
+			...authOptions,
+			baseURL: baseURL || undefined,
+			timeout: llmSdkResponseHeadTimeoutMs(),
+			maxRetries: 0,
+		}, requestProviderIdentity)
+	);
+
+	const storedSystem = messages.find((m) => m.role === 'system');
 	const promptCaching = isAnthropicPromptCachingEnabled(model);
 	const systemSections = composeSystemSections(
 		storedSystem?.content,
@@ -95,8 +114,8 @@ export async function streamAnthropic(
 	const system = buildAnthropicSystemForApi(
 		{
 			...systemSections,
-			staticText: prependProviderIdentitySystemPrompt(settings, systemSections.staticText),
-			fullText: prependProviderIdentitySystemPrompt(settings, systemSections.fullText),
+			staticText: prependProviderIdentitySystemPrompt(settings, systemSections.staticText, requestProviderIdentity),
+			fullText: prependProviderIdentitySystemPrompt(settings, systemSections.fullText, requestProviderIdentity),
 		},
 		promptCaching
 	);
@@ -109,7 +128,7 @@ export async function streamAnthropic(
 			onDecision: (decision) => { cacheDecision = decision; },
 		}
 	);
-	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, requestProviderIdentity);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
 	const requestedTemperature = resolveRequestedTemperature(
 		temperatureForMode(options.mode),
@@ -166,6 +185,8 @@ export async function streamAnthropic(
 					},
 					{ signal: timeoutAc.signal }
 				);
+				s.on('error', () => undefined);
+				s.on('abort', () => undefined);
 				await s.withResponse();
 				return s;
 			},

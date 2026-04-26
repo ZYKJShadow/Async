@@ -86,6 +86,7 @@ type StreamingSendRuntime = {
 	clearMistakeLimitRequest: () => void;
 	planBuildPendingMarkerRef: MutableRefObject<{ threadId: string; pathKey: string } | null>;
 	setAwaitingReply: Dispatch<SetStateAction<boolean>>;
+	setStreamingThreadId: Dispatch<SetStateAction<string | null>>;
 	streamStartedAtRef: MutableRefObject<number | null>;
 };
 
@@ -180,6 +181,8 @@ export function useStreamingChat() {
 	 */
 	const setStreaming = useMemo(() => streamingStore.setStreaming, []);
 	const [awaitingReply, setAwaitingReply] = useState(false);
+	/** 当前正在流式回复的线程 id；用于侧栏即时反馈，避免依赖主进程列表刷新延迟 */
+	const [streamingThreadId, setStreamingThreadId] = useState<string | null>(null);
 	const [thoughtSecondsByThread, setThoughtSecondsByThread] = useState<Record<string, number>>({});
 	const [subAgentBgToast, setSubAgentBgToast] = useState<StreamingToast>(null);
 
@@ -226,6 +229,7 @@ export function useStreamingChat() {
 		streamingStore.setStreaming('');
 		streamingStore.resetThinkingTick();
 		setAwaitingReply(true);
+		setStreamingThreadId(threadId);
 		ipcStreamNonceRef.current += 1;
 		return ipcStreamNonceRef.current;
 	}, []);
@@ -266,6 +270,7 @@ export function useStreamingChat() {
 		streamStartedAtRef.current = null;
 		firstTokenAtRef.current = null;
 		setAwaitingReply(false);
+		setStreamingThreadId(null);
 		streamingStore.flush();
 		streamingStore.setStreaming('');
 		streamingStore.resetThinkingTick();
@@ -302,6 +307,8 @@ export function useStreamingChat() {
 		setStreaming,
 		awaitingReply,
 		setAwaitingReply,
+		streamingThreadId,
+		setStreamingThreadId,
 		thoughtSecondsByThread,
 		setThoughtSecondsByThread,
 		subAgentBgToast,
@@ -508,6 +515,7 @@ export function useStreamingChatControls(runtime: StreamingSendRuntime) {
 		rt.resetLiveAgentBlocks();
 		rt.clearRootUserInputRequest(threadToAbort);
 		rt.setAwaitingReply(false);
+		rt.setStreamingThreadId(null);
 	}, []);
 
 	return {

@@ -1,11 +1,23 @@
 import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { getAutoCompactThresholdForSend, type ModelContextResolveOpts } from '../llm/modelContext.js';
 import { withLlmTransportRetry } from '../llm/llmTransportRetry.js';
 import { formatLlmSdkError } from '../llm/formatLlmSdkError.js';
 import { anthropicEffectiveMaxTokens } from '../llm/thinkingLevel.js';
+import type { ProviderOAuthAuthRecord, ShellSettings } from '../settingsStore.js';
+import type { ProviderIdentitySettings } from '../../src/providerIdentitySettings.js';
+import {
+	applyAnthropicProviderIdentity,
+	applyOpenAIProviderIdentity,
+	buildAnthropicAuthOptions,
+	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
+	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
+} from '../llm/providerIdentity.js';
+import { ensureFreshOAuthAuthForRequest } from '../llm/providerOAuthLogin.js';
+import { runCodexOAuthResponseText } from '../llm/codexOAuthAdapter.js';
 
 export type OpenAIMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 export type AnthropicMessage = MessageParam;
@@ -25,6 +37,9 @@ export type AgentContextCompactionOptions = {
 	apiKey: string;
 	baseURL?: string;
 	proxyUrl?: string;
+	providerId?: string;
+	providerIdentity?: ProviderIdentitySettings;
+	oauthAuth?: ProviderOAuthAuthRecord;
 	contextWindowTokens?: number;
 	maxOutputTokens: number;
 	state?: AgentContextCompactState;
@@ -332,21 +347,50 @@ function summaryPrompt(historyText: string): string {
 }
 
 async function summarizeWithOpenAI(options: AgentContextCompactionOptions, historyText: string): Promise<string> {
+	if (options.oauthAuth?.provider === 'codex') {
+		const requestProviderIdentity = providerIdentityForOAuthAuth(options.oauthAuth) ?? options.providerIdentity;
+		const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
+		return await withLlmTransportRetry(() => runCodexOAuthResponseText({
+			auth: options.oauthAuth!,
+			providerId: options.providerId,
+			model: options.model,
+			baseURL: options.baseURL,
+			instructions: prependProviderIdentitySystemPrompt(
+				identitySettings,
+				'You summarize coding-agent conversation history for context compaction.'
+			),
+			input: summaryPrompt(historyText),
+			temperature: 0,
+			maxOutputTokens: SUMMARY_OUTPUT_TOKENS,
+			signal: options.signal,
+		}), { signal: options.signal });
+	}
 	const key = options.apiKey.trim();
 	if (!key) {
 		throw new Error('missing OpenAI-compatible API key for context compaction');
 	}
 	const client = new OpenAI({
-		apiKey: key,
-		baseURL: options.baseURL?.trim() || undefined,
-		timeout: 60_000,
-		maxRetries: 1,
-		...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
+		...applyOpenAIProviderIdentity(
+			{ providerIdentity: options.providerIdentity } satisfies ShellSettings,
+			{
+				apiKey: key,
+				baseURL: options.baseURL?.trim() || undefined,
+				timeout: 60_000,
+				maxRetries: 1,
+				...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
+			}
+		),
 	});
 	const response = await withLlmTransportRetry(() => client.chat.completions.create({
 		model: options.model,
 		messages: [
-			{ role: 'system', content: 'You summarize coding-agent conversation history for context compaction.' },
+			{
+				role: 'system',
+				content: prependProviderIdentitySystemPrompt(
+					{ providerIdentity: options.providerIdentity },
+					'You summarize coding-agent conversation history for context compaction.'
+				),
+			},
 			{ role: 'user', content: summaryPrompt(historyText) },
 		],
 		stream: false,
@@ -357,23 +401,39 @@ async function summarizeWithOpenAI(options: AgentContextCompactionOptions, histo
 }
 
 async function summarizeWithAnthropic(options: AgentContextCompactionOptions, historyText: string): Promise<string> {
-	const key = options.apiKey.trim();
+	const oauthAuth =
+		options.oauthAuth?.provider === 'claude'
+			? await ensureFreshOAuthAuthForRequest(options.providerId, options.oauthAuth)
+			: undefined;
+	const key = (oauthAuth?.accessToken ?? options.apiKey).trim();
 	if (!key) {
 		throw new Error('missing Anthropic API key for context compaction');
 	}
-	const client = new Anthropic({
-		apiKey: key,
-		baseURL: options.baseURL?.trim() || undefined,
-		maxRetries: 1,
-		timeout: 60_000,
-		...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
-	});
+	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.providerIdentity;
+	const client = createAnthropicClient(
+		applyAnthropicProviderIdentity(
+			{ providerIdentity: requestProviderIdentity } satisfies ShellSettings,
+			{
+				...buildAnthropicAuthOptions(key, oauthAuth),
+				baseURL: options.baseURL?.trim() || undefined,
+				maxRetries: 1,
+				timeout: 60_000,
+				...(options.proxyUrl?.trim() ? { httpAgent: new HttpsProxyAgent(options.proxyUrl.trim()) } : {}),
+			}
+		)
+	);
+	const identitySettings: ShellSettings = { providerIdentity: requestProviderIdentity };
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(identitySettings);
 	const response = await withLlmTransportRetry(() => client.messages.create({
 		model: options.model,
 		max_tokens: anthropicEffectiveMaxTokens(0, SUMMARY_OUTPUT_TOKENS),
-		system: 'You summarize coding-agent conversation history for context compaction.',
+		system: prependProviderIdentitySystemPrompt(
+			identitySettings,
+			'You summarize coding-agent conversation history for context compaction.'
+		),
 		messages: [{ role: 'user', content: summaryPrompt(historyText) }],
 		temperature: 0,
+		...(anthropicMetadata ? { metadata: anthropicMetadata } : {}),
 	}), { signal: options.signal });
 	return response.content
 		.map((block) => block.type === 'text' ? block.text : '')

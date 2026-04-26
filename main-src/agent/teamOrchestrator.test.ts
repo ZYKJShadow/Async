@@ -76,6 +76,7 @@ function makeResolvedModel(): Extract<ResolvedModelRequest, { ok: true }> {
 		apiKey: 'test-key',
 		baseURL: 'https://example.test',
 		proxyUrl: undefined,
+		providerId: 'test-provider',
 		maxOutputTokens: 2048,
 		temperatureMode: 'auto',
 	};

@@ -155,6 +155,11 @@ export type AgentChatPanelProps = {
 	/** 逐文件忽略改动条；与 Git 合并后的列表在面板内计算，避免 Git fullStatus 拖垮 useAgentChatPanelProps */
 	dismissedFiles: ReadonlySet<string>;
 	snapshotPaths: ReadonlySet<string>;
+	/** main 进程仍持有快照、可以真撤销的相对路径集合；用于按钮置灰。 */
+	revertableSnapshotPaths: ReadonlySet<string>;
+	/** 撤销因为没有快照而失败时的提示文案；非空时面板顶部展示一行警告条。 */
+	revertNotice: string | null;
+	onDismissRevertNotice: () => void;
 	fileChangesDismissed: boolean;
 	onKeepAllEdits: () => void;
 	onRevertAllEdits: () => void;
@@ -300,6 +305,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	respondToolApproval,
 	dismissedFiles,
 	snapshotPaths,
+	revertableSnapshotPaths,
+	revertNotice,
+	onDismissRevertNotice,
 	fileChangesDismissed,
 	onKeepAllEdits,
 	onRevertAllEdits,
@@ -2093,6 +2101,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				<div className={`ref-fcp-slot ${awaitingReply ? 'is-reserved' : ''}`}>
 					<AgentFileChangesPanel
 						files={agentFileChanges}
+						revertableSnapshotPaths={revertableSnapshotPaths}
+						revertNotice={revertNotice}
+						onDismissRevertNotice={onDismissRevertNotice}
 						onOpenFile={(rel, line, end, options) =>
 							onOpenAgentConversationFile(rel, line, end, {
 								...options,

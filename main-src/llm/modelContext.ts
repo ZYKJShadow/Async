@@ -18,6 +18,7 @@ import OpenAI from 'openai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { getSettings, type ModelRequestParadigm } from '../settingsStore.js';
 import { applyOpenAIProviderIdentity } from './providerIdentity.js';
+import type { ProviderIdentitySettings } from '../../src/providerIdentitySettings.js';
 
 // ─── context.ts 对齐常量 ───────────────────────────────────────────────────
 
@@ -141,6 +142,7 @@ export async function refreshOpenAiCompatibleModelCapabilitiesCache(params: {
 	baseURL?: string;
 	apiKey: string;
 	proxyUrl?: string;
+	providerIdentity?: ProviderIdentitySettings;
 }): Promise<void> {
 	const key = params.apiKey.trim() ? refreshKey(params.baseURL ?? 'https://api.openai.com/v1', params.apiKey) : '';
 	if (!key) {
@@ -167,7 +169,7 @@ export async function refreshOpenAiCompatibleModelCapabilitiesCache(params: {
 				httpAgent,
 				maxRetries: 0,
 				timeout: 45_000,
-			})
+			}, params.providerIdentity)
 		);
 		const page = await client.models.list();
 		const models: ModelCapabilityRecord[] = [];
@@ -207,6 +209,7 @@ export function scheduleRefreshOpenAiModelCapabilitiesIfStale(params: {
 	baseURL?: string;
 	apiKey: string;
 	proxyUrl?: string;
+	providerIdentity?: ProviderIdentitySettings;
 }): void {
 	const path = capabilitiesCachePath();
 	let stale = true;

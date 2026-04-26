@@ -51,16 +51,11 @@ export function SettingsAgentBehaviorPanel({ value, onChange }: Props) {
 
 	return (
 		<div className="ref-settings-panel ref-settings-panel--agent">
-			<p className="ref-settings-lead">{t('agentBehavior.lead')}</p>
-
-			<div className="ref-settings-agent-card">
-				<div className="ref-settings-agent-card-title" style={{ marginBottom: 8 }}>
+			<div className="ref-settings-agent-card ref-settings-agent-card--behavior">
+				<div className="ref-settings-agent-card-title">
 					{t('agentBehavior.executionTitle')}
 				</div>
-				<p className="ref-settings-agent-card-desc" style={{ marginBottom: 12 }}>
-					{t('agentBehavior.shellComposerHint')}
-				</p>
-				<label className="ref-settings-field ref-settings-field--compact" style={{ marginBottom: 4 }}>
+				<label className="ref-settings-field ref-settings-field--compact" style={{ marginTop: 12, marginBottom: 4 }}>
 					<span>{t('agentBehavior.shellPermissionMode')}</span>
 					<p className="ref-settings-agent-card-desc" style={{ margin: '4px 0 8px' }}>
 						{t('agentBehavior.shellPermissionModeDesc')}
@@ -161,7 +156,7 @@ export function SettingsAgentBehaviorPanel({ value, onChange }: Props) {
 				</div>
 			</div>
 
-			<div className="ref-settings-agent-card" style={{ marginTop: 18 }}>
+			<div className="ref-settings-agent-card ref-settings-agent-card--behavior">
 				<div className="ref-settings-agent-card-title">{t('agentBehavior.toolRulesTitle')}</div>
 				<p className="ref-settings-agent-card-desc" style={{ marginTop: 8 }}>
 					{t('agentBehavior.toolRulesDesc')}
@@ -266,13 +261,6 @@ export function SettingsAgentBehaviorPanel({ value, onChange }: Props) {
 						<span className="ref-settings-toggle-knob" />
 					</button>
 				</div>
-			</div>
-
-			<div className="ref-settings-agent-card" style={{ marginTop: 18 }}>
-				<div className="ref-settings-agent-card-title">{t('agentBehavior.libraryTitle')}</div>
-				<p className="ref-settings-agent-card-desc" style={{ marginTop: 8 }}>
-					{t('agentBehavior.libraryHint')}
-				</p>
 			</div>
 		</div>
 	);

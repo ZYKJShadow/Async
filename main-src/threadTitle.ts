@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import OpenAI from 'openai';
@@ -7,10 +6,15 @@ import { resolveModelRequest } from './llm/modelResolve.js';
 import {
 	applyAnthropicProviderIdentity,
 	applyOpenAIProviderIdentity,
+	buildAnthropicAuthOptions,
 	buildAnthropicProviderIdentityMetadata,
+	createAnthropicClient,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from './llm/providerIdentity.js';
+import { ensureFreshOAuthAuthForRequest } from './llm/providerOAuthLogin.js';
 import { openAICompatibleEffectiveTemperature } from './llm/thinkingLevel.js';
+import { runCodexOAuthResponseText } from './llm/codexOAuthAdapter.js';
 
 export const THREAD_TITLE_PLACEHOLDER = '???';
 
@@ -165,6 +169,24 @@ export async function generateThreadTitle(
 
 	try {
 		if (resolved.paradigm === 'openai-compatible') {
+			if (resolved.oauthAuth?.provider === 'codex') {
+				const requestProviderIdentity = providerIdentityForOAuthAuth(resolved.oauthAuth) ?? resolved.providerIdentity;
+				const text = await runCodexOAuthResponseText({
+					auth: resolved.oauthAuth,
+					providerId: resolved.providerId,
+					model: resolved.requestModelId,
+					baseURL: resolved.baseURL,
+					instructions: prependProviderIdentitySystemPrompt(
+						settings,
+						buildThreadTitleSystemPrompt(ruleContext),
+						requestProviderIdentity
+					),
+					input: userPrompt,
+					temperature: openAICompatibleEffectiveTemperature(resolved.requestModelId, 0),
+					maxOutputTokens: 120,
+				});
+				return parseGeneratedThreadTitle(text);
+			}
 			const proxyRaw = resolved.proxyUrl?.trim() ?? '';
 			const httpAgent = proxyRaw ? new HttpsProxyAgent(proxyRaw) : undefined;
 			const client = new OpenAI(
@@ -174,7 +196,7 @@ export async function generateThreadTitle(
 					httpAgent,
 					dangerouslyAllowBrowser: false,
 					maxRetries: 0,
-				})
+				}, resolved.providerIdentity)
 			);
 			const response = await client.chat.completions.create({
 				model: resolved.requestModelId,
@@ -185,7 +207,8 @@ export async function generateThreadTitle(
 						role: 'system',
 						content: prependProviderIdentitySystemPrompt(
 							settings,
-							buildThreadTitleSystemPrompt(ruleContext)
+							buildThreadTitleSystemPrompt(ruleContext),
+							resolved.providerIdentity
 						),
 					},
 					{ role: 'user', content: userPrompt },
@@ -195,19 +218,26 @@ export async function generateThreadTitle(
 		}
 
 		if (resolved.paradigm === 'anthropic') {
-			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings);
-			const client = new Anthropic(
+			const oauthAuth =
+				resolved.oauthAuth?.provider === 'claude'
+					? await ensureFreshOAuthAuthForRequest(resolved.providerId, resolved.oauthAuth)
+					: undefined;
+			const key = (oauthAuth?.accessToken ?? resolved.apiKey).trim();
+			const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? resolved.providerIdentity;
+			const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, requestProviderIdentity);
+			const client = createAnthropicClient(
 				applyAnthropicProviderIdentity(settings, {
-					apiKey: resolved.apiKey,
+					...buildAnthropicAuthOptions(key, oauthAuth),
 					baseURL: resolved.baseURL,
 					maxRetries: 0,
-				})
+				}, requestProviderIdentity)
 			);
 			const response = await client.messages.create({
 				model: resolved.requestModelId,
 				system: prependProviderIdentitySystemPrompt(
 					settings,
-					buildThreadTitleSystemPrompt(ruleContext)
+					buildThreadTitleSystemPrompt(ruleContext),
+					requestProviderIdentity
 				),
 				max_tokens: 120,
 				temperature: 0,
@@ -224,7 +254,8 @@ export async function generateThreadTitle(
 			model: resolved.requestModelId,
 			systemInstruction: prependProviderIdentitySystemPrompt(
 				settings,
-				buildThreadTitleSystemPrompt(ruleContext)
+				buildThreadTitleSystemPrompt(ruleContext),
+				resolved.providerIdentity
 			),
 			generationConfig: {
 				temperature: 0,

@@ -587,6 +587,8 @@ function AppMainWorkspaceInner() {
 
 	const {
 		awaitingReply,
+		streamingThreadId,
+		setStreamingThreadId,
 		thoughtSecondsByThread,
 		subAgentBgToast,
 		showTransientToast,
@@ -639,6 +641,11 @@ function AppMainWorkspaceInner() {
 		revertedChangeKeys,
 		setRevertedChangeKeys,
 		revertedChangeKeysRef,
+		revertableSnapshotPaths,
+		setRevertableSnapshotPaths,
+		revertableSnapshotPathsRef,
+		revertNotice,
+		setRevertNotice,
 		agentFilePreview,
 		setAgentFilePreview,
 		agentFilePreviewBusyPatch,
@@ -763,8 +770,9 @@ function AppMainWorkspaceInner() {
 				delete offThreadStreamDraftsRef.current[threadId];
 			}
 			setAwaitingReply(true);
+			setStreamingThreadId(threadId);
 		},
-		[setStreaming, setStreamingThinking, setAwaitingReply]
+		[setStreaming, setStreamingThinking, setAwaitingReply, setStreamingThreadId]
 	);
 
 	const clearPlanQuestion = useCallback(() => {
@@ -833,6 +841,7 @@ function AppMainWorkspaceInner() {
 		clearMistakeLimitRequest: () => setMistakeLimitRequest(null),
 		planBuildPendingMarkerRef,
 		setAwaitingReply,
+		setStreamingThreadId,
 		streamStartedAtRef,
 	});
 
@@ -1438,6 +1447,7 @@ function AppMainWorkspaceInner() {
 		onRevertAllEdits,
 		onKeepFileEdit,
 		onRevertFileEdit,
+		refreshRevertableSnapshots,
 	} = useAgentPatchActions({
 		shell,
 		currentId,
@@ -1453,9 +1463,12 @@ function AppMainWorkspaceInner() {
 		setRevertedFiles,
 		setRevertedChangeKeys,
 		setFileChangesDismissed,
+		setRevertableSnapshotPaths,
+		setRevertNotice,
 		dismissedFilesRef,
 		revertedFilesRef,
 		revertedChangeKeysRef,
+		revertableSnapshotPathsRef,
 		fileChangesDismissedRef,
 		clearAgentReviewForThread,
 		loadMessages,
@@ -1597,9 +1610,23 @@ function AppMainWorkspaceInner() {
 	 * loadMessages 的 onLoad 回调：在 startTransition 内与 setMessages 同批执行，
 	 * 避免 messages 变化后 useEffect 级联触发额外 render 轮次。
 	 */
+	// 上一轮 awaitingReply 状态：用来在 turn 结束（true → false）时同步一次真实快照集合。
+	const prevAwaitingReplyRef = useRef(false);
+	useEffect(() => {
+		const was = prevAwaitingReplyRef.current;
+		prevAwaitingReplyRef.current = awaitingReply;
+		if (was && !awaitingReply && currentId) {
+			void refreshRevertableSnapshots(currentId);
+		}
+	}, [awaitingReply, currentId, refreshRevertableSnapshots]);
+
 	const onMessagesLoaded = useCallback(
 		(msgs: ChatMessage[], threadId: string, extra?: { teamSession?: unknown; agentSession?: unknown }) => {
 			restoreFileChangesState(threadId, msgs, threadId);
+			// 切换 thread / 启动加载消息后，同步一次"还能撤销"的真实集合，
+			// 让 AgentFileChangesPanel 的撤销按钮按真实快照状态置灰。
+			void refreshRevertableSnapshots(threadId);
+			setRevertNotice(null);
 			if (extra?.teamSession && typeof extra.teamSession === 'object') {
 				restoreTeamSession(threadId, extra.teamSession as import('./hooks/useTeamSession').TeamSessionSnapshot);
 			}
@@ -1610,7 +1637,7 @@ function AppMainWorkspaceInner() {
 				}
 			}
 		},
-		[restoreFileChangesState, restoreTeamSession, restoreAgentSession, shell]
+		[restoreFileChangesState, restoreTeamSession, restoreAgentSession, refreshRevertableSnapshots, setRevertNotice, shell]
 	);
 
 	useEffect(() => {
@@ -1870,6 +1897,7 @@ function AppMainWorkspaceInner() {
 		setHiddenAgentWorkspacePaths,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -2059,6 +2087,7 @@ function AppMainWorkspaceInner() {
 		setCurrentId,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -2566,6 +2595,7 @@ function AppMainWorkspaceInner() {
 		setCurrentId,
 		setLastTurnUsage,
 		setAwaitingReply,
+		setStreamingThreadId,
 		setStreaming,
 		setStreamingThinking,
 		clearStreamingToolPreviewNow,
@@ -3050,6 +3080,7 @@ function AppMainWorkspaceInner() {
 		messages,
 		messagesThreadId,
 		messagesThreadIdRef,
+		awaitingReply,
 	});
 
 	useEffect(() => {
@@ -3409,6 +3440,7 @@ function AppMainWorkspaceInner() {
 				workspace={workspace}
 				currentId={currentId}
 				hasUnreadAgentReply={unreadAgentThreadIds.has(th.id)}
+				streamingThreadId={awaitingReply ? streamingThreadId : null}
 				editingThreadId={editingThreadId}
 				editingThreadTitleDraft={editingThreadTitleDraft}
 				setEditingThreadTitleDraft={setEditingThreadTitleDraft}
@@ -3429,6 +3461,8 @@ function AppMainWorkspaceInner() {
 		[
 			currentId,
 			unreadAgentThreadIds,
+			awaitingReply,
+			streamingThreadId,
 			editingThreadId,
 			editingThreadTitleDraft,
 			t,
@@ -3598,6 +3632,9 @@ function AppMainWorkspaceInner() {
 		toolApprovalRequest,
 		respondToolApproval,
 		snapshotPaths: EMPTY_SNAPSHOT_PATHS,
+		revertableSnapshotPaths,
+		revertNotice,
+		onDismissRevertNotice: () => setRevertNotice(null),
 		dismissedFiles,
 		fileChangesDismissed,
 		onKeepAllEdits,
@@ -4018,6 +4055,7 @@ function AppMainWorkspaceInner() {
 			effectiveColorScheme: effectiveScheme,
 			appearanceSettings,
 			onChangeAppearanceSettings: setAppearanceSettings,
+			showTransientToast,
 		}),
 		[
 			settingsInitialNav,
@@ -4056,6 +4094,7 @@ function AppMainWorkspaceInner() {
 			effectiveScheme,
 			appearanceSettings,
 			setAppearanceSettings,
+			showTransientToast,
 		]
 	);
 

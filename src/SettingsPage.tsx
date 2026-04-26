@@ -1,10 +1,11 @@
-import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useState, useTransition } from 'react';
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
 	createEmptyUserLlmProvider,
 	createEmptyUserModel,
 	DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
 	mergeDiscoveredProviderModels,
 	type DiscoveredProviderModel,
+	type OAuthProviderKind,
 	type UserLlmProvider,
 	type UserModelEntry,
 } from './modelCatalog';
@@ -12,6 +13,7 @@ import { LLM_PROVIDER_OPTIONS, type ModelRequestParadigm } from './llmProvider';
 import {
 	buildProviderIdentityPreview,
 	resolveProviderIdentitySettings,
+	resolveProviderIdentityWithOverride,
 	type ProviderIdentityPreset,
 	type ProviderIdentitySettings,
 } from './providerIdentitySettings';
@@ -21,7 +23,7 @@ import type { AppAppearanceSettings } from './appearanceSettings';
 import type { EditorSettings } from './EditorSettingsPanel';
 import type { AppColorMode, ThemeTransitionOrigin } from './colorMode';
 import type { McpServerConfig, McpServerStatus } from './mcpTypes';
-import { useI18n, type AppLocale } from './i18n';
+import { useI18n, type AppLocale, type TFunction } from './i18n';
 import { VoidSelect } from './VoidSelect';
 
 const SettingsAgentPanel = lazy(() => import('./SettingsAgentPanel').then((m) => ({ default: m.SettingsAgentPanel })));
@@ -61,6 +63,7 @@ export const ALL_SETTINGS_NAV_IDS: SettingsNavId[] = [
 	'appearance',
 	'editor',
 	'models',
+	'plugins',
 	'agents',
 	'bots',
 	'rules',
@@ -70,18 +73,114 @@ export const ALL_SETTINGS_NAV_IDS: SettingsNavId[] = [
 	'tools',
 	'plan',
 	'team',
-	'plugins',
 ];
 
 
 
-type NavItem = { id: SettingsNavId; label: string; badge?: number };
+type NavItem = { id: SettingsNavId; label: string };
 
 type ProviderDiscoverState = {
 	status: 'idle' | 'loading' | 'done';
 	ok?: boolean;
 	message?: string;
 };
+
+type ProviderOAuthLoginState = {
+	status: 'idle' | 'loading' | 'done';
+	provider?: OAuthProviderKind;
+	ok?: boolean;
+	message?: string;
+};
+
+const PROVIDER_OAUTH_LOGIN_UI_TIMEOUT_MS = 5 * 60_000;
+const OAUTH_LOGIN_PROVIDERS: OAuthProviderKind[] = ['codex', 'claude', 'antigravity'];
+type ProviderGroupId = 'manual' | OAuthProviderKind;
+
+const PROVIDER_GROUPS: {
+	id: ProviderGroupId;
+	labelKey: string;
+	oauthProvider?: OAuthProviderKind;
+}[] = [
+	{ id: 'manual', labelKey: 'settings.providerGroup.manual' },
+	{ id: 'codex', labelKey: 'settings.providerGroup.codex', oauthProvider: 'codex' },
+	{ id: 'claude', labelKey: 'settings.providerGroup.claude', oauthProvider: 'claude' },
+	{ id: 'antigravity', labelKey: 'settings.providerGroup.antigravity', oauthProvider: 'antigravity' },
+];
+
+function providerGroupId(provider: UserLlmProvider): ProviderGroupId {
+	const oauthProvider = provider.oauthAuth?.provider;
+	if (oauthProvider === 'codex' || oauthProvider === 'claude' || oauthProvider === 'antigravity') {
+		return oauthProvider;
+	}
+	if (provider.codexAuth) {
+		return 'codex';
+	}
+	return 'manual';
+}
+
+type OAuthUsageDisplay = {
+	tone: 'ok' | 'warn' | 'muted';
+	title: string;
+	body: string;
+	meta?: string;
+};
+
+function formatOAuthNumber(value: number | undefined, locale: AppLocale): string {
+	if (value == null || !Number.isFinite(value)) {
+		return '';
+	}
+	return new Intl.NumberFormat(locale === 'zh-CN' ? 'zh-CN' : 'en-US', {
+		maximumFractionDigits: 2,
+	}).format(value);
+}
+
+function providerOAuthUsageDisplay(provider: UserLlmProvider, locale: AppLocale, t: TFunction): OAuthUsageDisplay | null {
+	const auth = provider.oauthAuth;
+	if (auth?.provider === 'codex') {
+		const plan = auth.planType?.trim();
+		return {
+			tone: 'muted',
+			title: t('settings.oauthUsage.remainingTitle'),
+			body: plan
+				? t('settings.oauthUsage.codexPlan', { plan })
+				: t('settings.oauthUsage.codexUnknown'),
+		};
+	}
+	if (auth?.provider !== 'antigravity') {
+		return null;
+	}
+	const usage = auth.usage;
+	if (!usage || usage.provider !== 'antigravity' || !usage.known) {
+		return {
+			tone: 'muted',
+			title: t('settings.oauthUsage.remainingTitle'),
+			body: t('settings.oauthUsage.antigravityUnknown'),
+		};
+	}
+	const amount = formatOAuthNumber(usage.creditAmount, locale);
+	const minimum = formatOAuthNumber(usage.minCreditAmount, locale);
+	const parts = [
+		amount
+			? t('settings.oauthUsage.antigravityCredits', { amount })
+			: t('settings.oauthUsage.antigravityUnknown'),
+		minimum ? t('settings.oauthUsage.antigravityMinimum', { minimum }) : '',
+		usage.paidTierId ? t('settings.oauthUsage.tier', { tier: usage.paidTierId }) : '',
+	].filter(Boolean);
+	const updated = usage.updatedAt
+		? new Intl.DateTimeFormat(locale === 'zh-CN' ? 'zh-CN' : 'en-US', {
+				month: '2-digit',
+				day: '2-digit',
+				hour: '2-digit',
+				minute: '2-digit',
+			}).format(new Date(usage.updatedAt))
+		: '';
+	return {
+		tone: usage.available === false ? 'warn' : 'ok',
+		title: t('settings.oauthUsage.remainingTitle'),
+		body: parts.join(' · '),
+		meta: updated ? t('settings.oauthUsage.updated', { time: updated }) : undefined,
+	};
+}
 
 type ProviderDiscoverModalState = {
 	providerId: string;
@@ -97,7 +196,8 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'general', label: t('settings.nav.general') },
 		{ id: 'appearance', label: t('settings.nav.appearance') },
 		{ id: 'editor', label: t('settings.nav.editor') },
-		{ id: 'models', label: t('settings.nav.models'), badge: 1 },
+		{ id: 'models', label: t('settings.nav.models') },
+		{ id: 'plugins', label: t('settings.nav.plugins') },
 		{ id: 'agents', label: t('settings.nav.agents') },
 		{ id: 'bots', label: t('settings.nav.bots') },
 		{ id: 'rules', label: t('settings.nav.rules') },
@@ -107,7 +207,6 @@ function navItemsForT(t: (key: string) => string): NavItem[] {
 		{ id: 'tools', label: t('settings.nav.tools') },
 		{ id: 'plan', label: t('settings.nav.plan') },
 		{ id: 'team', label: t('settings.nav.team') },
-		{ id: 'plugins', label: t('settings.nav.plugins') },
 	];
 }
 
@@ -177,6 +276,81 @@ function IconSearch({ className }: { className?: string }) {
 			<path d="M21 21l-4.3-4.3" strokeLinecap="round" />
 		</svg>
 	);
+}
+
+function IconCodexLogo({ className }: { className?: string }) {
+	return (
+		<svg className={className} viewBox="0 0 24 24" aria-hidden>
+			<path
+				d="M19.503 0H4.496A4.496 4.496 0 000 4.496v15.007A4.496 4.496 0 004.496 24h15.007A4.496 4.496 0 0024 19.503V4.496A4.496 4.496 0 0019.503 0z"
+				fill="#fff"
+			/>
+			<path
+				d="M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275.01.01.024.017.037.021a.09.09 0 00.043 0 4.55 4.55 0 013.046.275l.047.022.116.057a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00.006-.056.085.085 0 00-.027-.048 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388zm3.482 10.565a.637.637 0 000 1.272h3.636a.637.637 0 100-1.272h-3.636zM8.462 9.23a.637.637 0 00-1.106.631l1.272 2.224-1.266 2.136a.636.636 0 101.095.649l1.454-2.455a.636.636 0 00.005-.64L8.462 9.23z"
+				fill="url(#ref-settings-codex-logo-fill)"
+			/>
+			<defs>
+				<linearGradient gradientUnits="userSpaceOnUse" id="ref-settings-codex-logo-fill" x1="12" x2="12" y1="3" y2="21">
+					<stop stopColor="#B1A7FF" />
+					<stop offset=".5" stopColor="#7A9DFF" />
+					<stop offset="1" stopColor="#3941FF" />
+				</linearGradient>
+			</defs>
+		</svg>
+	);
+}
+
+function IconClaudeLogo({ className }: { className?: string }) {
+	return (
+		<svg className={className} viewBox="0 0 24 24" aria-hidden>
+			<path
+				d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"
+				fill="#D97757"
+				fillRule="nonzero"
+			/>
+		</svg>
+	);
+}
+
+function IconAntigravityLogo({ className }: { className?: string }) {
+	return (
+		<svg className={className} viewBox="0 0 64 59" aria-hidden>
+			<path d="M0,0 L8,0 L14,4 L19,14 L27,40 L32,50 L36,54 L35,59 L30,59 L22,52 L11,35 L6,33 L-1,34 L-6,39 L-14,52 L-22,59 L-28,59 L-27,53 L-22,47 L-17,34 L-10,12 L-5,3 Z " fill="#3789F9" transform="translate(28,0)" />
+			<path d="M0,0 L8,0 L14,4 L19,14 L25,35 L21,34 L16,29 L11,26 L7,20 L7,18 L2,16 L-3,15 L-8,18 L-12,19 L-9,9 L-4,2 Z " fill="#6D80D8" transform="translate(28,0)" />
+			<path d="M0,0 L8,0 L14,4 L19,14 L20,19 L13,15 L10,12 L3,10 L-1,8 L-7,7 L-4,2 Z " fill="#D78240" transform="translate(28,0)" />
+			<path d="M0,0 L5,1 L10,4 L12,9 L1,8 L-5,13 L-10,21 L-13,26 L-16,26 L-9,5 L-4,2 Z M6,7 Z " fill="#3294CC" transform="translate(25,14)" />
+			<path d="M0,0 L5,2 L10,10 L12,18 L5,14 L1,10 L0,4 L-3,3 L0,2 Z " fill="#E45C49" transform="translate(36,1)" />
+			<path d="M0,0 L9,1 L12,3 L12,5 L7,6 L4,8 L-1,11 L-5,12 L-2,2 Z " fill="#90AE64" transform="translate(21,7)" />
+			<path d="M0,0 L5,1 L5,4 L-2,7 L-7,11 L-11,10 L-9,5 L-4,2 Z " fill="#53A89A" transform="translate(25,14)" />
+			<path d="M0,0 L5,0 L16,9 L17,13 L12,12 L8,9 L8,7 L4,5 L0,2 Z " fill="#B5677D" transform="translate(33,11)" />
+			<path d="M0,0 L6,0 L14,6 L19,11 L23,12 L22,15 L15,12 L10,8 L10,6 L4,5 Z " fill="#778998" transform="translate(27,12)" />
+			<path d="M0,0 L4,2 L-11,17 L-12,14 L-5,4 Z " fill="#3390DF" transform="translate(26,21)" />
+			<path d="M0,0 L2,1 L-4,5 L-9,9 L-13,13 L-14,10 L-13,7 L-6,4 L-3,1 Z " fill="#3FA1B7" transform="translate(27,18)" />
+			<path d="M0,0 L4,0 L9,5 L13,6 L12,9 L5,6 L0,2 Z " fill="#8277BB" transform="translate(37,18)" />
+			<path d="M0,0 L5,1 L7,6 L-2,5 Z M1,4 Z " fill="#4989CF" transform="translate(30,17)" />
+			<path d="M0,0 L5,1 L2,3 L-3,6 L-7,7 L-6,3 Z " fill="#71B774" transform="translate(23,12)" />
+			<path d="M0,0 L7,1 L9,7 L5,6 L0,1 Z " fill="#6687E9" transform="translate(44,28)" />
+			<path d="M0,0 L7,0 L5,1 L5,3 L8,4 L4,5 L-2,4 Z " fill="#C7AF38" transform="translate(23,3)" />
+			<path d="M0,0 L8,0 L8,3 L4,4 L-4,3 Z " fill="#EF842A" transform="translate(28,0)" />
+			<path d="M0,0 L7,4 L7,6 L10,6 L11,10 L4,6 L0,2 Z " fill="#CD5D67" transform="translate(37,9)" />
+			<path d="M0,0 L5,2 L9,8 L8,11 L2,3 L0,2 Z " fill="#F35241" transform="translate(36,1)" />
+			<path d="M0,0 L8,2 L9,6 L4,5 L0,2 Z " fill="#A667A2" transform="translate(41,18)" />
+			<path d="M0,0 L9,1 L8,3 L-2,3 Z " fill="#A4B34C" transform="translate(21,7)" />
+			<path d="M0,0 L2,0 L7,5 L8,7 L3,6 L0,2 Z " fill="#617FCF" transform="translate(35,18)" />
+			<path d="M0,0 L5,2 L8,7 L4,5 L0,2 Z " fill="#9D7784" transform="translate(33,11)" />
+			<path d="M0,0 L6,2 L6,4 L0,3 Z " fill="#BC7F59" transform="translate(31,7)" />
+		</svg>
+	);
+}
+
+function OAuthProviderMark({ provider }: { provider: OAuthProviderKind }) {
+	if (provider === 'codex') {
+		return <IconCodexLogo className="ref-settings-oauth-login-icon ref-settings-oauth-login-icon--codex" />;
+	}
+	if (provider === 'claude') {
+		return <IconClaudeLogo className="ref-settings-oauth-login-icon ref-settings-oauth-login-icon--claude" />;
+	}
+	return <IconAntigravityLogo className="ref-settings-oauth-login-icon ref-settings-oauth-login-icon--antigravity" />;
 }
 
 function IconBack({ className }: { className?: string }) {
@@ -381,6 +555,7 @@ type Props = {
 	effectiveColorScheme: 'light' | 'dark';
 	appearanceSettings: AppAppearanceSettings;
 	onChangeAppearanceSettings: (next: AppAppearanceSettings) => void | Promise<void>;
+	showTransientToast?: (ok: boolean, text: string, durationMs?: number) => void;
 };
 
 export type SettingsPageProps = Props;
@@ -423,6 +598,7 @@ export function SettingsPage({
 	effectiveColorScheme,
 	appearanceSettings,
 	onChangeAppearanceSettings,
+	showTransientToast,
 }: Props) {
 	const { t, locale, setLocale } = useI18n();
 	const navItems = useMemo(() => navItemsForT(t), [t]);
@@ -431,6 +607,10 @@ export function SettingsPage({
 	const deferredSearch = useDeferredValue(search);
 	const [providerDiscoverStateById, setProviderDiscoverStateById] = useState<Record<string, ProviderDiscoverState>>({});
 	const [providerDiscoverModal, setProviderDiscoverModal] = useState<ProviderDiscoverModalState | null>(null);
+	const [oauthLoginState, setOauthLoginState] = useState<ProviderOAuthLoginState>({ status: 'idle' });
+	const [expandedProviderIds, setExpandedProviderIds] = useState<Record<string, boolean>>({});
+	const oauthLoginRequestIdRef = useRef(0);
+	const oauthLoginTimeoutRef = useRef<number | undefined>(undefined);
 	const [sidebarWidth, setSidebarWidth] = useState(() => readSettingsSidebarWidth());
 	const [navPending, startNavTransition] = useTransition();
 	const resolvedProviderIdentity = useMemo(
@@ -504,6 +684,17 @@ export function SettingsPage({
 		return () => window.removeEventListener('resize', onResize);
 	}, []);
 
+	useEffect(() => {
+		return () => {
+			oauthLoginRequestIdRef.current += 1;
+			if (oauthLoginTimeoutRef.current !== undefined) {
+				window.clearTimeout(oauthLoginTimeoutRef.current);
+				oauthLoginTimeoutRef.current = undefined;
+			}
+			void shell?.invoke('settings:cancelProviderOAuthLogin').catch(() => undefined);
+		};
+	}, [shell]);
+
 	const filteredProviders = useMemo(() => {
 		const q = deferredSearch.trim().toLowerCase();
 		if (!q) {
@@ -523,6 +714,15 @@ export function SettingsPage({
 			});
 		});
 	}, [deferredSearch, modelEntries, modelProviders, t]);
+
+	const groupedProviders = useMemo(
+		() =>
+			PROVIDER_GROUPS.map((group) => ({
+				...group,
+				providers: filteredProviders.filter((provider) => providerGroupId(provider) === group.id),
+			})).filter((group) => group.providers.length > 0),
+		[filteredProviders]
+	);
 
 	const modelsVisibleUnderProvider = useCallback(
 		(provider: UserLlmProvider) => {
@@ -601,6 +801,26 @@ export function SettingsPage({
 		[providerIdentity, onChangeProviderIdentity]
 	);
 
+	const providerIdentityOverridePreset = useCallback((provider: UserLlmProvider): ProviderIdentityPreset => {
+		if (!provider.providerIdentity) {
+			return 'inherit';
+		}
+		return provider.providerIdentity.preset ?? resolveProviderIdentitySettings(provider.providerIdentity).preset;
+	}, []);
+
+	const patchProviderIdentityOverride = useCallback(
+		(providerId: string, patch: Partial<ProviderIdentitySettings>) => {
+			const current = modelProviders.find((provider) => provider.id === providerId)?.providerIdentity ?? { preset: 'inherit' as const };
+			const next: ProviderIdentitySettings = { ...current, ...patch };
+			if (next.preset === 'inherit') {
+				patchProvider(providerId, { providerIdentity: undefined });
+				return;
+			}
+			patchProvider(providerId, { providerIdentity: next });
+		},
+		[modelProviders, patchProvider]
+	);
+
 	const removeEntry = useCallback(
 		(id: string) => {
 			onChangeModelEntries(modelEntries.filter((e) => e.id !== id));
@@ -652,7 +872,8 @@ export function SettingsPage({
 				const result = (await shell.invoke('settings:discoverProviderModels', provider)) as
 					| {
 							ok?: boolean;
-							models?: { id?: string; contextWindowTokens?: number; maxOutputTokens?: number }[];
+							models?: { id?: string; displayName?: string; contextWindowTokens?: number; maxOutputTokens?: number }[];
+							oauthAuth?: UserLlmProvider['oauthAuth'];
 							message?: string;
 					  }
 					| undefined;
@@ -672,9 +893,16 @@ export function SettingsPage({
 					.filter((model) => typeof model?.id === 'string' && model.id.trim().length > 0)
 					.map((model) => ({
 						requestName: String(model.id).trim(),
+						displayName: typeof model.displayName === 'string' ? model.displayName.trim() : undefined,
 						contextWindowTokens: model.contextWindowTokens,
 						maxOutputTokens: model.maxOutputTokens,
 					}));
+				if (result.oauthAuth) {
+					patchProvider(provider.id, {
+						oauthAuth: result.oauthAuth,
+						apiKey: result.oauthAuth.accessToken,
+					});
+				}
 				const merged = mergeDiscoveredProviderModels(modelEntries, provider.id, discoveredModels);
 				setProviderDiscoverStateById((prev) => ({
 					...prev,
@@ -703,19 +931,167 @@ export function SettingsPage({
 				}));
 			}
 		},
-		[modelEntries, shell, t]
+		[modelEntries, patchProvider, shell, t]
 	);
+
+	const clearOAuthLoginTimeout = useCallback(() => {
+		if (oauthLoginTimeoutRef.current !== undefined) {
+			window.clearTimeout(oauthLoginTimeoutRef.current);
+			oauthLoginTimeoutRef.current = undefined;
+		}
+	}, []);
+
+	const oauthProviderLabel = useCallback(
+		(provider: OAuthProviderKind) => t(`settings.oauthLogin.${provider}`),
+		[t]
+	);
+
+	const formatOAuthLoginSuccess = useCallback(
+		(provider: OAuthProviderKind, result: { accountId?: string; planType?: string; email?: string; projectId?: string; modelCount?: number }) => {
+			const detail = result.email || result.accountId || result.projectId || '';
+			const base = detail
+				? t('settings.oauthLoginSuccessWithDetail', { provider: oauthProviderLabel(provider), detail })
+				: t('settings.oauthLoginSuccess', { provider: oauthProviderLabel(provider) });
+			return result.modelCount && result.modelCount > 1
+				? `${base} ${t('settings.oauthLoginModelsImported', { count: String(result.modelCount) })}`
+				: base;
+		},
+		[oauthProviderLabel, t]
+	);
+
+	const finishOAuthLogin = useCallback(
+		(provider: OAuthProviderKind, ok: boolean, message: string, options?: { toast?: boolean }) => {
+			const trimmed = message.trim();
+			const shouldToast = Boolean(trimmed) && (options?.toast ?? !ok);
+			if (shouldToast && showTransientToast) {
+				showTransientToast(ok, trimmed, ok ? 4200 : 6500);
+			}
+			setOauthLoginState({
+				status: 'done',
+				provider,
+				ok,
+				message: ok || !showTransientToast || !shouldToast ? trimmed : undefined,
+			});
+		},
+		[showTransientToast]
+	);
+
+	const toggleProviderExpanded = useCallback((providerId: string) => {
+		setExpandedProviderIds((prev) => ({
+			...prev,
+			[providerId]: prev[providerId] !== true,
+		}));
+	}, []);
+
+	const runProviderOAuthLogin = useCallback(async (provider: OAuthProviderKind) => {
+		const providerLabel = oauthProviderLabel(provider);
+		if (!shell) {
+			finishOAuthLogin(provider, false, t('settings.oauthLoginUnavailable', { provider: providerLabel }));
+			return;
+		}
+		if (oauthLoginState.status === 'loading') {
+			if (oauthLoginState.provider !== provider) {
+				return;
+			}
+			oauthLoginRequestIdRef.current += 1;
+			clearOAuthLoginTimeout();
+			finishOAuthLogin(provider, false, t('settings.oauthLoginCancelled', { provider: providerLabel }));
+			void shell.invoke('settings:cancelProviderOAuthLogin').catch(() => undefined);
+			return;
+		}
+		const requestId = oauthLoginRequestIdRef.current + 1;
+		oauthLoginRequestIdRef.current = requestId;
+		clearOAuthLoginTimeout();
+		setOauthLoginState({ status: 'loading', provider });
+		oauthLoginTimeoutRef.current = window.setTimeout(() => {
+			if (oauthLoginRequestIdRef.current !== requestId) {
+				return;
+			}
+			oauthLoginRequestIdRef.current += 1;
+			oauthLoginTimeoutRef.current = undefined;
+			finishOAuthLogin(provider, false, t('settings.oauthLoginTimedOut', { provider: providerLabel }));
+			void shell.invoke('settings:cancelProviderOAuthLogin').catch(() => undefined);
+		}, PROVIDER_OAUTH_LOGIN_UI_TIMEOUT_MS);
+		try {
+			const result = (await shell.invoke('settings:runProviderOAuthLogin', {
+				provider,
+				providers: modelProviders,
+				entries: modelEntries,
+				defaultModel,
+				timeoutMs: PROVIDER_OAUTH_LOGIN_UI_TIMEOUT_MS + 5_000,
+			})) as
+				| {
+						ok?: boolean;
+						providers?: UserLlmProvider[];
+						entries?: UserModelEntry[];
+						defaultModel?: string;
+						accountId?: string;
+						planType?: string;
+						email?: string;
+						projectId?: string;
+						modelCount?: number;
+						message?: string;
+				  }
+				| undefined;
+			if (oauthLoginRequestIdRef.current !== requestId) {
+				return;
+			}
+			clearOAuthLoginTimeout();
+			if (result?.ok !== true || !Array.isArray(result.providers) || !Array.isArray(result.entries)) {
+				finishOAuthLogin(provider, false, result?.message?.trim() || t('settings.oauthLoginFailed', { provider: providerLabel }));
+				return;
+			}
+			onChangeModelProviders(result.providers);
+			onChangeModelEntries(result.entries);
+			if (!defaultModel && result.defaultModel) {
+				void onPickDefaultModel(result.defaultModel);
+			}
+			finishOAuthLogin(provider, true, formatOAuthLoginSuccess(provider, result), { toast: false });
+		} catch (error) {
+			if (oauthLoginRequestIdRef.current !== requestId) {
+				return;
+			}
+			clearOAuthLoginTimeout();
+			finishOAuthLogin(
+				provider,
+				false,
+				error instanceof Error ? error.message : String(error ?? t('settings.oauthLoginFailed', { provider: providerLabel }))
+			);
+		}
+	}, [
+		clearOAuthLoginTimeout,
+		defaultModel,
+		finishOAuthLogin,
+		formatOAuthLoginSuccess,
+		modelEntries,
+		modelProviders,
+		oauthLoginState.provider,
+		oauthLoginState.status,
+		oauthProviderLabel,
+		onChangeModelEntries,
+		onChangeModelProviders,
+		onPickDefaultModel,
+		shell,
+		t,
+	]);
 
 	return (
 		<div className="ref-settings-root" role="dialog" aria-modal="true" aria-label={t('settings.dialogAria')}>
 			<div className="ref-settings-layout">
 				<aside className="ref-settings-sidebar" style={{ width: sidebarWidth }}>
 					<div className="ref-settings-sidebar-tools">
-						<button type="button" className="ref-settings-icon-btn" aria-label={t('common.search')} title={t('common.search')}>
-							<IconSearch />
-						</button>
-						<button type="button" className="ref-settings-icon-btn" onClick={onClose} aria-label={t('common.back')} title={t('common.back')}>
+						<button
+							type="button"
+							className="ref-settings-icon-btn ref-settings-back-btn"
+							onClick={(event) => {
+								event.stopPropagation();
+								onClose();
+							}}
+							aria-label={t('common.back')}
+							title={t('common.back')}
+						>
 							<IconBack />
+							<span className="ref-settings-back-btn-label">{t('common.back')}</span>
 						</button>
 					</div>
 					<nav className="ref-settings-nav" aria-label={t('settings.navAria')}>
@@ -732,7 +1108,6 @@ export function SettingsPage({
 							>
 								<span className="ref-settings-nav-ico">{navIcon(item.id)}</span>
 								<span className="ref-settings-nav-label">{item.label}</span>
-								{item.badge != null ? <span className="ref-settings-nav-badge">{item.badge}</span> : null}
 							</button>
 						))}
 					</nav>
@@ -829,6 +1204,14 @@ export function SettingsPage({
 														label: t('settings.general.identityPreset.claudeCode'),
 													},
 													{
+														value: 'codex',
+														label: t('settings.general.identityPreset.codex'),
+													},
+													{
+														value: 'antigravity',
+														label: t('settings.general.identityPreset.antigravity'),
+													},
+													{
 														value: 'custom',
 														label: t('settings.general.identityPreset.custom'),
 													},
@@ -916,6 +1299,10 @@ export function SettingsPage({
 											<p className="ref-settings-field-hint" style={{ marginTop: 4 }}>
 												{resolvedProviderIdentity.preset === 'claude-code'
 													? t('settings.general.identityPresetClaudeCodeHint')
+													: resolvedProviderIdentity.preset === 'codex'
+													? t('settings.general.identityPresetCodexHint')
+													: resolvedProviderIdentity.preset === 'antigravity'
+													? t('settings.general.identityPresetAntigravityHint')
 													: t('settings.general.identityPresetAsyncHint')}
 											</p>
 										)}
@@ -984,37 +1371,106 @@ export function SettingsPage({
 								<p className="ref-settings-models-provider-lead">{t('settings.modelsProviderLead')}</p>
 
 								<div className="ref-settings-models-toolbar">
-									<div className="ref-settings-models-search-wrap ref-settings-models-search-wrap--grow">
-										<IconSearch className="ref-settings-models-search-ico" />
-										<input
-											className="ref-settings-models-search"
-											placeholder={t('settings.modelSearchPlaceholder')}
-											value={search}
-											onChange={(e) => setSearch(e.target.value)}
-										/>
+									<div className="ref-settings-models-primary-row">
+										<div className="ref-settings-models-search-wrap ref-settings-models-search-wrap--compact">
+											<IconSearch className="ref-settings-models-search-ico" />
+											<input
+												className="ref-settings-models-search"
+												placeholder={t('settings.modelSearchPlaceholder')}
+												value={search}
+												onChange={(e) => setSearch(e.target.value)}
+											/>
+										</div>
+										<button type="button" className="ref-settings-add-model ref-settings-model-action-btn" onClick={addProvider}>
+											{t('settings.addProvider')}
+										</button>
 									</div>
-									<button type="button" className="ref-settings-add-model" onClick={addProvider}>
-										{t('settings.addProvider')}
-									</button>
+									<div className="ref-settings-models-actions">
+										{OAUTH_LOGIN_PROVIDERS.map((provider) => {
+											const isLoading =
+												oauthLoginState.status === 'loading' && oauthLoginState.provider === provider;
+											const anotherLoading =
+												oauthLoginState.status === 'loading' && oauthLoginState.provider !== provider;
+											return (
+												<button
+													key={provider}
+													type="button"
+													className={`ref-settings-add-model ref-settings-oauth-login-btn ref-settings-oauth-login-btn--${provider} ${
+														isLoading ? 'is-loading' : ''
+													}`}
+													onClick={() => void runProviderOAuthLogin(provider)}
+													disabled={!shell || anotherLoading}
+													aria-busy={isLoading}
+												>
+													<OAuthProviderMark provider={provider} />
+													<span>
+														{isLoading ? t('settings.oauthLoginCancel') : t(`settings.oauthLogin.${provider}`)}
+													</span>
+												</button>
+											);
+										})}
+									</div>
 								</div>
+								{oauthLoginState.status === 'done' && oauthLoginState.message ? (
+									<p
+										className="ref-settings-field-hint ref-settings-oauth-login-message"
+										style={{
+											color: oauthLoginState.ok === false ? 'var(--void-danger, #ef4444)' : undefined,
+										}}
+									>
+										{oauthLoginState.message}
+									</p>
+								) : null}
 
-								<ul className="ref-settings-provider-root-list" aria-label={t('settings.modelCatalog')}>
-									{filteredProviders.map((prov) => {
+								<div className="ref-settings-provider-groups" aria-label={t('settings.modelCatalog')}>
+									{groupedProviders.map((group) => (
+										<section key={group.id} className="ref-settings-provider-group">
+											<div className="ref-settings-provider-group-head">
+												<div className="ref-settings-provider-group-title-wrap">
+													{group.oauthProvider ? <OAuthProviderMark provider={group.oauthProvider} /> : null}
+													<h3 className="ref-settings-provider-group-title">{t(group.labelKey)}</h3>
+												</div>
+												<span className="ref-settings-provider-group-count">
+													{t('settings.providerGroupCount', { count: String(group.providers.length) })}
+												</span>
+											</div>
+											<ul className="ref-settings-provider-root-list" aria-label={t(group.labelKey)}>
+												{group.providers.map((prov) => {
 										const subModels = modelsVisibleUnderProvider(prov);
 										const discoverState = providerDiscoverStateById[prov.id];
+										const providerExpanded = expandedProviderIds[prov.id] === true;
+										const providerBodyId = `settings-provider-body-${prov.id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+										const identityPreset = providerIdentityOverridePreset(prov);
+										const providerIdentityResolved =
+											identityPreset === 'inherit'
+												? resolveProviderIdentityWithOverride(providerIdentity, prov.providerIdentity)
+												: resolveProviderIdentitySettings(prov.providerIdentity);
+										const oauthUsage = providerOAuthUsageDisplay(prov, locale, t);
 										return (
 											<li key={prov.id} className="ref-settings-provider-shell">
-												<details className="ref-settings-provider-details">
-													<summary className="ref-settings-provider-summary">
+												<div className={`ref-settings-provider-details ${providerExpanded ? 'is-open' : ''}`}>
+													<button
+														type="button"
+														className="ref-settings-provider-summary"
+														aria-expanded={providerExpanded}
+														aria-controls={providerBodyId}
+														onClick={() => toggleProviderExpanded(prov.id)}
+													>
 														<span className="ref-settings-provider-summary-chev" aria-hidden />
 														<span className="ref-settings-provider-summary-text">
 															{prov.displayName.trim() || t('settings.providerUntitled')}
 														</span>
 														<span className="ref-settings-provider-summary-tag">{t(`settings.paradigm.${prov.paradigm}`)}</span>
-													</summary>
+													</button>
 
-													<div className="ref-settings-provider-body">
-														<div className="ref-settings-provider-creds">
+													<div
+														id={providerBodyId}
+														className="ref-settings-provider-collapse"
+														aria-hidden={!providerExpanded}
+													>
+														<div className="ref-settings-provider-collapse-inner">
+															<div className="ref-settings-provider-body">
+																<div className="ref-settings-provider-creds">
 															<label className="ref-settings-field ref-settings-field--compact">
 																<span>{t('settings.providerName')}</span>
 																<input
@@ -1073,12 +1529,101 @@ export function SettingsPage({
 																	/>
 																</label>
 															) : null}
+															<label className="ref-settings-field ref-settings-field--compact">
+																<span>{t('settings.providerIdentity')}</span>
+																<VoidSelect
+																	ariaLabel={t('settings.providerIdentity')}
+																	value={identityPreset}
+																	onChange={(next) => {
+																		const preset = next as ProviderIdentityPreset;
+																		patchProviderIdentityOverride(prov.id, { preset });
+																	}}
+																	options={[
+																		{ value: 'inherit', label: t('settings.providerIdentityInherit') },
+																		{ value: 'async-default', label: t('settings.general.identityPreset.async') },
+																		{ value: 'claude-code', label: t('settings.general.identityPreset.claudeCode') },
+																		{ value: 'codex', label: t('settings.general.identityPreset.codex') },
+																		{ value: 'antigravity', label: t('settings.general.identityPreset.antigravity') },
+																		{ value: 'custom', label: t('settings.general.identityPreset.custom') },
+																	]}
+																/>
+																<p className="ref-settings-proxy-hint ref-settings-field-footnote">
+																	{identityPreset === 'inherit'
+																		? t('settings.providerIdentityInheritHint')
+																		: t('settings.providerIdentityOverrideHint')}
+																</p>
+															</label>
+															{identityPreset === 'custom' ? (
+																<div className="ref-settings-provider-identity-custom">
+																	<label className="ref-settings-field ref-settings-field--compact">
+																		<span>{t('settings.general.identityUserAgentProduct')}</span>
+																		<input
+																			type="text"
+																			value={providerIdentityResolved.userAgentProduct}
+																			spellCheck={false}
+																			onChange={(event) =>
+																				patchProviderIdentityOverride(prov.id, {
+																					userAgentProduct: event.target.value,
+																				})
+																			}
+																		/>
+																	</label>
+																	<label className="ref-settings-field ref-settings-field--compact">
+																		<span>{t('settings.general.identityEntrypoint')}</span>
+																		<input
+																			type="text"
+																			value={providerIdentityResolved.entrypoint}
+																			spellCheck={false}
+																			onChange={(event) =>
+																				patchProviderIdentityOverride(prov.id, {
+																					entrypoint: event.target.value,
+																				})
+																			}
+																		/>
+																	</label>
+																	<label className="ref-settings-field ref-settings-field--compact">
+																		<span>{t('settings.general.identityAppHeader')}</span>
+																		<input
+																			type="text"
+																			value={providerIdentityResolved.appHeaderValue}
+																			spellCheck={false}
+																			onChange={(event) =>
+																				patchProviderIdentityOverride(prov.id, {
+																					appHeaderValue: event.target.value,
+																				})
+																			}
+																		/>
+																	</label>
+																	<label className="ref-settings-field ref-settings-field--compact">
+																		<span>{t('settings.general.identityClientApp')}</span>
+																		<input
+																			type="text"
+																			value={providerIdentityResolved.clientAppValue}
+																			spellCheck={false}
+																			onChange={(event) =>
+																				patchProviderIdentityOverride(prov.id, {
+																					clientAppValue: event.target.value,
+																				})
+																			}
+																		/>
+																	</label>
+																</div>
+															) : null}
 														</div>
+														{oauthUsage ? (
+															<div className={`ref-settings-oauth-usage ref-settings-oauth-usage--${oauthUsage.tone}`}>
+																<div className="ref-settings-oauth-usage-title">{oauthUsage.title}</div>
+																<div className="ref-settings-oauth-usage-body">{oauthUsage.body}</div>
+																{oauthUsage.meta ? (
+																	<div className="ref-settings-oauth-usage-meta">{oauthUsage.meta}</div>
+																) : null}
+															</div>
+														) : null}
 
 														<div className="ref-settings-provider-models-head">
 															<h3 className="ref-settings-provider-models-title">{t('settings.modelsInProvider')}</h3>
 															<div className="ref-settings-provider-models-actions">
-																{prov.paradigm === 'openai-compatible' ? (
+																{prov.paradigm === 'openai-compatible' || prov.oauthAuth?.provider === 'claude' || prov.oauthAuth?.provider === 'antigravity' ? (
 																	<button
 																		type="button"
 																		className="ref-settings-add-model ref-settings-add-model--small ref-settings-provider-search-btn"
@@ -1263,12 +1808,17 @@ export function SettingsPage({
 																);
 															})}
 														</ul>
+															</div>
+														</div>
 													</div>
-												</details>
+												</div>
 											</li>
 										);
-									})}
-								</ul>
+												})}
+											</ul>
+										</section>
+									))}
+								</div>
 							</div>
 						) : null}
 

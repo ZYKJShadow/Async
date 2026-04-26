@@ -11,6 +11,7 @@ import { prependProviderIdentitySystemPrompt } from './providerIdentity.js';
 import type { SendableMessage } from './sendResolved.js';
 import { userMessageTextForSend } from './sendResolved.js';
 import { buildGeminiUserParts } from './resolvedUserSerialize.js';
+import { streamAntigravityOAuth } from './antigravityAdapter.js';
 
 function appendTextToLastTextPart(last: Content, text: string): boolean {
 	for (let i = last.parts.length - 1; i >= 0; i--) {
@@ -53,6 +54,11 @@ export async function streamGemini(
 	options: UnifiedChatOptions,
 	handlers: StreamHandlers
 ): Promise<void> {
+	if (options.requestOAuthAuth?.provider === 'antigravity') {
+		await streamAntigravityOAuth(settings, messages, options, handlers, options.requestOAuthAuth);
+		return;
+	}
+
 	const key = options.requestApiKey.trim();
 	if (!key) {
 		handlers.onError('未配置 Google Gemini API Key。请在设置 → 模型中填写全局密钥或该模型的独立密钥。');
@@ -62,7 +68,8 @@ export async function streamGemini(
 	const storedSystem = messages.find((m) => m.role === 'system');
 	const systemInstruction = prependProviderIdentitySystemPrompt(
 		settings,
-		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend)
+		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend),
+		options.requestProviderIdentity
 	);
 	const modelId = options.requestModelId.trim();
 	if (!modelId) {

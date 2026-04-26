@@ -85,4 +85,43 @@ describe('useMessagesScroll helpers', () => {
 
 		expect(resolveContentBottomScroll(viewport, track)).toBe(656);
 	});
+
+	it('does not clamp final bottom scroll to the active preflight row after replies finish', () => {
+		const sticky = {
+			getBoundingClientRect: () => ({ height: 72 } as DOMRect),
+		};
+		const viewport = {
+			scrollHeight: 1600,
+			clientHeight: 400,
+			scrollTop: 0,
+			ownerDocument: {
+				defaultView: {
+					getComputedStyle: () => ({
+						paddingBottom: '0px',
+					}),
+				},
+			},
+			getBoundingClientRect: () => ({ top: 100 } as DOMRect),
+			querySelector: () => sticky,
+		} as unknown as HTMLElement;
+		const track = {
+			querySelectorAll: () =>
+				[
+					{
+						dataset: { preflightFor: '1' },
+						getBoundingClientRect: () =>
+							({ top: 160, bottom: 260, height: 100 } as DOMRect),
+					},
+					{
+						dataset: { msgIndex: '1' },
+						getBoundingClientRect: () => ({ bottom: 1100, height: 200 } as DOMRect),
+					},
+				] as unknown as NodeListOf<HTMLElement>,
+		} as unknown as HTMLElement;
+
+		expect(resolveContentBottomScroll(viewport, track)).toBe(0);
+		expect(
+			resolveContentBottomScroll(viewport, track, { protectActivePreflight: false })
+		).toBe(600);
+	});
 });

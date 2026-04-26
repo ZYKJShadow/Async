@@ -27,6 +27,7 @@ import { buildRelevantMemoryContextBlock } from '../memdir/findRelevantMemories.
 import { extractMemoriesToDir } from '../services/extractMemories/extractMemories.js';
 import type { ToolExecutionHooks } from './toolExecutor.js';
 import { createRequestUserInputToolHandler } from './requestUserInputTool.js';
+import { resolveProviderIdentityWithOverride } from '../../src/providerIdentitySettings.js';
 
 export type ManagedAgentUiEvent =
 	| {
@@ -522,6 +523,10 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 						requestBaseURL: runtime.options.requestBaseURL,
 						requestProxyUrl: runtime.options.requestProxyUrl,
 						thinkingLevel: runtime.options.thinkingLevel,
+						providerIdentity: resolveProviderIdentityWithOverride(
+							runtime.settings.providerIdentity,
+							runtime.options.requestProviderIdentity
+						),
 					},
 				});
 			}

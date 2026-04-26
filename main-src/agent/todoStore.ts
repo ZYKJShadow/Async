@@ -1,5 +1,9 @@
 /**
  * TodoWrite 内存状态管理 — 按 key（通常为 threadId）管理 TODO 列表。
+ *
+ * 注意：这是历史 TodoWrite 工具的存储；新的 TaskCreate / TaskList / TaskGet /
+ * TaskOutput / TaskStop / TaskUpdate 工具组操作的是受管理的子 agent
+ * （main-src/agent/managedSubagents.ts），不走这里。
  */
 
 export type TodoItem = {
