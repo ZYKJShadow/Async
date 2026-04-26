@@ -12,7 +12,10 @@ import {
 import { CODEX_EMULATED_VERSION, CODEX_ORIGINATOR } from '../../src/providerIdentitySettings.js';
 import { buildCodexUserAgent } from './codexUserAgent.js';
 import { ensureFreshOAuthAuthForRequest } from './providerOAuthLogin.js';
-import { prependProviderIdentitySystemPrompt } from './providerIdentity.js';
+import {
+	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
+} from './providerIdentity.js';
 import { electronNetFetch } from './electronNetFetch.js';
 
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
@@ -108,12 +111,13 @@ export async function streamCodexOAuth(
 		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
 		return;
 	}
+	const requestProviderIdentity = providerIdentityForOAuthAuth(freshAuth) ?? options.requestProviderIdentity;
 
 	const storedSystem = messages.find((m) => m.role === 'system');
 	const systemContent = prependProviderIdentitySystemPrompt(
 		settings,
 		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend),
-		options.requestProviderIdentity
+		requestProviderIdentity
 	);
 	const requestedTemperature = resolveRequestedTemperature(
 		temperatureForMode(options.mode),

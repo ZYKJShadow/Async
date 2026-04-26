@@ -3,16 +3,13 @@ import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 
 import type { CodexAuthRecord } from '../settingsStore.js';
-import { CODEX_EMULATED_VERSION, CODEX_ORIGINATOR } from '../../src/providerIdentitySettings.js';
-import { buildCodexUserAgent } from './codexUserAgent.js';
+import { electronNetFetch } from './electronNetFetch.js';
 
 const DEFAULT_ISSUER = 'https://auth.openai.com';
 const DEFAULT_PORT = 1455;
 const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-const AUTHORIZE_SCOPE = 'openid profile email offline_access api.connectors.read api.connectors.invoke';
-const TOKEN_EXCHANGE_GRANT = 'urn:ietf:params:oauth:grant-type:token-exchange';
-const ID_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:id_token';
+const AUTHORIZE_SCOPE = 'openid email profile offline_access';
 
 type PkceCodes = {
 	codeVerifier: string;
@@ -23,10 +20,6 @@ type OAuthTokens = {
 	id_token: string;
 	access_token: string;
 	refresh_token: string;
-};
-
-type ApiKeyExchangeResponse = {
-	access_token?: string;
 };
 
 type RefreshResponse = {
@@ -80,10 +73,10 @@ function buildAuthorizeUrl(params: {
 		scope: AUTHORIZE_SCOPE,
 		code_challenge: params.pkce.codeChallenge,
 		code_challenge_method: 'S256',
+		prompt: 'login',
 		id_token_add_organizations: 'true',
 		codex_cli_simplified_flow: 'true',
 		state: params.state,
-		originator: CODEX_ORIGINATOR,
 	});
 	if (params.workspaceId?.trim()) {
 		query.set('allowed_workspace_id', params.workspaceId.trim());
@@ -123,9 +116,12 @@ function parseTokenEndpointError(body: string): string {
 }
 
 async function postFormJson<T>(url: string, fields: Record<string, string>): Promise<T> {
-	const response = await fetch(url, {
+	const response = await electronNetFetch(url, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		headers: {
+			'Content-Type': 'application/x-www-form-urlencoded',
+			Accept: 'application/json',
+		},
 		body: formBody(fields),
 	});
 	if (!response.ok) {
@@ -149,19 +145,6 @@ async function exchangeCodeForTokens(params: {
 		client_id: params.clientId,
 		code_verifier: params.codeVerifier,
 	});
-}
-
-async function obtainApiKey(issuer: string, clientId: string, idToken: string): Promise<string | undefined> {
-	const response = await postFormJson<ApiKeyExchangeResponse>(`${issuer.replace(/\/$/, '')}/oauth/token`, {
-		grant_type: TOKEN_EXCHANGE_GRANT,
-		client_id: clientId,
-		requested_token: 'openai-api-key',
-		subject_token: idToken,
-		subject_token_type: ID_TOKEN_TYPE,
-	});
-	return typeof response.access_token === 'string' && response.access_token.trim()
-		? response.access_token
-		: undefined;
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
@@ -396,7 +379,7 @@ export async function runCodexBrowserLogin(options?: {
 		void (async () => {
 			const parsed = new URL(req.url ?? '/', `http://localhost:${actualPort}`);
 			if (parsed.pathname === '/cancel') {
-				sendHtml(res, 200, 'Codex login cancelled', 'You can close this tab and return to Async IDE.');
+				sendHtml(res, 200, 'Codex login cancelled', 'You can close this window.');
 				settleErr(server, new Error('Login cancelled.'));
 				return;
 			}
@@ -406,7 +389,7 @@ export async function runCodexBrowserLogin(options?: {
 			}
 
 			if (parsed.searchParams.get('state') !== state) {
-				sendHtml(res, 400, 'Codex login failed', 'State mismatch. Please retry Codex login from Async IDE.');
+				sendHtml(res, 400, 'Codex login failed', 'State mismatch. Please retry Codex login.');
 				settleErr(server, new Error('OAuth state mismatch.'));
 				return;
 			}
@@ -440,18 +423,21 @@ export async function runCodexBrowserLogin(options?: {
 					settleErr(server, new Error(workspaceError));
 					return;
 				}
-				const apiKey = await obtainApiKey(issuer, CLIENT_ID, tokens.id_token).catch(() => undefined);
 				const accountId = accountIdFromIdToken(tokens.id_token);
 				const result: CodexBrowserLoginResult = {
 					idToken: tokens.id_token,
 					accessToken: tokens.access_token,
 					refreshToken: tokens.refresh_token,
-					...(apiKey ? { apiKey } : {}),
 					lastRefreshAt: Date.now(),
 					...(accountId ? { accountId } : {}),
 					issuer,
 				};
-				sendHtml(res, 200, 'Codex login complete', 'You can close this tab and return to Async IDE.');
+				sendHtml(
+					res,
+					200,
+					'Authentication Successful - Codex',
+					'You have successfully authenticated with Codex. You can now close this window and return to your terminal to continue.'
+				);
 				settleOk(server, result);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
@@ -497,34 +483,20 @@ export async function runCodexBrowserLogin(options?: {
 }
 
 export async function refreshCodexAuth(auth: CodexAuthRecord, issuer = DEFAULT_ISSUER): Promise<CodexAuthRecord> {
-	const response = await fetch(`${issuer.replace(/\/$/, '')}/oauth/token`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'User-Agent': buildCodexUserAgent(CODEX_EMULATED_VERSION),
-			originator: CODEX_ORIGINATOR,
-		},
-		body: JSON.stringify({
-			client_id: CLIENT_ID,
-			grant_type: 'refresh_token',
-			refresh_token: auth.refreshToken,
-		}),
+	const body = await postFormJson<RefreshResponse>(`${issuer.replace(/\/$/, '')}/oauth/token`, {
+		client_id: CLIENT_ID,
+		grant_type: 'refresh_token',
+		refresh_token: auth.refreshToken,
+		scope: 'openid profile email',
 	});
-	if (!response.ok) {
-		const detail = parseTokenEndpointError(await response.text().catch(() => ''));
-		throw new Error(`refresh token failed with ${response.status}: ${detail}`);
-	}
-	const body = (await response.json()) as RefreshResponse;
 	const idToken = body.id_token ?? auth.idToken;
 	const accessToken = body.access_token ?? auth.accessToken;
 	const refreshToken = body.refresh_token ?? auth.refreshToken;
-	const apiKey = await obtainApiKey(issuer, CLIENT_ID, idToken).catch(() => auth.apiKey);
 	const accountId = accountIdFromIdToken(idToken);
 	return {
 		idToken,
 		accessToken,
 		refreshToken,
-		...(apiKey ? { apiKey } : {}),
 		lastRefreshAt: Date.now(),
 		...(accountId ? { accountId } : {}),
 	};

@@ -8,12 +8,17 @@ import { userMessageTextForSend } from './sendResolved.js';
 import { buildGeminiUserParts } from './resolvedUserSerialize.js';
 import { composeSystem, temperatureForMode } from './modePrompts.js';
 import { resolveRequestedTemperature } from './thinkingLevel.js';
-import { prependProviderIdentitySystemPrompt } from './providerIdentity.js';
+import {
+	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
+} from './providerIdentity.js';
 import { ANTIGRAVITY_USER_AGENT } from '../../src/providerIdentitySettings.js';
 import { ensureFreshOAuthAuthForRequest } from './providerOAuthLogin.js';
 import { electronNetFetch } from './electronNetFetch.js';
 
 const ANTIGRAVITY_BASE_URL = 'https://cloudcode-pa.googleapis.com';
+const ANTIGRAVITY_FALLBACK_PROJECT_ADJECTIVES = ['useful', 'bright', 'swift', 'calm', 'bold'];
+const ANTIGRAVITY_FALLBACK_PROJECT_NOUNS = ['fuze', 'wave', 'spark', 'flow', 'core'];
 
 function appendTextToLastTextPart(last: Content, text: string): boolean {
 	for (let i = last.parts.length - 1; i >= 0; i--) {
@@ -57,6 +62,23 @@ function stableSessionId(contents: Content[]): string {
 	const hash = createHash('sha256').update(text).digest();
 	const value = hash.readBigUInt64BE(0) & BigInt('0x7fffffffffffffff');
 	return `-${value.toString(10)}`;
+}
+
+function generateAntigravityFallbackProjectId(): string {
+	const adjective =
+		ANTIGRAVITY_FALLBACK_PROJECT_ADJECTIVES[
+			Math.floor(Math.random() * ANTIGRAVITY_FALLBACK_PROJECT_ADJECTIVES.length)
+		] ?? 'useful';
+	const noun =
+		ANTIGRAVITY_FALLBACK_PROJECT_NOUNS[
+			Math.floor(Math.random() * ANTIGRAVITY_FALLBACK_PROJECT_NOUNS.length)
+		] ?? 'fuze';
+	return `${adjective}-${noun}-${randomUUID().toLowerCase().slice(0, 5)}`;
+}
+
+function normalizedAntigravityProjectId(projectId: string | undefined): string {
+	const trimmed = projectId?.trim() ?? '';
+	return /^async-[0-9a-f]{8}$/i.test(trimmed) ? '' : trimmed;
 }
 
 function parseSsePayload(line: string): Record<string, unknown> | undefined {
@@ -124,11 +146,12 @@ export async function streamAntigravityOAuth(
 		handlers.onError('模型请求名称为空。请在 Models 中编辑该模型的「请求名称」。');
 		return;
 	}
+	const requestProviderIdentity = providerIdentityForOAuthAuth(freshAuth) ?? options.requestProviderIdentity;
 	const storedSystem = messages.find((m) => m.role === 'system');
 	const systemInstruction = prependProviderIdentitySystemPrompt(
 		settings,
 		composeSystem(storedSystem?.content, options.mode, options.agentSystemAppend),
-		options.requestProviderIdentity
+		requestProviderIdentity
 	);
 	const temperature = resolveRequestedTemperature(
 		temperatureForMode(options.mode),
@@ -156,7 +179,7 @@ export async function streamAntigravityOAuth(
 		model,
 		userAgent: 'antigravity',
 		requestType: model.includes('image') ? 'image_gen' : 'agent',
-		project: freshAuth.projectId || `async-${randomUUID().slice(0, 8)}`,
+		project: normalizedAntigravityProjectId(freshAuth.projectId) || generateAntigravityFallbackProjectId(),
 		requestId: `agent-${randomUUID()}`,
 		request,
 	};

@@ -1099,7 +1099,7 @@ export const messagesZhCN: Record<string, string> = {
 	'settings.general.identityPresetAsyncHint':
 		'使用 Async 的默认标识格式：Async 风格的 User-Agent、X-Async-Session-Id、Async metadata 和 Async 系统提示前缀。',
 	'settings.general.identityPresetClaudeCodeHint':
-		'严格切到 Claude Code 风格：User-Agent 为 claude-code/<version>（与上游 getClaudeCodeUserAgent 同形，版本号与同目录发行版 MACRO.VERSION 对齐）、x-app=cli、X-Claude-Code-Session-Id、Claude Code 系统提示前缀，以及 Claude Code 结构的 Anthropic metadata。',
+		'严格切到 Claude Code 风格：User-Agent 为 claude-cli/<version> (external, cli)、x-app=cli、X-Claude-Code-Session-Id、Claude Code 系统提示前缀，以及 Claude Code 结构的 Anthropic metadata。',
 	'settings.general.identityPresetCodexHint':
 		'与 CLIProxyAPI 的 Codex TUI 指纹对齐：User-Agent 为 codex-tui/0.118.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9 (codex-tui; 0.118.0)，并附带 Originator: codex-tui。',
 	'settings.general.identityPresetAntigravityHint':

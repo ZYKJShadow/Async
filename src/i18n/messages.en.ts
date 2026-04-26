@@ -1117,7 +1117,7 @@ export const messagesEn: Record<string, string> = {
 	'settings.general.identityPresetAsyncHint':
 		'Uses Async defaults: the Async-style User-Agent, X-Async-Session-Id, Async metadata, and the Async system prompt prefix.',
 	'settings.general.identityPresetClaudeCodeHint':
-		'Switches to Claude Code style end-to-end: User-Agent claude-code/<version> (same pattern as upstream getClaudeCodeUserAgent, version constant synced to that release), x-app=cli, X-Claude-Code-Session-Id, the Claude Code system prompt prefix, and Claude Code-shaped Anthropic metadata.',
+		'Switches to Claude Code style end-to-end: User-Agent claude-cli/<version> (external, cli), x-app=cli, X-Claude-Code-Session-Id, the Claude Code system prompt prefix, and Claude Code-shaped Anthropic metadata.',
 	'settings.general.identityPresetCodexHint':
 		'Matches CLIProxyAPI Codex TUI: User-Agent codex-tui/0.118.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9 (codex-tui; 0.118.0), plus Originator: codex-tui.',
 	'settings.general.identityPresetAntigravityHint':

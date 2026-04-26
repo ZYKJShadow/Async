@@ -66,6 +66,7 @@ import {
 	applyOpenAIProviderIdentity,
 	buildAnthropicProviderIdentityMetadata,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from '../llm/providerIdentity.js';
 import {
 	resolveProviderIdentityWithOverride,
@@ -1313,6 +1314,7 @@ async function runAnthropicLoop(
 	if (!key) { handlers.onError('未配置 Anthropic API Key。请在设置 → 模型中填写。'); return; }
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
+	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.requestProviderIdentity;
 	const proxyRaw = (options.requestProxyUrl?.trim() || settings.openAI?.proxyUrl?.trim()) ?? '';
 	let httpAgent: InstanceType<typeof HttpsProxyAgent> | undefined;
 	if (proxyRaw) {
@@ -1327,7 +1329,7 @@ async function runAnthropicLoop(
 			...(httpAgent ? { httpAgent } : {}),
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,
-		}, options.requestProviderIdentity)
+		}, requestProviderIdentity)
 	);
 	const storedSystem = threadMessages.find((m) => m.role === 'system');
 	const model = options.requestModelId.trim();
@@ -1341,7 +1343,7 @@ async function runAnthropicLoop(
 	const staticSystemText = prependProviderIdentitySystemPrompt(
 		settings,
 		systemSectionsBase.staticText,
-		options.requestProviderIdentity
+		requestProviderIdentity
 	);
 	const dynamicSystemText = appendMcpToolsSystemHint(
 		systemSectionsBase.dynamicText,
@@ -1471,7 +1473,7 @@ async function runAnthropicLoop(
 		...(options.customToolHandlers ?? {}),
 	};
 	const structured = new StructuredAssistantBuilder();
-	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, options.requestProviderIdentity);
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, requestProviderIdentity);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
 	const requestedTemperature = resolveRequestedTemperature(
 		temperatureForMode(options.composerMode),

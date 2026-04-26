@@ -24,6 +24,7 @@ import {
 	applyAnthropicProviderIdentity,
 	buildAnthropicProviderIdentityMetadata,
 	prependProviderIdentitySystemPrompt,
+	providerIdentityForOAuthAuth,
 } from './providerIdentity.js';
 import type { SendableMessage } from './sendResolved.js';
 import { userMessageTextForSend } from './sendResolved.js';
@@ -75,6 +76,7 @@ export async function streamAnthropic(
 	}
 
 	const baseURL = options.requestBaseURL?.trim() || undefined;
+	const requestProviderIdentity = providerIdentityForOAuthAuth(oauthAuth) ?? options.requestProviderIdentity;
 // maxRetries: 0，避免流式请求自动重试拉长等待
 	const client = new Anthropic(
 		applyAnthropicProviderIdentity(settings, {
@@ -82,7 +84,7 @@ export async function streamAnthropic(
 			baseURL: baseURL || undefined,
 			timeout: llmSdkResponseHeadTimeoutMs(),
 			maxRetries: 0,
-		}, options.requestProviderIdentity)
+		}, requestProviderIdentity)
 	);
 
 	const storedSystem = messages.find((m) => m.role === 'system');
@@ -100,8 +102,8 @@ export async function streamAnthropic(
 	const system = buildAnthropicSystemForApi(
 		{
 			...systemSections,
-			staticText: prependProviderIdentitySystemPrompt(settings, systemSections.staticText, options.requestProviderIdentity),
-			fullText: prependProviderIdentitySystemPrompt(settings, systemSections.fullText, options.requestProviderIdentity),
+			staticText: prependProviderIdentitySystemPrompt(settings, systemSections.staticText, requestProviderIdentity),
+			fullText: prependProviderIdentitySystemPrompt(settings, systemSections.fullText, requestProviderIdentity),
 		},
 		promptCaching
 	);
@@ -114,7 +116,7 @@ export async function streamAnthropic(
 			onDecision: (decision) => { cacheDecision = decision; },
 		}
 	);
-	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, options.requestProviderIdentity);
+	const anthropicMetadata = buildAnthropicProviderIdentityMetadata(settings, requestProviderIdentity);
 	const thinkBudget = anthropicThinkingBudget(options.thinkingLevel ?? 'off');
 	const requestedTemperature = resolveRequestedTemperature(
 		temperatureForMode(options.mode),

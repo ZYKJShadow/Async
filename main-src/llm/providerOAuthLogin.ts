@@ -11,6 +11,7 @@ import {
 } from '../settingsStore.js';
 import { ANTIGRAVITY_USER_AGENT } from '../../src/providerIdentitySettings.js';
 import { electronNetFetch } from './electronNetFetch.js';
+import { providerIdentityForOAuthProvider } from './providerIdentity.js';
 
 const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60_000;
 
@@ -411,7 +412,8 @@ export async function discoverProviderOAuthModels(
 	if (!token) {
 		return [];
 	}
-	const payload = auth.projectId?.trim() ? { project: auth.projectId.trim() } : {};
+	const projectId = normalizeAntigravityProjectId(auth.projectId);
+	const payload = projectId ? { project: projectId } : {};
 	let lastError = '';
 	for (const baseURL of ANTIGRAVITY_MODEL_BASE_URLS) {
 		try {
@@ -1085,48 +1087,92 @@ function refreshLeadMs(provider: OAuthProviderKind): number {
 	return 5 * 60 * 1000;
 }
 
+function persistProviderOAuthAuth(providerId: string | undefined, auth: ProviderOAuthAuthRecord): void {
+	if (!providerId) {
+		return;
+	}
+	const settings = getSettings();
+	const providers = (settings.models?.providers ?? []).map((provider) => {
+		if (provider.id !== providerId) {
+			return provider;
+		}
+		const providerIdentity = providerIdentityForOAuthProvider(auth.provider);
+		return {
+			...provider,
+			apiKey: auth.accessToken,
+			oauthAuth: auth,
+			...(providerIdentity ? { providerIdentity } : {}),
+			...(auth.provider === 'codex'
+				? {
+						codexAuth: {
+							idToken: auth.idToken ?? '',
+							accessToken: auth.accessToken,
+							refreshToken: auth.refreshToken,
+							lastRefreshAt: auth.lastRefreshAt,
+							...(auth.accountId ? { accountId: auth.accountId } : {}),
+						},
+					}
+				: {}),
+		};
+	});
+	patchSettings({
+		models: {
+			providers,
+			entries: settings.models?.entries ?? [],
+			enabledIds: settings.models?.enabledIds ?? [],
+			thinkingByModelId: settings.models?.thinkingByModelId ?? {},
+		},
+	});
+}
+
+function isSyntheticAsyncProjectId(projectId: string | undefined): boolean {
+	return /^async-[0-9a-f]{8}$/i.test(projectId?.trim() ?? '');
+}
+
+function normalizeAntigravityProjectId(projectId: string | undefined): string {
+	const trimmed = projectId?.trim() ?? '';
+	return isSyntheticAsyncProjectId(trimmed) ? '' : trimmed;
+}
+
+async function ensureAntigravityProjectIdForRequest(
+	providerId: string | undefined,
+	auth: ProviderOAuthAuthRecord
+): Promise<ProviderOAuthAuthRecord> {
+	if (auth.provider !== 'antigravity') {
+		return auth;
+	}
+	const currentProjectId = auth.projectId?.trim();
+	if (currentProjectId && !isSyntheticAsyncProjectId(currentProjectId)) {
+		return auth;
+	}
+	const projectId = await fetchAntigravityProjectId(auth.accessToken).catch(() => undefined);
+	if (!projectId?.trim()) {
+		if (currentProjectId && isSyntheticAsyncProjectId(currentProjectId)) {
+			const cleaned = { ...auth, projectId: undefined };
+			persistProviderOAuthAuth(providerId, cleaned);
+			return cleaned;
+		}
+		return auth;
+	}
+	const enriched = {
+		...auth,
+		projectId: projectId.trim(),
+	};
+	persistProviderOAuthAuth(providerId, enriched);
+	return enriched;
+}
+
 export async function ensureFreshOAuthAuthForRequest(
 	providerId: string | undefined,
 	auth: ProviderOAuthAuthRecord
 ): Promise<ProviderOAuthAuthRecord> {
 	if (!auth.refreshToken.trim() || !auth.expiresAt) {
-		return auth;
+		return await ensureAntigravityProjectIdForRequest(providerId, auth);
 	}
 	if (auth.expiresAt - Date.now() > refreshLeadMs(auth.provider)) {
-		return auth;
+		return await ensureAntigravityProjectIdForRequest(providerId, auth);
 	}
 	const refreshed = await refreshProviderOAuthAuth(auth);
-	if (providerId) {
-		const settings = getSettings();
-		const providers = (settings.models?.providers ?? []).map((provider) => {
-			if (provider.id !== providerId) {
-				return provider;
-			}
-			return {
-				...provider,
-				apiKey: refreshed.accessToken,
-				oauthAuth: refreshed,
-				...(refreshed.provider === 'codex'
-					? {
-							codexAuth: {
-								idToken: refreshed.idToken ?? '',
-								accessToken: refreshed.accessToken,
-								refreshToken: refreshed.refreshToken,
-								lastRefreshAt: refreshed.lastRefreshAt,
-								...(refreshed.accountId ? { accountId: refreshed.accountId } : {}),
-							},
-						}
-					: {}),
-			};
-		});
-		patchSettings({
-			models: {
-				providers,
-				entries: settings.models?.entries ?? [],
-				enabledIds: settings.models?.enabledIds ?? [],
-				thinkingByModelId: settings.models?.thinkingByModelId ?? {},
-			},
-		});
-	}
-	return refreshed;
+	persistProviderOAuthAuth(providerId, refreshed);
+	return await ensureAntigravityProjectIdForRequest(providerId, refreshed);
 }

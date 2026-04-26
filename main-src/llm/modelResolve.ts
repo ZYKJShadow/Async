@@ -11,6 +11,7 @@ import {
 	normalizeUserModelTemperature,
 	type ThinkingLevel,
 } from './thinkingLevel.js';
+import { providerIdentityForOAuthAuth } from './providerIdentity.js';
 
 export type ResolvedChatModel = {
 	requestModelId: string;
@@ -169,7 +170,7 @@ export function resolveModelRequest(settings: ShellSettings, selectionId: string
 		baseURL: creds.baseURL,
 		proxyUrl: creds.proxyUrl,
 		providerId: prov.id,
-		providerIdentity: prov.providerIdentity,
+		providerIdentity: providerIdentityForOAuthAuth(creds.oauthAuth) ?? prov.providerIdentity,
 		oauthAuth: creds.oauthAuth,
 	};
 }

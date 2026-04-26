@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { app } from 'electron';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import type { ShellSettings } from '../settingsStore.js';
+import type { OAuthProviderKind, ProviderOAuthAuthRecord, ShellSettings } from '../settingsStore.js';
 import {
 	ANTIGRAVITY_USER_AGENT,
 	CODEX_EMULATED_VERSION,
@@ -42,6 +42,27 @@ function providerIdentityFromSettings(
 	override?: ProviderIdentitySettings | null
 ): ReturnType<typeof resolveProviderIdentitySettings> {
 	return resolveProviderIdentityWithOverride(settings.providerIdentity, override);
+}
+
+export function providerIdentityForOAuthProvider(
+	provider: OAuthProviderKind | undefined
+): ProviderIdentitySettings | undefined {
+	if (provider === 'codex') {
+		return { preset: 'codex' };
+	}
+	if (provider === 'claude') {
+		return { preset: 'claude-code' };
+	}
+	if (provider === 'antigravity') {
+		return { preset: 'antigravity' };
+	}
+	return undefined;
+}
+
+export function providerIdentityForOAuthAuth(
+	auth: Pick<ProviderOAuthAuthRecord, 'provider'> | null | undefined
+): ProviderIdentitySettings | undefined {
+	return providerIdentityForOAuthProvider(auth?.provider);
 }
 
 function mergeDefaultHeaders(
