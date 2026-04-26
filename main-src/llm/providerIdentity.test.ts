@@ -9,6 +9,15 @@ describe('buildAnthropicAuthOptions', () => {
 		})).toEqual({
 			authToken: 'sk-ant-oat-fresh',
 			apiKey: null,
+			defaultQuery: { beta: 'true' },
+		});
+	});
+
+	it('treats token-shaped Claude Code OAuth values as bearer auth', () => {
+		expect(buildAnthropicAuthOptions(' sk-ant-oat-token-only ')).toEqual({
+			authToken: 'sk-ant-oat-token-only',
+			apiKey: null,
+			defaultQuery: { beta: 'true' },
 		});
 	});
 

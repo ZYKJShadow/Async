@@ -65,15 +65,25 @@ export function providerIdentityForOAuthAuth(
 	return providerIdentityForOAuthProvider(auth?.provider);
 }
 
+export function isClaudeOAuthAccessToken(token: string | undefined | null): boolean {
+	return String(token ?? '').includes('sk-ant-oat');
+}
+
 export function buildAnthropicAuthOptions(
 	apiKey: string,
 	auth?: Pick<ProviderOAuthAuthRecord, 'provider' | 'accessToken'> | null
-): Pick<AnthropicClientOptions, 'apiKey' | 'authToken'> {
-	const oauthToken = auth?.provider === 'claude' ? auth.accessToken.trim() : '';
+): Pick<AnthropicClientOptions, 'apiKey' | 'authToken' | 'defaultQuery'> {
+	const trimmedApiKey = apiKey.trim();
+	const oauthToken =
+		auth?.provider === 'claude'
+			? auth.accessToken.trim()
+			: isClaudeOAuthAccessToken(trimmedApiKey)
+				? trimmedApiKey
+				: '';
 	if (oauthToken) {
-		return { authToken: oauthToken, apiKey: null };
+		return { authToken: oauthToken, apiKey: null, defaultQuery: { beta: 'true' } };
 	}
-	return { apiKey: apiKey.trim() };
+	return { apiKey: trimmedApiKey };
 }
 
 function mergeDefaultHeaders(

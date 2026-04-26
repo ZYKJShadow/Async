@@ -11,7 +11,10 @@ import {
 	normalizeUserModelTemperature,
 	type ThinkingLevel,
 } from './thinkingLevel.js';
-import { providerIdentityForOAuthAuth } from './providerIdentity.js';
+import {
+	isClaudeOAuthAccessToken,
+	providerIdentityForOAuthAuth,
+} from './providerIdentity.js';
 
 export type ResolvedChatModel = {
 	requestModelId: string;
@@ -71,9 +74,9 @@ export function clampMaxOutputTokens(n: number | undefined): number {
 function resolveProviderCredentials(
 	provider: UserLlmProvider
 ): { ok: true; apiKey: string; baseURL?: string; proxyUrl?: string; oauthAuth?: ProviderOAuthAuthRecord } | { ok: false; message: string } {
-	const oauthAuth = provider.oauthAuth?.accessToken?.trim() ? provider.oauthAuth : undefined;
+	let oauthAuth = provider.oauthAuth?.accessToken?.trim() ? provider.oauthAuth : undefined;
 	if (provider.paradigm === 'openai-compatible') {
-		const key = provider.apiKey?.trim() || oauthAuth?.accessToken.trim() || '';
+		const key = oauthAuth?.accessToken.trim() || provider.apiKey?.trim() || '';
 		if (!key) {
 			return {
 				ok: false,
@@ -87,7 +90,15 @@ function resolveProviderCredentials(
 	}
 
 	if (provider.paradigm === 'anthropic') {
-		const key = provider.apiKey?.trim() || oauthAuth?.accessToken.trim() || '';
+		const key = oauthAuth?.accessToken.trim() || provider.apiKey?.trim() || '';
+		if (!oauthAuth && isClaudeOAuthAccessToken(key)) {
+			oauthAuth = {
+				provider: 'claude',
+				accessToken: key,
+				refreshToken: '',
+				lastRefreshAt: 0,
+			};
+		}
 		if (!key) {
 			return {
 				ok: false,
@@ -98,7 +109,7 @@ function resolveProviderCredentials(
 		return { ok: true, apiKey: key, baseURL: base, ...(oauthAuth ? { oauthAuth } : {}) };
 	}
 
-	const key = provider.apiKey?.trim() || oauthAuth?.accessToken.trim() || '';
+	const key = oauthAuth?.accessToken.trim() || provider.apiKey?.trim() || '';
 	if (!key) {
 		return {
 			ok: false,
