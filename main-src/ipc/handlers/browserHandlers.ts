@@ -27,6 +27,9 @@ import {
 	listBrowserCaptureStorageSnapshotsForHostId,
 	snapshotBrowserCaptureSessionForHostId,
 	restoreBrowserCaptureSessionForHostId,
+	recordBrowserCaptureAnalysisForHostId,
+	listBrowserCaptureAnalysesForHostId,
+	removeBrowserCaptureAnalysisForHostId,
 } from '../../browser/browserCapture.js';
 import {
 	deleteCaptureSession,
@@ -393,10 +396,26 @@ export function registerBrowserHandlers(): void {
 			},
 			{ mode, requestIds, customNote, maxRequests }
 		);
+		// Use the most recent navigated request URL as the source hint.
+		const sourceUrl =
+			snapshot.requests
+				.filter((req) => req.resourceType === 'document' || /\bdocument\b/i.test(req.contentType ?? ''))
+				.sort((a, b) => b.startedAt - a.startedAt)[0]?.url ??
+			snapshot.requests[snapshot.requests.length - 1]?.url ??
+			'';
+		const scope =
+			requestIds && requestIds.length > 0
+				? `${requestIds.length} selected request(s)`
+				: `top ${result.usedRequestCount} of ${result.totalRequestCount} requests`;
 		if (deliver) {
 			const mainContents = webContents.fromId(hostId);
 			if (mainContents && !mainContents.isDestroyed()) {
-				mainContents.send('async-shell:composerAppendDraft', { text: result.prompt.slice(0, 120_000) });
+				mainContents.send('async-shell:captureAnalysisDispatch', {
+					prompt: result.prompt.slice(0, 120_000),
+					mode,
+					sourceUrl,
+					scope,
+				});
 				const win = BrowserWindow.fromWebContents(mainContents);
 				if (win && !win.isDestroyed()) {
 					if (win.isMinimized()) {
@@ -418,8 +437,40 @@ export function registerBrowserHandlers(): void {
 				totalRequestCount: result.totalRequestCount,
 				hookEventCount: result.hookEventCount,
 				storageHostCount: result.storageHostCount,
+				sourceUrl,
+				scope,
 			},
 		};
+	});
+
+	ipcMain.handle('browserCapture:analysisRecord', async (event, payload: unknown) => {
+		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
+		const obj = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+		const threadId = typeof obj.threadId === 'string' ? obj.threadId : '';
+		const mode = typeof obj.mode === 'string' ? obj.mode : 'auto';
+		const title = typeof obj.title === 'string' ? obj.title : 'Capture analysis';
+		const sourceUrl = typeof obj.sourceUrl === 'string' ? obj.sourceUrl : '';
+		if (!threadId) {
+			return { ok: false as const, error: 'missing-thread-id' as const };
+		}
+		const entry = recordBrowserCaptureAnalysisForHostId(hostId, { threadId, mode, title, sourceUrl });
+		return { ok: true as const, entry };
+	});
+
+	ipcMain.handle('browserCapture:analysisList', async (event) => {
+		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
+		return { ok: true as const, entries: listBrowserCaptureAnalysesForHostId(hostId) };
+	});
+
+	ipcMain.handle('browserCapture:analysisRemove', async (event, payload: unknown) => {
+		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
+		const obj = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+		const id = typeof obj.id === 'string' ? obj.id : '';
+		if (!id) {
+			return { ok: false as const, error: 'missing-id' as const };
+		}
+		removeBrowserCaptureAnalysisForHostId(hostId, id);
+		return { ok: true as const };
 	});
 
 	ipcMain.handle('browserCapture:proxyStatus', async (event) => {

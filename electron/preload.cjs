@@ -50,6 +50,9 @@ const INVOKE_CHANNELS = new Set([
 	'browserCapture:sessionsRename',
 	'browserCapture:sessionsDelete',
 	'browserCapture:analyze',
+	'browserCapture:analysisRecord',
+	'browserCapture:analysisList',
+	'browserCapture:analysisRemove',
 	'composer:appendDraft',
 	'workspace:saveComposerAttachment',
 	'workspace:pickComposerImages',
@@ -352,6 +355,9 @@ let openSettingsNavSeq = 0;
 const composerAppendDraftHandlers = new Map();
 let composerAppendDraftSeq = 0;
 
+const captureAnalysisDispatchHandlers = new Map();
+let captureAnalysisDispatchSeq = 0;
+
 const trayCommandHandlers = new Map();
 let trayCommandSeq = 0;
 
@@ -367,6 +373,16 @@ ipcRenderer.on('async-shell:openSettingsNav', (_event, nav) => {
 
 ipcRenderer.on('async-shell:composerAppendDraft', (_event, payload) => {
 	for (const fn of composerAppendDraftHandlers.values()) {
+		try {
+			fn(payload);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:captureAnalysisDispatch', (_event, payload) => {
+	for (const fn of captureAnalysisDispatchHandlers.values()) {
 		try {
 			fn(payload);
 		} catch (e) {
@@ -499,6 +515,11 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++composerAppendDraftSeq;
 		composerAppendDraftHandlers.set(id, callback);
 		return () => composerAppendDraftHandlers.delete(id);
+	},
+	subscribeCaptureAnalysisDispatch(callback) {
+		const id = ++captureAnalysisDispatchSeq;
+		captureAnalysisDispatchHandlers.set(id, callback);
+		return () => captureAnalysisDispatchHandlers.delete(id);
 	},
 	subscribeTrayCommand(callback) {
 		const id = ++trayCommandSeq;

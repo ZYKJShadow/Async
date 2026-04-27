@@ -55,6 +55,15 @@ export type BrowserCaptureHookListResult = {
 	items: BrowserCaptureHookEvent[];
 };
 
+export type BrowserCaptureAnalysisRecord = {
+	id: string;
+	threadId: string;
+	mode: string;
+	title: string;
+	sourceUrl: string;
+	createdAt: number;
+};
+
 export type BrowserCaptureStorageEntry = {
 	key: string;
 	value: string;
@@ -183,6 +192,7 @@ type BrowserCaptureSession = {
 	hookEvents: BrowserCaptureHookEvent[];
 	nextHookSeq: number;
 	storageByHost: Map<string, BrowserCaptureStorageSnapshot>;
+	recentAnalyses: BrowserCaptureAnalysisRecord[];
 };
 
 const sessionsByHostId = new Map<number, BrowserCaptureSession>();
@@ -338,6 +348,7 @@ function getOrCreateCaptureSession(hostId: number): BrowserCaptureSession {
 		hookEvents: [],
 		nextHookSeq: 1,
 		storageByHost: new Map(),
+		recentAnalyses: [],
 	};
 	sessionsByHostId.set(hostId, created);
 	return created;
@@ -1308,4 +1319,40 @@ export function restoreBrowserCaptureSessionForHostId(
 	dropAllPendingRequests(session);
 	touchCaptureSession(session);
 	return buildCaptureState(session);
+}
+
+
+const MAX_RECENT_ANALYSES = 12;
+
+export function recordBrowserCaptureAnalysisForHostId(
+	hostId: number,
+	record: { threadId: string; mode: string; title: string; sourceUrl?: string }
+): BrowserCaptureAnalysisRecord {
+	const session = getOrCreateCaptureSession(hostId);
+	const entry: BrowserCaptureAnalysisRecord = {
+		id: `analysis-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+		threadId: record.threadId,
+		mode: record.mode,
+		title: record.title,
+		sourceUrl: record.sourceUrl ?? '',
+		createdAt: Date.now(),
+	};
+	session.recentAnalyses.unshift(entry);
+	if (session.recentAnalyses.length > MAX_RECENT_ANALYSES) {
+		session.recentAnalyses.length = MAX_RECENT_ANALYSES;
+	}
+	touchCaptureSession(session);
+	return entry;
+}
+
+export function listBrowserCaptureAnalysesForHostId(hostId: number): BrowserCaptureAnalysisRecord[] {
+	const session = sessionsByHostId.get(hostId);
+	return session ? session.recentAnalyses.slice() : [];
+}
+
+export function removeBrowserCaptureAnalysisForHostId(hostId: number, analysisId: string): void {
+	const session = sessionsByHostId.get(hostId);
+	if (!session) return;
+	session.recentAnalyses = session.recentAnalyses.filter((entry) => entry.id !== analysisId);
+	touchCaptureSession(session);
 }

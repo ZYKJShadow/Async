@@ -11157,6 +11157,53 @@ body.is-resizing-browser-capture-dock {
 	background: color-mix(in srgb, var(--void-border-soft) 80%, transparent);
 }
 
+.ref-browser-capture-analyze-recents {
+	display: flex;
+	flex-direction: column;
+	max-height: 200px;
+	overflow: auto;
+}
+
+.ref-browser-capture-analyze-recent {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.ref-browser-capture-analyze-recent-main {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 6px 9px;
+	border: none;
+	border-radius: 7px;
+	background: transparent;
+	color: var(--void-fg-1);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.ref-browser-capture-analyze-recent-main:hover {
+	background: color-mix(in srgb, var(--void-accent-cool-soft) 50%, transparent);
+	color: var(--void-fg-0);
+}
+
+.ref-browser-capture-analyze-recent-main strong {
+	font-size: 12px;
+	font-weight: 700;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-browser-capture-analyze-recent-main span {
+	color: var(--void-fg-3);
+	font-size: 10px;
+}
+
 .ref-browser-capture-sessions-menu {
 	position: relative;
 	display: inline-flex;

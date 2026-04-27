@@ -59,6 +59,22 @@ import { useComposerSlashCommand } from './useComposerSlashCommand';
 
 const EMPTY_AGENT_PENDING_PATCHES: AgentPendingPatch[] = [];
 const EMPTY_SNAPSHOT_PATHS: ReadonlySet<string> = new Set<string>();
+
+const CAPTURE_ANALYSIS_MODE_LABELS: Record<string, string> = {
+	auto: 'Auto-detect',
+	'api-reverse': 'API reverse',
+	'security-audit': 'Security audit',
+	performance: 'Performance',
+	'crypto-reverse': 'Crypto reverse',
+};
+
+function safeHostFromUrl(url: string): string {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return '';
+	}
+}
 import { isPlanMdPath } from './planExecutedKey';
 import { useSettings } from './hooks/useSettings';
 import { usePlanSystem } from './hooks/usePlanSystem';
@@ -2037,6 +2053,81 @@ function AppMainWorkspaceInner() {
 	const composerInvokeSend = useCallback(() => {
 		void onSend();
 	}, [onSend]);
+
+	useEffect(() => {
+		const handler = (event: Event) => {
+			const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+			const threadId = typeof detail?.threadId === 'string' ? detail.threadId : '';
+			if (!threadId) return;
+			void (async () => {
+				try {
+					await refreshThreads();
+					setCurrentId(threadId);
+					await loadMessages(threadId);
+				} catch (err) {
+					console.error('[focus-thread]', err);
+				}
+			})();
+		};
+		window.addEventListener('async-shell:focusThread', handler);
+		return () => {
+			window.removeEventListener('async-shell:focusThread', handler);
+		};
+	}, [refreshThreads, setCurrentId, loadMessages]);
+
+	useEffect(() => {
+		const unsub = window.asyncShell?.subscribeCaptureAnalysisDispatch?.((payload) => {
+			const prompt = typeof payload?.prompt === 'string' ? payload.prompt.trim() : '';
+			if (!prompt || !shell) {
+				return;
+			}
+			const mode = typeof payload?.mode === 'string' ? payload.mode : 'auto';
+			const sourceUrl = typeof payload?.sourceUrl === 'string' ? payload.sourceUrl : '';
+			const host = sourceUrl ? safeHostFromUrl(sourceUrl) : '';
+			const modeLabel = CAPTURE_ANALYSIS_MODE_LABELS[mode] ?? mode;
+			const title = host ? `Capture · ${modeLabel} · ${host}` : `Capture · ${modeLabel}`;
+			void (async () => {
+				try {
+					const created = (await shell.invoke('threads:create')) as { id: string };
+					if (!created?.id) return;
+					await shell.invoke('threads:rename', created.id, title).catch(() => {});
+					setComposerModePersist('agent');
+					setComposerSegments([]);
+					setInlineResendSegments([]);
+					setResendFromUserIndex(null);
+					await refreshThreads();
+					setCurrentId(created.id);
+					await loadMessages(created.id);
+					await shell
+						.invoke('browserCapture:analysisRecord', {
+							threadId: created.id,
+							mode,
+							title,
+							sourceUrl,
+						})
+						.catch(() => {});
+					window.requestAnimationFrame(() => {
+						void onSend(prompt);
+					});
+				} catch (err) {
+					console.error('[capture-analysis-dispatch]', err);
+				}
+			})();
+		});
+		return () => {
+			unsub?.();
+		};
+	}, [
+		shell,
+		refreshThreads,
+		setCurrentId,
+		loadMessages,
+		setComposerModePersist,
+		setComposerSegments,
+		setInlineResendSegments,
+		setResendFromUserIndex,
+		onSend,
+	]);
 
 	const onAbortRef = useRef<() => Promise<void>>(async () => {});
 

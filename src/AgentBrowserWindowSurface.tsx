@@ -102,6 +102,15 @@ type BrowserCaptureSessionSummaryUi = {
 	note: string | null;
 };
 
+type BrowserCaptureAnalysisRecordUi = {
+	id: string;
+	threadId: string;
+	mode: string;
+	title: string;
+	sourceUrl: string;
+	createdAt: number;
+};
+
 function RightSidebarTabs({
 	t,
 	hasPlan,
@@ -1313,6 +1322,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	const [captureAnalyzeMenuOpen, setCaptureAnalyzeMenuOpen] = useState(false);
 	const [captureAnalyzeBusy, setCaptureAnalyzeBusy] = useState(false);
 	const captureAnalyzeMenuRef = useRef<HTMLDivElement | null>(null);
+	const [captureRecentAnalyses, setCaptureRecentAnalyses] = useState<BrowserCaptureAnalysisRecordUi[]>([]);
 	const browserHookScript = useMemo(() => getBrowserHookScript(), []);
 	const [clearDataConfirmOpen, setClearDataConfirmOpen] = useState(false);
 	const [clearDataBusy, setClearDataBusy] = useState(false);
@@ -2788,6 +2798,10 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 					setCopiedCaptureField(null);
 					copiedCaptureFieldTimerRef.current = null;
 				}, 1400);
+				// Give the dispatch handler a beat to register the new thread, then refresh.
+				window.setTimeout(() => {
+					void refreshBrowserCaptureAnalyses();
+				}, 600);
 			} catch (error) {
 				setCaptureExportError(error instanceof Error ? error.message : String(error));
 			} finally {
@@ -2795,6 +2809,67 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			}
 		},
 		[captureAnalyzeBusy, selectedCaptureRequestIds, shell, t]
+	);
+
+	const refreshBrowserCaptureAnalyses = useCallback(async () => {
+		if (!shell) {
+			return;
+		}
+		try {
+			const payload = (await shell.invoke('browserCapture:analysisList')) as {
+				ok?: boolean;
+				entries?: unknown[];
+			};
+			if (payload?.ok && Array.isArray(payload.entries)) {
+				setCaptureRecentAnalyses(
+					payload.entries
+						.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object'))
+						.map((row): BrowserCaptureAnalysisRecordUi => ({
+							id: String(row.id ?? ''),
+							threadId: String(row.threadId ?? ''),
+							mode: typeof row.mode === 'string' ? row.mode : 'auto',
+							title: typeof row.title === 'string' ? row.title : 'Capture analysis',
+							sourceUrl: typeof row.sourceUrl === 'string' ? row.sourceUrl : '',
+							createdAt: Number(row.createdAt) || 0,
+						}))
+				);
+			}
+		} catch {
+			/* ignore */
+		}
+	}, [shell]);
+
+	useEffect(() => {
+		void refreshBrowserCaptureAnalyses();
+	}, [refreshBrowserCaptureAnalyses]);
+
+	const openCaptureAnalysisThread = useCallback(
+		async (record: BrowserCaptureAnalysisRecordUi) => {
+			if (!shell || !record.threadId) return;
+			try {
+				await shell.invoke('threads:select', record.threadId).catch(() => {});
+				// Dispatch a window event so App.tsx (which owns currentId) can pick it up too.
+				window.dispatchEvent(
+					new CustomEvent('async-shell:focusThread', { detail: { threadId: record.threadId } })
+				);
+			} catch {
+				/* ignore */
+			}
+		},
+		[shell]
+	);
+
+	const removeCaptureAnalysisRecord = useCallback(
+		async (id: string) => {
+			if (!shell || !id) return;
+			try {
+				await shell.invoke('browserCapture:analysisRemove', { id });
+				await refreshBrowserCaptureAnalyses();
+			} catch {
+				/* ignore */
+			}
+		},
+		[refreshBrowserCaptureAnalyses, shell]
 	);
 
 	const toggleCaptureRequestSelected = useCallback((requestId: string, selected: boolean) => {
@@ -4119,6 +4194,43 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 																	<strong>{t('app.browserCaptureSendToAgent')}</strong>
 																	<span>{t('app.browserCaptureSendToAgentHint')}</span>
 																</button>
+																{captureRecentAnalyses.length > 0 ? (
+																	<>
+																		<div className="ref-browser-capture-analyze-popover-divider" />
+																		<div className="ref-browser-capture-analyze-popover-head">
+																			{t('app.browserCaptureRecentAnalyses')}
+																		</div>
+																		<div className="ref-browser-capture-analyze-recents">
+																			{captureRecentAnalyses.map((entry) => (
+																				<div key={entry.id} className="ref-browser-capture-analyze-recent">
+																					<button
+																						type="button"
+																						className="ref-browser-capture-analyze-recent-main"
+																						onClick={() => {
+																							setCaptureAnalyzeMenuOpen(false);
+																							void openCaptureAnalysisThread(entry);
+																						}}
+																						title={`${entry.title}\n${new Date(entry.createdAt).toLocaleString()}`}
+																					>
+																						<strong>{entry.title}</strong>
+																						<span>
+																							{entry.mode} · {new Date(entry.createdAt).toLocaleTimeString()}
+																						</span>
+																					</button>
+																					<button
+																						type="button"
+																						className="ref-browser-copy-icon-btn"
+																						aria-label={t('app.browserCaptureSessionsDelete')}
+																						title={t('app.browserCaptureSessionsDelete')}
+																						onClick={() => void removeCaptureAnalysisRecord(entry.id)}
+																					>
+																						<IconTrash />
+																					</button>
+																				</div>
+																			))}
+																		</div>
+																	</>
+																) : null}
 															</div>
 														) : null}
 													</div>
