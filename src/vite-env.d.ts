@@ -33,7 +33,8 @@ export interface AsyncShellAPI {
 	/** 閺屻儴顕楅崗銊ㄥ厴缂佸牏顏拋鍓х枂妞ら潧褰查弰鍓с仛閻ㄥ嫬鍞寸純?Shell / 鏉╃偞甯村Ο鈩冩緲 */
 	/** 娑撴槒绻樼粙瀣嚞濮瑰倷瀵岀粣妤€褰涢幍鎾崇磻鐠佸墽鐤嗛獮璺哄瀼閹广垹鍩岄幐鍥х暰娓氀勭埉妞ょ櫢绱欐俊鍌欑矤閻欘剛鐝涘ù蹇氼潔閸ｃ劎鐛ラ崣锝呮暅鐠у嚖绱?*/
 	subscribeOpenSettingsNav?(callback: (nav: string) => void): () => void;
-		subscribeTrayCommand?(callback: (payload: { command?: string }) => void): () => void;
+	subscribeComposerAppendDraft?(callback: (payload: { text?: string } | string) => void): () => void;
+	subscribeTrayCommand?(callback: (payload: { command?: string }) => void): () => void;
 	/** 閼奉亜濮╅弴瀛樻煀閻樿埖鈧焦甯归柅渚婄礄checking / available / downloading / downloaded / error 缁涘绱?*/
 	subscribeAutoUpdateStatus?(callback: (payload: { state: string } & Record<string, unknown>) => void): () => void;
 }
@@ -71,4 +72,3 @@ interface AsyncShellWebviewElement extends HTMLElement {
 }
 
 export {};
-

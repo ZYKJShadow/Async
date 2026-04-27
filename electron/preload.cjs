@@ -22,6 +22,19 @@ const INVOKE_CHANNELS = new Set([
 	'browser:commandResult',
 	'browser:windowReady',
 	'browser:openWindow',
+	'browser:clearData',
+	'browserCapture:getState',
+	'browserCapture:start',
+	'browserCapture:stop',
+	'browserCapture:clear',
+	'browserCapture:listRequests',
+	'browserCapture:exportRequests',
+	'browserCapture:getRequest',
+	'browserCapture:proxyStatus',
+	'browserCapture:proxyStart',
+	'browserCapture:proxyStop',
+	'browserCapture:proxyExportCa',
+	'composer:appendDraft',
 	'workspace:saveComposerAttachment',
 	'workspace:pickComposerImages',
 	'workspace:resolveDroppedFilePath',
@@ -72,6 +85,7 @@ const INVOKE_CHANNELS = new Set([
 	'theme:applyChrome',
 	'threads:list',
 	'threads:listLight',
+	'threads:listDetails',
 	'threads:listAgentSidebar',
 	'threads:messages',
 	'threads:fileStates',
@@ -318,6 +332,9 @@ ipcRenderer.on('async-shell:browserControl', (_event, payload) => {
 const openSettingsNavHandlers = new Map();
 let openSettingsNavSeq = 0;
 
+const composerAppendDraftHandlers = new Map();
+let composerAppendDraftSeq = 0;
+
 const trayCommandHandlers = new Map();
 let trayCommandSeq = 0;
 
@@ -325,6 +342,16 @@ ipcRenderer.on('async-shell:openSettingsNav', (_event, nav) => {
 	for (const fn of openSettingsNavHandlers.values()) {
 		try {
 			fn(nav);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:composerAppendDraft', (_event, payload) => {
+	for (const fn of composerAppendDraftHandlers.values()) {
+		try {
+			fn(payload);
 		} catch (e) {
 			console.error(e);
 		}
@@ -450,6 +477,11 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++openSettingsNavSeq;
 		openSettingsNavHandlers.set(id, callback);
 		return () => openSettingsNavHandlers.delete(id);
+	},
+	subscribeComposerAppendDraft(callback) {
+		const id = ++composerAppendDraftSeq;
+		composerAppendDraftHandlers.set(id, callback);
+		return () => composerAppendDraftHandlers.delete(id);
 	},
 	subscribeTrayCommand(callback) {
 		const id = ++trayCommandSeq;

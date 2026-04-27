@@ -153,11 +153,24 @@
 
 :root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-agent-review-head {
 	padding: 14px 18px 12px;
+	padding-right: max(
+		18px,
+		var(--ref-titlebar-right-safe, 18px),
+		calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px))
+	);
 	border-bottom: 1px solid color-mix(in srgb, var(--surface-glass-stroke) 72%, transparent);
 	background: color-mix(in srgb, var(--surface-panel-bg-strong) 66%, transparent);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 4%, transparent);
 	backdrop-filter: none;
 	-webkit-backdrop-filter: none;
+}
+
+:root[data-ui-style='mac-codex'][data-platform='win32'] .ref-browser-window-root .ref-agent-review-head {
+	padding-right: max(
+		180px,
+		var(--ref-titlebar-right-safe, 180px),
+		calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px))
+	);
 }
 
 :root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-agent-review-actions {
@@ -166,7 +179,9 @@
 
 :root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-agent-review-actions .ref-right-icon-tab,
 :root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-tool-btn,
-:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-tabstrip-add {
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-tabstrip-add,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-btn--ghost,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-mini-btn {
 	border: 1px solid var(--surface-glass-stroke);
 	border-radius: 10px;
 	background: var(--surface-control-bg);
@@ -175,7 +190,9 @@
 
 :root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-agent-review-actions .ref-right-icon-tab:hover,
 :root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-tool-btn:hover:not(:disabled),
-:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-tabstrip-add:hover {
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-tabstrip-add:hover,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-btn--ghost:hover:not(:disabled),
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-mini-btn:hover:not(:disabled) {
 	background: var(--surface-control-bg-hover);
 }
 
@@ -249,10 +266,98 @@
 		0 1px 0 color-mix(in srgb, var(--color-text-primary) 2%, transparent);
 }
 
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture {
+	height: 40px;
+	background: color-mix(in srgb, var(--surface-control-bg) 88%, transparent);
+	border-color: color-mix(in srgb, var(--surface-glass-stroke) 82%, transparent);
+	box-shadow: var(--shadow-pressed);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture.is-active {
+	background: color-mix(in srgb, var(--void-status-success-soft) 70%, var(--surface-control-bg));
+	border-color: color-mix(in srgb, var(--void-status-success) 34%, var(--surface-glass-stroke));
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-dock {
+	margin: 0 18px 18px;
+	border-color: color-mix(in srgb, var(--surface-glass-stroke) 82%, transparent);
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--surface-panel-bg-soft) 82%, transparent) 0%, transparent 100%),
+		color-mix(in srgb, var(--surface-panel-bg) 96%, transparent);
+	box-shadow:
+		inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 4%, transparent),
+		0 12px 28px color-mix(in srgb, var(--color-shadow) 10%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-dock.is-active {
+	border-color: color-mix(in srgb, var(--void-status-success) 28%, var(--surface-glass-stroke));
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--void-status-success-soft) 38%, transparent) 0%, transparent 100%),
+		color-mix(in srgb, var(--surface-panel-bg) 96%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-stat,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-dock-metric {
+	background: color-mix(in srgb, var(--surface-control-bg) 80%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-list,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-detail,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-device-main,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-device-steps,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-search-wrap,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-body-block {
+	border-color: color-mix(in srgb, var(--surface-glass-stroke) 78%, transparent);
+	background: color-mix(in srgb, var(--surface-panel-bg-soft) 70%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-detail-tabs,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-mode-tabs,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-meta-grid {
+	background: color-mix(in srgb, var(--surface-control-bg) 72%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-detail-tab.is-active,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-mode-tab.is-active,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-copy-btn,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-copy-icon-btn,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-device-field,
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-filter-chip {
+	border-color: color-mix(in srgb, var(--surface-glass-stroke) 78%, transparent);
+	background: color-mix(in srgb, var(--surface-control-bg) 82%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-filter-chip.is-active {
+	border-color: color-mix(in srgb, var(--color-accent) 34%, var(--surface-glass-stroke));
+	background: var(--surface-tint-soft);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-row:hover {
+	background: color-mix(in srgb, var(--surface-control-bg-hover) 82%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-capture-row.is-selected {
+	background: color-mix(in srgb, var(--surface-tint-soft) 72%, transparent);
+	box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-clear-confirm {
+	background: color-mix(in srgb, var(--surface-popover-bg) 98%, transparent);
+	border-color: color-mix(in srgb, var(--surface-glass-stroke) 88%, transparent);
+	box-shadow: var(--shadow-popover);
+}
+
+:root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-mini-btn--danger {
+	border-color: color-mix(in srgb, var(--void-status-error) 34%, transparent);
+	background: var(--void-status-error-soft);
+	color: var(--void-status-error);
+}
+
 :root[data-ui-style='mac-codex'] .ref-browser-window-root .ref-browser-webview-wrap {
-	height: 100%;
+	flex: 1;
+	height: auto;
 	min-height: 0;
-	margin: 4px 18px 18px;
+	margin: 4px 18px 10px;
 	border-radius: 20px;
 	border: 1px solid color-mix(in srgb, var(--surface-glass-stroke) 76%, transparent);
 	background:

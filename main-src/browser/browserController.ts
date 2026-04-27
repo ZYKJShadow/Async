@@ -634,6 +634,41 @@ export async function setBrowserSidebarConfigForHostId(hostId: number, rawConfig
 	};
 }
 
+export async function clearBrowserSessionDataForHostId(
+	hostId: number
+): Promise<{ ok: true; partition: string } | { ok: false; error: string }> {
+	const partition = browserPartitionForHostId(hostId);
+	const ses = session.fromPartition(partition);
+	try {
+		await ses.clearStorageData({
+			storages: [
+				'cookies',
+				'filesystem',
+				'indexdb',
+				'localstorage',
+				'shadercache',
+				'websql',
+				'serviceworkers',
+				'cachestorage',
+			],
+		});
+		await ses.clearCache();
+		await ses.clearAuthCache();
+		await ses.clearHostResolverCache();
+		try {
+			await ses.closeAllConnections();
+		} catch {
+			/* ignore connection-close failures after data clear */
+		}
+		return { ok: true, partition };
+	} catch (error) {
+		return {
+			ok: false,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
 function cloneBrowserRuntimeTabState(raw: unknown): BrowserRuntimeTabState | null {
 	if (!raw || typeof raw !== 'object') {
 		return null;

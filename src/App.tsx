@@ -41,6 +41,7 @@ import { type ComposerMode } from './ComposerPlusMenu';
 import { pendingPlanQuestionFromMessages } from './planParser';
 import {
 	getLeadingWizardCommand,
+	newSegmentId,
 	segmentsToWireText,
 	segmentsTrimmedEmpty,
 	userMessageToSegments,
@@ -109,7 +110,6 @@ import { AgentAgentCenterColumn } from './app/AgentAgentCenterColumn';
 import type { ComposerAnchorSlot } from './ChatComposer';
 import { AppProvider } from './AppContext';
 import { ComposerActionsProvider } from './ComposerActionsContext';
-import { AgentBrowserWindowSurface } from './AgentRightSidebar';
 import { TerminalWindowSurface } from './TerminalWindowSurface';
 import { displayThreadTitle } from './app/threadRowUi';
 import {
@@ -153,6 +153,9 @@ import {
 } from './app/workspaceLaunchers';
 
 const EditorMainPanel = lazy(() => import('./EditorMainPanel').then((m) => ({ default: m.EditorMainPanel })));
+const AgentBrowserWindowSurface = lazy(() =>
+	import('./AgentBrowserWindowSurface').then((m) => ({ default: m.AgentBrowserWindowSurface }))
+);
 
 type LayoutMode = ShellLayoutMode;
 type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team' | 'browser' | 'agents';
@@ -362,7 +365,11 @@ function AppBrowserWindow() {
 		};
 	}, [shell, setAppearanceSettings, setColorMode, setLocale]);
 
-	return <AgentBrowserWindowSurface />;
+	return (
+		<Suspense fallback={<div className="ref-browser-window-root" aria-busy="true" />}>
+			<AgentBrowserWindowSurface />
+		</Suspense>
+	);
 }
 
 /**
@@ -1310,6 +1317,39 @@ function AppMainWorkspaceInner() {
 		() => hasSelectedModel && !segmentsTrimmedEmpty(inlineResendSegments),
 		[hasSelectedModel, inlineResendSegments]
 	);
+
+	useEffect(() => {
+		const unsub = window.asyncShell?.subscribeComposerAppendDraft?.((payload) => {
+			const rawText =
+				typeof payload === 'string'
+					? payload
+					: payload && typeof payload === 'object' && typeof payload.text === 'string'
+						? payload.text
+						: '';
+			const text = rawText.replace(/\r/g, '').trim();
+			if (!text) {
+				return;
+			}
+			setComposerModePersist('agent');
+			setComposerSegments((prev) => {
+				const needsSeparator = segmentsToWireText(prev).trim().length > 0;
+				return [
+					...prev,
+					{
+						id: newSegmentId(),
+						kind: 'text',
+						text: `${needsSeparator ? '\n\n' : ''}${text}`,
+					},
+				];
+			});
+			window.requestAnimationFrame(() => {
+				(hasConversation ? composerRichBottomRef.current : composerRichHeroRef.current)?.focus();
+			});
+		});
+		return () => {
+			unsub?.();
+		};
+	}, [hasConversation, setComposerModePersist, setComposerSegments]);
 
 	const currentThreadTitle = useMemo(() => {
 		const thread = threads.find((x) => x.id === currentId);

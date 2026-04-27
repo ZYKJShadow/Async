@@ -33,10 +33,13 @@ export type BrowserCaptureState = {
 	note?: string;
 };
 
+export type BrowserCaptureSource = 'browser' | 'proxy';
+
 export type BrowserCaptureRequestSummary = {
 	id: string;
 	seq: number;
 	tabId: string;
+	source: BrowserCaptureSource;
 	method: string;
 	url: string;
 	status: number | null;
@@ -64,6 +67,36 @@ export type BrowserCaptureListResult = {
 	offset: number;
 	limit: number;
 	items: BrowserCaptureRequestSummary[];
+};
+
+export type BrowserCaptureRequestQuery = {
+	query?: string;
+	tabId?: string;
+	source?: BrowserCaptureSource | 'all';
+	method?: string;
+	resourceType?: string;
+	status?: number | null;
+	statusGroup?: string;
+	requestIds?: string[];
+	offset?: number;
+	limit?: number;
+};
+
+export type BrowserCaptureExternalRequestInput = {
+	method: string;
+	url: string;
+	status?: number | null;
+	requestHeaders?: Record<string, unknown>;
+	requestBody?: string | Buffer | null;
+	requestBodyTruncated?: boolean;
+	responseHeaders?: Record<string, unknown>;
+	responseBody?: string | Buffer | null;
+	responseBodyTruncated?: boolean;
+	responseBodyOmittedReason?: string | null;
+	resourceType?: string | null;
+	startedAt?: number;
+	durationMs?: number | null;
+	errorText?: string | null;
 };
 
 type BrowserCaptureGuestBinding = {
@@ -208,6 +241,29 @@ function decodeResponseBody(
 	}
 }
 
+function decodeExternalCaptureBody(
+	body: string | Buffer | null | undefined,
+	contentType: string | null
+): { text: string | null; truncated: boolean; omittedReason: string | null } {
+	if (body == null) {
+		return { text: null, truncated: false, omittedReason: null };
+	}
+	if (isBinaryContentType(contentType)) {
+		return { text: null, truncated: false, omittedReason: 'binary-content' };
+	}
+	try {
+		const text = Buffer.isBuffer(body) ? body.toString('utf8') : String(body);
+		const clipped = clipCaptureText(text);
+		return {
+			text: clipped.text,
+			truncated: clipped.truncated,
+			omittedReason: null,
+		};
+	} catch {
+		return { text: null, truncated: false, omittedReason: 'decode-failed' };
+	}
+}
+
 function makeDefaultCaptureState(note?: string): BrowserCaptureState {
 	return {
 		capturing: false,
@@ -250,6 +306,7 @@ function cloneCaptureSummary(record: BrowserCaptureRecord): BrowserCaptureReques
 		id: record.id,
 		seq: record.seq,
 		tabId: record.tabId,
+		source: record.source ?? 'browser',
 		method: record.method,
 		url: record.url,
 		status: record.status,
@@ -274,6 +331,100 @@ function cloneCaptureDetail(record: BrowserCaptureRecord): BrowserCaptureRequest
 		responseHeaders: { ...record.responseHeaders },
 		responseBody: record.responseBody,
 	};
+}
+
+export function matchesBrowserCaptureStatusGroup(
+	status: number | null,
+	errorText: string | null,
+	statusGroup: string
+): boolean {
+	const group = String(statusGroup ?? '').trim().toLowerCase();
+	if (!group) {
+		return true;
+	}
+	const bucket = status == null ? 'pending' : `${Math.floor(status / 100)}xx`;
+	if (group === 'error') {
+		return Boolean(errorText) || (status != null && status >= 400);
+	}
+	return group === bucket;
+}
+
+export function filterBrowserCaptureRequestDetails(
+	records: readonly BrowserCaptureRequestDetail[],
+	options?: BrowserCaptureRequestQuery
+): BrowserCaptureRequestDetail[] {
+	const query = String(options?.query ?? '').trim().toLowerCase();
+	const tabId = String(options?.tabId ?? '').trim();
+	const source = String(options?.source ?? '').trim().toLowerCase();
+	const method = String(options?.method ?? '').trim().toUpperCase();
+	const resourceType = String(options?.resourceType ?? '').trim().toLowerCase();
+	const statusFilter =
+		options?.status == null ? null : Number.isFinite(Number(options.status)) ? Number(options.status) : null;
+	const statusGroup = String(options?.statusGroup ?? '').trim().toLowerCase();
+	const requestIdSet =
+		Array.isArray(options?.requestIds) && options.requestIds.length > 0
+			? new Set(options.requestIds.map((id) => String(id ?? '').trim()).filter(Boolean))
+			: null;
+	return records.filter((record) => {
+		if (requestIdSet && !requestIdSet.has(record.id)) {
+			return false;
+		}
+		if (tabId && record.tabId !== tabId) {
+			return false;
+		}
+		if (source && source !== 'all' && record.source !== source) {
+			return false;
+		}
+		if (method) {
+			const recordMethod = record.method.trim().toUpperCase();
+			if (method === 'OTHER') {
+				if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'].includes(recordMethod)) {
+					return false;
+				}
+			} else if (recordMethod !== method) {
+				return false;
+			}
+		}
+		if (resourceType) {
+			const recordResourceType = String(record.resourceType ?? '').trim().toLowerCase();
+			if (resourceType === 'other') {
+				if (['document', 'xhr', 'fetch', 'script', 'stylesheet', 'image'].includes(recordResourceType)) {
+					return false;
+				}
+			} else if (recordResourceType !== resourceType) {
+				return false;
+			}
+		}
+		if (statusFilter != null && record.status !== statusFilter) {
+			return false;
+		}
+		if (statusGroup && !matchesBrowserCaptureStatusGroup(record.status, record.errorText, statusGroup)) {
+			return false;
+		}
+		if (!query) {
+			return true;
+		}
+		const haystack = [
+			record.tabId,
+			record.source ?? 'browser',
+			record.method,
+			record.url,
+			record.contentType ?? '',
+			record.resourceType ?? '',
+			record.status == null ? '' : String(record.status),
+			record.errorText ?? '',
+		]
+			.join(' ')
+			.toLowerCase();
+		return haystack.includes(query);
+	});
+}
+
+function filterBrowserCaptureRecords(
+	session: BrowserCaptureSession,
+	options?: BrowserCaptureRequestQuery
+): BrowserCaptureRecord[] {
+	return filterBrowserCaptureRequestDetails(session.requests, options);
 }
 
 function buildCaptureState(session: BrowserCaptureSession): BrowserCaptureState {
@@ -358,6 +509,7 @@ function finalizePendingRequest(
 		id: `browser-capture-${session.hostId}-${seq}`,
 		seq,
 		tabId: pending.tabId,
+		source: 'browser',
 		method: pending.method,
 		url: pending.url,
 		status: pending.status,
@@ -748,46 +900,64 @@ export function clearBrowserCaptureDataForHostId(hostId: number): BrowserCapture
 	return buildCaptureState(session);
 }
 
+export function addBrowserCaptureExternalRequestForHostId(
+	hostId: number,
+	input: BrowserCaptureExternalRequestInput
+): BrowserCaptureRequestDetail | null {
+	if (!isHttpRequestUrl(input.url)) {
+		return null;
+	}
+	const session = sessionsByHostId.get(hostId);
+	if (!session?.capturing) {
+		return null;
+	}
+	const requestHeaders = normalizeHeaders(input.requestHeaders);
+	const responseHeaders = normalizeHeaders(input.responseHeaders);
+	const requestContentType = contentTypeFromHeaders(requestHeaders);
+	const responseContentType = contentTypeFromHeaders(responseHeaders);
+	const requestBody = decodeExternalCaptureBody(input.requestBody, requestContentType);
+	const responseBody = decodeExternalCaptureBody(input.responseBody, responseContentType);
+	const seq = session.nextSeq;
+	session.nextSeq += 1;
+	const statusRaw = Number(input.status);
+	const startedAtRaw = Number(input.startedAt);
+	const durationRaw = Number(input.durationMs);
+	const record: BrowserCaptureRecord = {
+		id: `browser-capture-${session.hostId}-${seq}`,
+		seq,
+		tabId: 'external-device',
+		source: 'proxy',
+		method: (input.method || 'GET').trim().toUpperCase(),
+		url: input.url,
+		status: Number.isFinite(statusRaw) ? statusRaw : null,
+		contentType: responseContentType,
+		resourceType: input.resourceType?.trim() || 'proxy',
+		startedAt: Number.isFinite(startedAtRaw) && startedAtRaw > 0 ? Math.floor(startedAtRaw) : Date.now(),
+		durationMs: Number.isFinite(durationRaw) && durationRaw >= 0 ? Math.floor(durationRaw) : null,
+		hasRequestBody: Boolean(requestBody.text),
+		requestBodyTruncated: requestBody.truncated || input.requestBodyTruncated === true,
+		hasResponseBody: Boolean(responseBody.text),
+		responseBodyTruncated: responseBody.truncated || input.responseBodyTruncated === true,
+		responseBodyOmittedReason: input.responseBodyOmittedReason ?? responseBody.omittedReason,
+		errorText: input.errorText?.trim() || null,
+		requestHeaders,
+		requestBody: requestBody.text,
+		responseHeaders,
+		responseBody: responseBody.text,
+	};
+	pushCaptureRecord(session, record);
+	return cloneCaptureDetail(record);
+}
+
 export function listBrowserCaptureRequestsForHostId(
 	hostId: number,
-	options?: {
-		query?: string;
-		tabId?: string;
-		status?: number | null;
-		offset?: number;
-		limit?: number;
-	}
+	options?: BrowserCaptureRequestQuery
 ): BrowserCaptureListResult {
 	const session = sessionsByHostId.get(hostId);
 	if (!session) {
 		return { total: 0, offset: 0, limit: 0, items: [] };
 	}
-	const query = String(options?.query ?? '').trim().toLowerCase();
-	const tabId = String(options?.tabId ?? '').trim();
-	const statusFilter =
-		options?.status == null ? null : Number.isFinite(Number(options.status)) ? Number(options.status) : null;
-	const filtered = session.requests.filter((record) => {
-		if (tabId && record.tabId !== tabId) {
-			return false;
-		}
-		if (statusFilter != null && record.status !== statusFilter) {
-			return false;
-		}
-		if (!query) {
-			return true;
-		}
-		const haystack = [
-			record.tabId,
-			record.method,
-			record.url,
-			record.contentType ?? '',
-			record.status == null ? '' : String(record.status),
-			record.errorText ?? '',
-		]
-			.join(' ')
-			.toLowerCase();
-		return haystack.includes(query);
-	});
+	const filtered = filterBrowserCaptureRecords(session, options);
 	const offsetRaw = Number(options?.offset ?? 0);
 	const limitRaw = Number(options?.limit ?? 50);
 	const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
@@ -798,6 +968,25 @@ export function listBrowserCaptureRequestsForHostId(
 		limit,
 		items: filtered.slice(offset, offset + limit).map(cloneCaptureSummary),
 	};
+}
+
+export function listBrowserCaptureRequestDetailsForHostId(
+	hostId: number,
+	options?: BrowserCaptureRequestQuery
+): BrowserCaptureRequestDetail[] {
+	const session = sessionsByHostId.get(hostId);
+	if (!session) {
+		return [];
+	}
+	const filtered = filterBrowserCaptureRecords(session, options);
+	const offsetRaw = Number(options?.offset ?? 0);
+	const limitRaw = Number(options?.limit ?? MAX_CAPTURED_REQUESTS);
+	const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
+	const limit =
+		Number.isFinite(limitRaw) && limitRaw > 0
+			? Math.min(MAX_CAPTURED_REQUESTS, Math.floor(limitRaw))
+			: MAX_CAPTURED_REQUESTS;
+	return filtered.slice(offset, offset + limit).map(cloneCaptureDetail);
 }
 
 export function getBrowserCaptureRequestForHostId(

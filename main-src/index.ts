@@ -18,6 +18,7 @@ import { initAutoUpdate } from './autoUpdate.js';
 import { disposeBotController, initBotController, syncBotControllerFromSettings } from './bots/botController.js';
 import { flushBotSessionStore, initBotSessionStore } from './bots/botSessionStore.js';
 import { disposeAppTray, initAppTray } from './appTray.js';
+import { disposeBrowserCaptureProxy } from './browser/browserMitmProxy.js';
 
 function resolveAppIconPath(): string | undefined {
 	const iconSearchRoots =
@@ -79,7 +80,7 @@ app.on('before-quit', (e) => {
 	quittingAfterThreadStoreFlush = true;
 	e.preventDefault();
 	flushBotSessionStore();
-	void Promise.allSettled([flushPendingSave(), disposeBotController()]).finally(() => {
+	void Promise.allSettled([flushPendingSave(), disposeBotController(), disposeBrowserCaptureProxy()]).finally(() => {
 		app.quit();
 	});
 });
