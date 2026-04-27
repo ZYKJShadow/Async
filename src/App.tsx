@@ -41,6 +41,7 @@ import { type ComposerMode } from './ComposerPlusMenu';
 import { pendingPlanQuestionFromMessages } from './planParser';
 import {
 	getLeadingWizardCommand,
+	newSegmentId,
 	segmentsToWireText,
 	segmentsTrimmedEmpty,
 	userMessageToSegments,
@@ -58,6 +59,22 @@ import { useComposerSlashCommand } from './useComposerSlashCommand';
 
 const EMPTY_AGENT_PENDING_PATCHES: AgentPendingPatch[] = [];
 const EMPTY_SNAPSHOT_PATHS: ReadonlySet<string> = new Set<string>();
+
+const CAPTURE_ANALYSIS_MODE_LABELS: Record<string, string> = {
+	auto: 'Auto-detect',
+	'api-reverse': 'API reverse',
+	'security-audit': 'Security audit',
+	performance: 'Performance',
+	'crypto-reverse': 'Crypto reverse',
+};
+
+function safeHostFromUrl(url: string): string {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return '';
+	}
+}
 import { isPlanMdPath } from './planExecutedKey';
 import { useSettings } from './hooks/useSettings';
 import { usePlanSystem } from './hooks/usePlanSystem';
@@ -109,7 +126,6 @@ import { AgentAgentCenterColumn } from './app/AgentAgentCenterColumn';
 import type { ComposerAnchorSlot } from './ChatComposer';
 import { AppProvider } from './AppContext';
 import { ComposerActionsProvider } from './ComposerActionsContext';
-import { AgentBrowserWindowSurface } from './AgentRightSidebar';
 import { TerminalWindowSurface } from './TerminalWindowSurface';
 import { displayThreadTitle } from './app/threadRowUi';
 import {
@@ -153,6 +169,9 @@ import {
 } from './app/workspaceLaunchers';
 
 const EditorMainPanel = lazy(() => import('./EditorMainPanel').then((m) => ({ default: m.EditorMainPanel })));
+const AgentBrowserWindowSurface = lazy(() =>
+	import('./AgentBrowserWindowSurface').then((m) => ({ default: m.AgentBrowserWindowSurface }))
+);
 
 type LayoutMode = ShellLayoutMode;
 type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team' | 'browser' | 'agents';
@@ -362,7 +381,11 @@ function AppBrowserWindow() {
 		};
 	}, [shell, setAppearanceSettings, setColorMode, setLocale]);
 
-	return <AgentBrowserWindowSurface />;
+	return (
+		<Suspense fallback={<div className="ref-browser-window-root" aria-busy="true" />}>
+			<AgentBrowserWindowSurface />
+		</Suspense>
+	);
 }
 
 /**
@@ -1311,6 +1334,39 @@ function AppMainWorkspaceInner() {
 		[hasSelectedModel, inlineResendSegments]
 	);
 
+	useEffect(() => {
+		const unsub = window.asyncShell?.subscribeComposerAppendDraft?.((payload) => {
+			const rawText =
+				typeof payload === 'string'
+					? payload
+					: payload && typeof payload === 'object' && typeof payload.text === 'string'
+						? payload.text
+						: '';
+			const text = rawText.replace(/\r/g, '').trim();
+			if (!text) {
+				return;
+			}
+			setComposerModePersist('agent');
+			setComposerSegments((prev) => {
+				const needsSeparator = segmentsToWireText(prev).trim().length > 0;
+				return [
+					...prev,
+					{
+						id: newSegmentId(),
+						kind: 'text',
+						text: `${needsSeparator ? '\n\n' : ''}${text}`,
+					},
+				];
+			});
+			window.requestAnimationFrame(() => {
+				(hasConversation ? composerRichBottomRef.current : composerRichHeroRef.current)?.focus();
+			});
+		});
+		return () => {
+			unsub?.();
+		};
+	}, [hasConversation, setComposerModePersist, setComposerSegments]);
+
 	const currentThreadTitle = useMemo(() => {
 		const thread = threads.find((x) => x.id === currentId);
 		return thread ? displayThreadTitle(thread.title, t('app.threadUntitled')) : workspaceBasename;
@@ -1997,6 +2053,81 @@ function AppMainWorkspaceInner() {
 	const composerInvokeSend = useCallback(() => {
 		void onSend();
 	}, [onSend]);
+
+	useEffect(() => {
+		const handler = (event: Event) => {
+			const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+			const threadId = typeof detail?.threadId === 'string' ? detail.threadId : '';
+			if (!threadId) return;
+			void (async () => {
+				try {
+					await refreshThreads();
+					setCurrentId(threadId);
+					await loadMessages(threadId);
+				} catch (err) {
+					console.error('[focus-thread]', err);
+				}
+			})();
+		};
+		window.addEventListener('async-shell:focusThread', handler);
+		return () => {
+			window.removeEventListener('async-shell:focusThread', handler);
+		};
+	}, [refreshThreads, setCurrentId, loadMessages]);
+
+	useEffect(() => {
+		const unsub = window.asyncShell?.subscribeCaptureAnalysisDispatch?.((payload) => {
+			const prompt = typeof payload?.prompt === 'string' ? payload.prompt.trim() : '';
+			if (!prompt || !shell) {
+				return;
+			}
+			const mode = typeof payload?.mode === 'string' ? payload.mode : 'auto';
+			const sourceUrl = typeof payload?.sourceUrl === 'string' ? payload.sourceUrl : '';
+			const host = sourceUrl ? safeHostFromUrl(sourceUrl) : '';
+			const modeLabel = CAPTURE_ANALYSIS_MODE_LABELS[mode] ?? mode;
+			const title = host ? `Capture · ${modeLabel} · ${host}` : `Capture · ${modeLabel}`;
+			void (async () => {
+				try {
+					const created = (await shell.invoke('threads:create')) as { id: string };
+					if (!created?.id) return;
+					await shell.invoke('threads:rename', created.id, title).catch(() => {});
+					setComposerModePersist('agent');
+					setComposerSegments([]);
+					setInlineResendSegments([]);
+					setResendFromUserIndex(null);
+					await refreshThreads();
+					setCurrentId(created.id);
+					await loadMessages(created.id);
+					await shell
+						.invoke('browserCapture:analysisRecord', {
+							threadId: created.id,
+							mode,
+							title,
+							sourceUrl,
+						})
+						.catch(() => {});
+					window.requestAnimationFrame(() => {
+						void onSend(prompt);
+					});
+				} catch (err) {
+					console.error('[capture-analysis-dispatch]', err);
+				}
+			})();
+		});
+		return () => {
+			unsub?.();
+		};
+	}, [
+		shell,
+		refreshThreads,
+		setCurrentId,
+		loadMessages,
+		setComposerModePersist,
+		setComposerSegments,
+		setInlineResendSegments,
+		setResendFromUserIndex,
+		onSend,
+	]);
 
 	const onAbortRef = useRef<() => Promise<void>>(async () => {});
 

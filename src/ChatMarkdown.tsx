@@ -157,7 +157,7 @@ function unitFollowedByToolLikeWork(
 // preflight / outcome 切分纯函数 + 配套辅助谓词已抽到 ./preflightSplit 以便独立单元测试，
 // 这里 re-export 保持原有公共 API。
 export { splitPreflightAndOutcome, preflightHasContent } from './preflightSplit';
-import { splitPreflightAndOutcome, preflightHasContent } from './preflightSplit';
+import { splitPreflightAndOutcome } from './preflightSplit';
 
 /** 有 tool_input_delta 预览时，解析层也会生成 isStreaming 的 file_edit，避免与预览重复且保证预览优先显示 */
 function dropParsedStreamingFileEditWhilePreview(
@@ -767,34 +767,45 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 		}
 	};
 
-	const hasPreflight = preflightHasContent(preflight);
 	const hasOutcome = outcome.some((u) => {
 		// outcome_marker 自身不可见，单独存在不算「有 outcome」
 		if (u.type === 'outcome_marker') return false;
 		if (u.type === 'markdown') return u.text.trim().length > 0;
 		return true;
 	});
+	const showLiveThinkingTailInOutcome = showLiveThinkingTail && hasOutcome;
+	const showLiveThinkingTailAfterPreflight = showLiveThinkingTail && !showLiveThinkingTailInOutcome;
+	const hasPreflightShellContent = preflight.some((u) => {
+		if (u.type === 'thinking_group' && showLiveThinkingTail) {
+			return false;
+		}
+		if (u.type === 'markdown') return u.text.trim().length > 0;
+		if (u.type === 'outcome_marker') return false;
+		return true;
+	});
 
 	if (renderMode === 'preflight') {
-		if (!hasPreflight) return null;
+		if (!hasPreflightShellContent && !showLiveThinkingTailAfterPreflight) return null;
 		return (
 			<div
 				className={agentRootClass}
 				data-turn-focus-fill-px={rootTurnFocusFillPxAttr}
 				style={rootTurnFocusFillStyle}
 			>
-				<AgentPreflightShell
-					liveTurn={showAgentWorking}
-					hasOutcome={hasOutcome}
-					phase={liveThoughtMeta?.phase ?? (showAgentWorking ? 'thinking' : 'done')}
-					tokenUsage={liveThoughtMeta?.tokenUsage ?? null}
-					instantToggle={preflightInstantToggle}
-					shouldInstantToggle={shouldInstantTogglePreflight}
-					onLayoutChange={onPreflightLayoutChange}
-				>
-					{preflight.map((seg, i) => renderUnitNode(seg, i, { insideShell: true }))}
-					{showLiveThinkingTail ? <LiveThinkingStatus key="live-thinking-tail" /> : null}
-				</AgentPreflightShell>
+				{hasPreflightShellContent ? (
+					<AgentPreflightShell
+						liveTurn={showAgentWorking}
+						hasOutcome={hasOutcome}
+						phase={liveThoughtMeta?.phase ?? (showAgentWorking ? 'thinking' : 'done')}
+						tokenUsage={liveThoughtMeta?.tokenUsage ?? null}
+						instantToggle={preflightInstantToggle}
+						shouldInstantToggle={shouldInstantTogglePreflight}
+						onLayoutChange={onPreflightLayoutChange}
+					>
+						{preflight.map((seg, i) => renderUnitNode(seg, i, { insideShell: true }))}
+					</AgentPreflightShell>
+				) : null}
+				{showLiveThinkingTailAfterPreflight ? <LiveThinkingStatus key="live-thinking-tail" /> : null}
 			</div>
 		);
 	}
@@ -817,6 +828,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 					style={rootTurnFocusFillStyle}
 				>
 					<TypewriterMd text={outcome[0]!.text} enabled={typewriter} />
+					{showLiveThinkingTailInOutcome ? <LiveThinkingStatus key="live-thinking-tail" /> : null}
 				</div>
 			);
 		}
@@ -827,6 +839,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 				style={rootTurnFocusFillStyle}
 			>
 				{outcome.map((seg, i) => renderUnitNode(seg, i))}
+				{showLiveThinkingTailInOutcome ? <LiveThinkingStatus key="live-thinking-tail" /> : null}
 			</div>
 		);
 	}

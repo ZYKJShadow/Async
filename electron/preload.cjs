@@ -22,6 +22,38 @@ const INVOKE_CHANNELS = new Set([
 	'browser:commandResult',
 	'browser:windowReady',
 	'browser:openWindow',
+	'browser:clearData',
+	'browserCapture:getState',
+	'browserCapture:start',
+	'browserCapture:stop',
+	'browserCapture:clear',
+	'browserCapture:listRequests',
+	'browserCapture:exportRequests',
+	'browserCapture:getRequest',
+	'browserCapture:proxyStatus',
+	'browserCapture:proxyStart',
+	'browserCapture:proxyStop',
+	'browserCapture:proxyExportCa',
+	'browserCapture:proxySystemProxyToggle',
+	'browserCapture:proxyCaInstall',
+	'browserCapture:proxyCaUninstall',
+	'browserCapture:proxyCaRefresh',
+	'browserCapture:proxyOpenCaPath',
+	'browserCapture:proxyCopySnippet',
+	'browserCapture:hookIngest',
+	'browserCapture:hookList',
+	'browserCapture:storageIngest',
+	'browserCapture:storageList',
+	'browserCapture:sessionsList',
+	'browserCapture:sessionsSave',
+	'browserCapture:sessionsLoad',
+	'browserCapture:sessionsRename',
+	'browserCapture:sessionsDelete',
+	'browserCapture:analyze',
+	'browserCapture:analysisRecord',
+	'browserCapture:analysisList',
+	'browserCapture:analysisRemove',
+	'composer:appendDraft',
 	'workspace:saveComposerAttachment',
 	'workspace:pickComposerImages',
 	'workspace:resolveDroppedFilePath',
@@ -320,6 +352,12 @@ ipcRenderer.on('async-shell:browserControl', (_event, payload) => {
 const openSettingsNavHandlers = new Map();
 let openSettingsNavSeq = 0;
 
+const composerAppendDraftHandlers = new Map();
+let composerAppendDraftSeq = 0;
+
+const captureAnalysisDispatchHandlers = new Map();
+let captureAnalysisDispatchSeq = 0;
+
 const trayCommandHandlers = new Map();
 let trayCommandSeq = 0;
 
@@ -327,6 +365,26 @@ ipcRenderer.on('async-shell:openSettingsNav', (_event, nav) => {
 	for (const fn of openSettingsNavHandlers.values()) {
 		try {
 			fn(nav);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:composerAppendDraft', (_event, payload) => {
+	for (const fn of composerAppendDraftHandlers.values()) {
+		try {
+			fn(payload);
+		} catch (e) {
+			console.error(e);
+		}
+	}
+});
+
+ipcRenderer.on('async-shell:captureAnalysisDispatch', (_event, payload) => {
+	for (const fn of captureAnalysisDispatchHandlers.values()) {
+		try {
+			fn(payload);
 		} catch (e) {
 			console.error(e);
 		}
@@ -452,6 +510,16 @@ contextBridge.exposeInMainWorld('asyncShell', {
 		const id = ++openSettingsNavSeq;
 		openSettingsNavHandlers.set(id, callback);
 		return () => openSettingsNavHandlers.delete(id);
+	},
+	subscribeComposerAppendDraft(callback) {
+		const id = ++composerAppendDraftSeq;
+		composerAppendDraftHandlers.set(id, callback);
+		return () => composerAppendDraftHandlers.delete(id);
+	},
+	subscribeCaptureAnalysisDispatch(callback) {
+		const id = ++captureAnalysisDispatchSeq;
+		captureAnalysisDispatchHandlers.set(id, callback);
+		return () => captureAnalysisDispatchHandlers.delete(id);
 	},
 	subscribeTrayCommand(callback) {
 		const id = ++trayCommandSeq;

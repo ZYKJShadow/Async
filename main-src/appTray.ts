@@ -1,12 +1,16 @@
 ﻿import { BrowserWindow, Menu, Tray } from 'electron';
 import { checkForUpdates } from './autoUpdate.js';
-import { createAppWindow, focusAppWindow } from './appWindow.js';
+import { createAppWindow, focusAppWindow, getAppWindowSurfaceForWebContents } from './appWindow.js';
 
 let tray: Tray | null = null;
 
 function getMainWindow(): BrowserWindow | null {
 	const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
-	return windows[0] ?? null;
+	const agentWindow = windows.find((win) => getAppWindowSurfaceForWebContents(win.webContents) === 'agent');
+	if (agentWindow) {
+		return agentWindow;
+	}
+	return windows.find((win) => getAppWindowSurfaceForWebContents(win.webContents) === 'editor') ?? null;
 }
 
 function ensureMainWindow(): BrowserWindow {

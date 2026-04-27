@@ -1,5 +1,6 @@
 import type { TFunction } from './i18n';
 import type { BrowserFingerprintSpoofSettings } from './browserSidebarConfig.js';
+import { BROWSER_FINGERPRINT_PRESETS } from './browserFingerprintPresets.js';
 
 type Patch = Partial<
 	Record<keyof BrowserFingerprintSpoofSettings, string | number | boolean | undefined>
@@ -16,6 +17,51 @@ export function BrowserFingerprintEditorFields({
 }) {
 	return (
 		<div className="ref-browser-fp-modal-form">
+			<div className="ref-browser-fp-group">
+				<p className="ref-browser-fp-kicker">{t('settings.browser.fingerprintPresetGroup')}</p>
+				<p className="ref-browser-fp-micro">{t('settings.browser.fingerprintPresetHelp')}</p>
+				<div className="ref-browser-fp-preset-grid" role="group" aria-label={t('settings.browser.fingerprintPresetGroup')}>
+					{BROWSER_FINGERPRINT_PRESETS.map((preset) => (
+						<button
+							key={preset.id}
+							type="button"
+							className="ref-browser-fp-preset-card"
+							title={preset.description}
+							onClick={() => onPatch(preset.settings as Patch)}
+						>
+							<span className="ref-browser-fp-preset-card-label">{preset.label}</span>
+							<span className="ref-browser-fp-preset-card-meta">{preset.description}</span>
+						</button>
+					))}
+					<button
+						type="button"
+						className="ref-browser-fp-preset-card ref-browser-fp-preset-card--reset"
+						title={t('settings.browser.fingerprintPresetClear')}
+						onClick={() =>
+							onPatch({
+								platform: undefined,
+								languages: undefined,
+								hardwareConcurrency: undefined,
+								deviceMemory: undefined,
+								screenWidth: undefined,
+								screenHeight: undefined,
+								availHeightOffset: undefined,
+								devicePixelRatio: undefined,
+								colorDepth: undefined,
+								timezone: undefined,
+								timezoneOffsetMinutes: undefined,
+								webglVendor: undefined,
+								webglRenderer: undefined,
+								webrtcPolicy: undefined,
+								maskWebdriver: undefined,
+							})
+						}
+					>
+						<span className="ref-browser-fp-preset-card-label">{t('settings.browser.fingerprintPresetClear')}</span>
+						<span className="ref-browser-fp-preset-card-meta">{t('settings.browser.fingerprintPresetClearHint')}</span>
+					</button>
+				</div>
+			</div>
 			<div className="ref-browser-fp-group">
 				<p className="ref-browser-fp-kicker">{t('settings.browser.fingerprintGroupIdentity')}</p>
 				<p className="ref-browser-fp-micro">{t('settings.browser.fingerprintPlatformHelp')}</p>
