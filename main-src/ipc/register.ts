@@ -686,6 +686,26 @@ export function registerIpc(): void {
 		return { ok: true as const };
 	});
 
+	/** 把工作区 `.async/` 整个移动到 `.async.bak-<ts>/`，用于黑屏/启动异常时的应急恢复。
+	 *  保留备份而不直接删除，避免误删用户记忆/计划。 */
+	ipcMain.handle('workspaceAgent:resetAsyncDir', (event) => {
+		const root = senderWorkspaceRoot(event);
+		if (!root) {
+			return { ok: false as const, error: 'no-workspace' as const };
+		}
+		const dir = path.join(root, '.async');
+		try {
+			if (!fs.existsSync(dir)) {
+				return { ok: true as const, backupPath: null };
+			}
+			const backupPath = path.join(root, `.async.bak-${Date.now()}`);
+			fs.renameSync(dir, backupPath);
+			return { ok: true as const, backupPath };
+		} catch (e) {
+			return { ok: false as const, error: (e as Error)?.message ?? 'rename-failed' };
+		}
+	});
+
 	ipcMain.handle('workspace:listDiskSkills', (event) => {
 		const root = senderWorkspaceRoot(event);
 		if (!root) {

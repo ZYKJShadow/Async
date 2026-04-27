@@ -1,4 +1,4 @@
-import { BrowserWindow, app, screen, type WebContents } from 'electron';
+import { BrowserWindow, app, screen, type Input, type WebContents } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -35,6 +35,40 @@ const surfaceByWebContentsId = new Map<number, AppWindowSurface>();
 function normalizeWorkspaceRoot(root: string | null | undefined): string | null {
 	const trimmed = typeof root === 'string' ? root.trim() : '';
 	return trimmed ? path.resolve(trimmed) : null;
+}
+
+function isDevToolsToggleInput(input: Input): boolean {
+	if (input.isAutoRepeat || (input.type !== 'keyDown' && input.type !== 'rawKeyDown')) {
+		return false;
+	}
+	const key = input.key.toLowerCase();
+	const code = input.code.toLowerCase();
+	if (key === 'f12' || code === 'f12') {
+		return true;
+	}
+	const isIKey = key === 'i' || code === 'keyi';
+	if (!isIKey || !input.shift) {
+		return false;
+	}
+	return process.platform === 'darwin' ? input.meta && input.alt : input.control;
+}
+
+function toggleDevTools(win: BrowserWindow): void {
+	if (win.webContents.isDevToolsOpened()) {
+		win.webContents.closeDevTools();
+	} else {
+		win.webContents.openDevTools({ mode: 'detach' });
+	}
+}
+
+function installDevToolsShortcut(win: BrowserWindow): void {
+	win.webContents.on('before-input-event', (event, input) => {
+		if (!isDevToolsToggleInput(input)) {
+			return;
+		}
+		event.preventDefault();
+		toggleDevTools(win);
+	});
 }
 
 export function getAppWindowSurfaceForWebContents(
@@ -144,6 +178,7 @@ export function createAppWindow(opts?: {
 		show: false,
 	});
 	applyThemeChromeToWindow(win, initialThemeChrome.scheme, initialThemeChrome.override);
+	installDevToolsShortcut(win);
 	let shown = false;
 	const revealWindow = (reason: string) => {
 		if (shown || win.isDestroyed()) {
@@ -210,12 +245,12 @@ export function createAppWindow(opts?: {
 
 	if (useViteDevServer) {
 		void win.loadURL(devUrl + urlSuffix);
-		if (openDevTools) {
-			win.webContents.openDevTools({ mode: 'detach' });
-		}
 	} else {
 		const fileUrl = pathToFileURL(htmlPath).href + urlSuffix;
 		void win.loadURL(fileUrl);
+	}
+	if (openDevTools) {
+		win.webContents.openDevTools({ mode: 'detach' });
 	}
 	return win;
 }

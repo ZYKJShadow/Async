@@ -1027,6 +1027,10 @@ export const messagesEn: Record<string, string> = {
 	'git.badge.renamed': 'Renamed',
 	'git.badge.ignored': 'Ignored',
 	'git.diffPreview': 'Diff preview',
+	'app.gitGroupToggleAria': 'Toggle folder grouping',
+	'app.gitGroupOnTitle': 'Group by folder (on)',
+	'app.gitGroupOffTitle': 'Group by folder (off)',
+	'app.gitGroupRoot': '(root)',
 
 	'settings.dialogAria': 'Settings',
 	'settings.searchAria': 'Search',

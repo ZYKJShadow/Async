@@ -34,8 +34,8 @@
 	flex: 0 0 var(--ref-uterm-titlebar-height);
 	min-height: var(--ref-uterm-titlebar-height);
 	padding: 0 10px 0 8px;
-	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 72%, transparent);
-	background: color-mix(in srgb, var(--void-bg-0) 92%, transparent);
+	border-bottom: 1px solid transparent;
+	background: var(--ref-menubar-chrome-bg, var(--void-bg-0));
 	user-select: none;
 }
 

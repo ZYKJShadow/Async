@@ -1008,6 +1008,10 @@ export const messagesZhCN: Record<string, string> = {
 	'git.badge.renamed': '已重命名',
 	'git.badge.ignored': '已忽略',
 	'git.diffPreview': '差异预览',
+	'app.gitGroupToggleAria': '切换文件夹分组',
+	'app.gitGroupOnTitle': '按文件夹分组（开）',
+	'app.gitGroupOffTitle': '按文件夹分组（关）',
+	'app.gitGroupRoot': '(根目录)',
 
 	// settings
 	'settings.dialogAria': '设置',
