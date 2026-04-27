@@ -43,6 +43,10 @@ function isDifferentialAllowed(): boolean {
 	return settings.autoUpdate?.allowDifferential !== false; // 默认允许
 }
 
+function syncDifferentialDownloadSetting(): void {
+	autoUpdater.disableDifferentialDownload = !isDifferentialAllowed();
+}
+
 /** 配置 autoUpdater */
 function configureUpdater(): void {
 	if (isConfigured) {
@@ -52,7 +56,8 @@ function configureUpdater(): void {
 
 	autoUpdater.autoDownload = true;
 	autoUpdater.autoInstallOnAppQuit = true;
-	
+	syncDifferentialDownloadSetting();
+
 	// 设置 GitHub 仓库（从 package.json 的 repository 或硬编码）
 	autoUpdater.setFeedURL({
 		provider: 'github',
@@ -137,6 +142,7 @@ export async function checkForUpdates(): Promise<AutoUpdateStatus> {
 	}
 
 	configureUpdater();
+	syncDifferentialDownloadSetting();
 
 	updateCheckPromise = (async () => {
 		try {
@@ -166,7 +172,7 @@ export async function downloadUpdate(): Promise<void> {
 	}
 
 	// 如果禁用差异化更新，强制全量下载；每次下载前同步，避免设置切回后沿用旧状态。
-	autoUpdater.disableDifferentialDownload = !isDifferentialAllowed();
+	syncDifferentialDownloadSetting();
 	await autoUpdater.downloadUpdate();
 }
 
