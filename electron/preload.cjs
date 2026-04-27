@@ -72,6 +72,7 @@ const INVOKE_CHANNELS = new Set([
 	'theme:applyChrome',
 	'threads:list',
 	'threads:listLight',
+	'threads:listDetails',
 	'threads:listAgentSidebar',
 	'threads:messages',
 	'threads:fileStates',
