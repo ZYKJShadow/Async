@@ -38,6 +38,8 @@ export type BrowserCaptureProxyStatus = {
 	caDownloadUrl: string;
 	caCertPath: string;
 	caReady: boolean;
+	caInstalled: boolean;
+	systemProxyEnabled: boolean;
 	httpsMitm: boolean;
 	startedAt: number | null;
 	requestCount: number;
@@ -218,6 +220,16 @@ class BrowserCaptureMitmProxyService {
 	private startedAt: number | null = null;
 	private requestCount = 0;
 	private lastError: string | null = null;
+	private caInstalled = false;
+	private systemProxyEnabled = false;
+
+	setCaInstalledHint(installed: boolean): void {
+		this.caInstalled = installed;
+	}
+
+	setSystemProxyEnabledHint(enabled: boolean): void {
+		this.systemProxyEnabled = enabled;
+	}
 
 	getStatus(): BrowserCaptureProxyStatus {
 		const localAddresses = getLocalIPv4Addresses();
@@ -234,6 +246,8 @@ class BrowserCaptureMitmProxyService {
 			caDownloadUrl: `${proxyUrl}${CA_DOWNLOAD_PATH}`,
 			caCertPath: this.caStore.caCertPath,
 			caReady: this.caStore.isReady(),
+			caInstalled: this.caInstalled,
+			systemProxyEnabled: this.systemProxyEnabled,
 			httpsMitm: true,
 			startedAt: this.startedAt,
 			requestCount: this.requestCount,
@@ -488,6 +502,14 @@ export async function stopBrowserCaptureProxyForHostId(_hostId: number): Promise
 
 export function exportBrowserCaptureProxyCaForHostId(_hostId: number): BrowserCaptureProxyCaExport {
 	return proxyService.exportCa();
+}
+
+export function setBrowserCaptureProxyCaInstalled(installed: boolean): void {
+	proxyService.setCaInstalledHint(installed);
+}
+
+export function setBrowserCaptureProxySystemProxyEnabled(enabled: boolean): void {
+	proxyService.setSystemProxyEnabledHint(enabled);
 }
 
 export async function disposeBrowserCaptureProxy(): Promise<void> {

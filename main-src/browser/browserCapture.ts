@@ -28,9 +28,47 @@ export type BrowserCaptureState = {
 	startedAt: number | null;
 	requestCount: number;
 	pendingRequestCount: number;
+	hookEventCount: number;
+	storageHostCount: number;
 	updatedAt: number | null;
 	tabs: BrowserCaptureTabState[];
 	note?: string;
+};
+
+export type BrowserCaptureHookEvent = {
+	id: string;
+	seq: number;
+	tabId: string | null;
+	ts: number;
+	url: string;
+	category: string;
+	label: string;
+	args: string;
+	result: string | null;
+	stack: string;
+};
+
+export type BrowserCaptureHookListResult = {
+	total: number;
+	offset: number;
+	limit: number;
+	items: BrowserCaptureHookEvent[];
+};
+
+export type BrowserCaptureStorageEntry = {
+	key: string;
+	value: string;
+};
+
+export type BrowserCaptureStorageSnapshot = {
+	id: string;
+	tabId: string | null;
+	host: string;
+	url: string;
+	ts: number;
+	cookies: string;
+	localStorage: BrowserCaptureStorageEntry[];
+	sessionStorage: BrowserCaptureStorageEntry[];
 };
 
 export type BrowserCaptureSource = 'browser' | 'proxy';
@@ -142,6 +180,9 @@ type BrowserCaptureSession = {
 	bindingErrorsByTabId: Map<string, string>;
 	retryAfterByGuestId: Map<number, number>;
 	updatedAt: number | null;
+	hookEvents: BrowserCaptureHookEvent[];
+	nextHookSeq: number;
+	storageByHost: Map<string, BrowserCaptureStorageSnapshot>;
 };
 
 const sessionsByHostId = new Map<number, BrowserCaptureSession>();
@@ -270,6 +311,8 @@ function makeDefaultCaptureState(note?: string): BrowserCaptureState {
 		startedAt: null,
 		requestCount: 0,
 		pendingRequestCount: 0,
+		hookEventCount: 0,
+		storageHostCount: 0,
 		updatedAt: null,
 		tabs: [],
 		...(note ? { note } : {}),
@@ -292,6 +335,9 @@ function getOrCreateCaptureSession(hostId: number): BrowserCaptureSession {
 		bindingErrorsByTabId: new Map(),
 		retryAfterByGuestId: new Map(),
 		updatedAt: null,
+		hookEvents: [],
+		nextHookSeq: 1,
+		storageByHost: new Map(),
 	};
 	sessionsByHostId.set(hostId, created);
 	return created;
@@ -452,6 +498,8 @@ function buildCaptureState(session: BrowserCaptureSession): BrowserCaptureState 
 		startedAt: session.startedAt,
 		requestCount: session.requests.length,
 		pendingRequestCount,
+		hookEventCount: session.hookEvents.length,
+		storageHostCount: session.storageByHost.size,
 		updatedAt: session.updatedAt,
 		tabs,
 		...(note ? { note } : {}),
@@ -895,9 +943,209 @@ export function clearBrowserCaptureDataForHostId(hostId: number): BrowserCapture
 	}
 	session.requests = [];
 	session.nextSeq = 1;
+	session.hookEvents = [];
+	session.nextHookSeq = 1;
+	session.storageByHost.clear();
 	dropAllPendingRequests(session);
 	touchCaptureSession(session);
 	return buildCaptureState(session);
+}
+
+const HOOK_EVENT_CAP = 800;
+
+export function appendBrowserCaptureHookEventsForHostId(
+	hostId: number,
+	tabId: string | null,
+	rawEvents: unknown
+): number {
+	if (!Array.isArray(rawEvents) || rawEvents.length === 0) {
+		return 0;
+	}
+	const session = sessionsByHostId.get(hostId);
+	if (!session?.capturing) {
+		return 0;
+	}
+	let appended = 0;
+	for (const raw of rawEvents) {
+		if (!raw || typeof raw !== 'object') continue;
+		const obj = raw as Record<string, unknown>;
+		const category = typeof obj.category === 'string' ? obj.category : 'unknown';
+		const label = typeof obj.label === 'string' ? obj.label : 'event';
+		const argsStr = typeof obj.args === 'string' ? obj.args : safeJsonStringify(obj.args);
+		const resultStr =
+			obj.result === null || obj.result === undefined
+				? null
+				: typeof obj.result === 'string'
+					? obj.result
+					: safeJsonStringify(obj.result);
+		const tsRaw = Number(obj.ts);
+		const ts = Number.isFinite(tsRaw) && tsRaw > 0 ? Math.floor(tsRaw) : Date.now();
+		const url = typeof obj.url === 'string' ? obj.url : '';
+		const stack = typeof obj.stack === 'string' ? obj.stack : '';
+		const seq = session.nextHookSeq++;
+		session.hookEvents.push({
+			id: `hook-${seq}`,
+			seq,
+			tabId: tabId ?? null,
+			ts,
+			url,
+			category,
+			label,
+			args: argsStr,
+			result: resultStr,
+			stack,
+		});
+		appended += 1;
+	}
+	if (session.hookEvents.length > HOOK_EVENT_CAP) {
+		session.hookEvents.splice(0, session.hookEvents.length - HOOK_EVENT_CAP);
+	}
+	if (appended > 0) {
+		touchCaptureSession(session);
+	}
+	return appended;
+}
+
+function safeJsonStringify(value: unknown): string {
+	try {
+		const out = JSON.stringify(value);
+		return typeof out === 'string' ? out : '';
+	} catch {
+		return '';
+	}
+}
+
+export function listBrowserCaptureHookEventsForHostId(
+	hostId: number,
+	options?: { offset?: number; limit?: number; category?: string; tabId?: string; query?: string }
+): BrowserCaptureHookListResult {
+	const session = sessionsByHostId.get(hostId);
+	if (!session) {
+		return { total: 0, offset: 0, limit: 0, items: [] };
+	}
+	const category = options?.category && options.category !== 'all' ? options.category : null;
+	const tabId = options?.tabId && options.tabId !== 'all' ? options.tabId : null;
+	const query = options?.query?.toLowerCase() ?? '';
+	const filtered = session.hookEvents.filter((event) => {
+		if (category && !event.category.startsWith(category)) {
+			return false;
+		}
+		if (tabId && event.tabId !== tabId) {
+			return false;
+		}
+		if (query) {
+			if (
+				!event.label.toLowerCase().includes(query) &&
+				!event.url.toLowerCase().includes(query) &&
+				!(event.args || '').toLowerCase().includes(query)
+			) {
+				return false;
+			}
+		}
+		return true;
+	});
+	const offset = Math.max(0, options?.offset ?? 0);
+	const limit = Math.max(1, Math.min(500, options?.limit ?? 200));
+	const slice = filtered.slice(offset, offset + limit);
+	return {
+		total: filtered.length,
+		offset,
+		limit,
+		items: slice,
+	};
+}
+
+const MAX_STORAGE_HOSTS = 64;
+const MAX_STORAGE_BYTES = 256 * 1024;
+
+function clipForStorage(text: string): string {
+	if (!text) return '';
+	if (text.length <= MAX_STORAGE_BYTES) return text;
+	return text.slice(0, MAX_STORAGE_BYTES) + '…';
+}
+
+export function ingestBrowserCaptureStorageSnapshot(
+	hostId: number,
+	tabId: string | null,
+	snapshot: {
+		host?: unknown;
+		url?: unknown;
+		ts?: unknown;
+		cookies?: unknown;
+		localStorage?: unknown;
+		sessionStorage?: unknown;
+	}
+): void {
+	const session = sessionsByHostId.get(hostId);
+	if (!session?.capturing) {
+		return;
+	}
+	const host =
+		typeof snapshot.host === 'string' && snapshot.host
+			? snapshot.host
+			: typeof snapshot.url === 'string'
+				? safeHostnameFromUrl(snapshot.url)
+				: '';
+	if (!host || host === 'about:' || host === 'unknown') {
+		return;
+	}
+	const url = typeof snapshot.url === 'string' ? snapshot.url : '';
+	const tsRaw = Number(snapshot.ts);
+	const ts = Number.isFinite(tsRaw) && tsRaw > 0 ? Math.floor(tsRaw) : Date.now();
+	const cookies = typeof snapshot.cookies === 'string' ? clipForStorage(snapshot.cookies) : '';
+	const localEntries = normalizeStorageEntries(snapshot.localStorage);
+	const sessionEntries = normalizeStorageEntries(snapshot.sessionStorage);
+	const id = `storage:${host}`;
+	session.storageByHost.set(id, {
+		id,
+		tabId: tabId ?? null,
+		host,
+		url,
+		ts,
+		cookies,
+		localStorage: localEntries,
+		sessionStorage: sessionEntries,
+	});
+	if (session.storageByHost.size > MAX_STORAGE_HOSTS) {
+		const oldestKey = session.storageByHost.keys().next().value;
+		if (oldestKey) {
+			session.storageByHost.delete(oldestKey);
+		}
+	}
+	touchCaptureSession(session);
+}
+
+function normalizeStorageEntries(raw: unknown): BrowserCaptureStorageEntry[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const out: BrowserCaptureStorageEntry[] = [];
+	for (const entry of raw) {
+		if (!entry || typeof entry !== 'object') continue;
+		const obj = entry as Record<string, unknown>;
+		const key = typeof obj.key === 'string' ? obj.key : '';
+		const value = typeof obj.value === 'string' ? obj.value : '';
+		if (!key) continue;
+		out.push({ key, value: clipForStorage(value) });
+		if (out.length >= 200) break;
+	}
+	return out;
+}
+
+function safeHostnameFromUrl(url: string): string {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return '';
+	}
+}
+
+export function listBrowserCaptureStorageSnapshotsForHostId(hostId: number): BrowserCaptureStorageSnapshot[] {
+	const session = sessionsByHostId.get(hostId);
+	if (!session) {
+		return [];
+	}
+	return Array.from(session.storageByHost.values()).sort((a, b) => a.host.localeCompare(b.host));
 }
 
 export function addBrowserCaptureExternalRequestForHostId(
@@ -1008,4 +1256,56 @@ export function getBrowserCaptureRequestForHostId(
 		return found ? cloneCaptureDetail(found) : null;
 	}
 	return null;
+}
+
+
+/** Snapshot the in-memory capture session for persistence. */
+export function snapshotBrowserCaptureSessionForHostId(hostId: number): {
+	requests: BrowserCaptureRequestDetail[];
+	hookEvents: BrowserCaptureHookEvent[];
+	storageSnapshots: BrowserCaptureStorageSnapshot[];
+} | null {
+	const session = sessionsByHostId.get(hostId);
+	if (!session) {
+		return null;
+	}
+	return {
+		requests: session.requests.map((record) => cloneCaptureDetail(record)),
+		hookEvents: session.hookEvents.map((event) => ({ ...event })),
+		storageSnapshots: Array.from(session.storageByHost.values()).map((snapshot) => ({
+			...snapshot,
+			localStorage: snapshot.localStorage.map((entry) => ({ ...entry })),
+			sessionStorage: snapshot.sessionStorage.map((entry) => ({ ...entry })),
+		})),
+	};
+}
+
+/** Replace the in-memory capture session contents with a saved snapshot. */
+export function restoreBrowserCaptureSessionForHostId(
+	hostId: number,
+	payload: {
+		requests?: BrowserCaptureRequestDetail[];
+		hookEvents?: BrowserCaptureHookEvent[];
+		storageSnapshots?: BrowserCaptureStorageSnapshot[];
+	}
+): BrowserCaptureState {
+	const session = getOrCreateCaptureSession(hostId);
+	const requests = Array.isArray(payload.requests) ? payload.requests : [];
+	const hookEvents = Array.isArray(payload.hookEvents) ? payload.hookEvents : [];
+	const storageSnapshots = Array.isArray(payload.storageSnapshots) ? payload.storageSnapshots : [];
+	session.requests = requests.map((record) => cloneCaptureDetail(record));
+	session.nextSeq = (requests.reduce((max, record) => Math.max(max, record.seq), 0) || 0) + 1;
+	session.hookEvents = hookEvents.map((event) => ({ ...event }));
+	session.nextHookSeq = (hookEvents.reduce((max, event) => Math.max(max, event.seq), 0) || 0) + 1;
+	session.storageByHost.clear();
+	for (const snapshot of storageSnapshots) {
+		session.storageByHost.set(snapshot.id, {
+			...snapshot,
+			localStorage: snapshot.localStorage.map((entry) => ({ ...entry })),
+			sessionStorage: snapshot.sessionStorage.map((entry) => ({ ...entry })),
+		});
+	}
+	dropAllPendingRequests(session);
+	touchCaptureSession(session);
+	return buildCaptureState(session);
 }

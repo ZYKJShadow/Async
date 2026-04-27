@@ -1,4 +1,5 @@
 import { buildBrowserFingerprintStealthScript } from './browserFingerprintStealth.js';
+import { getBrowserHookScript } from './browserHookScript.js';
 import { fingerprintSettingsToInjectPatch } from '../main-src/browser/browserFingerprintNormalize.js';
 import {
 	memo,
@@ -49,12 +50,13 @@ const BROWSER_HOME_URL = 'https://www.bing.com/';
 const BROWSER_CAPTURE_DOCK_EXPANDED_KEY = 'async.browser.captureDock.expanded.v1';
 const BROWSER_CAPTURE_DOCK_HEIGHT_KEY = 'async.browser.captureDock.height.v1';
 const BROWSER_CAPTURE_DOCK_TAB_KEY = 'async.browser.captureDock.tab.v1';
+const BROWSER_CAPTURE_DETAIL_VISIBLE_KEY = 'async.browser.captureDock.detailVisible.v1';
 const BROWSER_CAPTURE_DOCK_DEFAULT_HEIGHT = 320;
 const BROWSER_CAPTURE_DOCK_MIN_HEIGHT = 190;
 const BROWSER_CAPTURE_DOCK_MAX_HEIGHT = 560;
 const BROWSER_CAPTURE_REQUEST_PAGE_SIZE = 80;
 
-type BrowserCapturePanelTab = 'requests' | 'devices';
+type BrowserCapturePanelTab = 'requests' | 'hooks' | 'storage' | 'devices';
 type BrowserCaptureDetailTab = 'headers' | 'request' | 'response';
 type BrowserCaptureStatusFilter = 'all' | 'pending' | '2xx' | '3xx' | '4xx' | '5xx' | 'error';
 type BrowserCaptureSourceFilter = 'all' | 'browser' | 'proxy';
@@ -62,6 +64,43 @@ type BrowserCaptureMethodFilter = 'all' | 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DE
 type BrowserCaptureResourceFilter = 'all' | 'document' | 'xhr' | 'fetch' | 'script' | 'stylesheet' | 'image' | 'other';
 type BrowserCaptureExportAction = 'curl' | 'json' | 'har' | 'agent';
 type BrowserCaptureProxyBusy = 'start' | 'stop' | 'ca' | 'refresh';
+
+type BrowserCaptureHookEventUi = {
+	id: string;
+	seq: number;
+	tabId: string | null;
+	ts: number;
+	url: string;
+	category: string;
+	label: string;
+	args: string;
+	result: string | null;
+	stack: string;
+};
+
+type BrowserCaptureStorageEntryUi = { key: string; value: string };
+
+type BrowserCaptureStorageSnapshotUi = {
+	id: string;
+	tabId: string | null;
+	host: string;
+	url: string;
+	ts: number;
+	cookies: string;
+	localStorage: BrowserCaptureStorageEntryUi[];
+	sessionStorage: BrowserCaptureStorageEntryUi[];
+};
+
+type BrowserCaptureSessionSummaryUi = {
+	id: string;
+	name: string;
+	createdAt: number;
+	updatedAt: number;
+	requestCount: number;
+	hookEventCount: number;
+	storageHostCount: number;
+	note: string | null;
+};
 
 function RightSidebarTabs({
 	t,
@@ -190,6 +229,8 @@ type BrowserCaptureUiState = {
 	capturing: boolean;
 	requestCount: number;
 	pendingRequestCount: number;
+	hookEventCount: number;
+	storageHostCount: number;
 	tabs: Array<{ attached: boolean; lastError: string | null }>;
 	note?: string;
 };
@@ -238,6 +279,8 @@ type BrowserCaptureProxyStatusUi = {
 	caDownloadUrl: string;
 	caCertPath: string;
 	caReady: boolean;
+	caInstalled: boolean;
+	systemProxyEnabled: boolean;
 	httpsMitm: boolean;
 	startedAt: number | null;
 	requestCount: number;
@@ -384,6 +427,8 @@ function normalizeBrowserCaptureUiState(raw: unknown): BrowserCaptureUiState {
 		capturing: obj.capturing === true,
 		requestCount: Math.max(0, Math.floor(Number(obj.requestCount) || 0)),
 		pendingRequestCount: Math.max(0, Math.floor(Number(obj.pendingRequestCount) || 0)),
+		hookEventCount: Math.max(0, Math.floor(Number(obj.hookEventCount) || 0)),
+		storageHostCount: Math.max(0, Math.floor(Number(obj.storageHostCount) || 0)),
 		tabs,
 		note: typeof obj.note === 'string' ? obj.note : undefined,
 	};
@@ -456,6 +501,8 @@ function normalizeBrowserCaptureProxyStatus(raw: unknown): BrowserCaptureProxySt
 		caDownloadUrl: typeof obj.caDownloadUrl === 'string' ? obj.caDownloadUrl : '',
 		caCertPath: typeof obj.caCertPath === 'string' ? obj.caCertPath : '',
 		caReady: obj.caReady === true,
+		caInstalled: obj.caInstalled === true,
+		systemProxyEnabled: obj.systemProxyEnabled === true,
 		httpsMitm: obj.httpsMitm !== false,
 		startedAt: Number.isFinite(startedAtRaw) && startedAtRaw > 0 ? Math.floor(startedAtRaw) : null,
 		requestCount: Number.isFinite(requestCountRaw) && requestCountRaw > 0 ? Math.floor(requestCountRaw) : 0,
@@ -841,6 +888,10 @@ const BrowserTabView = memo(
 		userAgent,
 		fingerprintScript,
 		active,
+		hookEnabled,
+		hookScript,
+		onHookEvents,
+		onStorageSnapshot,
 		t,
 		onNavigate,
 		onTitle,
@@ -853,6 +904,10 @@ const BrowserTabView = memo(
 		userAgent?: string;
 		fingerprintScript: string | null;
 		active: boolean;
+		hookEnabled: boolean;
+		hookScript: string;
+		onHookEvents: (tabId: string, events: unknown[]) => void;
+		onStorageSnapshot: (tabId: string, snapshot: unknown) => void;
 		t: TFunction;
 		onNavigate: (id: string, patch: { currentUrl: string; canGoBack: boolean; canGoForward: boolean }) => void;
 		onTitle: (id: string, title: string) => void;
@@ -863,6 +918,14 @@ const BrowserTabView = memo(
 	const webviewRef = useRef<AsyncShellWebviewElement | null>(null);
 	const fingerprintScriptRef = useRef<string | null>(null);
 	fingerprintScriptRef.current = fingerprintScript;
+	const hookScriptRef = useRef<string>(hookScript);
+	hookScriptRef.current = hookScript;
+	const hookEnabledRef = useRef<boolean>(hookEnabled);
+	hookEnabledRef.current = hookEnabled;
+	const onHookEventsRef = useRef<(tabId: string, events: unknown[]) => void>(onHookEvents);
+	onHookEventsRef.current = onHookEvents;
+	const onStorageSnapshotRef = useRef<(tabId: string, snapshot: unknown) => void>(onStorageSnapshot);
+	onStorageSnapshotRef.current = onStorageSnapshot;
 	const tabIdRef = useRef(tab.id);
 	const [webviewSize, setWebviewSize] = useState<{ width: number; height: number } | null>(null);
 	tabIdRef.current = tab.id;
@@ -914,6 +977,18 @@ const BrowserTabView = memo(
 
 		const handleStartLoading = () => {
 			onLoading(tabIdRef.current, true);
+			// Pre-inject the fingerprint stealth as early as we can. dom-ready
+			// runs after the parser meets <body>, which is too late for sites
+			// that read navigator.platform / userAgent in their first inline
+			// script. did-start-loading fires before the network request, so
+			// the script runs in an isolated world and the next document load
+			// inherits the patches via the webview's persistent JS context.
+			const fpScript = fingerprintScriptRef.current;
+			if (fpScript) {
+				void node.executeJavaScript(fpScript, false).catch(() => {
+					/* webview might not have a render frame yet on cold start */
+				});
+			}
 		};
 		const handleStopLoading = () => {
 			onLoading(tabIdRef.current, false, safeGetWebviewUrl(node));
@@ -940,6 +1015,11 @@ const BrowserTabView = memo(
 			const fpScript = fingerprintScriptRef.current;
 			if (fpScript) {
 				void node.executeJavaScript(fpScript, false).catch(() => {
+					/* ignore */
+				});
+			}
+			if (hookEnabledRef.current && hookScriptRef.current) {
+				void node.executeJavaScript(hookScriptRef.current, false).catch(() => {
 					/* ignore */
 				});
 			}
@@ -974,6 +1054,94 @@ const BrowserTabView = memo(
 			node.removeEventListener('did-fail-load', handleFailLoad);
 		};
 	}, [partition, onLoading, onNavigate, onTitle, onFailLoad]);
+
+	useEffect(() => {
+		if (!hookEnabled) {
+			return;
+		}
+		let cancelled = false;
+		const drain = async () => {
+			const node = webviewRef.current;
+			if (!node || cancelled) {
+				return;
+			}
+			try {
+				const events = await node.executeJavaScript<unknown>(
+					'(function(){ try { return window.__asyncDrainHooks ? window.__asyncDrainHooks() : []; } catch(_) { return []; } })()',
+					false
+				);
+				if (cancelled) {
+					return;
+				}
+				if (Array.isArray(events) && events.length > 0) {
+					onHookEventsRef.current(tabIdRef.current, events as unknown[]);
+				}
+			} catch {
+				/* page may not be ready */
+			}
+		};
+		const interval = window.setInterval(drain, 1500);
+		void drain();
+		return () => {
+			cancelled = true;
+			window.clearInterval(interval);
+		};
+	}, [hookEnabled, tab.id]);
+
+	useEffect(() => {
+		if (!hookEnabled) {
+			return;
+		}
+		let cancelled = false;
+		const collectScript = `(function(){
+			try {
+				var url = location && location.href || '';
+				var host = '';
+				try { host = new URL(url).hostname; } catch(_) {}
+				var collect = function(store) {
+					var out = [];
+					if (!store) return out;
+					try {
+						for (var i = 0; i < store.length; i++) {
+							var key = store.key(i);
+							if (!key) continue;
+							var value = '';
+							try { value = store.getItem(key) || ''; } catch(_) {}
+							out.push({ key: key, value: value });
+							if (out.length > 200) break;
+						}
+					} catch(_) {}
+					return out;
+				};
+				return {
+					url: url,
+					host: host,
+					ts: Date.now(),
+					cookies: typeof document !== 'undefined' ? (document.cookie || '') : '',
+					localStorage: collect(window.localStorage),
+					sessionStorage: collect(window.sessionStorage),
+				};
+			} catch(_) { return null; }
+		})()`;
+		const collect = async () => {
+			const node = webviewRef.current;
+			if (!node || cancelled) return;
+			try {
+				const snapshot = await node.executeJavaScript<unknown>(collectScript, false);
+				if (cancelled || !snapshot) return;
+				onStorageSnapshotRef.current(tabIdRef.current, snapshot);
+			} catch {
+				/* page not ready or restricted */
+			}
+		};
+		const interval = window.setInterval(collect, 5000);
+		const initial = window.setTimeout(collect, 800);
+		return () => {
+			cancelled = true;
+			window.clearInterval(interval);
+			window.clearTimeout(initial);
+		};
+	}, [hookEnabled, tab.id]);
 
 	useEffect(() => {
 		const node = webviewRef.current;
@@ -1092,7 +1260,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	const [capturePanelTab, setCapturePanelTab] = useState<BrowserCapturePanelTab>(() => {
 		try {
 			const stored = window.localStorage.getItem(BROWSER_CAPTURE_DOCK_TAB_KEY);
-			return stored === 'devices' ? 'devices' : 'requests';
+			return stored === 'devices' || stored === 'hooks' || stored === 'storage' ? (stored as BrowserCapturePanelTab) : 'requests';
 		} catch {
 			return 'requests';
 		}
@@ -1121,6 +1289,31 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	const [captureProxyStatus, setCaptureProxyStatus] = useState<BrowserCaptureProxyStatusUi | null>(null);
 	const [captureProxyBusy, setCaptureProxyBusy] = useState<BrowserCaptureProxyBusy | null>(null);
 	const [captureProxyError, setCaptureProxyError] = useState<string | null>(null);
+	const [captureDetailVisible, setCaptureDetailVisible] = useState<boolean>(() => {
+		try {
+			const stored = window.localStorage.getItem(BROWSER_CAPTURE_DETAIL_VISIBLE_KEY);
+			return stored == null ? true : stored !== '0';
+		} catch {
+			return true;
+		}
+	});
+	const [captureExportMenuOpen, setCaptureExportMenuOpen] = useState(false);
+	const captureExportMenuRef = useRef<HTMLDivElement | null>(null);
+	const [captureHookEvents, setCaptureHookEvents] = useState<BrowserCaptureHookEventUi[]>([]);
+	const [captureHookEventTotal, setCaptureHookEventTotal] = useState(0);
+	const [captureHookCategoryFilter, setCaptureHookCategoryFilter] = useState<string>('all');
+	const [captureHookQuery, setCaptureHookQuery] = useState('');
+	const [captureStorageSnapshots, setCaptureStorageSnapshots] = useState<BrowserCaptureStorageSnapshotUi[]>([]);
+	const [captureStorageActiveHost, setCaptureStorageActiveHost] = useState<string | null>(null);
+	const [captureSessionsList, setCaptureSessionsList] = useState<BrowserCaptureSessionSummaryUi[]>([]);
+	const [captureSessionsMenuOpen, setCaptureSessionsMenuOpen] = useState(false);
+	const [captureSessionsSaveName, setCaptureSessionsSaveName] = useState('');
+	const [captureSessionsBusy, setCaptureSessionsBusy] = useState<'save' | 'load' | 'delete' | null>(null);
+	const captureSessionsMenuRef = useRef<HTMLDivElement | null>(null);
+	const [captureAnalyzeMenuOpen, setCaptureAnalyzeMenuOpen] = useState(false);
+	const [captureAnalyzeBusy, setCaptureAnalyzeBusy] = useState(false);
+	const captureAnalyzeMenuRef = useRef<HTMLDivElement | null>(null);
+	const browserHookScript = useMemo(() => getBrowserHookScript(), []);
 	const [clearDataConfirmOpen, setClearDataConfirmOpen] = useState(false);
 	const [clearDataBusy, setClearDataBusy] = useState(false);
 	const [clearDataError, setClearDataError] = useState<string | null>(null);
@@ -1219,6 +1412,10 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			return;
 		}
 		try {
+			// First refresh server-side hints (CA installed, system proxy enabled).
+			await shell.invoke('browserCapture:proxyCaRefresh').catch(() => {
+				/* refresh hints best-effort */
+			});
 			const payload = (await shell.invoke('browserCapture:proxyStatus')) as {
 				ok?: boolean;
 				status?: unknown;
@@ -1235,7 +1432,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	}, [shell, t]);
 
 	const runBrowserCaptureProxyAction = useCallback(
-		async (action: 'start' | 'stop') => {
+		async (action: 'start' | 'stop', options?: { systemProxy?: boolean }) => {
 			if (!shell || captureProxyBusy || captureBusy) {
 				return;
 			}
@@ -1255,14 +1452,21 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 				}
 				const payload = (await shell.invoke(
 					action === 'start' ? 'browserCapture:proxyStart' : 'browserCapture:proxyStop',
-					action === 'start' ? { port: captureProxyStatus?.port ?? 8888 } : undefined
-				)) as { ok?: boolean; status?: unknown; error?: unknown };
+					action === 'start'
+						? {
+								port: captureProxyStatus?.port ?? 8888,
+								systemProxy: options?.systemProxy === true,
+							}
+						: undefined
+				)) as { ok?: boolean; status?: unknown; error?: unknown; systemProxyError?: string };
 				if (!payload?.ok) {
 					throw new Error(String(payload?.error ?? t('app.browserCaptureProxyFailed')));
 				}
 				setCaptureProxyStatus(normalizeBrowserCaptureProxyStatus(payload.status));
+				if (typeof payload.systemProxyError === 'string' && payload.systemProxyError) {
+					setCaptureProxyError(payload.systemProxyError);
+				}
 				setCapturePanelExpanded(true);
-				setCapturePanelTab('devices');
 				await refreshBrowserCaptureState();
 			} catch (error) {
 				setCaptureProxyError(error instanceof Error ? error.message : String(error));
@@ -1271,6 +1475,86 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			}
 		},
 		[captureBusy, captureIsActive, captureProxyBusy, captureProxyStatus?.port, refreshBrowserCaptureState, shell, t]
+	);
+
+	const toggleSystemProxy = useCallback(
+		async (next: boolean) => {
+			if (!shell || captureProxyBusy) {
+				return;
+			}
+			setCaptureProxyBusy('refresh');
+			setCaptureProxyError(null);
+			try {
+				const payload = (await shell.invoke('browserCapture:proxySystemProxyToggle', { enable: next })) as {
+					ok?: boolean;
+					status?: unknown;
+					error?: unknown;
+				};
+				if (!payload?.ok) {
+					throw new Error(String(payload?.error ?? t('app.browserCaptureProxyFailed')));
+				}
+				if (payload.status) {
+					setCaptureProxyStatus(normalizeBrowserCaptureProxyStatus(payload.status));
+				}
+			} catch (error) {
+				setCaptureProxyError(error instanceof Error ? error.message : String(error));
+			} finally {
+				setCaptureProxyBusy(null);
+			}
+		},
+		[captureProxyBusy, shell, t]
+	);
+
+	const installBrowserCaptureProxyCa = useCallback(
+		async (uninstall: boolean = false) => {
+			if (!shell || captureProxyBusy) {
+				return;
+			}
+			setCaptureProxyBusy('ca');
+			setCaptureProxyError(null);
+			try {
+				const channel = uninstall ? 'browserCapture:proxyCaUninstall' : 'browserCapture:proxyCaInstall';
+				const payload = (await shell.invoke(channel)) as { ok?: boolean; installed?: boolean; error?: unknown };
+				if (!payload?.ok) {
+					throw new Error(String(payload?.error ?? t('app.browserCaptureProxyCaFailed')));
+				}
+				await refreshBrowserCaptureProxyStatus();
+			} catch (error) {
+				setCaptureProxyError(error instanceof Error ? error.message : String(error));
+			} finally {
+				setCaptureProxyBusy(null);
+			}
+		},
+		[captureProxyBusy, shell, t]
+	);
+
+	const copyBrowserCaptureProxySnippet = useCallback(
+		async (kind: 'curl' | 'wget' | 'python' | 'node' | 'env') => {
+			if (!shell) {
+				return;
+			}
+			try {
+				const payload = (await shell.invoke('browserCapture:proxyCopySnippet', { kind })) as {
+					ok?: boolean;
+					snippet?: string;
+					error?: unknown;
+				};
+				if (!payload?.ok) {
+					throw new Error(String(payload?.error ?? 'copy failed'));
+				}
+				setCopiedCaptureField(`snippet:${kind}`);
+				if (copiedCaptureFieldTimerRef.current != null) {
+					window.clearTimeout(copiedCaptureFieldTimerRef.current);
+				}
+				copiedCaptureFieldTimerRef.current = window.setTimeout(() => {
+					setCopiedCaptureField(null);
+					copiedCaptureFieldTimerRef.current = null;
+				}, 1400);
+			} catch (error) {
+				setCaptureProxyError(error instanceof Error ? error.message : String(error));
+			}
+		},
+		[shell]
 	);
 
 	const exportBrowserCaptureProxyCa = useCallback(async () => {
@@ -1313,6 +1597,203 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			setCaptureProxyBusy(null);
 		}
 	}, [captureProxyBusy, refreshBrowserCaptureProxyStatus, shell, t]);
+
+	const handleHookEventsForTab = useCallback(
+		(tabId: string, events: unknown[]) => {
+			if (!shell || !events.length) {
+				return;
+			}
+			void shell.invoke('browserCapture:hookIngest', { tabId, events }).catch(() => {
+				/* ignore */
+			});
+		},
+		[shell]
+	);
+
+	const handleStorageSnapshotForTab = useCallback(
+		(tabId: string, snapshot: unknown) => {
+			if (!shell || !snapshot || typeof snapshot !== 'object') {
+				return;
+			}
+			void shell.invoke('browserCapture:storageIngest', { tabId, snapshot }).catch(() => {
+				/* ignore */
+			});
+		},
+		[shell]
+	);
+
+	const refreshBrowserCaptureSessions = useCallback(async () => {
+		if (!shell) {
+			return;
+		}
+		try {
+			const payload = (await shell.invoke('browserCapture:sessionsList')) as { ok?: boolean; sessions?: unknown[] };
+			if (payload?.ok && Array.isArray(payload.sessions)) {
+				setCaptureSessionsList(
+					payload.sessions
+						.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object'))
+						.map((row): BrowserCaptureSessionSummaryUi => ({
+							id: String(row.id ?? ''),
+							name: typeof row.name === 'string' ? row.name : '(untitled)',
+							createdAt: Number(row.createdAt) || 0,
+							updatedAt: Number(row.updatedAt) || 0,
+							requestCount: Number(row.requestCount) || 0,
+							hookEventCount: Number(row.hookEventCount) || 0,
+							storageHostCount: Number(row.storageHostCount) || 0,
+							note: typeof row.note === 'string' ? row.note : null,
+						}))
+				);
+			}
+		} catch {
+			/* ignore */
+		}
+	}, [shell]);
+
+	const saveBrowserCaptureSession = useCallback(async () => {
+		if (!shell || captureSessionsBusy) {
+			return;
+		}
+		setCaptureSessionsBusy('save');
+		try {
+			const fallbackName = `Capture ${new Date().toLocaleString()}`;
+			const name = captureSessionsSaveName.trim() || fallbackName;
+			const payload = (await shell.invoke('browserCapture:sessionsSave', { name })) as { ok?: boolean; error?: unknown };
+			if (payload?.ok) {
+				setCaptureSessionsSaveName('');
+				await refreshBrowserCaptureSessions();
+			}
+		} catch {
+			/* ignore */
+		} finally {
+			setCaptureSessionsBusy(null);
+		}
+	}, [captureSessionsBusy, captureSessionsSaveName, refreshBrowserCaptureSessions, shell]);
+
+	const loadBrowserCaptureSession = useCallback(
+		async (id: string) => {
+			if (!shell || captureSessionsBusy) {
+				return;
+			}
+			setCaptureSessionsBusy('load');
+			try {
+				const payload = (await shell.invoke('browserCapture:sessionsLoad', { id })) as { ok?: boolean; state?: unknown };
+				if (payload?.ok) {
+					if (payload.state) {
+						setCaptureState(normalizeBrowserCaptureUiState(payload.state));
+					}
+					setCaptureSessionsMenuOpen(false);
+					setCapturePanelExpanded(true);
+				}
+			} catch {
+				/* ignore */
+			} finally {
+				setCaptureSessionsBusy(null);
+			}
+		},
+		[captureSessionsBusy, shell]
+	);
+
+	const deleteBrowserCaptureSession = useCallback(
+		async (id: string) => {
+			if (!shell || captureSessionsBusy) {
+				return;
+			}
+			setCaptureSessionsBusy('delete');
+			try {
+				await shell.invoke('browserCapture:sessionsDelete', { id });
+				await refreshBrowserCaptureSessions();
+			} catch {
+				/* ignore */
+			} finally {
+				setCaptureSessionsBusy(null);
+			}
+		},
+		[captureSessionsBusy, refreshBrowserCaptureSessions, shell]
+	);
+
+	const refreshBrowserCaptureStorage = useCallback(async () => {
+		if (!shell) {
+			return;
+		}
+		try {
+			const payload = (await shell.invoke('browserCapture:storageList')) as {
+				ok?: boolean;
+				snapshots?: unknown[];
+			};
+			if (payload?.ok && Array.isArray(payload.snapshots)) {
+				const next = payload.snapshots.map((raw): BrowserCaptureStorageSnapshotUi => {
+					const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+					const localEntries = Array.isArray(obj.localStorage) ? (obj.localStorage as Record<string, unknown>[]) : [];
+					const sessionEntries = Array.isArray(obj.sessionStorage) ? (obj.sessionStorage as Record<string, unknown>[]) : [];
+					return {
+						id: typeof obj.id === 'string' ? obj.id : `storage:${Math.random()}`,
+						tabId: typeof obj.tabId === 'string' ? obj.tabId : null,
+						host: typeof obj.host === 'string' ? obj.host : '',
+						url: typeof obj.url === 'string' ? obj.url : '',
+						ts: typeof obj.ts === 'number' ? obj.ts : 0,
+						cookies: typeof obj.cookies === 'string' ? obj.cookies : '',
+						localStorage: localEntries
+							.filter((e) => e && typeof e === 'object')
+							.map((e) => ({
+								key: typeof e.key === 'string' ? e.key : '',
+								value: typeof e.value === 'string' ? e.value : '',
+							})),
+						sessionStorage: sessionEntries
+							.filter((e) => e && typeof e === 'object')
+							.map((e) => ({
+								key: typeof e.key === 'string' ? e.key : '',
+								value: typeof e.value === 'string' ? e.value : '',
+							})),
+					};
+				});
+				setCaptureStorageSnapshots(next);
+				if (next.length > 0 && (!captureStorageActiveHost || !next.some((entry) => entry.host === captureStorageActiveHost))) {
+					setCaptureStorageActiveHost(next[0].host);
+				} else if (next.length === 0) {
+					setCaptureStorageActiveHost(null);
+				}
+			}
+		} catch {
+			/* ignore */
+		}
+	}, [captureStorageActiveHost, shell]);
+
+	const refreshBrowserCaptureHookEvents = useCallback(async () => {
+		if (!shell) {
+			return;
+		}
+		try {
+			const payload = (await shell.invoke('browserCapture:hookList', {
+				offset: 0,
+				limit: 200,
+				category: captureHookCategoryFilter,
+				query: captureHookQuery.trim() || undefined,
+			})) as { ok?: boolean; result?: { items?: unknown[]; total?: number } };
+			if (payload?.ok && payload.result) {
+				const items = Array.isArray(payload.result.items) ? payload.result.items : [];
+				setCaptureHookEvents(
+					items.map((raw): BrowserCaptureHookEventUi => {
+						const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+						return {
+							id: typeof obj.id === 'string' ? obj.id : `hook-${Math.random()}`,
+							seq: typeof obj.seq === 'number' ? obj.seq : 0,
+							tabId: typeof obj.tabId === 'string' ? obj.tabId : null,
+							ts: typeof obj.ts === 'number' ? obj.ts : 0,
+							url: typeof obj.url === 'string' ? obj.url : '',
+							category: typeof obj.category === 'string' ? obj.category : 'unknown',
+							label: typeof obj.label === 'string' ? obj.label : 'event',
+							args: typeof obj.args === 'string' ? obj.args : '',
+							result: typeof obj.result === 'string' ? obj.result : null,
+							stack: typeof obj.stack === 'string' ? obj.stack : '',
+						};
+					})
+				);
+				setCaptureHookEventTotal(typeof payload.result.total === 'number' ? payload.result.total : items.length);
+			}
+		} catch {
+			/* swallow */
+		}
+	}, [captureHookCategoryFilter, captureHookQuery, shell]);
 
 	const refreshBrowserCaptureRequests = useCallback(async (mode: 'replace' | 'append' = 'replace') => {
 		if (!shell) {
@@ -1968,6 +2449,83 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	}, [capturePanelTab]);
 
 	useEffect(() => {
+		try {
+			window.localStorage.setItem(BROWSER_CAPTURE_DETAIL_VISIBLE_KEY, captureDetailVisible ? '1' : '0');
+		} catch {
+			/* ignore */
+		}
+	}, [captureDetailVisible]);
+
+	useEffect(() => {
+		if (!captureExportMenuOpen) {
+			return;
+		}
+		const handle = (event: MouseEvent) => {
+			const node = captureExportMenuRef.current;
+			if (node && event.target instanceof Node && !node.contains(event.target)) {
+				setCaptureExportMenuOpen(false);
+			}
+		};
+		const handleKey = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setCaptureExportMenuOpen(false);
+			}
+		};
+		window.addEventListener('mousedown', handle);
+		window.addEventListener('keydown', handleKey);
+		return () => {
+			window.removeEventListener('mousedown', handle);
+			window.removeEventListener('keydown', handleKey);
+		};
+	}, [captureExportMenuOpen]);
+
+	useEffect(() => {
+		if (!captureSessionsMenuOpen) {
+			return;
+		}
+		const handle = (event: MouseEvent) => {
+			const node = captureSessionsMenuRef.current;
+			if (node && event.target instanceof Node && !node.contains(event.target)) {
+				setCaptureSessionsMenuOpen(false);
+			}
+		};
+		const handleKey = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setCaptureSessionsMenuOpen(false);
+			}
+		};
+		window.addEventListener('mousedown', handle);
+		window.addEventListener('keydown', handleKey);
+		return () => {
+			window.removeEventListener('mousedown', handle);
+			window.removeEventListener('keydown', handleKey);
+		};
+	}, [captureSessionsMenuOpen]);
+
+	useEffect(() => {
+		if (!captureAnalyzeMenuOpen) {
+			return;
+		}
+		const handle = (event: MouseEvent) => {
+			const node = captureAnalyzeMenuRef.current;
+			if (node && event.target instanceof Node && !node.contains(event.target)) {
+				setCaptureAnalyzeMenuOpen(false);
+			}
+		};
+		const handleKey = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setCaptureAnalyzeMenuOpen(false);
+			}
+		};
+		window.addEventListener('mousedown', handle);
+		window.addEventListener('keydown', handleKey);
+		return () => {
+			window.removeEventListener('mousedown', handle);
+			window.removeEventListener('keydown', handleKey);
+		};
+	}, [captureAnalyzeMenuOpen]);
+
+	useEffect(() => {
 		return () => {
 			if (copiedCaptureFieldTimerRef.current != null) {
 				window.clearTimeout(copiedCaptureFieldTimerRef.current);
@@ -1995,6 +2553,45 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 		captureState?.pendingRequestCount,
 		captureState?.requestCount,
 		refreshBrowserCaptureRequests,
+	]);
+
+	useEffect(() => {
+		if (!capturePanelExpanded || capturePanelTab !== 'storage') {
+			return;
+		}
+		void refreshBrowserCaptureStorage();
+		const interval = window.setInterval(() => {
+			void refreshBrowserCaptureStorage();
+		}, 3000);
+		return () => {
+			window.clearInterval(interval);
+		};
+	}, [capturePanelExpanded, capturePanelTab, captureState?.storageHostCount, refreshBrowserCaptureStorage]);
+
+	useEffect(() => {
+		if (!capturePanelExpanded || capturePanelTab !== 'hooks') {
+			return;
+		}
+		const timer = window.setTimeout(
+			() => {
+				void refreshBrowserCaptureHookEvents();
+			},
+			captureHookQuery.trim() ? 180 : 0
+		);
+		const interval = window.setInterval(() => {
+			void refreshBrowserCaptureHookEvents();
+		}, 1500);
+		return () => {
+			window.clearTimeout(timer);
+			window.clearInterval(interval);
+		};
+	}, [
+		capturePanelExpanded,
+		capturePanelTab,
+		captureHookQuery,
+		captureHookCategoryFilter,
+		captureState?.hookEventCount,
+		refreshBrowserCaptureHookEvents,
 	]);
 
 	useEffect(() => {
@@ -2165,6 +2762,40 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			setCaptureExportBusy(null);
 		}
 	}, [captureExportBusy, captureRequestTotal, loadBrowserCaptureExportRequests, selectedCaptureRequestIds, shell, t]);
+
+	const analyzeBrowserCapture = useCallback(
+		async (mode: 'auto' | 'api-reverse' | 'security-audit' | 'performance' | 'crypto-reverse') => {
+			if (!shell || captureAnalyzeBusy) {
+				return;
+			}
+			setCaptureAnalyzeBusy(true);
+			setCaptureExportError(null);
+			try {
+				const requestIds = selectedCaptureRequestIds.size > 0 ? Array.from(selectedCaptureRequestIds) : undefined;
+				const payload = (await shell.invoke('browserCapture:analyze', { mode, requestIds, deliver: true })) as {
+					ok?: boolean;
+					error?: unknown;
+				};
+				if (!payload?.ok) {
+					throw new Error(String(payload?.error ?? t('app.browserCaptureSendFailed')));
+				}
+				setCaptureAnalyzeMenuOpen(false);
+				setCopiedCaptureField(`analyze:${mode}`);
+				if (copiedCaptureFieldTimerRef.current != null) {
+					window.clearTimeout(copiedCaptureFieldTimerRef.current);
+				}
+				copiedCaptureFieldTimerRef.current = window.setTimeout(() => {
+					setCopiedCaptureField(null);
+					copiedCaptureFieldTimerRef.current = null;
+				}, 1400);
+			} catch (error) {
+				setCaptureExportError(error instanceof Error ? error.message : String(error));
+			} finally {
+				setCaptureAnalyzeBusy(false);
+			}
+		},
+		[captureAnalyzeBusy, selectedCaptureRequestIds, shell, t]
+	);
 
 	const toggleCaptureRequestSelected = useCallback((requestId: string, selected: boolean) => {
 		setSelectedCaptureRequestIds((prev) => {
@@ -2748,13 +3379,6 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	const captureKnownTabCount = captureState?.tabs.length ?? 0;
 	const captureHasAttachError = Boolean(captureState?.tabs.some((tab) => tab.lastError));
 	const browserTabCountLabel = t('app.browserTabsCount', { count: String(tabs.length) });
-	const captureStatusTitle =
-		captureError ||
-		(captureHasAttachError
-			? t('app.browserCaptureAttachWarning')
-			: captureIsActive
-				? t('app.browserCaptureCapturing')
-				: t('app.browserCaptureReady'));
 	const captureProxyIsRunning = captureProxyStatus?.running === true;
 	const captureProxyPrimaryAddress = captureProxyStatus?.primaryAddress || '127.0.0.1';
 	const captureProxyPort = captureProxyStatus?.port ?? 8888;
@@ -2766,6 +3390,8 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 		: captureProxyIsRunning
 			? t('app.browserCaptureProxyRunning')
 			: t('app.browserCaptureProxyStopped');
+	const captureProxyCaInstalled = captureProxyStatus?.caInstalled === true;
+	const captureProxySystemEnabled = captureProxyStatus?.systemProxyEnabled === true;
 	const clearDataTitle = clearDataError || t('app.browserClearData');
 	const selectedCaptureSummary =
 		(selectedCaptureRequestId
@@ -2852,6 +3478,8 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	const capturePanelTabs = useMemo<Array<{ key: BrowserCapturePanelTab; label: string }>>(
 		() => [
 			{ key: 'requests', label: t('app.browserCaptureTabRequests') },
+			{ key: 'hooks', label: t('app.browserCaptureTabHooks') },
+			{ key: 'storage', label: t('app.browserCaptureTabStorage') },
 			{ key: 'devices', label: t('app.browserCaptureTabDevices') },
 		],
 		[t]
@@ -3164,6 +3792,10 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 										userAgent={userAgentProp}
 										fingerprintScript={fingerprintScript}
 										active={tab.id === activeTabId}
+										hookEnabled={captureIsActive}
+										hookScript={browserHookScript}
+										onHookEvents={handleHookEventsForTab}
+										onStorageSnapshot={handleStorageSnapshotForTab}
 										t={t}
 										onNavigate={handleTabNavigate}
 										onTitle={handleTabTitle}
@@ -3228,7 +3860,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 								<span className="ref-browser-capture-dock-metric">
 									{t('app.browserCaptureRequestsShort', { count: String(captureTotalCount) })}
 								</span>
-								<span className="ref-browser-capture-dock-metric">
+								<span className={`ref-browser-capture-dock-metric${captureHasAttachError ? ' is-warning' : ''}`}>
 									{t('app.browserCaptureTabsShort', {
 										attached: String(captureAttachedTabCount),
 										total: String(captureKnownTabCount || tabs.length),
@@ -3241,12 +3873,13 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 								</span>
 								<IconChevron className="ref-browser-capture-dock-chevron" />
 							</button>
-							<div className="ref-browser-capture-dock-quick-actions">
+							<div className="ref-browser-capture-dock-quick-actions" onClick={(event) => event.stopPropagation()}>
 								<button
 									type="button"
-									className="ref-browser-capture-btn"
+									className={`ref-browser-capture-btn${captureIsActive ? ' ref-browser-capture-btn--danger' : ' ref-browser-capture-btn--primary'}`}
 									disabled={Boolean(captureBusy)}
 									onClick={() => void runBrowserCaptureAction(captureIsActive ? 'stop' : 'start')}
+									title={captureIsActive ? t('app.browserCaptureStop') : t('app.browserCaptureStart')}
 								>
 									{captureBusy === 'start'
 										? t('app.browserCaptureStarting')
@@ -3258,12 +3891,101 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 								</button>
 								<button
 									type="button"
+									className={`ref-browser-capture-btn ref-browser-capture-btn--ghost${captureProxyIsRunning ? ' is-active' : ''}`}
+									disabled={Boolean(captureProxyBusy || captureBusy)}
+									onClick={() => void runBrowserCaptureProxyAction(captureProxyIsRunning ? 'stop' : 'start')}
+									title={captureProxyIsRunning ? t('app.browserCaptureProxyStop') : t('app.browserCaptureProxyStart')}
+								>
+									{captureProxyBusy === 'start'
+										? t('app.browserCaptureProxyStarting')
+										: captureProxyBusy === 'stop'
+											? t('app.browserCaptureProxyStopping')
+											: captureProxyIsRunning
+												? t('app.browserCaptureProxyStop')
+												: t('app.browserCaptureProxyStart')}
+								</button>
+								<button
+									type="button"
 									className="ref-browser-capture-btn ref-browser-capture-btn--ghost"
 									disabled={Boolean(captureBusy) || captureTotalCount <= 0}
 									onClick={() => void runBrowserCaptureAction('clear')}
+									title={t('app.browserCaptureClear')}
 								>
 									{captureBusy === 'clear' ? t('app.browserCaptureClearing') : t('app.browserCaptureClear')}
 								</button>
+								<div className="ref-browser-capture-sessions-menu" ref={captureSessionsMenuRef}>
+									<button
+										type="button"
+										className="ref-browser-capture-btn ref-browser-capture-btn--ghost"
+										title={t('app.browserCaptureSessionsTitle')}
+										aria-haspopup="menu"
+										aria-expanded={captureSessionsMenuOpen}
+										onClick={() => {
+											setCaptureSessionsMenuOpen((open) => {
+												const next = !open;
+												if (next) {
+													void refreshBrowserCaptureSessions();
+												}
+												return next;
+											});
+										}}
+									>
+										{t('app.browserCaptureSessionsLabel')}
+									</button>
+									{captureSessionsMenuOpen ? (
+										<div className="ref-browser-capture-sessions-popover" role="menu">
+											<div className="ref-browser-capture-sessions-popover-head">
+												<input
+													type="text"
+													className="ref-browser-capture-search"
+													value={captureSessionsSaveName}
+													placeholder={t('app.browserCaptureSessionsSavePlaceholder')}
+													aria-label={t('app.browserCaptureSessionsSavePlaceholder')}
+													onChange={(event) => setCaptureSessionsSaveName(event.target.value)}
+												/>
+												<button
+													type="button"
+													className="ref-browser-capture-mini-btn ref-browser-capture-mini-btn--primary"
+													disabled={captureSessionsBusy === 'save' || captureTotalCount <= 0}
+													onClick={() => void saveBrowserCaptureSession()}
+												>
+													{captureSessionsBusy === 'save' ? t('app.browserCaptureSendingToAgent') : t('app.browserCaptureSessionsSave')}
+												</button>
+											</div>
+											<div className="ref-browser-capture-sessions-popover-list">
+												{captureSessionsList.length > 0 ? (
+													captureSessionsList.map((session) => (
+														<div key={session.id} className="ref-browser-capture-sessions-row">
+															<button
+																type="button"
+																className="ref-browser-capture-sessions-row-main"
+																disabled={captureSessionsBusy === 'load'}
+																onClick={() => void loadBrowserCaptureSession(session.id)}
+																title={`${session.name}\n${new Date(session.updatedAt).toLocaleString()}`}
+															>
+																<span className="ref-browser-capture-sessions-row-name">{session.name}</span>
+																<span className="ref-browser-capture-sessions-row-meta">
+																	{t('app.browserCaptureRequestsShort', { count: String(session.requestCount) })} · {new Date(session.updatedAt).toLocaleDateString()}
+																</span>
+															</button>
+															<button
+																type="button"
+																className="ref-browser-copy-icon-btn"
+																aria-label={t('app.browserCaptureSessionsDelete')}
+																title={t('app.browserCaptureSessionsDelete')}
+																onClick={() => void deleteBrowserCaptureSession(session.id)}
+															>
+																<IconTrash />
+															</button>
+														</div>
+													))
+												) : (
+													<div className="ref-browser-capture-inline-empty">{t('app.browserCaptureSessionsEmpty')}</div>
+												)}
+											</div>
+										</div>
+									) : null}
+								</div>
 							</div>
 						</div>
 						{capturePanelExpanded ? (
@@ -3278,56 +4000,34 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 									<span aria-hidden="true" />
 								</div>
 								<div className="ref-browser-capture-dock-body" style={captureDockBodyStyle}>
-								<div className="ref-browser-capture-control-row">
-									<div className="ref-browser-capture-dock-copy">
-										<div className="ref-browser-capture-dock-heading">{t('app.browserCapturePanel')}</div>
-										<div className="ref-browser-capture-dock-subtitle" title={captureStatusTitle}>
-											{captureStatusTitle}
-										</div>
-									</div>
-									<div className="ref-browser-capture-dock-stats" aria-label={t('app.browserCapturePanel')}>
-										<div className="ref-browser-capture-stat">
-											<span>{t('app.browserCaptureStatus')}</span>
-											<strong>
-												{captureIsActive ? t('app.browserCaptureCapturing') : t('app.browserCaptureReady')}
-											</strong>
-										</div>
-										<div className="ref-browser-capture-stat">
-											<span>{t('app.browserCaptureRequests')}</span>
-											<strong>{captureTotalCount}</strong>
-										</div>
-										<div className="ref-browser-capture-stat">
-											<span>{t('app.browserCaptureAttachedTabs')}</span>
-											<strong>
-												{captureAttachedTabCount}/{captureKnownTabCount || tabs.length}
-											</strong>
-										</div>
-									</div>
-									<div className="ref-browser-capture-actions">
+								{captureError ? (
+									<div className="ref-browser-capture-banner ref-browser-capture-banner--error" role="alert">
+										<span>{captureError}</span>
 										<button
 											type="button"
-											className="ref-browser-capture-btn"
-											disabled={Boolean(captureBusy)}
-											onClick={() => void runBrowserCaptureAction(captureIsActive ? 'stop' : 'start')}
+											className="ref-browser-capture-banner-dismiss"
+											aria-label={t('common.close')}
+											title={t('common.close')}
+											onClick={() => setCaptureError(null)}
 										>
-											{captureBusy === 'start'
-												? t('app.browserCaptureStarting')
-												: captureBusy === 'stop'
-													? t('app.browserCaptureStopping')
-													: captureIsActive
-														? t('app.browserCaptureStop')
-														: t('app.browserCaptureStart')}
-										</button>
-										<button
-											type="button"
-											className="ref-browser-capture-btn ref-browser-capture-btn--ghost"
-											disabled={Boolean(captureBusy) || captureTotalCount <= 0}
-											onClick={() => void runBrowserCaptureAction('clear')}
-										>
-											{captureBusy === 'clear' ? t('app.browserCaptureClearing') : t('app.browserCaptureClear')}
+											<IconCloseSmall />
 										</button>
 									</div>
-								</div>
+								) : null}
+								{captureProxyError ? (
+									<div className="ref-browser-capture-banner ref-browser-capture-banner--error" role="alert">
+										<span>{captureProxyError}</span>
+										<button
+											type="button"
+											className="ref-browser-capture-banner-dismiss"
+											aria-label={t('common.close')}
+											title={t('common.close')}
+											onClick={() => setCaptureProxyError(null)}
+										>
+											<IconCloseSmall />
+										</button>
+									</div>
+								) : null}
 								<div className="ref-browser-capture-mode-tabs" role="tablist" aria-label={t('app.browserCapturePanel')}>
 									{capturePanelTabs.map((tab) => (
 										<button
@@ -3343,77 +4043,10 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 									))}
 								</div>
 								{capturePanelTab === 'requests' ? (
-								<div className="ref-browser-capture-network">
+								<div className={`ref-browser-capture-network${captureDetailVisible ? '' : ' is-detail-collapsed'}`}>
 									<div className="ref-browser-capture-list">
-										<div className="ref-browser-capture-bulk-toolbar">
-											<span className={`ref-browser-capture-bulk-status${captureExportError ? ' has-error' : ''}`}>
-												{captureBulkStatusText}
-											</span>
-											<div className="ref-browser-capture-bulk-actions">
-												<button
-													type="button"
-													className="ref-browser-capture-mini-btn ref-browser-capture-mini-btn--primary"
-													disabled={captureBulkActionsDisabled || !shell}
-													onClick={() => void sendBrowserCaptureToAgentDraft()}
-													title={t('app.browserCaptureSendToAgent')}
-												>
-													<IconArrowUpRight />
-													<span>
-														{copiedCaptureField === 'agent'
-															? t('app.browserCaptureSentToAgent')
-															: captureExportBusy === 'agent'
-																? t('app.browserCaptureSendingToAgent')
-																: t('app.browserCaptureSendToAgent')}
-													</span>
-												</button>
-												<button
-													type="button"
-													className="ref-browser-capture-mini-btn"
-													disabled={captureBulkActionsDisabled}
-													onClick={() => void copyBrowserCaptureCurl()}
-													title={t('app.browserCaptureCopyCurl')}
-												>
-													<IconCopy />
-													<span>
-														{copiedCaptureField === 'curl'
-															? t('app.browserCaptureCopied')
-															: captureExportBusy === 'curl'
-																? t('app.browserCaptureExporting')
-																: t('app.browserCaptureCopyCurl')}
-													</span>
-												</button>
-												<button
-													type="button"
-													className="ref-browser-capture-mini-btn"
-													disabled={captureBulkActionsDisabled}
-													onClick={() => void exportBrowserCaptureRequests('json')}
-													title={t('app.browserCaptureExportJson')}
-												>
-													<IconDownload />
-													<span>
-														{captureExportBusy === 'json'
-															? t('app.browserCaptureExporting')
-															: t('app.browserCaptureExportJson')}
-													</span>
-												</button>
-												<button
-													type="button"
-													className="ref-browser-capture-mini-btn"
-													disabled={captureBulkActionsDisabled}
-													onClick={() => void exportBrowserCaptureRequests('har')}
-													title={t('app.browserCaptureExportHar')}
-												>
-													<IconDownload />
-													<span>
-														{captureExportBusy === 'har'
-															? t('app.browserCaptureExporting')
-															: t('app.browserCaptureExportHar')}
-													</span>
-												</button>
-											</div>
-										</div>
 										<div className="ref-browser-capture-list-toolbar">
-											<div className="ref-browser-capture-list-toolbar-top">
+											<div className="ref-browser-capture-list-toolbar-row">
 												<label className="ref-browser-capture-search-wrap">
 													<IconSearch className="ref-browser-capture-search-icon" />
 													<input
@@ -3425,15 +4058,133 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 														onChange={(event) => setCaptureQuery(event.target.value)}
 													/>
 												</label>
-												<span className="ref-browser-capture-list-count" title={captureListCaption}>
-													{captureListCaption}
-												</span>
+												<div className="ref-browser-capture-bulk-actions">
+													<span className={`ref-browser-capture-bulk-status${captureExportError ? ' has-error' : ''}`} title={captureBulkStatusText}>
+														{captureBulkStatusText}
+													</span>
+													<div className="ref-browser-capture-analyze-menu" ref={captureAnalyzeMenuRef}>
+														<button
+															type="button"
+															className="ref-browser-capture-mini-btn ref-browser-capture-mini-btn--primary"
+															disabled={captureBulkActionsDisabled || !shell || captureAnalyzeBusy}
+															onClick={() => setCaptureAnalyzeMenuOpen((open) => !open)}
+															aria-haspopup="menu"
+															aria-expanded={captureAnalyzeMenuOpen}
+															title={t('app.browserCaptureAnalyzeLabel')}
+														>
+															<IconArrowUpRight />
+															<span>
+																{captureAnalyzeBusy
+																	? t('app.browserCaptureAnalyzing')
+																	: copiedCaptureField?.startsWith('analyze:')
+																		? t('app.browserCaptureSentToAgent')
+																		: t('app.browserCaptureAnalyzeLabel')}
+															</span>
+														</button>
+														{captureAnalyzeMenuOpen ? (
+															<div className="ref-browser-capture-analyze-popover" role="menu">
+																<div className="ref-browser-capture-analyze-popover-head">
+																	{t('app.browserCaptureAnalyzeHeading')}
+																</div>
+																{(
+																	[
+																		['auto', 'app.browserCaptureAnalyzeAuto', 'app.browserCaptureAnalyzeAutoHint'],
+																		['api-reverse', 'app.browserCaptureAnalyzeApi', 'app.browserCaptureAnalyzeApiHint'],
+																		['security-audit', 'app.browserCaptureAnalyzeSecurity', 'app.browserCaptureAnalyzeSecurityHint'],
+																		['performance', 'app.browserCaptureAnalyzePerf', 'app.browserCaptureAnalyzePerfHint'],
+																		['crypto-reverse', 'app.browserCaptureAnalyzeCrypto', 'app.browserCaptureAnalyzeCryptoHint'],
+																	] as const
+																).map(([key, labelKey, hintKey]) => (
+																	<button
+																		key={key}
+																		type="button"
+																		role="menuitem"
+																		disabled={captureAnalyzeBusy}
+																		onClick={() => void analyzeBrowserCapture(key)}
+																	>
+																		<strong>{t(labelKey)}</strong>
+																		<span>{t(hintKey)}</span>
+																	</button>
+																))}
+																<div className="ref-browser-capture-analyze-popover-divider" />
+																<button
+																	type="button"
+																	role="menuitem"
+																	disabled={captureBulkActionsDisabled || !shell}
+																	onClick={() => {
+																		setCaptureAnalyzeMenuOpen(false);
+																		void sendBrowserCaptureToAgentDraft();
+																	}}
+																>
+																	<strong>{t('app.browserCaptureSendToAgent')}</strong>
+																	<span>{t('app.browserCaptureSendToAgentHint')}</span>
+																</button>
+															</div>
+														) : null}
+													</div>
+													<button
+														type="button"
+														className="ref-browser-capture-mini-btn ref-browser-capture-mini-btn--icon"
+														disabled={captureBulkActionsDisabled}
+														onClick={() => void copyBrowserCaptureCurl()}
+														aria-label={t('app.browserCaptureCopyCurl')}
+														title={
+															copiedCaptureField === 'curl'
+																? t('app.browserCaptureCopied')
+																: captureExportBusy === 'curl'
+																	? t('app.browserCaptureExporting')
+																	: t('app.browserCaptureCopyCurl')
+														}
+													>
+														<IconCopy />
+													</button>
+													<div className="ref-browser-capture-export-menu" ref={captureExportMenuRef}>
+														<button
+															type="button"
+															className="ref-browser-capture-mini-btn ref-browser-capture-mini-btn--icon"
+															disabled={captureBulkActionsDisabled}
+															aria-haspopup="menu"
+															aria-expanded={captureExportMenuOpen}
+															onClick={() => setCaptureExportMenuOpen((open) => !open)}
+															title={t('app.browserCaptureExportMenuLabel')}
+														>
+															<IconDownload />
+														</button>
+														{captureExportMenuOpen ? (
+															<div className="ref-browser-capture-export-popover" role="menu">
+																<button
+																	type="button"
+																	role="menuitem"
+																	disabled={captureBulkActionsDisabled}
+																	onClick={() => {
+																		setCaptureExportMenuOpen(false);
+																		void exportBrowserCaptureRequests('json');
+																	}}
+																>
+																	{captureExportBusy === 'json'
+																		? t('app.browserCaptureExporting')
+																		: t('app.browserCaptureExportJson')}
+																</button>
+																<button
+																	type="button"
+																	role="menuitem"
+																	disabled={captureBulkActionsDisabled}
+																	onClick={() => {
+																		setCaptureExportMenuOpen(false);
+																		void exportBrowserCaptureRequests('har');
+																	}}
+																>
+																	{captureExportBusy === 'har'
+																		? t('app.browserCaptureExporting')
+																		: t('app.browserCaptureExportHar')}
+																</button>
+															</div>
+														) : null}
+													</div>
+												</div>
 											</div>
-											<div className="ref-browser-capture-filter-groups">
-												<div
-													className="ref-browser-capture-filter-strip ref-browser-capture-filter-strip--status"
-													aria-label={t('app.browserCaptureStatusFilterLabel')}
-												>
+											<div className="ref-browser-capture-filter-row" aria-label={t('app.browserCaptureFilterLabel')}>
+												<div className="ref-browser-capture-filter-strip" aria-label={t('app.browserCaptureStatusFilterLabel')}>
 													<span className="ref-browser-capture-filter-label">
 														<IconListFilter className="ref-browser-capture-filter-icon" />
 														{t('app.browserCaptureStatus')}
@@ -3451,13 +4202,8 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 														</button>
 													))}
 												</div>
-												<div
-													className="ref-browser-capture-filter-strip ref-browser-capture-filter-strip--method"
-													aria-label={t('app.browserCaptureMethodFilterLabel')}
-												>
-													<span className="ref-browser-capture-filter-label">
-														{t('app.browserCaptureColumnMethod')}
-													</span>
+												<div className="ref-browser-capture-filter-strip" aria-label={t('app.browserCaptureMethodFilterLabel')}>
+													<span className="ref-browser-capture-filter-label">{t('app.browserCaptureColumnMethod')}</span>
 													{captureMethodFilters.map((filter) => (
 														<button
 															key={filter.key}
@@ -3471,13 +4217,8 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 														</button>
 													))}
 												</div>
-												<div
-													className="ref-browser-capture-filter-strip ref-browser-capture-filter-strip--source"
-													aria-label={t('app.browserCaptureSourceFilterLabel')}
-												>
-													<span className="ref-browser-capture-filter-label">
-														{t('app.browserCaptureColumnSource')}
-													</span>
+												<div className="ref-browser-capture-filter-strip" aria-label={t('app.browserCaptureSourceFilterLabel')}>
+													<span className="ref-browser-capture-filter-label">{t('app.browserCaptureColumnSource')}</span>
 													{captureSourceFilters.map((filter) => (
 														<button
 															key={filter.key}
@@ -3491,13 +4232,8 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 														</button>
 													))}
 												</div>
-												<div
-													className="ref-browser-capture-filter-strip ref-browser-capture-filter-strip--resource"
-													aria-label={t('app.browserCaptureResourceFilterLabel')}
-												>
-													<span className="ref-browser-capture-filter-label">
-														{t('app.browserCaptureResourceType')}
-													</span>
+												<div className="ref-browser-capture-filter-strip" aria-label={t('app.browserCaptureResourceFilterLabel')}>
+													<span className="ref-browser-capture-filter-label">{t('app.browserCaptureResourceType')}</span>
 													{captureResourceFilters.map((filter) => (
 														<button
 															key={filter.key}
@@ -3511,6 +4247,18 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 														</button>
 													))}
 												</div>
+												<span className="ref-browser-capture-list-count" title={captureListCaption}>
+													{captureListCaption}
+												</span>
+												<button
+													type="button"
+													className={`ref-browser-capture-detail-toggle${captureDetailVisible ? ' is-active' : ''}`}
+													onClick={() => setCaptureDetailVisible((v) => !v)}
+													title={captureDetailVisible ? t('app.browserCaptureHideDetail') : t('app.browserCaptureShowDetail')}
+													aria-pressed={captureDetailVisible}
+												>
+													{captureDetailVisible ? t('app.browserCaptureHideDetail') : t('app.browserCaptureShowDetail')}
+												</button>
 											</div>
 										</div>
 										<div className="ref-browser-capture-table" role="table" aria-label={t('app.browserCaptureRequests')}>
@@ -3626,16 +4374,54 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 													) : null}
 													</>
 												) : (
-													<div className="ref-browser-capture-empty">
-														{captureListBusy
-															? t('app.browserCaptureLoadingRequests')
-															: t('app.browserCaptureNoRequests')}
+													<div className="ref-browser-capture-empty ref-browser-capture-empty--list">
+														{captureListBusy ? (
+															<span>{t('app.browserCaptureLoadingRequests')}</span>
+														) : (
+															<>
+																<div className="ref-browser-capture-empty-title">
+																	{t('app.browserCaptureNoRequests')}
+																</div>
+																<div className="ref-browser-capture-empty-hint">
+																	{captureIsActive
+																		? t('app.browserCaptureEmptyHintActive')
+																		: t('app.browserCaptureEmptyHintIdle')}
+																</div>
+																<div className="ref-browser-capture-empty-actions">
+																	{!captureIsActive ? (
+																		<button
+																			type="button"
+																			className="ref-browser-capture-btn ref-browser-capture-btn--primary"
+																			disabled={Boolean(captureBusy)}
+																			onClick={() => void runBrowserCaptureAction('start')}
+																		>
+																			{captureBusy === 'start'
+																				? t('app.browserCaptureStarting')
+																				: t('app.browserCaptureStart')}
+																		</button>
+																	) : null}
+																	{!captureProxyIsRunning ? (
+																		<button
+																			type="button"
+																			className="ref-browser-capture-btn ref-browser-capture-btn--ghost"
+																			disabled={Boolean(captureProxyBusy)}
+																			onClick={() => void runBrowserCaptureProxyAction('start')}
+																		>
+																			{captureProxyBusy === 'start'
+																				? t('app.browserCaptureProxyStarting')
+																				: t('app.browserCaptureProxyStart')}
+																		</button>
+																	) : null}
+																</div>
+															</>
+														)}
 													</div>
 												)}
-											</div>
 										</div>
 									</div>
-									<div className="ref-browser-capture-detail">
+								</div>
+								{captureDetailVisible ? (
+								<div className="ref-browser-capture-detail">
 										{selectedCaptureView ? (
 											<>
 												<div className="ref-browser-capture-detail-head">
@@ -3875,6 +4661,224 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 											<div className="ref-browser-capture-empty">{t('app.browserCaptureSelectRequest')}</div>
 										)}
 									</div>
+									) : null}
+								</div>
+								) : capturePanelTab === 'hooks' ? (
+								<div className="ref-browser-capture-hooks-panel">
+									<div className="ref-browser-capture-list-toolbar">
+										<div className="ref-browser-capture-list-toolbar-row">
+											<label className="ref-browser-capture-search-wrap">
+												<IconSearch className="ref-browser-capture-search-icon" />
+												<input
+													type="search"
+													className="ref-browser-capture-search"
+													value={captureHookQuery}
+													placeholder={t('app.browserCaptureHookSearchPlaceholder')}
+													aria-label={t('app.browserCaptureHookSearchPlaceholder')}
+													onChange={(event) => setCaptureHookQuery(event.target.value)}
+												/>
+											</label>
+											<span className="ref-browser-capture-bulk-status" title={t('app.browserCaptureHookCount', { count: String(captureHookEventTotal) })}>
+												{t('app.browserCaptureHookCount', { count: String(captureHookEventTotal) })}
+											</span>
+										</div>
+										<div className="ref-browser-capture-filter-row" aria-label={t('app.browserCaptureHookCategoryLabel')}>
+											<div className="ref-browser-capture-filter-strip" aria-label={t('app.browserCaptureHookCategoryLabel')}>
+												<span className="ref-browser-capture-filter-label">
+													<IconListFilter className="ref-browser-capture-filter-icon" />
+													{t('app.browserCaptureHookCategoryLabel')}
+												</span>
+												{(['all', 'fetch', 'xhr', 'crypto.subtle', 'crypto.lib'] as const).map((key) => (
+													<button
+														key={key}
+														type="button"
+														className={`ref-browser-capture-filter-chip${captureHookCategoryFilter === key ? ' is-active' : ''}`}
+														onClick={() => setCaptureHookCategoryFilter(key)}
+													>
+														{key === 'all' ? t('app.browserCaptureFilterAll') : key}
+													</button>
+												))}
+											</div>
+										</div>
+									</div>
+									<div className="ref-browser-capture-hooks-list">
+										{captureHookEvents.length > 0 ? (
+											captureHookEvents
+												.slice()
+												.reverse()
+												.map((event) => (
+													<div key={event.id} className="ref-browser-capture-hook-row" data-category={event.category}>
+														<div className="ref-browser-capture-hook-row-head">
+															<span className="ref-browser-capture-hook-category">{event.category}</span>
+															<span className="ref-browser-capture-hook-label">{event.label}</span>
+															<span className="ref-browser-capture-hook-time">
+																{new Date(event.ts).toLocaleTimeString()}
+															</span>
+															<button
+																type="button"
+																className="ref-browser-copy-icon-btn"
+																aria-label={t('app.browserCaptureCopied')}
+																title={t('app.browserCaptureCopied')}
+																onClick={() => {
+																	const payload = `${event.label}\n${event.url}\nargs: ${event.args}\nresult: ${event.result ?? ''}\n${event.stack}`;
+																	void copyCaptureText(`hook:${event.id}`, payload);
+																}}
+															>
+																<IconCopy />
+															</button>
+														</div>
+														{event.url ? (
+															<div className="ref-browser-capture-hook-url" title={event.url}>{event.url}</div>
+														) : null}
+														{event.args ? (
+															<pre className="ref-browser-capture-hook-args">{event.args}</pre>
+														) : null}
+														{event.result ? (
+															<pre className="ref-browser-capture-hook-result">→ {event.result}</pre>
+														) : null}
+														{event.stack ? (
+															<details className="ref-browser-capture-hook-stack">
+																<summary>{t('app.browserCaptureHookStack')}</summary>
+																<pre>{event.stack}</pre>
+															</details>
+														) : null}
+													</div>
+												))
+										) : (
+											<div className="ref-browser-capture-empty ref-browser-capture-empty--list">
+												<div className="ref-browser-capture-empty-title">{t('app.browserCaptureHookEmptyTitle')}</div>
+												<div className="ref-browser-capture-empty-hint">
+													{captureIsActive
+														? t('app.browserCaptureHookEmptyHintActive')
+														: t('app.browserCaptureHookEmptyHintIdle')}
+												</div>
+											</div>
+										)}
+									</div>
+								</div>
+								) : capturePanelTab === 'storage' ? (
+								<div className="ref-browser-capture-storage-panel">
+									<div className="ref-browser-capture-storage-host-list" role="tablist">
+										{captureStorageSnapshots.length > 0 ? (
+											captureStorageSnapshots.map((snapshot) => (
+												<button
+													key={snapshot.id}
+													type="button"
+													role="tab"
+													aria-selected={captureStorageActiveHost === snapshot.host}
+													className={`ref-browser-capture-storage-host${captureStorageActiveHost === snapshot.host ? ' is-active' : ''}`}
+													onClick={() => setCaptureStorageActiveHost(snapshot.host)}
+												>
+													<span className="ref-browser-capture-storage-host-name">{snapshot.host}</span>
+													<span className="ref-browser-capture-storage-host-meta">
+														{snapshot.cookies ? `${snapshot.cookies.split(';').filter(Boolean).length}c` : '0c'}
+														{' · '}
+														{snapshot.localStorage.length}L · {snapshot.sessionStorage.length}S
+													</span>
+												</button>
+											))
+										) : (
+											<div className="ref-browser-capture-empty ref-browser-capture-empty--list">
+												<div className="ref-browser-capture-empty-title">{t('app.browserCaptureStorageEmptyTitle')}</div>
+												<div className="ref-browser-capture-empty-hint">
+													{captureIsActive ? t('app.browserCaptureStorageEmptyHintActive') : t('app.browserCaptureStorageEmptyHintIdle')}
+												</div>
+											</div>
+										)}
+									</div>
+									<div className="ref-browser-capture-storage-detail">
+										{(() => {
+											const active = captureStorageSnapshots.find((s) => s.host === captureStorageActiveHost) ?? captureStorageSnapshots[0];
+											if (!active) {
+												return <div className="ref-browser-capture-empty">{t('app.browserCaptureStorageSelect')}</div>;
+											}
+											return (
+												<>
+													<div className="ref-browser-capture-storage-section">
+														<div className="ref-browser-capture-section-head">
+															<div className="ref-browser-capture-section-title">{t('app.browserCaptureStorageCookies')}</div>
+															<button
+																type="button"
+																className="ref-browser-copy-icon-btn"
+																aria-label={t('app.browserCaptureCopied')}
+																title={t('app.browserCaptureCopied')}
+																onClick={() => void copyCaptureText(`storage:cookies:${active.host}`, active.cookies)}
+															>
+																<IconCopy />
+															</button>
+														</div>
+														{active.cookies ? (
+															<pre className="ref-browser-capture-body-block">{active.cookies}</pre>
+														) : (
+															<div className="ref-browser-capture-inline-empty">{t('app.browserCaptureEmptyBody')}</div>
+														)}
+													</div>
+													<div className="ref-browser-capture-storage-section">
+														<div className="ref-browser-capture-section-head">
+															<div className="ref-browser-capture-section-title">localStorage ({active.localStorage.length})</div>
+															<button
+																type="button"
+																className="ref-browser-copy-icon-btn"
+																aria-label={t('app.browserCaptureCopied')}
+																title={t('app.browserCaptureCopied')}
+																onClick={() =>
+																	void copyCaptureText(
+																		`storage:local:${active.host}`,
+																		JSON.stringify(active.localStorage, null, 2)
+																	)
+																}
+															>
+																<IconCopy />
+															</button>
+														</div>
+														{active.localStorage.length > 0 ? (
+															<div className="ref-browser-capture-kv-list">
+																{active.localStorage.map((entry) => (
+																	<div className="ref-browser-capture-kv" key={`local-${entry.key}`}>
+																		<span>{entry.key}</span>
+																		<code>{entry.value}</code>
+																	</div>
+																))}
+															</div>
+														) : (
+															<div className="ref-browser-capture-inline-empty">{t('app.browserCaptureEmptyBody')}</div>
+														)}
+													</div>
+													<div className="ref-browser-capture-storage-section">
+														<div className="ref-browser-capture-section-head">
+															<div className="ref-browser-capture-section-title">sessionStorage ({active.sessionStorage.length})</div>
+															<button
+																type="button"
+																className="ref-browser-copy-icon-btn"
+																aria-label={t('app.browserCaptureCopied')}
+																title={t('app.browserCaptureCopied')}
+																onClick={() =>
+																	void copyCaptureText(
+																		`storage:session:${active.host}`,
+																		JSON.stringify(active.sessionStorage, null, 2)
+																	)
+																}
+															>
+																<IconCopy />
+															</button>
+														</div>
+														{active.sessionStorage.length > 0 ? (
+															<div className="ref-browser-capture-kv-list">
+																{active.sessionStorage.map((entry) => (
+																	<div className="ref-browser-capture-kv" key={`session-${entry.key}`}>
+																		<span>{entry.key}</span>
+																		<code>{entry.value}</code>
+																	</div>
+																))}
+															</div>
+														) : (
+															<div className="ref-browser-capture-inline-empty">{t('app.browserCaptureEmptyBody')}</div>
+														)}
+													</div>
+												</>
+											);
+										})()}
+									</div>
 								</div>
 								) : (
 								<div className="ref-browser-capture-device-panel">
@@ -3890,7 +4894,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 											<div className="ref-browser-capture-device-actions">
 												<button
 													type="button"
-													className="ref-browser-capture-btn"
+													className={`ref-browser-capture-btn${captureProxyIsRunning ? ' ref-browser-capture-btn--danger' : ' ref-browser-capture-btn--primary'}`}
 													disabled={Boolean(captureProxyBusy || captureBusy)}
 													onClick={() => void runBrowserCaptureProxyAction(captureProxyIsRunning ? 'stop' : 'start')}
 												>
@@ -3905,18 +4909,6 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 												<button
 													type="button"
 													className="ref-browser-capture-btn ref-browser-capture-btn--ghost"
-													disabled={captureProxyBusy === 'ca'}
-													onClick={() => void exportBrowserCaptureProxyCa()}
-												>
-													{copiedCaptureField === 'ca'
-														? t('app.browserCaptureProxyCaDownloaded')
-														: captureProxyBusy === 'ca'
-															? t('app.browserCaptureExporting')
-															: t('app.browserCaptureProxyDownloadCa')}
-												</button>
-												<button
-													type="button"
-													className="ref-browser-capture-btn ref-browser-capture-btn--ghost"
 													onClick={() => {
 														setCaptureSourceFilter('proxy');
 														setCapturePanelTab('requests');
@@ -3926,77 +4918,167 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 												</button>
 											</div>
 										</div>
-										<div className="ref-browser-capture-device-fields">
-											<div className="ref-browser-capture-device-field ref-browser-capture-device-field--wide">
-												<span>{t('app.browserCaptureProxyAddress')}</span>
-												<code title={captureProxyUrl}>{captureProxyUrl}</code>
-												<button
-													type="button"
-													className="ref-browser-copy-icon-btn"
-													aria-label={t('app.browserCaptureCopyProxyAddress')}
-													title={t('app.browserCaptureCopyProxyAddress')}
-													onClick={() => void copyCaptureText('proxyUrl', captureProxyUrl)}
-												>
-													<IconCopy />
-												</button>
+										<div className="ref-browser-capture-device-stepgrid">
+											<div className={`ref-browser-capture-device-card${captureProxyIsRunning ? ' is-done' : ''}`}>
+												<div className="ref-browser-capture-device-card-head">
+													<span className="ref-browser-capture-device-card-step">1</span>
+													<strong>{t('app.browserCaptureProxyAddress')}</strong>
+													<span className={`ref-browser-capture-device-badge${captureProxyIsRunning ? ' is-on' : ''}`}>
+														{captureProxyIsRunning ? t('app.browserCaptureProxyShortOn') : t('app.browserCaptureProxyShortOff')}
+													</span>
+												</div>
+												<div className="ref-browser-capture-device-fields">
+													<div className="ref-browser-capture-device-field">
+														<span>{t('app.browserCaptureProxyHost')}</span>
+														<code title={captureProxyPrimaryAddress}>{captureProxyPrimaryAddress}</code>
+														<button
+															type="button"
+															className="ref-browser-copy-icon-btn"
+															aria-label={t('app.browserCaptureCopyProxyHost')}
+															title={t('app.browserCaptureCopyProxyHost')}
+															onClick={() => void copyCaptureText('proxyHost', captureProxyPrimaryAddress)}
+														>
+															<IconCopy />
+														</button>
+													</div>
+													<div className="ref-browser-capture-device-field">
+														<span>{t('app.browserCaptureProxyPort')}</span>
+														<code>{captureProxyPort}</code>
+														<button
+															type="button"
+															className="ref-browser-copy-icon-btn"
+															aria-label={t('app.browserCaptureCopyProxyPort')}
+															title={t('app.browserCaptureCopyProxyPort')}
+															onClick={() => void copyCaptureText('proxyPort', String(captureProxyPort))}
+														>
+															<IconCopy />
+														</button>
+													</div>
+													<div className="ref-browser-capture-device-field ref-browser-capture-device-field--wide">
+														<span>{t('app.browserCaptureProxyAddress')}</span>
+														<code title={captureProxyUrl}>{captureProxyUrl}</code>
+														<button
+															type="button"
+															className="ref-browser-copy-icon-btn"
+															aria-label={t('app.browserCaptureCopyProxyAddress')}
+															title={t('app.browserCaptureCopyProxyAddress')}
+															onClick={() => void copyCaptureText('proxyUrl', captureProxyUrl)}
+														>
+															<IconCopy />
+														</button>
+													</div>
+												</div>
+												<p className="ref-browser-capture-device-card-hint">{t('app.browserCaptureDeviceStepWifi')}</p>
 											</div>
-											<div className="ref-browser-capture-device-field">
-												<span>{t('app.browserCaptureProxyHost')}</span>
-												<code title={captureProxyPrimaryAddress}>{captureProxyPrimaryAddress}</code>
-												<button
-													type="button"
-													className="ref-browser-copy-icon-btn"
-													aria-label={t('app.browserCaptureCopyProxyHost')}
-													title={t('app.browserCaptureCopyProxyHost')}
-													onClick={() => void copyCaptureText('proxyHost', captureProxyPrimaryAddress)}
-												>
-													<IconCopy />
-												</button>
+											<div className={`ref-browser-capture-device-card${captureProxySystemEnabled ? ' is-done' : ''}`}>
+												<div className="ref-browser-capture-device-card-head">
+													<span className="ref-browser-capture-device-card-step">2</span>
+													<strong>{t('app.browserCaptureSystemProxy')}</strong>
+													<span className={`ref-browser-capture-device-badge${captureProxySystemEnabled ? ' is-on' : ''}`}>
+														{captureProxySystemEnabled ? t('app.browserCaptureSystemProxyOn') : t('app.browserCaptureSystemProxyOff')}
+													</span>
+												</div>
+												<p className="ref-browser-capture-device-card-hint">{t('app.browserCaptureSystemProxyHint')}</p>
+												<div className="ref-browser-capture-device-card-actions">
+													<button
+														type="button"
+														className={`ref-browser-capture-btn${captureProxySystemEnabled ? ' ref-browser-capture-btn--ghost is-active' : ' ref-browser-capture-btn--primary'}`}
+														disabled={!captureProxyIsRunning || Boolean(captureProxyBusy)}
+														onClick={() => void toggleSystemProxy(!captureProxySystemEnabled)}
+													>
+														{captureProxyBusy === 'refresh'
+															? t('app.browserCaptureProxyStarting')
+															: captureProxySystemEnabled
+																? t('app.browserCaptureSystemProxyDisable')
+																: t('app.browserCaptureSystemProxyEnable')}
+													</button>
+												</div>
 											</div>
-											<div className="ref-browser-capture-device-field">
-												<span>{t('app.browserCaptureProxyPort')}</span>
-												<code>{captureProxyPort}</code>
-												<button
-													type="button"
-													className="ref-browser-copy-icon-btn"
-													aria-label={t('app.browserCaptureCopyProxyPort')}
-													title={t('app.browserCaptureCopyProxyPort')}
-													onClick={() => void copyCaptureText('proxyPort', String(captureProxyPort))}
-												>
-													<IconCopy />
-												</button>
+											<div className={`ref-browser-capture-device-card${captureProxyCaInstalled ? ' is-done' : ''}`}>
+												<div className="ref-browser-capture-device-card-head">
+													<span className="ref-browser-capture-device-card-step">3</span>
+													<strong>{t('app.browserCaptureCaTitle')}</strong>
+													<span className={`ref-browser-capture-device-badge${captureProxyCaInstalled ? ' is-on' : ''}`}>
+														{captureProxyCaInstalled ? t('app.browserCaptureCaInstalled') : t('app.browserCaptureCaNotInstalled')}
+													</span>
+												</div>
+												<p className="ref-browser-capture-device-card-hint">{t('app.browserCaptureCaHint')}</p>
+												<div className="ref-browser-capture-device-card-actions">
+													<button
+														type="button"
+														className={`ref-browser-capture-btn${captureProxyCaInstalled ? ' ref-browser-capture-btn--ghost' : ' ref-browser-capture-btn--primary'}`}
+														disabled={Boolean(captureProxyBusy)}
+														onClick={() => void installBrowserCaptureProxyCa(captureProxyCaInstalled)}
+													>
+														{captureProxyBusy === 'ca'
+															? t('app.browserCaptureExporting')
+															: captureProxyCaInstalled
+																? t('app.browserCaptureCaUninstall')
+																: t('app.browserCaptureCaInstall')}
+													</button>
+													<button
+														type="button"
+														className="ref-browser-capture-btn ref-browser-capture-btn--ghost"
+														disabled={captureProxyBusy === 'ca'}
+														onClick={() => void exportBrowserCaptureProxyCa()}
+													>
+														{copiedCaptureField === 'ca'
+															? t('app.browserCaptureProxyCaDownloaded')
+															: t('app.browserCaptureProxyDownloadCa')}
+													</button>
+													<button
+														type="button"
+														className="ref-browser-capture-btn ref-browser-capture-btn--ghost"
+														onClick={() => {
+															void shell?.invoke('browserCapture:proxyOpenCaPath').catch(() => {
+																/* ignore */
+															});
+														}}
+													>
+														{t('app.browserCaptureCaShowFile')}
+													</button>
+												</div>
+												<div className="ref-browser-capture-device-field ref-browser-capture-device-field--wide">
+													<span>{t('app.browserCaptureProxyCaUrl')}</span>
+													<code title={captureProxyCaUrl}>{captureProxyCaUrl}</code>
+													<button
+														type="button"
+														className="ref-browser-copy-icon-btn"
+														aria-label={t('app.browserCaptureCopyProxyCaUrl')}
+														title={t('app.browserCaptureCopyProxyCaUrl')}
+														onClick={() => void copyCaptureText('proxyCaUrl', captureProxyCaUrl)}
+													>
+														<IconCopy />
+													</button>
+												</div>
 											</div>
-											<div className="ref-browser-capture-device-field ref-browser-capture-device-field--wide">
-												<span>{t('app.browserCaptureProxyCaUrl')}</span>
-												<code title={captureProxyCaUrl}>{captureProxyCaUrl}</code>
-												<button
-													type="button"
-													className="ref-browser-copy-icon-btn"
-													aria-label={t('app.browserCaptureCopyProxyCaUrl')}
-													title={t('app.browserCaptureCopyProxyCaUrl')}
-													onClick={() => void copyCaptureText('proxyCaUrl', captureProxyCaUrl)}
-												>
-													<IconCopy />
-												</button>
+											<div className="ref-browser-capture-device-card">
+												<div className="ref-browser-capture-device-card-head">
+													<span className="ref-browser-capture-device-card-step">4</span>
+													<strong>{t('app.browserCaptureSnippetsTitle')}</strong>
+												</div>
+												<p className="ref-browser-capture-device-card-hint">{t('app.browserCaptureSnippetsHint')}</p>
+												<div className="ref-browser-capture-device-card-actions ref-browser-capture-device-card-actions--snippets">
+													{(['curl', 'wget', 'python', 'node', 'env'] as const).map((kind) => (
+														<button
+															key={kind}
+															type="button"
+															className="ref-browser-capture-mini-btn"
+															disabled={!captureProxyIsRunning}
+															onClick={() => void copyBrowserCaptureProxySnippet(kind)}
+														>
+															<IconCopy />
+															<span>
+																{copiedCaptureField === `snippet:${kind}`
+																	? t('app.browserCaptureCopied')
+																	: kind === 'env'
+																		? t('app.browserCaptureSnippetEnv')
+																		: kind.toUpperCase()}
+															</span>
+														</button>
+													))}
+												</div>
 											</div>
-										</div>
-									</div>
-									<div className="ref-browser-capture-device-steps">
-										<div className="ref-browser-capture-device-step">
-											<span>1</span>
-											<p>{t('app.browserCaptureDeviceStepWifi')}</p>
-										</div>
-										<div className="ref-browser-capture-device-step">
-											<span>2</span>
-											<p>{t('app.browserCaptureDeviceStepProxy')}</p>
-										</div>
-										<div className="ref-browser-capture-device-step">
-											<span>3</span>
-											<p>{t('app.browserCaptureDeviceStepCa')}</p>
-										</div>
-										<div className="ref-browser-capture-device-step">
-											<span>4</span>
-											<p>{t('app.browserCaptureDeviceStepCapture')}</p>
 										</div>
 										<div className="ref-browser-capture-device-note">
 											{t('app.browserCaptureDeviceLimit')}

@@ -19,6 +19,7 @@ import { disposeBotController, initBotController, syncBotControllerFromSettings 
 import { flushBotSessionStore, initBotSessionStore } from './bots/botSessionStore.js';
 import { disposeAppTray, initAppTray } from './appTray.js';
 import { disposeBrowserCaptureProxy } from './browser/browserMitmProxy.js';
+import { SystemProxy as BrowserSystemProxy } from './browser/browserSystemProxy.js';
 
 function resolveAppIconPath(): string | undefined {
 	const iconSearchRoots =
@@ -80,7 +81,12 @@ app.on('before-quit', (e) => {
 	quittingAfterThreadStoreFlush = true;
 	e.preventDefault();
 	flushBotSessionStore();
-	void Promise.allSettled([flushPendingSave(), disposeBotController(), disposeBrowserCaptureProxy()]).finally(() => {
+	void Promise.allSettled([
+		flushPendingSave(),
+		disposeBotController(),
+		disposeBrowserCaptureProxy(),
+		BrowserSystemProxy.hasSavedState() ? BrowserSystemProxy.disable() : Promise.resolve(),
+	]).finally(() => {
 		app.quit();
 	});
 });
@@ -99,6 +105,12 @@ app.on('browser-window-created', (_event, win) => {
 });
 
 app.whenReady().then(() => {
+	// Recover from a previous run that did not get to restore the system proxy.
+	if (BrowserSystemProxy.hasSavedState()) {
+		void BrowserSystemProxy.disable().catch(() => {
+			/* best-effort restore */
+		});
+	}
 	// 仅在显式 debug 开关下安装 React DevTools，保持 dev / dev:debug 语义与现有脚本一致。
 	const installReactDevTools =
 		process.env.ASYNC_SHELL_DEVTOOLS === '1' || process.env.VOID_SHELL_DEVTOOLS === '1';
