@@ -325,7 +325,7 @@ const AgentGitScmStaticCards = memo(function AgentGitScmStaticCards({
 });
 
 /** 把改动路径按一级父目录分组，根目录归到 '' 组；返回顺序按目录字典序，根目录置顶 */
-function groupPathsByDir(paths: readonly string[]): Array<{ dir: string; paths: string[] }> {
+export function groupPathsByDir(paths: readonly string[]): Array<{ dir: string; paths: string[] }> {
 	const map = new Map<string, string[]>();
 	for (const rel of paths) {
 		const norm = rel.replace(/\\/g, '/');

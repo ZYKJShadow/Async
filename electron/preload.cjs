@@ -178,6 +178,7 @@ const INVOKE_CHANNELS = new Set([
 	'threads:getPlan',
 	'workspaceAgent:get',
 	'workspaceAgent:set',
+	'workspaceAgent:resetAsyncDir',
 	'workspace:closeFolder',
 	'workspace:removeRecent',
 	'app:newWindow',

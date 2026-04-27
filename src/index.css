@@ -12025,6 +12025,118 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	overflow: hidden;
 }
 
+.ref-app-error-boundary {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: var(--void-bg-1, #1a1a1a);
+	color: var(--void-fg-0, #e8e8e8);
+	font-family: 'Inter', system-ui, sans-serif;
+	z-index: 9999;
+	overflow: auto;
+}
+
+.ref-app-error-boundary-card {
+	max-width: 560px;
+	width: 100%;
+	background: var(--void-bg-0, #222);
+	border: 1px solid var(--void-border, rgba(255, 255, 255, 0.08));
+	border-radius: 12px;
+	padding: 28px;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.32);
+}
+
+.ref-app-error-boundary-title {
+	font-size: 18px;
+	font-weight: 600;
+	margin: 0 0 12px;
+}
+
+.ref-app-error-boundary-msg {
+	font-size: 13px;
+	line-height: 1.55;
+	color: var(--void-fg-2, #b8b8b8);
+	margin: 0 0 18px;
+}
+
+.ref-app-error-boundary-msg code {
+	font-family: ui-monospace, monospace;
+	font-size: 12px;
+	background: var(--void-bg-2, rgba(255, 255, 255, 0.06));
+	padding: 1px 5px;
+	border-radius: 4px;
+}
+
+.ref-app-error-boundary-actions {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 18px;
+}
+
+.ref-app-error-boundary-btn {
+	font-size: 13px;
+	font-weight: 500;
+	padding: 8px 16px;
+	border-radius: 8px;
+	border: 1px solid var(--void-border, rgba(255, 255, 255, 0.12));
+	background: var(--void-bg-2, rgba(255, 255, 255, 0.06));
+	color: var(--void-fg-0, #e8e8e8);
+	cursor: pointer;
+}
+
+.ref-app-error-boundary-btn:hover {
+	background: var(--void-bg-3, rgba(255, 255, 255, 0.1));
+}
+
+.ref-app-error-boundary-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.ref-app-error-boundary-status {
+	font-size: 12px;
+	margin: 0 0 14px;
+	padding: 8px 12px;
+	border-radius: 6px;
+	background: var(--void-bg-2, rgba(255, 255, 255, 0.04));
+}
+
+.ref-app-error-boundary-status.is-error {
+	color: #f0ab8c;
+}
+
+.ref-app-error-boundary-status.is-ok {
+	color: var(--void-fg-1, #d0d0d0);
+}
+
+.ref-app-error-boundary-details {
+	font-size: 12px;
+	color: var(--void-fg-3, #888);
+}
+
+.ref-app-error-boundary-details summary {
+	cursor: pointer;
+	user-select: none;
+	padding: 4px 0;
+}
+
+.ref-app-error-boundary-pre {
+	margin: 8px 0 0;
+	padding: 12px;
+	border-radius: 8px;
+	background: var(--void-bg-2, rgba(255, 255, 255, 0.04));
+	max-height: 280px;
+	overflow: auto;
+	font-family: ui-monospace, monospace;
+	font-size: 11px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.ref-git-group-body {
 		transition: none;
