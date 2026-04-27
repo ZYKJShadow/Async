@@ -1717,10 +1717,19 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-workspace-row-shell:hover::before,
-.ref-agent-workspace-group.is-menu-open .ref-agent-workspace-row-shell::before,
+.ref-agent-workspace-group.is-menu-open .ref-agent-workspace-row-shell::before {
+	opacity: 1;
+	background: color-mix(in srgb, var(--void-fg-2) 8%, transparent);
+}
+
 .ref-agent-workspace-row-shell.is-active::before {
 	opacity: 1;
-	background: var(--void-bg-2);
+	background: color-mix(in srgb, var(--void-ring) 10%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--void-ring) 22%, transparent);
+}
+
+.ref-agent-workspace-row-shell.is-active:hover::before {
+	background: color-mix(in srgb, var(--void-ring) 13%, transparent);
 }
 
 .ref-agent-workspace-row {
@@ -2651,11 +2660,16 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-thread-item:hover {
-	background: var(--void-bg-2);
+	background: color-mix(in srgb, var(--void-fg-2) 8%, transparent);
 }
 
 .ref-agent-thread-item.is-active {
-	background: color-mix(in srgb, var(--void-bg-3) 86%, transparent);
+	background: color-mix(in srgb, var(--void-ring) 12%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--void-ring) 22%, transparent);
+}
+
+.ref-agent-thread-item.is-active:hover {
+	background: color-mix(in srgb, var(--void-ring) 16%, transparent);
 }
 
 .ref-agent-thread-item.is-awaiting-reply {

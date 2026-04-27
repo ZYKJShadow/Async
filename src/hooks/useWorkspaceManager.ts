@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { normWorkspaceRootKey } from '../workspaceRootKey';
 
 type Shell = NonNullable<Window['asyncShell']>;
 
@@ -155,15 +154,6 @@ export function useWorkspaceManager(shell: Shell | undefined) {
 			cancelled = true;
 		};
 	}, [shell, workspace]);
-
-	// 兼容旧数据：当前工作区不能因为历史 hidden 标记从 Agent 全局侧栏消失。
-	useEffect(() => {
-		if (!workspace) return;
-		const workspaceKey = normWorkspaceRootKey(workspace);
-		setHiddenAgentWorkspacePaths((prev) =>
-			prev.filter((item) => normWorkspaceRootKey(item) !== workspaceKey)
-		);
-	}, [workspace]);
 
 	// ── TS LSP ────────────────────────────────────────────────────────────────
 	// 不在渲染进程自动启动 LSP。关闭工作区时通知主进程释放 WorkspaceLspManager。
