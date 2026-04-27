@@ -23,6 +23,7 @@ import {
 	IconArrowRight,
 	IconCloseSmall,
 	IconDoc,
+	IconFolderOpen,
 	IconGitSCM,
 	IconGlobe,
 	IconPlus,
@@ -2616,6 +2617,30 @@ export const AgentBrowserWindowSurface = memo(function AgentBrowserWindowSurface
 });
 
 const COMMIT_PREV_BRANCH_KEY = 'voidShell.commitModal.prevBranch.v1';
+const SCM_GROUPED_KEY = 'voidShell.agentScm.grouped.v1';
+
+function readScmGrouped(): boolean {
+	if (typeof window === 'undefined') {
+		return true;
+	}
+	try {
+		const raw = window.localStorage.getItem(SCM_GROUPED_KEY);
+		return raw == null ? true : raw === '1';
+	} catch {
+		return true;
+	}
+}
+
+function writeScmGrouped(value: boolean): void {
+	if (typeof window === 'undefined') {
+		return;
+	}
+	try {
+		window.localStorage.setItem(SCM_GROUPED_KEY, value ? '1' : '0');
+	} catch {
+		// ignore
+	}
+}
 
 function isMeaningfulGitBranch(branch: string | undefined): branch is string {
 	const b = String(branch ?? '').trim();
@@ -2725,6 +2750,14 @@ const AgentRightSidebarGitPanel = memo(function AgentRightSidebarGitPanel({
 	}, [gitViewActive, refreshGit]);
 
 	const [showCommitModal, setShowCommitModal] = useState(false);
+	const [scmGrouped, setScmGrouped] = useState<boolean>(() => readScmGrouped());
+	const toggleScmGrouped = useCallback(() => {
+		setScmGrouped((cur) => {
+			const next = !cur;
+			writeScmGrouped(next);
+			return next;
+		});
+	}, []);
 	const previousBranch = useMemo(
 		() => (showCommitModal ? readPreviousCommitBranch(currentThreadId) : undefined),
 		[showCommitModal, currentThreadId]
@@ -2797,6 +2830,16 @@ const AgentRightSidebarGitPanel = memo(function AgentRightSidebarGitPanel({
 							>
 								<IconRefresh />
 							</button>
+							<button
+								type="button"
+								className={`ref-icon-tile ${scmGrouped ? 'is-active' : ''}`}
+								aria-label={t('app.gitGroupToggleAria')}
+								aria-pressed={scmGrouped}
+								title={scmGrouped ? t('app.gitGroupOnTitle') : t('app.gitGroupOffTitle')}
+								onClick={toggleScmGrouped}
+							>
+								<IconFolderOpen />
+							</button>
 							<span className="ref-local-label">{t('app.gitLocal')}</span>
 							<span className="ref-branch-chip">{gitBranch || '—'}</span>
 						</div>
@@ -2831,6 +2874,7 @@ const AgentRightSidebarGitPanel = memo(function AgentRightSidebarGitPanel({
 									onEnsurePreviews={(paths) => {
 										void loadGitDiffPreviews(paths);
 									}}
+									grouped={scmGrouped}
 								/>
 							) : null}
 							{gitUnavailableReason === 'none' && gitActionError ? (

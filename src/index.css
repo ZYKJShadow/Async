@@ -11961,6 +11961,96 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	gap: 10px;
 }
 
+.ref-git-cards--grouped {
+	gap: 8px;
+	padding-left: 12px;
+}
+
+.ref-git-groups {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.ref-git-group {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.ref-git-group-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 6px;
+	border: none;
+	background: transparent;
+	color: var(--void-fg-2);
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	text-align: left;
+	border-radius: 6px;
+}
+
+.ref-git-group-head:hover {
+	background: var(--void-bg-2);
+	color: var(--void-fg-0);
+}
+
+.ref-git-group-chev {
+	flex-shrink: 0;
+	transition: transform 120ms ease;
+}
+
+.ref-git-group-head.is-collapsed .ref-git-group-chev {
+	transform: rotate(-90deg);
+}
+
+.ref-git-group-body {
+	display: grid;
+	grid-template-rows: 1fr;
+	transition: grid-template-rows 200ms ease, opacity 180ms ease;
+	opacity: 1;
+}
+
+.ref-git-group-body.is-collapsed {
+	grid-template-rows: 0fr;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.ref-git-group-body-inner {
+	min-height: 0;
+	overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ref-git-group-body {
+		transition: none;
+	}
+	.ref-git-group-chev {
+		transition: none;
+	}
+}
+
+.ref-git-group-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ref-git-group-count {
+	flex-shrink: 0;
+	font-size: 11px;
+	color: var(--void-fg-3);
+	background: var(--void-bg-2);
+	padding: 1px 7px;
+	border-radius: var(--void-pill);
+}
+
 .ref-git-card {
 	border-radius: 12px;
 	border: 1px solid var(--void-border-soft);
