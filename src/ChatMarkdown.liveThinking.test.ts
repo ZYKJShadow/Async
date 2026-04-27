@@ -70,6 +70,21 @@ describe('ChatMarkdown live thinking status', () => {
 		expect(html).not.toContain('Prepare the final response');
 	});
 
+	it('renders the live thinking status outside the preflight shell', () => {
+		const html = renderChatMarkdown({
+			content: '',
+			agentUi: true,
+			showAgentWorking: true,
+			liveThoughtMeta,
+			renderMode: 'preflight',
+			preserveLivePreflight: true,
+		});
+
+		expect(html).toContain('ref-live-thinking-status');
+		expect(html).not.toContain('ref-preflight-shell');
+		expect(html).not.toContain('ref-preflight-thinking');
+	});
+
 	it('does not render ref-thought-block for live all-mode thinking', () => {
 		const html = renderChatMarkdown({
 			content: '',
@@ -84,5 +99,37 @@ describe('ChatMarkdown live thinking status', () => {
 		expect(html).not.toContain('ref-thought-block');
 		expect(html).not.toContain('Inspect the current UI state');
 		expect(html).not.toContain('Prepare the final response');
+	});
+
+	it('moves the live thinking status to the outcome tail once the reply has started', () => {
+		const content = [
+			'先检查上下文。',
+			'<tool_call tool="begin_outcome">{}</tool_call>',
+			'这是正在流式输出的正式回复。',
+		].join('\n');
+
+		const preflightHtml = renderChatMarkdown({
+			content,
+			agentUi: true,
+			showAgentWorking: true,
+			liveThoughtMeta,
+			renderMode: 'preflight',
+			preserveLivePreflight: true,
+		});
+		const outcomeHtml = renderChatMarkdown({
+			content,
+			agentUi: true,
+			showAgentWorking: true,
+			liveThoughtMeta,
+			renderMode: 'outcome',
+			preserveLivePreflight: true,
+		});
+
+		expect(preflightHtml).not.toContain('ref-live-thinking-status');
+		expect(outcomeHtml).toContain('这是正在流式输出的正式回复。');
+		expect(outcomeHtml).toContain('ref-live-thinking-status');
+		expect(outcomeHtml.indexOf('这是正在流式输出的正式回复。')).toBeLessThan(
+			outcomeHtml.indexOf('ref-live-thinking-status')
+		);
 	});
 });
