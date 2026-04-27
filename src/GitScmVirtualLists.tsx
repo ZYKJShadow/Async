@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { changeBadgeLabel, changeBadgeVariant } from './gitBadge';
 import { FileTypeIcon } from './fileTypeIcons';
 import type { TFunction } from './i18n';
-import { IconEye } from './icons';
+import { IconChevron, IconEye } from './icons';
 import type { GitPathStatusMap } from './WorkspaceExplorer';
 import {
 	agentFilePreviewPathToLang,
@@ -324,7 +324,33 @@ const AgentGitScmStaticCards = memo(function AgentGitScmStaticCards({
 	);
 });
 
-export const AgentGitScmChangedCards = memo(function AgentGitScmChangedCards({
+/** 把改动路径按一级父目录分组，根目录归到 '' 组；返回顺序按目录字典序，根目录置顶 */
+export function groupPathsByDir(paths: readonly string[]): Array<{ dir: string; paths: string[] }> {
+	const map = new Map<string, string[]>();
+	for (const rel of paths) {
+		const norm = rel.replace(/\\/g, '/');
+		const idx = norm.lastIndexOf('/');
+		const dir = idx < 0 ? '' : norm.slice(0, idx);
+		const arr = map.get(dir);
+		if (arr) {
+			arr.push(rel);
+		} else {
+			map.set(dir, [rel]);
+		}
+	}
+	const dirs = Array.from(map.keys()).sort((a, b) => {
+		if (a === '') {
+			return -1;
+		}
+		if (b === '') {
+			return 1;
+		}
+		return a.localeCompare(b);
+	});
+	return dirs.map((dir) => ({ dir, paths: map.get(dir)! }));
+}
+
+const AgentGitScmGroupedCards = memo(function AgentGitScmGroupedCards({
 	paths,
 	diffPreviews,
 	gitPathStatus,
@@ -341,6 +367,116 @@ export const AgentGitScmChangedCards = memo(function AgentGitScmChangedCards({
 	onOpenGitDiff: (rel: string, diff: string | null) => void;
 	onEnsurePreviews?: (paths: readonly string[]) => void;
 }) {
+	const { expandedRel, toggleRel } = useAgentGitAccordion(paths);
+	const groups = useMemo(() => groupPathsByDir(paths), [paths]);
+	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
+	useEffect(() => {
+		setCollapsedDirs((cur) => {
+			const validDirs = new Set(groups.map((g) => g.dir));
+			let changed = false;
+			const next = new Set<string>();
+			for (const d of cur) {
+				if (validDirs.has(d)) {
+					next.add(d);
+				} else {
+					changed = true;
+				}
+			}
+			return changed ? next : cur;
+		});
+	}, [groups]);
+	const toggleDir = useCallback((dir: string) => {
+		setCollapsedDirs((cur) => {
+			const next = new Set(cur);
+			if (next.has(dir)) {
+				next.delete(dir);
+			} else {
+				next.add(dir);
+			}
+			return next;
+		});
+	}, []);
+
+	return (
+		<div className="ref-git-changed-scroll">
+			<div className="ref-git-groups">
+				{groups.map(({ dir, paths: groupPaths }) => {
+					const collapsed = collapsedDirs.has(dir);
+					const label = dir === '' ? t('app.gitGroupRoot') : dir;
+					return (
+						<section key={dir || '__root__'} className="ref-git-group">
+							<button
+								type="button"
+								className={`ref-git-group-head ${collapsed ? 'is-collapsed' : ''}`}
+								onClick={() => toggleDir(dir)}
+								aria-expanded={!collapsed}
+							>
+								<IconChevron className="ref-git-group-chev" />
+								<span className="ref-git-group-name" title={label}>
+									{label}
+								</span>
+								<span className="ref-git-group-count">{groupPaths.length}</span>
+							</button>
+							<div className={`ref-git-group-body ${collapsed ? 'is-collapsed' : ''}`} aria-hidden={collapsed}>
+								<div className="ref-git-group-body-inner">
+									<div className="ref-git-cards ref-git-cards--grouped">
+										{groupPaths.map((rel) => (
+											<AgentGitChangeCard
+												key={rel}
+												rel={rel}
+												pr={diffPreviews[rel]}
+												st={gitPathStatus[rel]}
+												diffLoading={diffLoading}
+												t={t}
+												onOpenGitDiff={onOpenGitDiff}
+												onEnsurePreview={onEnsurePreviews ? (r) => onEnsurePreviews([r]) : undefined}
+												diffOpen={!collapsed && expandedRel === rel}
+												onToggleDiffOpen={() => toggleRel(rel)}
+											/>
+										))}
+									</div>
+								</div>
+							</div>
+						</section>
+					);
+				})}
+			</div>
+		</div>
+	);
+});
+
+export const AgentGitScmChangedCards = memo(function AgentGitScmChangedCards({
+	paths,
+	diffPreviews,
+	gitPathStatus,
+	diffLoading,
+	t,
+	onOpenGitDiff,
+	onEnsurePreviews,
+	grouped,
+}: {
+	paths: string[];
+	diffPreviews: Record<string, DiffPreview>;
+	gitPathStatus: GitPathStatusMap;
+	diffLoading: boolean;
+	t: TFunction;
+	onOpenGitDiff: (rel: string, diff: string | null) => void;
+	onEnsurePreviews?: (paths: readonly string[]) => void;
+	grouped?: boolean;
+}) {
+	if (grouped) {
+		return (
+			<AgentGitScmGroupedCards
+				paths={paths}
+				diffPreviews={diffPreviews}
+				gitPathStatus={gitPathStatus}
+				diffLoading={diffLoading}
+				t={t}
+				onOpenGitDiff={onOpenGitDiff}
+				onEnsurePreviews={onEnsurePreviews}
+			/>
+		);
+	}
 	if (paths.length >= AGENT_GIT_SCM_VIRTUAL_THRESHOLD) {
 		return (
 			<AgentGitScmVirtualCards

@@ -21,7 +21,14 @@ export function selectAgentSidebarThreadPaths(params: {
 	limit?: number;
 }): string[] {
 	const currentKey = params.currentWorkspace ? normWorkspaceRootKey(params.currentWorkspace) : null;
-	const visible = uniqueByWorkspaceKey(params.orderedPaths);
+	const hiddenKeys = new Set<string>();
+	for (const path of params.hiddenPaths) {
+		const key = normWorkspaceRootKey(path);
+		if (key) hiddenKeys.add(key);
+	}
+	const visible = uniqueByWorkspaceKey(params.orderedPaths).filter(
+		(path) => !hiddenKeys.has(normWorkspaceRootKey(path))
+	);
 	if (params.limit == null) {
 		return visible;
 	}

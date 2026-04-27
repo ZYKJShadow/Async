@@ -41,7 +41,7 @@ describe('selectAgentSidebarThreadPaths', () => {
 		).toHaveLength(12);
 	});
 
-	it('ignores stale hidden state so conversation workspaces remain visible', () => {
+	it('filters out hidden workspaces so removed entries do not reappear', () => {
 		expect(
 			selectAgentSidebarThreadPaths({
 				orderedPaths: ['D:/work/A', 'D:/work/B'],
@@ -49,6 +49,6 @@ describe('selectAgentSidebarThreadPaths', () => {
 				currentWorkspace: null,
 				limit: 8,
 			})
-		).toEqual(['D:/work/A', 'D:/work/B']);
+		).toEqual(['D:/work/A']);
 	});
 });

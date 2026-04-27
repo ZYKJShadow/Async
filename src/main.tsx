@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { AppErrorBoundary } from './AppErrorBoundary';
 import { applyAppearanceSettingsToDom } from './appearanceSettings';
 import { APP_UI_STYLE, readPrefersDark, readStoredColorMode, resolveEffectiveScheme } from './colorMode';
 import { readInitialWindowThemeSnapshot } from './initialWindowTheme';
@@ -75,14 +76,16 @@ const terminalStartPage = readTerminalStartPageFlagFromUrl();
 
 createRoot(document.getElementById('root')!).render(
 	<StrictMode>
-		<I18nProvider>
-			<App
-				appSurface={appSurface}
-				browserWindow={browserWindow}
-				initialThemeSnapshot={initialThemeSnapshot}
-				terminalWindow={terminalWindow}
-				terminalStartPage={terminalStartPage}
-			/>
-		</I18nProvider>
+		<AppErrorBoundary>
+			<I18nProvider>
+				<App
+					appSurface={appSurface}
+					browserWindow={browserWindow}
+					initialThemeSnapshot={initialThemeSnapshot}
+					terminalWindow={terminalWindow}
+					terminalStartPage={terminalStartPage}
+				/>
+			</I18nProvider>
+		</AppErrorBoundary>
 	</StrictMode>
 );

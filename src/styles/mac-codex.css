@@ -3324,6 +3324,21 @@
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 4%, transparent);
 }
 
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-shell:hover::before,
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-group.is-menu-open .ref-agent-workspace-row-shell::before {
+	background: color-mix(in srgb, var(--color-text-tertiary) 10%, transparent);
+	box-shadow: none;
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-shell.is-active::before {
+	background: color-mix(in srgb, var(--color-accent) 11%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row-shell.is-active:hover::before {
+	background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-workspace-row {
 	padding: 6px 8px 6px 6px;
 	border-radius: 9px;
@@ -3447,12 +3462,17 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item:hover {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 78%, transparent);
+	background: color-mix(in srgb, var(--color-text-tertiary) 10%, transparent);
+	box-shadow: none;
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-active {
-	background: color-mix(in srgb, var(--surface-panel-bg-soft) 92%, var(--surface-tint-soft));
-	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 16%, transparent);
+	background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-active:hover {
+	background: color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-awaiting-reply {
