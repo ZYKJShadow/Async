@@ -1314,7 +1314,16 @@ export function registerIpc(): void {
 						ruleContext: threadTitleRuleContext,
 					});
 				}
-				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
+				runChatStream(
+					win,
+					threadId,
+					t.messages,
+					creatorAgentMode,
+					modelSelection,
+					finalSystemAppend,
+					streamNonce,
+					prepared.readableRoots
+				);
 				return { ok: true as const };
 			}
 
@@ -1354,7 +1363,16 @@ export function registerIpc(): void {
 						ruleContext: threadTitleRuleContext,
 					});
 				}
-				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
+				runChatStream(
+					win,
+					threadId,
+					t.messages,
+					creatorAgentMode,
+					modelSelection,
+					finalSystemAppend,
+					streamNonce,
+					prepared.readableRoots
+				);
 				return { ok: true as const };
 			}
 
@@ -1391,11 +1409,20 @@ export function registerIpc(): void {
 						ruleContext: threadTitleRuleContext,
 					});
 				}
-				runChatStream(win, threadId, t.messages, creatorAgentMode, modelSelection, finalSystemAppend, streamNonce);
+				runChatStream(
+					win,
+					threadId,
+					t.messages,
+					creatorAgentMode,
+					modelSelection,
+					finalSystemAppend,
+					streamNonce,
+					prepared.readableRoots
+				);
 				return { ok: true as const };
 			}
 
-			const { userText, agentSystemAppend } = prepareUserTurnForChat(
+			const { userText, agentSystemAppend, readableRoots } = prepareUserTurnForChat(
 				text,
 				agentForTurn,
 				root,
@@ -1438,7 +1465,7 @@ export function registerIpc(): void {
 			logChatPipelineLatency('chat:ipc', threadId, chatSendLatencyT0, 'before runChatStream (IPC returns soon)', {
 				persistedMsgCount: t.messages.length,
 			});
-			runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend, streamNonce);
+			runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend, streamNonce, readableRoots);
 
 			return { ok: true as const };
 			} catch (e) {
@@ -1513,7 +1540,7 @@ export function registerIpc(): void {
 					workspaceRoot: root,
 					uiLanguage: lang,
 				});
-				const { userText, agentSystemAppend } = prepareUserTurnForChat(
+				const { userText, agentSystemAppend, readableRoots } = prepareUserTurnForChat(
 					trimmed,
 					agentForTurn,
 					root,
@@ -1543,7 +1570,7 @@ export function registerIpc(): void {
 						ruleContext: threadTitleRuleContext,
 					});
 				}
-				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend, streamNonce);
+				runChatStream(win, threadId, t.messages, mode, modelSelection, finalSystemAppend, streamNonce, readableRoots);
 				return { ok: true as const };
 			} catch (e) {
 				if (preflightAc.signal.aborted || (e instanceof Error && e.name === 'AbortError')) {

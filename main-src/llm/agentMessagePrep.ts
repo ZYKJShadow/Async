@@ -23,6 +23,73 @@ function readTextFileSafe(fullPath: string, maxChars: number): string {
 	}
 }
 
+function normalizeAbsPath(filePath: string): string {
+	return path.resolve(filePath);
+}
+
+function normalizePathForPrompt(filePath: string): string {
+	const resolved = normalizeAbsPath(filePath);
+	return process.platform === 'win32' ? resolved.replace(/\\/g, '/') : resolved;
+}
+
+function uniqueAbsPaths(paths: Array<string | undefined>): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	for (const p of paths) {
+		if (!p?.trim()) {
+			continue;
+		}
+		const resolved = normalizeAbsPath(p);
+		const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		out.push(resolved);
+	}
+	return out;
+}
+
+function collectSkillReadableRoots(skill: AgentSkill): string[] {
+	return uniqueAbsPaths([skill.skillBaseDirAbs, skill.pluginRootAbs]);
+}
+
+function collectCommandReadableRoots(command: AgentCommand): string[] {
+	return uniqueAbsPaths([command.commandBaseDirAbs, command.pluginRootAbs]);
+}
+
+function renderSkillContent(skill: AgentSkill): string {
+	const skillDir = skill.skillBaseDirAbs ? normalizePathForPrompt(skill.skillBaseDirAbs) : '';
+	const pluginRoot = skill.pluginRootAbs ? normalizePathForPrompt(skill.pluginRootAbs) : '';
+	const header: string[] = [];
+	if (skillDir) {
+		header.push(`Base directory for this skill: ${skillDir}`);
+	}
+	if (pluginRoot) {
+		header.push(`Plugin root directory (\${CLAUDE_PLUGIN_ROOT}): ${pluginRoot}`);
+	}
+	let content = skill.content ?? '';
+	if (skillDir) {
+		content = content.replace(/\$\{CLAUDE_SKILL_DIR\}/g, skillDir);
+	}
+	if (pluginRoot) {
+		content = content.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, pluginRoot);
+	}
+	const rendered = content.trim();
+	return header.length > 0 ? `${header.join('\n')}\n\n${rendered}` : rendered;
+}
+
+function renderCommandBody(command: AgentCommand, body: string): string {
+	let rendered = body;
+	if (command.commandBaseDirAbs) {
+		rendered = rendered.replace(/\$\{CLAUDE_SKILL_DIR\}/g, normalizePathForPrompt(command.commandBaseDirAbs));
+	}
+	if (command.pluginRootAbs) {
+		rendered = rendered.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, normalizePathForPrompt(command.pluginRootAbs));
+	}
+	return rendered;
+}
+
 /** 简单剥离 `---` YAML frontmatter */
 function stripSimpleFrontmatter(md: string): { body: string; title?: string; description?: string } {
 	const t = md.trim();
@@ -88,6 +155,7 @@ function scanSkillsDirectory(
 				enabled: true,
 				origin: 'project',
 				skillSourceRelPath,
+				skillBaseDirAbs: path.dirname(path.resolve(skillPath)),
 			});
 		}
 	} catch {
@@ -331,10 +399,10 @@ function escapeRe(s: string): string {
 export function applySlashCommands(
 	text: string,
 	commands: AgentCommand[] | undefined
-): { userText: string; slashSystemBlock: string } {
+): { userText: string; slashSystemBlock: string; readableRoots: string[] } {
 	const raw = text.trim();
 	if (!commands?.length) {
-		return { userText: raw, slashSystemBlock: '' };
+		return { userText: raw, slashSystemBlock: '', readableRoots: [] };
 	}
 	const sorted = [...commands].filter((c) => c.slash.trim()).sort((a, b) => b.slash.length - a.slash.length);
 	for (const c of sorted) {
@@ -345,23 +413,25 @@ export function applySlashCommands(
 		}
 		const rest = raw.replace(re, '').trim();
 		if (c.invocation === 'prompt') {
-			const rendered = (c.body ?? '').replace(/\$ARGUMENTS\b/g, rest || '(none)');
+			const rendered = renderCommandBody(c, c.body ?? '').replace(/\$ARGUMENTS\b/g, rest || '(none)');
 			return {
 				userText: rest || `Execute the /${slash} workflow.`,
 				slashSystemBlock: `#### Slash command: /${slash}\n${
 					c.description ? `${c.description}\n\n` : ''
 				}${rendered.trim()}`,
+				readableRoots: collectCommandReadableRoots(c),
 			};
 		}
-		let body = (c.body ?? '').trim();
+		let body = renderCommandBody(c, c.body ?? '').trim();
 		body = body.replace(/\{\{\s*args\s*\}\}/gi, rest);
 		body = body.replace(/\{\{\s*input\s*\}\}/gi, rest);
 		return {
 			userText: body.length > 0 ? body : rest,
 			slashSystemBlock: '',
+			readableRoots: collectCommandReadableRoots(c),
 		};
 	}
-	return { userText: raw, slashSystemBlock: '' };
+	return { userText: raw, slashSystemBlock: '', readableRoots: [] };
 }
 
 const SKILL_LEAD = /^\s*\.\/([\w.-]+)\s*([\s\S]*)$/;
@@ -370,21 +440,21 @@ const SKILL_LEAD = /^\s*\.\/([\w.-]+)\s*([\s\S]*)$/;
 export function applySkillInvocation(
 	text: string,
 	skills: AgentSkill[] | undefined
-): { userText: string; skillSystemBlock: string; usedSkillSlug?: string } {
+): { userText: string; skillSystemBlock: string; usedSkillSlug?: string; readableRoots: string[] } {
 	const raw = text.trim();
 	const m = raw.match(SKILL_LEAD);
 	if (!m || !skills?.length) {
-		return { userText: raw, skillSystemBlock: '' };
+		return { userText: raw, skillSystemBlock: '', readableRoots: [] };
 	}
 	const slug = m[1]!.toLowerCase();
 	const rest = (m[2] ?? '').trim();
 	const sk = skills.find((s) => s.slug.trim().toLowerCase() === slug && s.enabled !== false);
 	if (!sk) {
-		return { userText: raw, skillSystemBlock: '' };
+		return { userText: raw, skillSystemBlock: '', readableRoots: [] };
 	}
 	const userText = rest.length > 0 ? rest : '（已调用 Skill，请按下列说明执行。）';
-	const skillSystemBlock = `#### Skill: ${sk.name}\n${sk.description ? `${sk.description}\n\n` : ''}${sk.content}`;
-	return { userText, skillSystemBlock, usedSkillSlug: sk.slug };
+	const skillSystemBlock = `#### Skill: ${sk.name}\n${sk.description ? `${sk.description}\n\n` : ''}${renderSkillContent(sk)}`;
+	return { userText, skillSystemBlock, usedSkillSlug: sk.slug, readableRoots: collectSkillReadableRoots(sk) };
 }
 
 function pathMatchesGlob(relPath: string, pattern: string): boolean {
@@ -568,6 +638,8 @@ export type PreparedUserTurn = {
 	atPaths: string[];
 	/** 本次用户消息触发使用的 Skill slug（如果有） */
 	usedSkillSlug?: string;
+	/** 本轮被 slash/skill 激活的只读资源根目录 */
+	readableRoots: string[];
 };
 
 export function prepareUserTurnForChat(
@@ -577,7 +649,7 @@ export function prepareUserTurnForChat(
 	workspaceFiles: string[],
 	uiLanguage: 'zh-CN' | 'en'
 ): PreparedUserTurn {
-	const { userText: afterCmd, slashSystemBlock } = applySlashCommands(rawText, agent?.commands);
+	const { userText: afterCmd, slashSystemBlock, readableRoots: slashReadableRoots } = applySlashCommands(rawText, agent?.commands);
 	const { userText: afterManual, manualBlocks } = applyManualRuleInvocations(afterCmd, agent?.rules);
 	const wsSkills = workspaceRoot ? loadClaudeWorkspaceSkills(workspaceRoot) : [];
 	const globalSkills = loadGlobalSkills();
@@ -588,7 +660,7 @@ export function prepareUserTurnForChat(
 	const agentWithDisk: AgentCustomization | undefined = agent
 		? { ...agent, skills: mergedSkills, subagents: mergedSubagents }
 		: agent;
-	const { userText, skillSystemBlock, usedSkillSlug } = applySkillInvocation(afterManual, mergedSkills);
+	const { userText, skillSystemBlock, usedSkillSlug, readableRoots: skillReadableRoots } = applySkillInvocation(afterManual, mergedSkills);
 	const atPaths = workspaceRoot ? collectAtWorkspacePathsInText(userText, workspaceFiles) : [];
 	const cursorRules = workspaceRoot ? loadThirdPartyAgentRules(workspaceRoot) : '';
 	const claudeRules = workspaceRoot ? loadClaudeProjectRulesMarkdown(workspaceRoot) : '';
@@ -603,5 +675,11 @@ export function prepareUserTurnForChat(
 		uiLanguage,
 		manualRuleBlocks: manualBlocks,
 	});
-	return { userText, agentSystemAppend, atPaths, usedSkillSlug };
+	return {
+		userText,
+		agentSystemAppend,
+		atPaths,
+		usedSkillSlug,
+		readableRoots: uniqueAbsPaths([...slashReadableRoots, ...skillReadableRoots]),
+	};
 }

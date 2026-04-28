@@ -1168,6 +1168,7 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 					signal,
 					thinkingLevel,
 					workspaceRoot: session.workspaceRoot,
+					extraReadableRoots: prepared.readableRoots,
 					workspaceLspManager,
 					hostWebContentsId,
 					emit: (evt) => {
@@ -1244,6 +1245,7 @@ async function runBotAsyncTask(args: RunBotAsyncTaskArgs): Promise<string> {
 						maxConsecutiveMistakes: effectiveSettings.agent?.maxConsecutiveMistakes,
 						mistakeLimitEnabled: effectiveSettings.agent?.mistakeLimitEnabled,
 						workspaceRoot: session.workspaceRoot,
+						extraReadableRoots: prepared.readableRoots,
 						workspaceLspManager,
 						threadId,
 						hostWebContentsId,

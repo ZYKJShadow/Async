@@ -245,8 +245,10 @@ function collectSkillItemsFromDir(
 			content: body.trim(),
 			enabled: true,
 			origin: scope,
+			skillBaseDirAbs: path.resolve(skillDir),
 			pluginSourceName: pluginName,
 			pluginSourceRelPath: relativePluginPath(pluginRoot, skillPath),
+			pluginRootAbs: path.resolve(pluginRoot),
 			pluginSourceKind: sourceKind,
 		});
 	};
@@ -295,8 +297,10 @@ function collectAgentItemsFromPaths(
 			content: body.trim(),
 			enabled: true,
 			origin: scope,
+			skillBaseDirAbs: path.dirname(path.resolve(resolved)),
 			pluginSourceName: pluginName,
 			pluginSourceRelPath: relativePluginPath(pluginRoot, resolved),
+			pluginRootAbs: path.resolve(pluginRoot),
 			pluginSourceKind: 'agent',
 		});
 	}
@@ -357,8 +361,10 @@ function collectCommandItems(
 				body: body.trim(),
 				invocation: 'prompt',
 				origin: scope,
+				commandBaseDirAbs: path.dirname(path.resolve(filePath)),
 				pluginSourceName: pluginName,
 				pluginSourceRelPath: relativePluginPath(pluginRoot, filePath),
+				pluginRootAbs: path.resolve(pluginRoot),
 			});
 		}
 	}

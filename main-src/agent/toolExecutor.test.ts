@@ -140,6 +140,112 @@ describe('executeTool file encoding', () => {
 	});
 });
 
+describe('executeTool active skill/plugin readable roots', () => {
+	it('allows Read to resolve files from registered read-only plugin roots', async () => {
+		const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-read-workspace-'));
+		const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-read-plugin-'));
+		const refFile = path.join(pluginRoot, '知识库', 'ref.md');
+		fs.mkdirSync(path.dirname(refFile), { recursive: true });
+		fs.writeFileSync(refFile, 'plugin reference body', 'utf8');
+
+		const result = await executeTool(
+			{
+				id: 'read-plugin-root',
+				name: 'Read',
+				arguments: { file_path: '/知识库/ref.md' },
+			},
+			undefined,
+			{ workspaceRoot, extraReadableRoots: [pluginRoot] }
+		);
+
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain('plugin reference body');
+	});
+
+	it('keeps Write constrained to the workspace even when plugin roots are readable', async () => {
+		const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-write-workspace-'));
+		const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-write-plugin-'));
+
+		const result = await executeTool(
+			{
+				id: 'write-plugin-root',
+				name: 'Write',
+				arguments: { file_path: path.join(pluginRoot, 'ref.md'), content: 'nope' },
+			},
+			undefined,
+			{ workspaceRoot, extraReadableRoots: [pluginRoot] }
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain('Path escapes workspace boundary');
+		expect(fs.existsSync(path.join(pluginRoot, 'ref.md'))).toBe(false);
+	});
+
+	it('rejects relative path escapes from registered readable roots', async () => {
+		const parentRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-readable-boundary-'));
+		const workspaceRoot = path.join(parentRoot, 'workspace');
+		const pluginRoot = path.join(parentRoot, 'plugin');
+		fs.mkdirSync(workspaceRoot, { recursive: true });
+		fs.mkdirSync(pluginRoot, { recursive: true });
+		fs.writeFileSync(path.join(parentRoot, 'outside.md'), 'outside', 'utf8');
+
+		const result = await executeTool(
+			{
+				id: 'read-plugin-escape',
+				name: 'Read',
+				arguments: { file_path: '../outside.md' },
+			},
+			undefined,
+			{ workspaceRoot, extraReadableRoots: [pluginRoot] }
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain('Path escapes workspace and registered skill/plugin roots');
+	});
+
+	it('returns absolute paths for Glob results under plugin roots', async () => {
+		const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-glob-workspace-'));
+		const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-glob-plugin-'));
+		const refFile = path.join(pluginRoot, 'templates', 'viewer.html');
+		fs.mkdirSync(path.dirname(refFile), { recursive: true });
+		fs.writeFileSync(refFile, '<html></html>', 'utf8');
+
+		const result = await executeTool(
+			{
+				id: 'glob-plugin-root',
+				name: 'Glob',
+				arguments: { pattern: 'templates/*.html', path: pluginRoot },
+			},
+			undefined,
+			{ workspaceRoot, extraReadableRoots: [pluginRoot] }
+		);
+
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain(refFile.replace(/\\/g, '/'));
+	});
+
+	it('allows list_dir to inspect registered read-only plugin roots', async () => {
+		const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-list-workspace-'));
+		const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'async-list-plugin-'));
+		const refDir = path.join(pluginRoot, 'templates');
+		fs.mkdirSync(refDir, { recursive: true });
+		fs.writeFileSync(path.join(refDir, 'viewer.html'), '<html></html>', 'utf8');
+
+		const result = await executeTool(
+			{
+				id: 'list-plugin-root',
+				name: 'list_dir',
+				arguments: { path: '/templates' },
+			},
+			undefined,
+			{ workspaceRoot, extraReadableRoots: [pluginRoot] }
+		);
+
+		expect(result.isError).toBe(false);
+		expect(result.content).toContain('[file] viewer.html');
+	});
+});
+
 describe('executeTool Browser', () => {
 	it('fails gracefully when no host window is attached', async () => {
 		const result = await executeTool({

@@ -284,6 +284,8 @@ export type AgentLoopOptions = {
 	delegateExecutionDepth?: number;
 	/** 发起 Agent 的窗口当前工作区根 */
 	workspaceRoot?: string | null;
+	/** 本轮激活的 Skill/插件只读资源根目录 */
+	extraReadableRoots?: string[];
 	/** 与 workspaceRoot 同窗的多语言 LSP 路由（插件 `.lsp.json` + 可选 settings.lsp 迁移 + 若存在则探测 typescript-language-server） */
 	workspaceLspManager?: WorkspaceLspManager | null;
 	/** 当前会话线程 ID，用于 TodoWrite 等按线程隔离状态的工具 */
@@ -870,6 +872,7 @@ async function runOpenAILoop(
 	const toolExecCtx: ToolExecutionContext = {
 		delegateExecutionDepth: options.delegateExecutionDepth ?? 0,
 		workspaceRoot: options.workspaceRoot ?? null,
+		extraReadableRoots: options.extraReadableRoots,
 		workspaceLspManager: options.workspaceLspManager ?? null,
 		threadId: options.threadId ?? null,
 		hostWebContentsId: options.hostWebContentsId ?? null,
@@ -1513,6 +1516,7 @@ async function runAnthropicLoop(
 	const toolExecCtx: ToolExecutionContext = {
 		delegateExecutionDepth: options.delegateExecutionDepth ?? 0,
 		workspaceRoot: options.workspaceRoot ?? null,
+		extraReadableRoots: options.extraReadableRoots,
 		workspaceLspManager: options.workspaceLspManager ?? null,
 		threadId: options.threadId ?? null,
 		hostWebContentsId: options.hostWebContentsId ?? null,

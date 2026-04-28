@@ -78,13 +78,13 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Read',
 		description:
-			'Read a text file under the workspace. Returns content with line numbers (padded line number, pipe, then line). Prefer this over shell cat/type/Get-Content. **file_path** may be absolute if it stays inside the workspace, or relative to the workspace root. By default reads up to 2000 lines starting at line **offset** (1-based); use **limit** for a smaller window or paginate with **offset** on huge files.',
+			'Read a text file under the workspace or the active Skill/plugin read-only resource roots. Returns content with line numbers (padded line number, pipe, then line). Prefer this over shell cat/type/Get-Content. **file_path** may be absolute if it stays inside the workspace or active Skill/plugin roots, or relative to the workspace root; when a relative path is not found in the workspace, active Skill/plugin roots are tried. By default reads up to 2000 lines starting at line **offset** (1-based); use **limit** for a smaller window or paginate with **offset** on huge files.',
 		parameters: {
 			type: 'object',
 			properties: {
 				file_path: {
 					type: 'string',
-					description: 'Path to the file: workspace-relative, or absolute if under the workspace root.',
+					description: 'Path to the file: workspace-relative, Skill/plugin-root-relative, or absolute if under the workspace or active Skill/plugin roots.',
 				},
 				offset: {
 					type: 'number',
@@ -102,13 +102,13 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'view_image',
 		description:
-			'Load a local image file from the workspace for model inspection. Prefer this over **Browser** when the target is an existing local PNG/JPG/JPEG/GIF/WEBP file rather than a webpage. Accepts a workspace-relative path, or an absolute path if it stays inside the workspace root.',
+			'Load a local image file from the workspace or active Skill/plugin read-only resource roots for model inspection. Prefer this over **Browser** when the target is an existing local PNG/JPG/JPEG/GIF/WEBP file rather than a webpage. Accepts a workspace-relative or Skill/plugin-root-relative path, or an absolute path if it stays inside an allowed root.',
 		parameters: {
 			type: 'object',
 			properties: {
 				path: {
 					type: 'string',
-					description: 'Path to the image file: workspace-relative, or absolute if under the workspace root.',
+					description: 'Path to the image file: workspace-relative, Skill/plugin-root-relative, or absolute if under the workspace or active Skill/plugin roots.',
 				},
 				detail: {
 					type: 'string',
@@ -165,18 +165,18 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Glob',
 		description:
-			'Find files by glob pattern under the workspace (e.g. `**/*.ts`, `src/**/*.tsx`). Returns workspace-relative paths, sorted, up to 100 matches. Does not search file contents — use **Grep** for that.',
+			'Find files by glob pattern under the workspace or an active Skill/plugin read-only resource root (e.g. `**/*.ts`, `src/**/*.tsx`). Returns workspace-relative paths for workspace results and absolute paths for Skill/plugin results, sorted, up to 100 matches. Does not search file contents — use **Grep** for that.',
 		parameters: {
 			type: 'object',
 			properties: {
 				pattern: {
 					type: 'string',
-					description: 'Glob pattern (minimatch syntax), relative to the workspace root.',
+					description: 'Glob pattern (minimatch syntax), relative to the selected search root.',
 				},
 				path: {
 					type: 'string',
 					description:
-						'Optional subdirectory under the workspace to search in; omit to search from the workspace root.',
+						'Optional subdirectory under the workspace or active Skill/plugin roots to search in; omit to search from the workspace root.',
 				},
 			},
 			required: ['pattern'],
@@ -185,7 +185,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Grep',
 		description:
-			'A powerful search tool built on ripgrep.\n\nUsage:\n- ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` via Bash; this tool is wired for workspace-safe search.\n- Supports full regex (e.g. "log.*Error", "function\\s+\\w+").\n- Filter files with **glob** (e.g. "*.js", "*.{ts,tsx}") or **type** (e.g. "js", "py", "rust").\n- **output_mode**: "content" shows matching lines (with optional context via -A/-B/-C/context), "files_with_matches" lists paths only (default), "count" shows per-file match counts.\n- Use the **Agent** tool for open-ended searches that need many rounds.\n- Pattern syntax follows ripgrep (not GNU grep): brace literals may need escaping.\n- For patterns spanning lines, set **multiline** to true.\n- Optional **symbol**: when true, search exported symbol names (substring) via the workspace symbol index instead of grepping file contents.',
+			'A powerful search tool built on ripgrep.\n\nUsage:\n- ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` via Bash; this tool is wired for workspace-safe search.\n- Supports full regex (e.g. "log.*Error", "function\\s+\\w+").\n- Filter files with **glob** (e.g. "*.js", "*.{ts,tsx}") or **type** (e.g. "js", "py", "rust").\n- **output_mode**: "content" shows matching lines (with optional context via -A/-B/-C/context), "files_with_matches" lists paths only (default), "count" shows per-file match counts.\n- Use the **Agent** tool for open-ended searches that need many rounds.\n- Pattern syntax follows ripgrep (not GNU grep): brace literals may need escaping.\n- For patterns spanning lines, set **multiline** to true.\n- Optional **symbol**: when true, search exported symbol names (substring) via the workspace symbol index instead of grepping file contents.\n- **path** may target the workspace or an active Skill/plugin read-only root. Skill/plugin results are returned as absolute paths so they can be passed back to Read.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -196,7 +196,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 				path: {
 					type: 'string',
 					description:
-						'Optional path relative to workspace root: file or directory to search in. Omit to search from the workspace root.',
+						'Optional path relative to workspace root or active Skill/plugin roots: file or directory to search in. Omit to search from the workspace root.',
 				},
 				glob: {
 					type: 'string',
