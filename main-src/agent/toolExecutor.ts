@@ -10,8 +10,9 @@ import * as http from 'node:http';
 import * as https from 'node:https';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import { getThread } from '../threadStore.js';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { pathToFileURL, fileURLToPath, URL } from 'node:url';
 import { resolveWorkspacePath, isPathInsideRoot } from '../workspace.js';
 import { formatSymbolSearchResults, searchWorkspaceSymbols, ensureSymbolIndexLoaded } from '../workspaceSymbolIndex.js';
 import type { ToolCall, ToolResult } from './agentTools.js';
@@ -816,12 +817,179 @@ function parseDuckDuckGoHtml(html: string): Array<{ title: string; url: string; 
 	return results.slice(0, 8);
 }
 
-function performWebSearch(
+const WEB_SEARCH_TIMEOUT_MS = 15_000;
+
+type WindowsProxySettings = {
+	enabled: boolean;
+	server: string;
+	override: string;
+};
+
+function getEnvValue(names: string[]): string | undefined {
+	for (const name of names) {
+		const value = process.env[name];
+		if (value?.trim()) {
+			return value.trim();
+		}
+	}
+	return undefined;
+}
+
+function normalizeProxyUrl(rawProxy: string): string | null {
+	const value = rawProxy.trim().replace(/^"|"$/g, '');
+	if (!value || /^direct$/i.test(value)) {
+		return null;
+	}
+	const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `http://${value}`;
+	try {
+		const parsed = new URL(withScheme);
+		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:' || !parsed.hostname) {
+			return null;
+		}
+		return parsed.toString();
+	} catch {
+		return null;
+	}
+}
+
+function wildcardToRegex(pattern: string): RegExp {
+	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+	return new RegExp(`^${escaped}$`, 'i');
+}
+
+function shouldBypassProxy(hostname: string, rules: string | undefined): boolean {
+	if (!rules?.trim()) {
+		return false;
+	}
+	const host = hostname.toLowerCase();
+	for (const rawRule of rules.split(/[;,]/)) {
+		const rule = rawRule.trim().toLowerCase();
+		if (!rule) {
+			continue;
+		}
+		if (rule === '*') {
+			return true;
+		}
+		if (rule === '<local>' && !host.includes('.')) {
+			return true;
+		}
+		const hostRule = rule.replace(/:\d+$/, '');
+		if (hostRule.startsWith('*.')) {
+			const suffix = hostRule.slice(1);
+			if (host.endsWith(suffix) || host === suffix.slice(1)) {
+				return true;
+			}
+			continue;
+		}
+		if (hostRule.startsWith('.')) {
+			if (host.endsWith(hostRule) || host === hostRule.slice(1)) {
+				return true;
+			}
+			continue;
+		}
+		if (hostRule.includes('*')) {
+			if (wildcardToRegex(hostRule).test(host)) {
+				return true;
+			}
+			continue;
+		}
+		if (host === hostRule) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function parseWindowsProxyServer(proxyServer: string, targetProtocol: string): string | null {
+	const entries = proxyServer.split(';').map((entry) => entry.trim()).filter(Boolean);
+	const perProtocol = new Map<string, string>();
+	for (const entry of entries) {
+		const separatorIndex = entry.indexOf('=');
+		if (separatorIndex > 0) {
+			perProtocol.set(entry.slice(0, separatorIndex).trim().toLowerCase(), entry.slice(separatorIndex + 1).trim());
+		}
+	}
+	if (perProtocol.size > 0) {
+		const preferred = perProtocol.get(targetProtocol) ?? perProtocol.get('http') ?? perProtocol.get('https');
+		return preferred ? normalizeProxyUrl(preferred) : null;
+	}
+	return normalizeProxyUrl(proxyServer);
+}
+
+async function readWindowsProxySettings(): Promise<WindowsProxySettings | null> {
+	if (process.platform !== 'win32') {
+		return null;
+	}
+	try {
+		const { stdout } = await execFileAsync('reg', [
+			'query',
+			'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings',
+			'/v',
+			'ProxyEnable',
+		]);
+		const { stdout: serverStdout } = await execFileAsync('reg', [
+			'query',
+			'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings',
+			'/v',
+			'ProxyServer',
+		]);
+		const { stdout: overrideStdout } = await execFileAsync('reg', [
+			'query',
+			'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings',
+			'/v',
+			'ProxyOverride',
+		]).catch(() => ({ stdout: '' }));
+		const parseRegistryValue = (output: string | Buffer): string => {
+			const line = String(output).split(/\r?\n/).find((candidate) => /\s+REG_\w+\s+/i.test(candidate));
+			return line?.replace(/^.*?\s+REG_\w+\s+/i, '').trim() ?? '';
+		};
+		const enabledRaw = parseRegistryValue(stdout);
+		const enabled = Number.parseInt(enabledRaw, enabledRaw.toLowerCase().startsWith('0x') ? 16 : 10) !== 0;
+		return {
+			enabled,
+			server: parseRegistryValue(serverStdout),
+			override: parseRegistryValue(overrideStdout),
+		};
+	} catch {
+		return null;
+	}
+}
+
+async function getProxyUrlForRequest(targetUrl: URL): Promise<string | null> {
+	const envBypass = getEnvValue(['NO_PROXY', 'no_proxy']);
+	if (shouldBypassProxy(targetUrl.hostname, envBypass)) {
+		return null;
+	}
+	const envProxyNames =
+		targetUrl.protocol === 'https:'
+			? ['HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy', 'HTTP_PROXY', 'http_proxy']
+			: ['HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy'];
+	const envProxy = getEnvValue(envProxyNames);
+	const normalizedEnvProxy = envProxy ? normalizeProxyUrl(envProxy) : null;
+	if (normalizedEnvProxy) {
+		return normalizedEnvProxy;
+	}
+
+	const windowsProxy = await readWindowsProxySettings();
+	if (!windowsProxy?.enabled || !windowsProxy.server) {
+		return null;
+	}
+	if (shouldBypassProxy(targetUrl.hostname, windowsProxy.override)) {
+		return null;
+	}
+	return parseWindowsProxyServer(windowsProxy.server, targetUrl.protocol.replace(':', ''));
+}
+
+async function performWebSearch(
 	query: string,
 	signal?: AbortSignal
 ): Promise<Array<{ title: string; url: string; snippet: string }>> {
+	const url = new URL(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+	const proxyUrl = await getProxyUrlForRequest(url);
+	if (signal?.aborted) {
+		throw new DOMException('Aborted', 'AbortError');
+	}
 	return new Promise((resolve, reject) => {
-		const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
 		const req = https.get(
 			url,
 			{
@@ -831,7 +999,8 @@ function performWebSearch(
 					Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 					'Accept-Language': 'en-US,en;q=0.9',
 				},
-				timeout: 15_000,
+				agent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
+				timeout: WEB_SEARCH_TIMEOUT_MS,
 			},
 			(res) => {
 				if (signal?.aborted) {
@@ -861,7 +1030,7 @@ function performWebSearch(
 		req.on('error', (err) => reject(err));
 		req.on('timeout', () => {
 			req.destroy();
-			reject(new Error('Search request timed out after 15s'));
+			reject(new Error(`Search request timed out after ${WEB_SEARCH_TIMEOUT_MS / 1000}s`));
 		});
 		signal?.addEventListener('abort', () => {
 			req.destroy();

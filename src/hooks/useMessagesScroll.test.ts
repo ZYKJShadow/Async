@@ -7,6 +7,28 @@ import {
 	resolveContentBottomScroll,
 } from './useMessagesScroll';
 
+function fakeTrackWithDataRows(
+	rows: Array<{
+		dataset: Record<string, string | undefined>;
+		rect: Partial<DOMRect>;
+	}>
+): HTMLElement {
+	return {
+		querySelectorAll: (selector: string) =>
+			rows
+				.filter(
+					(row) =>
+						(selector.includes('[data-msg-index]') && row.dataset.msgIndex != null) ||
+						(selector.includes('[data-preflight-for]') && row.dataset.preflightFor != null) ||
+						(selector.includes('[data-content-bottom]') && row.dataset.contentBottom != null)
+				)
+				.map((row) => ({
+					dataset: row.dataset,
+					getBoundingClientRect: () => row.rect as DOMRect,
+				})) as unknown as NodeListOf<HTMLElement>,
+	} as unknown as HTMLElement;
+}
+
 describe('useMessagesScroll helpers', () => {
 	it('keeps follow-bottom intent during layout growth when the user was already pinned', () => {
 		expect(
@@ -82,6 +104,34 @@ describe('useMessagesScroll helpers', () => {
 					{ getBoundingClientRect: () => ({ bottom: 940 } as DOMRect) },
 				] as unknown as NodeListOf<HTMLElement>,
 		} as unknown as HTMLElement;
+
+		expect(resolveContentBottomScroll(viewport, track)).toBe(656);
+	});
+
+	it('includes team supplemental rows when resolving the bottom scroll target', () => {
+		const viewport = {
+			scrollHeight: 2000,
+			clientHeight: 400,
+			scrollTop: 120,
+			ownerDocument: {
+				defaultView: {
+					getComputedStyle: () => ({
+						paddingBottom: '96px',
+					}),
+				},
+			},
+			getBoundingClientRect: () => ({ top: 100 } as DOMRect),
+		} as unknown as HTMLElement;
+		const track = fakeTrackWithDataRows([
+			{
+				dataset: { msgIndex: '1' },
+				rect: { bottom: 360, height: 80 },
+			},
+			{
+				dataset: { contentBottom: 'true' },
+				rect: { bottom: 940, height: 160 },
+			},
+		]);
 
 		expect(resolveContentBottomScroll(viewport, track)).toBe(656);
 	});

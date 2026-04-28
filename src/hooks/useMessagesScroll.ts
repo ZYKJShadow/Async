@@ -53,7 +53,7 @@ export type UseMessagesScrollResult = {
 	syncMessagesScrollIndicators: () => void;
 };
 
-/** 计算滚动位置时，以「最后一条内容行（带 data-msg-index）的底部」为准，
+/** 计算滚动位置时，以「最后一条内容行（普通消息 / preflight / team 补充行）的底部」为准，
  *  而不是 track 的 scrollHeight 底部。这样 turn 容器 padding、tail spacer 等
  *  纯装饰性高度不会把视口顶下去；同时保留 messages viewport 自己的
  *  padding-bottom，让最后一条消息与底部输入区之间仍有安全呼吸感。 */
@@ -77,16 +77,20 @@ export function resolveContentBottomScroll(
 	if (!track) {
 		return Math.max(0, viewport.scrollHeight - viewport.clientHeight - bottomInset);
 	}
-	const messageRows = track.querySelectorAll<HTMLElement>(
-		'.ref-msg-row-measure[data-msg-index], .ref-msg-row-measure[data-preflight-for]'
+	const contentBottomRows = track.querySelectorAll<HTMLElement>(
+		[
+			'.ref-msg-row-measure[data-msg-index]',
+			'.ref-msg-row-measure[data-preflight-for]',
+			'.ref-msg-row-measure[data-content-bottom]',
+		].join(', ')
 	);
-	if (messageRows.length === 0) {
+	if (contentBottomRows.length === 0) {
 		return Math.max(0, viewport.scrollHeight - viewport.clientHeight - bottomInset);
 	}
 	const viewportRect = viewport.getBoundingClientRect();
 	let maxBottomInViewport = -Infinity;
 	let activePreflightTopInTrack: number | null = null;
-	for (const row of Array.from(messageRows)) {
+	for (const row of Array.from(contentBottomRows)) {
 		const rect = row.getBoundingClientRect();
 		const bottomInViewport = rect.bottom - viewportRect.top;
 		if (bottomInViewport > maxBottomInViewport) {
