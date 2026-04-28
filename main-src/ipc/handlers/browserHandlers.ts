@@ -50,8 +50,18 @@ import {
 	startBrowserCaptureProxyForHostId,
 	stopBrowserCaptureProxyForHostId,
 } from '../../browser/browserMitmProxy.js';
-import { CaInstaller } from '../../browser/browserCaInstaller.js';
+import { CaInstaller, type CaInstallScope } from '../../browser/browserCaInstaller.js';
 import { SystemProxy } from '../../browser/browserSystemProxy.js';
+
+function parseCaScope(options: unknown): CaInstallScope {
+	if (options && typeof options === 'object') {
+		const raw = (options as { scope?: unknown }).scope;
+		if (raw === 'machine') {
+			return 'machine';
+		}
+	}
+	return 'user';
+}
 
 /** Settings 顶部导航的合法 nav id；与原 register.ts 保持一致。 */
 const SETTINGS_OPEN_NAV_IDS = new Set([
@@ -556,10 +566,11 @@ export function registerBrowserHandlers(): void {
 		return { ok: true as const, status: getBrowserCaptureProxyStatusForHostId(hostId) };
 	});
 
-	ipcMain.handle('browserCapture:proxyCaInstall', async (event) => {
+	ipcMain.handle('browserCapture:proxyCaInstall', async (event, options: unknown) => {
 		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
 		const ca = exportBrowserCaptureProxyCaForHostId(hostId);
-		const result = await CaInstaller.install(ca.path);
+		const scope = parseCaScope(options);
+		const result = await CaInstaller.install(ca.path, scope);
 		if (!result.ok) {
 			return { ok: false as const, error: result.error };
 		}
@@ -568,10 +579,11 @@ export function registerBrowserHandlers(): void {
 		return { ok: true as const, installed };
 	});
 
-	ipcMain.handle('browserCapture:proxyCaUninstall', async (event) => {
+	ipcMain.handle('browserCapture:proxyCaUninstall', async (event, options: unknown) => {
 		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
 		const ca = exportBrowserCaptureProxyCaForHostId(hostId);
-		const result = await CaInstaller.uninstall(ca.path);
+		const scope = parseCaScope(options);
+		const result = await CaInstaller.uninstall(ca.path, scope);
 		if (!result.ok) {
 			return { ok: false as const, error: result.error };
 		}
