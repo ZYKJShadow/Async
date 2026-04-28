@@ -1516,15 +1516,34 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	);
 
 	const installBrowserCaptureProxyCa = useCallback(
-		async (uninstall: boolean = false) => {
+		async (uninstall: boolean = false, scope: 'user' | 'machine' = 'user') => {
 			if (!shell || captureProxyBusy) {
 				return;
+			}
+			const confirmKey = uninstall
+				? 'app.browserCaptureCaUninstallConfirm'
+				: scope === 'machine'
+					? 'app.browserCaptureCaInstallMachineConfirm'
+					: 'app.browserCaptureCaInstallConfirm';
+			const fallbackMsg = uninstall
+				? 'Remove the Async capture root certificate from the trust store?'
+				: scope === 'machine'
+					? 'Install the Async capture root CA system-wide? This requires administrator rights.'
+					: 'Install the Async capture root CA into your user trust store? Windows/macOS will ask you to confirm.';
+			const message = (() => {
+				const localized = t(confirmKey);
+				return localized && localized !== confirmKey ? localized : fallbackMsg;
+			})();
+			if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+				if (!window.confirm(message)) {
+					return;
+				}
 			}
 			setCaptureProxyBusy('ca');
 			setCaptureProxyError(null);
 			try {
 				const channel = uninstall ? 'browserCapture:proxyCaUninstall' : 'browserCapture:proxyCaInstall';
-				const payload = (await shell.invoke(channel)) as { ok?: boolean; installed?: boolean; error?: unknown };
+				const payload = (await shell.invoke(channel, { scope })) as { ok?: boolean; installed?: boolean; error?: unknown };
 				if (!payload?.ok) {
 					throw new Error(String(payload?.error ?? t('app.browserCaptureProxyCaFailed')));
 				}
@@ -1535,7 +1554,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 				setCaptureProxyBusy(null);
 			}
 		},
-		[captureProxyBusy, shell, t]
+		[captureProxyBusy, refreshBrowserCaptureProxyStatus, shell, t]
 	);
 
 	const copyBrowserCaptureProxySnippet = useCallback(
@@ -2422,13 +2441,18 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 	}, [captureState?.capturing, refreshBrowserCaptureState]);
 
 	useEffect(() => {
+		// Initial refresh on mount; afterwards only poll while the proxy is running.
+		// When the proxy is not running there's nothing whose state can usefully change
+		// at a sub-minute granularity (CA trust + system proxy flags), and frequent
+		// `certutil`/`reg query` spawns on Windows have caused user-visible churn —
+		// so we either back off significantly or skip the timer entirely.
 		void refreshBrowserCaptureProxyStatus();
-		const timer = window.setInterval(
-			() => {
-				void refreshBrowserCaptureProxyStatus();
-			},
-			captureProxyStatus?.running ? 2_500 : 6_000
-		);
+		if (!captureProxyStatus?.running) {
+			return;
+		}
+		const timer = window.setInterval(() => {
+			void refreshBrowserCaptureProxyStatus();
+		}, 15_000);
 		return () => {
 			window.clearInterval(timer);
 		};

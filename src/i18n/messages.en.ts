@@ -795,6 +795,13 @@ export const messagesEn: Record<string, string> = {
 		'Install the local CA into the system trust store so HTTPS interception verifies cleanly. You may be prompted for an admin password.',
 	'app.browserCaptureCaInstall': 'Install CA',
 	'app.browserCaptureCaUninstall': 'Remove CA',
+	'app.browserCaptureCaInstallMachine': 'Install as administrator',
+	'app.browserCaptureCaInstallConfirm':
+		'Install the Async capture CA into your user trust store? Windows/macOS will ask you to confirm trusting this root certificate.',
+	'app.browserCaptureCaInstallMachineConfirm':
+		'Install the Async capture CA as a system-wide root certificate? The OS will prompt you for administrator rights.',
+	'app.browserCaptureCaUninstallConfirm':
+		'Remove the Async capture root certificate from the trust store?',
 	'app.browserCaptureCaInstalled': 'Trusted',
 	'app.browserCaptureCaNotInstalled': 'Not trusted',
 	'app.browserCaptureCaShowFile': 'Show CA file',
