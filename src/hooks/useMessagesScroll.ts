@@ -218,6 +218,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	const messagesTrackScrollHeightRef = useRef(0);
 	const messagesViewportClientHeightRef = useRef(0);
 	const prevMessagesLenForScrollRef = useRef(0);
+	const prevLastUserMessageForScrollRef = useRef<ChatMessage | null>(null);
 	const awaitingReplyRef = useRef(awaitingReply);
 	awaitingReplyRef.current = awaitingReply;
 
@@ -492,16 +493,20 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	useLayoutEffect(() => {
 		const len = messages.length;
 		const prev = prevMessagesLenForScrollRef.current;
+		const lastMessage = messages[len - 1] ?? null;
+		const prevLastUserMessage = prevLastUserMessageForScrollRef.current;
 		prevMessagesLenForScrollRef.current = len;
+		prevLastUserMessageForScrollRef.current =
+			lastMessage?.role === 'user' ? lastMessage : null;
 		if (
-			len > prev &&
 			currentId != null &&
 			messagesThreadId === currentId &&
-			messages[len - 1]?.role === 'user'
+			lastMessage?.role === 'user' &&
+			(len > prev || lastMessage !== prevLastUserMessage)
 		) {
 			pinMessagesToBottomRef.current = true;
 			/**
-			 * 「新提问后把气泡顶到视口顶部」依赖 AgentChatPanel 的 activeTurnSpacerPx：
+			 * 「发送 / 重发后把气泡顶到视口顶部」依赖 AgentChatPanel 的 activeTurnSpacerPx：
 			 * 该 spacer 在另一个 useLayoutEffect 里通过 setState 计算，会触发 React 在
 			 * paint 之前的同步重渲。如果这里立即 scrollTo(maxScroll)，使用的还是「没有
 			 * spacer 时」的 scrollHeight，导致用户气泡先停在视口中部/底部、流式回复一冒
@@ -510,6 +515,9 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			 *
 			 * 改为先调用 scheduleMessagesScrollToBottom（rAF 内读取最新 scrollHeight），
 			 * 再追加一帧补滚，覆盖 spacer 因 ResizeObserver/补测量而再度变化的情形。
+			 *
+			 * inline resend 可能会把历史列表截短再替换成新的 user 消息，长度不一定增加；
+			 * 因此这里用最后一条 user 消息对象是否变化来捕获“重新发送同一条气泡”的场景。
 			 */
 			scrollMessagesToBottom('auto');
 			scheduleMessagesScrollToBottom();
