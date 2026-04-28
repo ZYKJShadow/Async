@@ -30,6 +30,9 @@ export type MessagesScrollMetrics = {
 };
 
 export type MessagesScrollSyncSource = 'user' | 'layout' | 'programmatic';
+export type ScrollMessagesToBottomOptions = {
+	protectActivePreflight?: boolean;
+};
 
 export type UseMessagesScrollParams = {
 	hasConversation: boolean;
@@ -48,7 +51,10 @@ export type UseMessagesScrollResult = {
 	messagesScrollSnapshotByThreadRef: MutableRefObject<Map<string, MessagesScrollSnapshot>>;
 	showScrollToBottomButton: boolean;
 	onMessagesScroll: () => void;
-	scrollMessagesToBottom: (behavior?: ScrollBehavior) => void;
+	scrollMessagesToBottom: (
+		behavior?: ScrollBehavior,
+		options?: ScrollMessagesToBottomOptions
+	) => void;
 	scheduleMessagesScrollToBottom: () => void;
 	syncMessagesScrollIndicators: () => void;
 };
@@ -118,6 +124,9 @@ export function resolveContentBottomScroll(
 				0,
 				activePreflightTopInTrack - stickyH - STICKY_USER_BOTTOM_GAP_PX,
 			);
+			if (viewport.scrollTop > maxAllowedScroll + 1) {
+				return Math.max(0, rawTarget);
+			}
 			return Math.max(0, Math.min(rawTarget, maxAllowedScroll));
 		}
 	}
@@ -204,6 +213,8 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	const suppressScrollToBottomButtonRef = useRef(false);
 	const suppressScrollToBottomButtonTimerRef = useRef<number | null>(null);
 	const messagesScrollToBottomRafRef = useRef<number | null>(null);
+	const programmaticBottomScrollRef = useRef(false);
+	const programmaticBottomScrollTimerRef = useRef<number | null>(null);
 	const messagesTrackScrollHeightRef = useRef(0);
 	const messagesViewportClientHeightRef = useRef(0);
 	const prevMessagesLenForScrollRef = useRef(0);
@@ -218,12 +229,39 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		}
 	}, []);
 
+	const clearProgrammaticBottomScrollGuard = useCallback(() => {
+		programmaticBottomScrollRef.current = false;
+		if (programmaticBottomScrollTimerRef.current !== null) {
+			window.clearTimeout(programmaticBottomScrollTimerRef.current);
+			programmaticBottomScrollTimerRef.current = null;
+		}
+	}, []);
+
+	const startProgrammaticBottomScrollGuard = useCallback(
+		(behavior: ScrollBehavior = 'auto') => {
+			programmaticBottomScrollRef.current = true;
+			if (programmaticBottomScrollTimerRef.current !== null) {
+				window.clearTimeout(programmaticBottomScrollTimerRef.current);
+			}
+			programmaticBottomScrollTimerRef.current = window.setTimeout(
+				() => {
+					programmaticBottomScrollRef.current = false;
+					programmaticBottomScrollTimerRef.current = null;
+				},
+				behavior === 'smooth' ? 1400 : 120
+			);
+		},
+		[]
+	);
+
 	const syncMessagesScrollState = useCallback(
 		(source: MessagesScrollSyncSource) => {
 			const el = messagesViewportRef.current;
 			if (!el) {
 				return;
 			}
+			const effectiveSource =
+				source === 'user' && programmaticBottomScrollRef.current ? 'programmatic' : source;
 			const rawMetrics = measureMessagesScroll(el);
 			const track = messagesTrackRef.current;
 			const contentMaxScroll = resolveContentBottomScroll(el, track, {
@@ -241,7 +279,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			pinMessagesToBottomRef.current = derivePinnedBottomIntent(
 				pinMessagesToBottomRef.current,
 				metrics,
-				source
+				effectiveSource
 			);
 			const activeThreadId = messagesThreadIdRef.current ?? currentIdRef.current;
 			if (activeThreadId) {
@@ -280,14 +318,18 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	}, [syncMessagesScrollState]);
 
 	const applyResolvedBottomScroll = useCallback(
-		(behavior: ScrollBehavior = 'auto') => {
+		(
+			behavior: ScrollBehavior = 'auto',
+			options: ScrollMessagesToBottomOptions = {}
+		) => {
 			const el = messagesViewportRef.current;
 			if (!el) {
 				return false;
 			}
 			const track = messagesTrackRef.current;
 			const targetScroll = resolveContentBottomScroll(el, track, {
-				protectActivePreflight: awaitingReplyRef.current,
+				protectActivePreflight:
+					options.protectActivePreflight ?? awaitingReplyRef.current,
 			});
 			if (behavior === 'auto') {
 				el.scrollTop = targetScroll;
@@ -305,12 +347,16 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 	}, [syncMessagesScrollState]);
 
 	const scrollMessagesToBottom = useCallback(
-		(behavior: ScrollBehavior = 'auto') => {
+		(
+			behavior: ScrollBehavior = 'auto',
+			options: ScrollMessagesToBottomOptions = {}
+		) => {
 			const el = messagesViewportRef.current;
 			if (!el) {
 				return;
 			}
 			pinMessagesToBottomRef.current = true;
+			startProgrammaticBottomScrollGuard(behavior);
 			if (behavior === 'smooth') {
 				suppressScrollToBottomButtonRef.current = true;
 				if (suppressScrollToBottomButtonTimerRef.current !== null) {
@@ -324,9 +370,13 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				clearScrollToBottomButtonSuppression();
 			}
 			setShowScrollToBottomButton(false);
-			applyResolvedBottomScroll(behavior);
+			applyResolvedBottomScroll(behavior, options);
 		},
-		[applyResolvedBottomScroll, clearScrollToBottomButtonSuppression]
+		[
+			applyResolvedBottomScroll,
+			clearScrollToBottomButtonSuppression,
+			startProgrammaticBottomScrollGuard,
+		]
 	);
 
 	const scheduleMessagesScrollToBottom = useCallback(() => {
@@ -349,6 +399,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		pendingMessagesScrollRestoreRef.current = currentId;
 		pinMessagesToBottomRef.current = true;
 		clearScrollToBottomButtonSuppression();
+		clearProgrammaticBottomScrollGuard();
 		setShowScrollToBottomButton(false);
 		messagesTrackScrollHeightRef.current = 0;
 		messagesViewportClientHeightRef.current = 0;
@@ -356,7 +407,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 			cancelAnimationFrame(messagesScrollToBottomRafRef.current);
 			messagesScrollToBottomRafRef.current = null;
 		}
-	}, [currentId, clearScrollToBottomButtonSuppression]);
+	}, [currentId, clearScrollToBottomButtonSuppression, clearProgrammaticBottomScrollGuard]);
 
 	useLayoutEffect(() => {
 		if (!hasConversation || !currentId || messagesThreadId !== currentId) {
@@ -524,6 +575,7 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 				messagesScrollToBottomRafRef.current = null;
 			}
 			clearScrollToBottomButtonSuppression();
+			clearProgrammaticBottomScrollGuard();
 		};
 	}, [
 		hasConversation,
@@ -532,7 +584,29 @@ export function useMessagesScroll(params: UseMessagesScrollParams): UseMessagesS
 		scheduleMessagesScrollToBottom,
 		syncMessagesScrollState,
 		clearScrollToBottomButtonSuppression,
+		clearProgrammaticBottomScrollGuard,
 	]);
+
+	useEffect(() => {
+		if (!hasConversation) {
+			return;
+		}
+		const outer = messagesViewportRef.current;
+		if (!outer) {
+			return;
+		}
+		const cancelProgrammaticGuard = () => {
+			clearProgrammaticBottomScrollGuard();
+		};
+		outer.addEventListener('wheel', cancelProgrammaticGuard, { passive: true });
+		outer.addEventListener('touchstart', cancelProgrammaticGuard, { passive: true });
+		outer.addEventListener('pointerdown', cancelProgrammaticGuard, { passive: true });
+		return () => {
+			outer.removeEventListener('wheel', cancelProgrammaticGuard);
+			outer.removeEventListener('touchstart', cancelProgrammaticGuard);
+			outer.removeEventListener('pointerdown', cancelProgrammaticGuard);
+		};
+	}, [hasConversation, clearProgrammaticBottomScrollGuard]);
 
 	useEffect(() => {
 		if (!hasConversation) {

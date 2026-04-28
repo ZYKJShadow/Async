@@ -6227,7 +6227,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
-	pointer-events: auto;
+	pointer-events: none;
 	backdrop-filter: blur(18px) saturate(1.08);
 	-webkit-backdrop-filter: blur(18px) saturate(1.08);
 	transition:
@@ -6235,6 +6235,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 		background 0.18s ease,
 		border-color 0.18s ease,
 		color 0.18s ease;
+}
+
+.ref-scroll-jump-anchor.is-visible .ref-scroll-jump-btn {
+	pointer-events: auto;
 }
 
 .ref-scroll-jump-btn:hover {

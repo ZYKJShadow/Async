@@ -174,4 +174,40 @@ describe('useMessagesScroll helpers', () => {
 			resolveContentBottomScroll(viewport, track, { protectActivePreflight: false })
 		).toBe(600);
 	});
+
+	it('does not pull the viewport back above the active preflight clamp after the user scrolls past it', () => {
+		const sticky = {
+			getBoundingClientRect: () => ({ height: 72 } as DOMRect),
+		};
+		const viewport = {
+			scrollHeight: 1600,
+			clientHeight: 400,
+			scrollTop: 260,
+			ownerDocument: {
+				defaultView: {
+					getComputedStyle: () => ({
+						paddingBottom: '0px',
+					}),
+				},
+			},
+			getBoundingClientRect: () => ({ top: 100 } as DOMRect),
+			querySelector: () => sticky,
+		} as unknown as HTMLElement;
+		const track = {
+			querySelectorAll: () =>
+				[
+					{
+						dataset: { preflightFor: '1' },
+						getBoundingClientRect: () =>
+							({ top: 160, bottom: 260, height: 100 } as DOMRect),
+					},
+					{
+						dataset: { msgIndex: '1' },
+						getBoundingClientRect: () => ({ bottom: 1100, height: 200 } as DOMRect),
+					},
+				] as unknown as NodeListOf<HTMLElement>,
+		} as unknown as HTMLElement;
+
+		expect(resolveContentBottomScroll(viewport, track)).toBe(860);
+	});
 });

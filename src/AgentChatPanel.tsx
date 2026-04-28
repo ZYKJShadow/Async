@@ -166,7 +166,10 @@ export type AgentChatPanelProps = {
 	onKeepFileEdit: (rel: string) => void;
 	onRevertFileEdit: (rel: string) => void;
 	showScrollToBottomButton: boolean;
-	scrollMessagesToBottom: (behavior?: ScrollBehavior) => void;
+	scrollMessagesToBottom: (
+		behavior?: ScrollBehavior,
+		options?: { protectActivePreflight?: boolean }
+	) => void;
 	scheduleMessagesScrollToBottom: () => void;
 	agentPlanSummaryCard: ReactNode;
 	teamSession: TeamSessionState | null;
@@ -2135,7 +2138,9 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						tabIndex={showScrollToBottomButton ? 0 : -1}
 						title={t('app.jumpToLatest')}
 						aria-label={t('app.jumpToLatest')}
-						onClick={() => scrollMessagesToBottom('smooth')}
+						onClick={() =>
+							scrollMessagesToBottom('smooth', { protectActivePreflight: false })
+						}
 					>
 						<IconArrowDown className="ref-scroll-jump-btn-icon" />
 					</button>
