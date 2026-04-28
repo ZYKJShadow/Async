@@ -238,6 +238,7 @@ type ChatRenderRow = TurnFocusRow & {
 	content: ReactNode;
 	dataMsgIndex?: number;
 	dataPreflightFor?: number;
+	dataContentBottom?: boolean;
 };
 
 export const AgentChatPanel = memo(function AgentChatPanel({
@@ -1544,6 +1545,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			isTurnStart: false,
 			stickyUserIndex: null,
 			className: 'ref-msg-row-measure ref-msg-row-measure--team-leader',
+			dataContentBottom: true,
 			content: (
 				<div className="ref-msg-slot ref-msg-slot--assistant">
 					<div className="ref-msg-assistant-body">
@@ -1582,6 +1584,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			isTurnStart: false,
 			stickyUserIndex: null,
 			className: 'ref-msg-row-measure ref-msg-row-measure--team-leader',
+			dataContentBottom: true,
 			content: (
 				<div className="ref-msg-slot ref-msg-slot--assistant">
 					<div className="ref-msg-assistant-body">
@@ -1626,6 +1629,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			isTurnStart: false,
 			stickyUserIndex: null,
 			className: 'ref-msg-row-measure ref-msg-row-measure--team-item',
+			dataContentBottom: true,
 			content: (
 				<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-item">
 					<button
@@ -1681,6 +1685,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						isTurnStart: false,
 						stickyUserIndex: null,
 						className: 'ref-msg-row-measure ref-msg-row-measure--team-plan',
+						dataContentBottom: true,
 						content: (
 							<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-plan">
 								<TeamPlanReviewPanel
@@ -1706,6 +1711,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 						isTurnStart: false,
 						stickyUserIndex: null,
 						className: 'ref-msg-row-measure ref-msg-row-measure--team-plan',
+						dataContentBottom: true,
 						content: (
 							<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--team-plan">
 								<TeamPlanRevisionCard
@@ -1807,6 +1813,7 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 				data-preflight-for={
 					row.dataPreflightFor != null ? String(row.dataPreflightFor) : undefined
 				}
+				data-content-bottom={row.dataContentBottom ? 'true' : undefined}
 				data-turn-owner={
 					row.turnOwnerUserIndex != null ? String(row.turnOwnerUserIndex) : undefined
 				}
