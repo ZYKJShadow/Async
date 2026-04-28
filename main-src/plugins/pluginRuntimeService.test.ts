@@ -116,6 +116,14 @@ Design the system.`
 		expect(runtime.skills.map((skill) => skill.slug).sort()).toEqual(['architect', 'tdd-workflow']);
 		expect(runtime.commands.map((command) => command.slash)).toEqual(['build-fix']);
 		expect(runtime.commands[0]?.invocation).toBe('prompt');
+		const tddSkill = runtime.skills.find((skill) => skill.slug === 'tdd-workflow');
+		expect(tddSkill?.skillBaseDirAbs).toBe(path.join(pluginRoot, 'skills', 'tdd-workflow'));
+		expect(tddSkill?.pluginRootAbs).toBe(pluginRoot);
+		const architectSkill = runtime.skills.find((skill) => skill.slug === 'architect');
+		expect(architectSkill?.skillBaseDirAbs).toBe(path.join(pluginRoot, 'agents'));
+		expect(architectSkill?.pluginRootAbs).toBe(pluginRoot);
+		expect(runtime.commands[0]?.commandBaseDirAbs).toBe(path.join(pluginRoot, 'commands'));
+		expect(runtime.commands[0]?.pluginRootAbs).toBe(pluginRoot);
 		expect(runtime.mcpServers.map((server) => server.name)).toEqual(['github']);
 		expect(runtime.plugins[0]?.pluginName).toBe('Everything Claude Code');
 	});

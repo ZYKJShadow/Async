@@ -3581,8 +3581,19 @@
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-awaiting-reply {
-	background: color-mix(in srgb, var(--color-accent) 10%, var(--surface-panel-bg-soft));
-	box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-accent) 72%, transparent);
+	background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+	box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-accent) 56%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-active.is-awaiting-reply {
+	background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+	box-shadow:
+		inset 2px 0 0 color-mix(in srgb, var(--color-accent) 64%, transparent),
+		inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+
+:root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.is-active.is-awaiting-reply:hover {
+	background: color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
 
 :root[data-ui-style='mac-codex'] .ref-left--agent-layout .ref-agent-thread-item.has-unread-reply {

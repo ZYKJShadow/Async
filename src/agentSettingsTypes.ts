@@ -28,10 +28,14 @@ export type AgentSkill = {
 	origin?: AgentItemOrigin;
 	/** 工作区内 SKILL.md 相对路径（正斜杠）；由磁盘扫描填充，用于打开文件与删除目录 */
 	skillSourceRelPath?: string;
+	/** 包含该 SKILL.md 的真实目录；用于解析 Skill 内相对资源 */
+	skillBaseDirAbs?: string;
 	/** 插件来源展示名称；存在时代表该项由已安装插件只读提供 */
 	pluginSourceName?: string;
 	/** 插件内相对路径（正斜杠） */
 	pluginSourceRelPath?: string;
+	/** 插件真实根目录；用于解析 ${CLAUDE_PLUGIN_ROOT} 与插件级资源 */
+	pluginRootAbs?: string;
 	/** 插件贡献类型 */
 	pluginSourceKind?: 'skill' | 'agent';
 };
@@ -62,6 +66,8 @@ export type AgentCommand = {
 	origin?: AgentItemOrigin;
 	pluginSourceName?: string;
 	pluginSourceRelPath?: string;
+	commandBaseDirAbs?: string;
+	pluginRootAbs?: string;
 };
 
 /** 与当前权限行为枚举保持一致 */

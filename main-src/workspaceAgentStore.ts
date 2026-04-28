@@ -94,6 +94,10 @@ function normalizeSkill(raw: unknown): AgentSkill | null {
 	if (ssrp !== undefined) {
 		out.skillSourceRelPath = ssrp;
 	}
+	const sbda = asOptString(raw.skillBaseDirAbs);
+	if (sbda !== undefined) {
+		out.skillBaseDirAbs = sbda;
+	}
 	const psn = asOptString(raw.pluginSourceName);
 	if (psn !== undefined) {
 		out.pluginSourceName = psn;
@@ -101,6 +105,10 @@ function normalizeSkill(raw: unknown): AgentSkill | null {
 	const psrp = asOptString(raw.pluginSourceRelPath);
 	if (psrp !== undefined) {
 		out.pluginSourceRelPath = psrp;
+	}
+	const pra = asOptString(raw.pluginRootAbs);
+	if (pra !== undefined) {
+		out.pluginRootAbs = pra;
 	}
 	if (raw.pluginSourceKind === 'skill' || raw.pluginSourceKind === 'agent') {
 		out.pluginSourceKind = raw.pluginSourceKind;

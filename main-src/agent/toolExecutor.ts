@@ -1498,6 +1498,7 @@ async function executeMcpAgentTool(call: ToolCall, execCtx: ToolExecutionContext
 export type ToolExecutionContext = {
 	delegateExecutionDepth?: number;
 	workspaceRoot?: string | null;
+	extraReadableRoots?: string[];
 	workspaceLspManager?: WorkspaceLspManager | null;
 	threadId?: string | null;
 	hostWebContentsId?: number | null;
@@ -1664,11 +1665,133 @@ function requireWorkspace(execCtx: ToolExecutionContext): string {
 	return root;
 }
 
-function safePath(relPath: string, execCtx: ToolExecutionContext): string {
-	const root = requireWorkspace(execCtx);
-	const full = resolveWorkspacePath(relPath, root);
-	if (!isPathInsideRoot(full, root)) throw new Error('Path escapes workspace boundary.');
-	return full;
+type ExpectedReadablePath = 'any' | 'file' | 'directory';
+
+type ResolvedReadablePath = {
+	full: string;
+	display: string;
+	root: string;
+	isWorkspace: boolean;
+};
+
+function pathKey(filePath: string): string {
+	const resolved = path.resolve(filePath);
+	return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function normalizeToolPath(filePath: string): string {
+	const resolved = path.resolve(filePath);
+	return process.platform === 'win32' ? resolved.replace(/\\/g, '/') : resolved;
+}
+
+function getExtraReadableRoots(execCtx: ToolExecutionContext): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	for (const raw of execCtx.extraReadableRoots ?? []) {
+		if (!raw?.trim()) {
+			continue;
+		}
+		const resolved = path.resolve(raw);
+		const key = pathKey(resolved);
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		out.push(resolved);
+	}
+	return out;
+}
+
+function pathMatchesExpected(full: string, expected: ExpectedReadablePath): boolean {
+	if (!fs.existsSync(full)) {
+		return false;
+	}
+	const stat = fs.statSync(full);
+	if (expected === 'file') {
+		return stat.isFile();
+	}
+	if (expected === 'directory') {
+		return stat.isDirectory();
+	}
+	return true;
+}
+
+function makeReadablePath(full: string, root: string, isWorkspace: boolean): ResolvedReadablePath {
+	const normalizedFull = path.resolve(full);
+	const normalizedRoot = path.resolve(root);
+	const rel = path.relative(normalizedRoot, normalizedFull).replace(/\\/g, '/') || '.';
+	return {
+		full: normalizedFull,
+		root: normalizedRoot,
+		isWorkspace,
+		display: isWorkspace ? rel : normalizeToolPath(normalizedFull),
+	};
+}
+
+function readableRootCandidates(execCtx: ToolExecutionContext): Array<{ root: string; isWorkspace: boolean }> {
+	const roots: Array<{ root: string; isWorkspace: boolean }> = [];
+	const workspaceRoot = execCtx.workspaceRoot ? path.resolve(execCtx.workspaceRoot) : '';
+	if (workspaceRoot) {
+		roots.push({ root: workspaceRoot, isWorkspace: true });
+	}
+	for (const root of getExtraReadableRoots(execCtx)) {
+		if (workspaceRoot && pathKey(root) === pathKey(workspaceRoot)) {
+			continue;
+		}
+		roots.push({ root, isWorkspace: false });
+	}
+	return roots;
+}
+
+function resolveReadablePath(
+	raw: string,
+	execCtx: ToolExecutionContext,
+	expected: ExpectedReadablePath = 'any'
+): ResolvedReadablePath {
+	const trimmed = raw.trim();
+	if (!trimmed) throw new Error('file_path is required');
+	const roots = readableRootCandidates(execCtx);
+	if (roots.length === 0) {
+		throw new Error('No workspace folder open and no skill/plugin readable roots registered.');
+	}
+
+	const candidates: ResolvedReadablePath[] = [];
+	const addRelativeCandidates = (rel: string): void => {
+		const cleaned = rel.replace(/^[/\\]+/, '');
+		for (const rootInfo of roots) {
+			const full = path.resolve(rootInfo.root, cleaned);
+			if (!isPathInsideRoot(full, rootInfo.root)) {
+				continue;
+			}
+			candidates.push(makeReadablePath(full, rootInfo.root, rootInfo.isWorkspace));
+		}
+	};
+
+	if (path.isAbsolute(trimmed)) {
+		const full = path.resolve(trimmed);
+		const allowedRoot = roots.find((rootInfo) => isPathInsideRoot(full, rootInfo.root));
+		if (allowedRoot) {
+			return makeReadablePath(full, allowedRoot.root, allowedRoot.isWorkspace);
+		}
+		if (/^[/\\]+(?![/\\])/.test(trimmed)) {
+			addRelativeCandidates(trimmed);
+		}
+	} else {
+		addRelativeCandidates(trimmed);
+	}
+
+	const existing = candidates.find((candidate) => pathMatchesExpected(candidate.full, expected));
+	if (existing) {
+		return existing;
+	}
+	const anyExisting = candidates.find((candidate) => fs.existsSync(candidate.full));
+	if (anyExisting) {
+		return anyExisting;
+	}
+	if (candidates.length > 0) {
+		return candidates[0]!;
+	}
+	throw new Error('Path escapes workspace and registered skill/plugin roots.');
 }
 
 function resolveAgentFilePath(raw: string, execCtx: ToolExecutionContext): { rel: string; full: string } {
@@ -1707,9 +1830,9 @@ function executeViewImage(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 		};
 	}
 
-	let resolved: { rel: string; full: string };
+	let resolved: ResolvedReadablePath;
 	try {
-		resolved = resolveAgentFilePath(rawPath, execCtx);
+		resolved = resolveReadablePath(rawPath, execCtx, 'file');
 	} catch (error) {
 		return {
 			toolCallId: call.id,
@@ -1723,7 +1846,7 @@ function executeViewImage(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 		return {
 			toolCallId: call.id,
 			name: call.name,
-			content: `Error: image not found or not a regular file: ${resolved.rel}`,
+			content: `Error: image not found or not a regular file: ${resolved.display}`,
 			isError: true,
 		};
 	}
@@ -1743,7 +1866,7 @@ function executeViewImage(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 		return {
 			toolCallId: call.id,
 			name: call.name,
-			content: `Error: image file is empty: ${resolved.rel}`,
+			content: `Error: image file is empty: ${resolved.display}`,
 			isError: true,
 		};
 	}
@@ -1772,7 +1895,7 @@ function executeViewImage(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 				content: JSON.stringify(
 					{
 						path: resolved.full,
-						relPath: resolved.rel,
+						relPath: resolved.display,
 						mediaType,
 						sizeBytes: bytes.length,
 						sha256: diskSha,
@@ -1790,7 +1913,7 @@ function executeViewImage(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 	const structuredContent: AnthropicToolResultContent = [
 		{
 			type: 'text',
-			text: `Loaded local image ${resolved.rel}.`,
+			text: `Loaded local image ${resolved.display}.`,
 		},
 		{
 			type: 'image',
@@ -1808,7 +1931,7 @@ function executeViewImage(call: ToolCall, execCtx: ToolExecutionContext): ToolRe
 		content: JSON.stringify(
 			{
 				path: resolved.full,
-				relPath: resolved.rel,
+				relPath: resolved.display,
 				mediaType,
 				sizeBytes: bytes.length,
 				detail: detailRaw === 'original' ? 'original' : null,
@@ -1826,10 +1949,11 @@ function executeReadFile(call: ToolCall, execCtx: ToolExecutionContext): ToolRes
 	const rawPath = readToolFileArg(call);
 	if (!rawPath) return { toolCallId: call.id, name: call.name, content: 'Error: file_path is required', isError: true };
 
-	let rel: string;
+	let display: string;
 	let full: string;
 	try {
-		({ rel, full } = resolveAgentFilePath(rawPath, execCtx));
+		const resolved = resolveReadablePath(rawPath, execCtx, 'file');
+		({ display, full } = resolved);
 	} catch (e) {
 		return {
 			toolCallId: call.id,
@@ -1840,10 +1964,10 @@ function executeReadFile(call: ToolCall, execCtx: ToolExecutionContext): ToolRes
 	}
 
 	if (!fs.existsSync(full)) {
-		return { toolCallId: call.id, name: call.name, content: `File not found: ${rel}`, isError: true };
+		return { toolCallId: call.id, name: call.name, content: `File not found: ${display}`, isError: true };
 	}
 	if (!fs.statSync(full).isFile()) {
-		return { toolCallId: call.id, name: call.name, content: `Not a file: ${rel}`, isError: true };
+		return { toolCallId: call.id, name: call.name, content: `Not a file: ${display}`, isError: true };
 	}
 
 	const st = fs.statSync(full);
@@ -1858,7 +1982,7 @@ function executeReadFile(call: ToolCall, execCtx: ToolExecutionContext): ToolRes
 
 	const buf = fs.readFileSync(full);
 	if (!isProbablyTextBuffer(buf)) {
-		return { toolCallId: call.id, name: call.name, content: `Skipped binary file: ${rel}`, isError: true };
+		return { toolCallId: call.id, name: call.name, content: `Skipped binary file: ${display}`, isError: true };
 	}
 
 	let text = readTextFileSyncWithMetadata(full).text.replace(/\r\n/g, '\n');
@@ -2128,7 +2252,13 @@ function lfPosToOriginal(original: string, lfPos: number): number {
 	return origIdx;
 }
 
-function collectGlobFileRelPaths(scanRoot: string, workspaceRoot: string, out: string[]): void {
+function collectGlobFileDisplayPaths(
+	scanRoot: string,
+	matchRoot: string,
+	displayRoot: string,
+	isWorkspace: boolean,
+	out: Array<{ matchPath: string; displayPath: string }>
+): void {
 	let entries: fs.Dirent[];
 	try {
 		entries = fs.readdirSync(scanRoot, { withFileTypes: true });
@@ -2139,9 +2269,12 @@ function collectGlobFileRelPaths(scanRoot: string, workspaceRoot: string, out: s
 		const full = path.join(scanRoot, e.name);
 		if (e.isDirectory()) {
 			if (GLOB_IGNORE_DIR_NAMES.has(e.name)) continue;
-			collectGlobFileRelPaths(full, workspaceRoot, out);
+			collectGlobFileDisplayPaths(full, matchRoot, displayRoot, isWorkspace, out);
 		} else {
-			out.push(path.relative(workspaceRoot, full).replace(/\\/g, '/'));
+			out.push({
+				matchPath: path.relative(matchRoot, full).replace(/\\/g, '/'),
+				displayPath: isWorkspace ? path.relative(displayRoot, full).replace(/\\/g, '/') : normalizeToolPath(full),
+			});
 		}
 	}
 }
@@ -2151,11 +2284,19 @@ function executeGlob(call: ToolCall, execCtx: ToolExecutionContext): ToolResult 
 	if (!pattern) {
 		return { toolCallId: call.id, name: call.name, content: 'Error: pattern is required', isError: true };
 	}
-	const root = requireWorkspace(execCtx);
 	const sub = String(call.arguments.path ?? '').trim();
-	let scanRoot: string;
+	let resolvedRoot: ResolvedReadablePath;
 	try {
-		scanRoot = sub ? safePath(sub, execCtx) : root;
+		if (sub) {
+			resolvedRoot = resolveReadablePath(sub, execCtx, 'directory');
+		} else if (execCtx.workspaceRoot) {
+			const root = path.resolve(execCtx.workspaceRoot);
+			resolvedRoot = makeReadablePath(root, root, true);
+		} else {
+			const extraRoot = getExtraReadableRoots(execCtx)[0];
+			if (!extraRoot) throw new Error('No workspace folder open and no skill/plugin readable roots registered.');
+			resolvedRoot = makeReadablePath(extraRoot, extraRoot, false);
+		}
 	} catch (e) {
 		return {
 			toolCallId: call.id,
@@ -2164,14 +2305,23 @@ function executeGlob(call: ToolCall, execCtx: ToolExecutionContext): ToolResult 
 			isError: true,
 		};
 	}
+	const scanRoot = resolvedRoot.full;
 	if (!fs.existsSync(scanRoot) || !fs.statSync(scanRoot).isDirectory()) {
 		return { toolCallId: call.id, name: call.name, content: `Not a directory: ${sub || '.'}`, isError: true };
 	}
-	const allRel: string[] = [];
-	collectGlobFileRelPaths(scanRoot, root, allRel);
+	const allFiles: Array<{ matchPath: string; displayPath: string }> = [];
+	collectGlobFileDisplayPaths(
+		scanRoot,
+		resolvedRoot.isWorkspace ? resolvedRoot.root : scanRoot,
+		resolvedRoot.isWorkspace ? resolvedRoot.root : scanRoot,
+		resolvedRoot.isWorkspace,
+		allFiles
+	);
 	const mmOpts = { dot: true, nocase: process.platform === 'win32' } as const;
-	const matched = [...new Set(allRel)]
-		.filter((rel) => minimatch(rel, pattern, mmOpts))
+	const matched = allFiles
+		.filter((item) => minimatch(item.matchPath, pattern, mmOpts))
+		.map((item) => item.displayPath)
+		.filter((displayPath, index, arr) => arr.indexOf(displayPath) === index)
 		.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 	const truncated = matched.length > GLOB_MAX_RESULTS;
 	const shown = truncated ? matched.slice(0, GLOB_MAX_RESULTS) : matched;
@@ -2190,12 +2340,31 @@ function executeGlob(call: ToolCall, execCtx: ToolExecutionContext): ToolResult 
 }
 
 function executeListDir(call: ToolCall, execCtx: ToolExecutionContext): ToolResult {
-	const root = requireWorkspace(execCtx);
 	const relPath = String(call.arguments.path ?? '').trim();
-	const full = relPath ? safePath(relPath, execCtx) : root;
+	let resolved: ResolvedReadablePath;
+	try {
+		if (relPath) {
+			resolved = resolveReadablePath(relPath, execCtx, 'directory');
+		} else if (execCtx.workspaceRoot) {
+			const root = path.resolve(execCtx.workspaceRoot);
+			resolved = makeReadablePath(root, root, true);
+		} else {
+			const extraRoot = getExtraReadableRoots(execCtx)[0];
+			if (!extraRoot) throw new Error('No workspace folder open and no skill/plugin readable roots registered.');
+			resolved = makeReadablePath(extraRoot, extraRoot, false);
+		}
+	} catch (e) {
+		return {
+			toolCallId: call.id,
+			name: call.name,
+			content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+			isError: true,
+		};
+	}
+	const full = resolved.full;
 
 	if (!fs.existsSync(full) || !fs.statSync(full).isDirectory()) {
-		return { toolCallId: call.id, name: call.name, content: `Not a directory: ${relPath || '.'}`, isError: true };
+		return { toolCallId: call.id, name: call.name, content: `Not a directory: ${relPath || resolved.display}`, isError: true };
 	}
 
 	const entries = fs.readdirSync(full, { withFileTypes: true });
@@ -2293,9 +2462,37 @@ function sortGrepFilePathsByMtime(relPaths: string[], baseDir: string): string[]
 	return withT.map((x) => x.f);
 }
 
+function formatRipgrepPath(filePath: string, searchDirAbs: string, useAbsolute: boolean): string {
+	const normalized = filePath.replace(/\\/g, '/');
+	if (!useAbsolute) {
+		return normalized;
+	}
+	const full = path.isAbsolute(filePath) ? filePath : path.join(searchDirAbs, filePath);
+	return normalizeToolPath(full);
+}
+
+function formatRipgrepContentLine(line: string, searchDirAbs: string, useAbsolute: boolean): string {
+	if (!useAbsolute) {
+		return line.replace(/\\/g, '/');
+	}
+	const i = line.indexOf(':');
+	if (i <= 0) {
+		return line;
+	}
+	return formatRipgrepPath(line.slice(0, i), searchDirAbs, true) + line.slice(i);
+}
+
+function formatRipgrepCountLine(line: string, searchDirAbs: string, useAbsolute: boolean): string {
+	const i = line.lastIndexOf(':');
+	if (i <= 0) {
+		return useAbsolute ? formatRipgrepPath(line, searchDirAbs, true) : line.replace(/\\/g, '/');
+	}
+	return formatRipgrepPath(line.slice(0, i), searchDirAbs, useAbsolute) + line.slice(i);
+}
+
 async function executeGrepTool(call: ToolCall, execCtx: ToolExecutionContext): Promise<ToolResult> {
 	throwIfToolAbortRequested(execCtx.signal, call.name, 'grep:start');
-	const root = requireWorkspace(execCtx);
+	const root = execCtx.workspaceRoot ? path.resolve(execCtx.workspaceRoot) : null;
 	const pattern = String(call.arguments.pattern ?? '');
 	if (!pattern) return { toolCallId: call.id, name: call.name, content: 'Error: pattern is required', isError: true };
 
@@ -2304,6 +2501,9 @@ async function executeGrepTool(call: ToolCall, execCtx: ToolExecutionContext): P
 		call.arguments.search_symbols === true ||
 		call.arguments.mode === 'symbol';
 	if (symbolMode) {
+		if (!root) {
+			return { toolCallId: call.id, name: call.name, content: 'Error: symbol search requires an open workspace.', isError: true };
+		}
 		const rootNorm = path.resolve(root);
 		await ensureSymbolIndexLoaded(rootNorm);
 		const hits = searchWorkspaceSymbols(pattern, MAX_SYMBOL_SEARCH_RESULTS, rootNorm);
@@ -2316,9 +2516,19 @@ async function executeGrepTool(call: ToolCall, execCtx: ToolExecutionContext): P
 	}
 
 	let searchDirAbs: string;
+	let searchRoot: ResolvedReadablePath;
 	try {
 		const subPath = String(call.arguments.path ?? '').trim();
-		searchDirAbs = subPath ? safePath(subPath, execCtx) : root;
+		if (subPath) {
+			searchRoot = resolveReadablePath(subPath, execCtx, 'directory');
+		} else if (root) {
+			searchRoot = makeReadablePath(root, root, true);
+		} else {
+			const extraRoot = getExtraReadableRoots(execCtx)[0];
+			if (!extraRoot) throw new Error('No workspace folder open and no skill/plugin readable roots registered.');
+			searchRoot = makeReadablePath(extraRoot, extraRoot, false);
+		}
+		searchDirAbs = searchRoot.full;
 	} catch (e) {
 		return {
 			toolCallId: call.id,
@@ -2400,13 +2610,15 @@ async function executeGrepTool(call: ToolCall, execCtx: ToolExecutionContext): P
 	}
 
 	const rawLines = stdout.split('\n').filter(Boolean);
+	const useAbsolutePaths = !searchRoot.isWorkspace;
 
 	if (output_mode === 'count' && rawLines.length === 0) {
 		return { toolCallId: call.id, name: call.name, content: 'No matches found.', isError: false };
 	}
 
 	if (output_mode === 'content') {
-		const { items, appliedLimit, appliedOffset } = applyGrepHeadLimit(rawLines, headLimit, offset);
+		const formattedLines = rawLines.map((line) => formatRipgrepContentLine(line, searchDirAbs, useAbsolutePaths));
+		const { items, appliedLimit, appliedOffset } = applyGrepHeadLimit(formattedLines, headLimit, offset);
 		const body = items.join('\n') || 'No matches found';
 		const lim = grepFormatLimitInfo(appliedLimit, appliedOffset);
 		const content = lim ? `${body}\n\n[Showing results with pagination = ${lim}]` : body;
@@ -2414,14 +2626,7 @@ async function executeGrepTool(call: ToolCall, execCtx: ToolExecutionContext): P
 	}
 
 	if (output_mode === 'count') {
-		const normalized = rawLines.map((line) => {
-			const i = line.lastIndexOf(':');
-			if (i <= 0) return line;
-			const filePath = line.slice(0, i);
-			const rest = line.slice(i);
-			const rel = path.isAbsolute(filePath) ? path.relative(searchDirAbs, filePath).replace(/\\/g, '/') : filePath.replace(/\\/g, '/');
-			return rel + rest;
-		});
+		const normalized = rawLines.map((line) => formatRipgrepCountLine(line, searchDirAbs, useAbsolutePaths));
 		const { items, appliedLimit, appliedOffset } = applyGrepHeadLimit(normalized, headLimit, offset);
 		let totalMatches = 0;
 		let fileCount = 0;
@@ -2444,6 +2649,7 @@ async function executeGrepTool(call: ToolCall, execCtx: ToolExecutionContext): P
 
 	let files = rawLines.map((f) => f.replace(/\\/g, '/'));
 	files = sortGrepFilePathsByMtime(files, searchDirAbs);
+	files = files.map((f) => formatRipgrepPath(f, searchDirAbs, useAbsolutePaths));
 	const { items, appliedLimit, appliedOffset } = applyGrepHeadLimit(files, headLimit, offset);
 	const lim = grepFormatLimitInfo(appliedLimit, appliedOffset);
 	if (items.length === 0) {

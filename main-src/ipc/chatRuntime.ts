@@ -216,7 +216,8 @@ export function runChatStream(
 	mode: ReturnType<typeof parseComposerMode>,
 	modelSelection: string,
 	agentSystemAppend?: string,
-	streamNonce?: number
+	streamNonce?: number,
+	extraReadableRoots?: string[]
 ): void {
 	const send = (obj: unknown) => {
 		const o = (typeof obj === 'object' && obj !== null ? obj : {}) as Record<string, unknown>;
@@ -305,6 +306,7 @@ export function runChatStream(
 						workspaceRoot,
 						workspaceLspManager,
 						hostWebContentsId: win.webContents.id,
+						extraReadableRoots,
 						deferredToolState: getDeferredToolState(threadId),
 						onDeferredToolStateChange: (state) =>
 							saveDeferredToolState(threadId, state),
@@ -398,6 +400,7 @@ export function runChatStream(
 					onMistakeLimitReached,
 					customToolHandlers,
 					workspaceRoot,
+					extraReadableRoots,
 					workspaceLspManager,
 					hostWebContentsId: win.webContents.id,
 					deferredToolState,
@@ -471,6 +474,7 @@ export function runChatStream(
 							onMistakeLimitReached,
 							customToolHandlers,
 							workspaceRoot,
+							extraReadableRoots,
 							workspaceLspManager,
 							threadId,
 							hostWebContentsId: win.webContents.id,
