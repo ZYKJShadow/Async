@@ -2656,6 +2656,7 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	border-radius: 8px;
 	transition:
 		background 0.2s var(--void-ease-out-expo),
+		box-shadow 0.2s var(--void-ease-out-expo),
 		color 0.2s var(--void-ease-out-expo);
 }
 
@@ -2673,9 +2674,19 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 }
 
 .ref-agent-thread-item.is-awaiting-reply {
-	background: color-mix(in srgb, var(--void-accent) 9%, transparent);
-	box-shadow: inset 2px 0 0 color-mix(in srgb, var(--void-accent) 72%, transparent);
-	animation: ref-agent-thread-working-bg 1.8s ease-in-out infinite;
+	background: color-mix(in srgb, var(--void-accent) 6%, transparent);
+	box-shadow: inset 2px 0 0 color-mix(in srgb, var(--void-accent) 58%, transparent);
+}
+
+.ref-agent-thread-item.is-active.is-awaiting-reply {
+	background: color-mix(in srgb, var(--void-ring) 12%, transparent);
+	box-shadow:
+		inset 2px 0 0 color-mix(in srgb, var(--void-accent) 64%, transparent),
+		inset 0 0 0 1px color-mix(in srgb, var(--void-ring) 22%, transparent);
+}
+
+.ref-agent-thread-item.is-active.is-awaiting-reply:hover {
+	background: color-mix(in srgb, var(--void-ring) 16%, transparent);
 }
 
 .ref-agent-thread-item.has-unread-reply {
@@ -2717,8 +2728,12 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font-weight: 500;
 }
 
-.ref-agent-thread-item.has-unread-reply .ref-agent-thread-row-title,
 .ref-agent-thread-item.is-awaiting-reply .ref-agent-thread-row-title {
+	color: var(--void-fg-0);
+	font-weight: 600;
+}
+
+.ref-agent-thread-item.has-unread-reply .ref-agent-thread-row-title {
 	color: var(--void-fg-0);
 	font-weight: 650;
 }
@@ -2777,6 +2792,10 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	color: color-mix(in srgb, var(--void-accent) 72%, var(--void-fg-2));
 }
 
+.ref-agent-thread-item.is-active.is-awaiting-reply .ref-agent-thread-row-time {
+	color: var(--void-fg-2);
+}
+
 @keyframes ref-agent-thread-working-dot {
 	0%, 70%, 100% {
 		opacity: 0.42;
@@ -2788,12 +2807,11 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	}
 }
 
-@keyframes ref-agent-thread-working-bg {
-	0%, 100% {
-		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--void-accent) 54%, transparent);
-	}
-	50% {
-		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--void-accent) 92%, transparent), 0 0 0 1px color-mix(in srgb, var(--void-accent) 10%, transparent);
+@media (prefers-reduced-motion: reduce) {
+	.ref-agent-thread-status--working > span {
+		animation: none;
+		opacity: 0.7;
+		transform: none;
 	}
 }
 
@@ -3888,6 +3906,37 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 .ref-msg-user .ref-inline-skill-chip {
 	font-size: var(--void-user-composer-font-size);
 	line-height: var(--void-user-composer-line-height);
+}
+
+.ref-msg-user .ref-inline-skill-chip.ref-inline-skill-chip--readonly {
+	box-sizing: border-box;
+	gap: 5px;
+	max-inline-size: min(190px, 54vw);
+	min-height: 18px;
+	padding: 0 7px 0 6px;
+	border-radius: var(--void-pill);
+	font-size: 13px;
+	line-height: 18px;
+	vertical-align: middle;
+	transform: translateY(-1px);
+	background: color-mix(in srgb, #8b5cf6 16%, transparent);
+	color: color-mix(in srgb, #c4b5fd 86%, var(--void-fg-0));
+	border-color: color-mix(in srgb, #a78bfa 26%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, #8b5cf6 8%, transparent) inset;
+}
+
+.ref-msg-user .ref-inline-skill-chip.ref-inline-skill-chip--readonly::before {
+	content: '';
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: currentColor;
+	opacity: 0.72;
+	flex: 0 0 auto;
+}
+
+.ref-msg-user .ref-inline-skill-chip.ref-inline-skill-chip--readonly .ref-inline-skill-chip-label {
+	line-height: 18px;
 }
 
 .ref-inline-file-chip--readonly {
@@ -7000,6 +7049,13 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	background: rgba(139, 92, 246, 0.14);
 	color: #6d28d9;
 	border-color: rgba(139, 92, 246, 0.35);
+}
+
+:root[data-color-scheme='light'] .ref-msg-user .ref-inline-skill-chip.ref-inline-skill-chip--readonly {
+	background: color-mix(in srgb, #7c3aed 10%, transparent);
+	color: #5b21b6;
+	border-color: color-mix(in srgb, #7c3aed 22%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, #7c3aed 7%, transparent) inset;
 }
 
 :root[data-color-scheme='light'] .ref-inline-skill-chip-x {
