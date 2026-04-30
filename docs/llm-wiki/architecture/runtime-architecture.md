@@ -48,20 +48,26 @@ Main (Electron / Node)
 
 ## IPC 的真实中心
 
-`main-src/ipc/register.ts` 是几乎所有跨进程能力的主入口，负责：
+`main-src/ipc/register.ts` 仍是核心流（线程、Agent、Plan）的汇聚点，但大量业务 IPC 已拆分到 `main-src/ipc/handlers/` 下的分域文件：
 
-- 工作区选择、文件读写、路径打开、目录浏览
-- 线程列表、消息读取、线程重命名与切换
-- 聊天发送、中止、编辑后重发
-- Git 状态、diff、提交、推送、分支操作
-- 计划保存、结构化计划持久化
-- Agent 审批、恢复、文件快照、diff 应用
-- 终端 PTY 和一次性命令执行
-- Browser、MCP、LSP、自动更新等
+| 文件域 | 典型通道 |
+| --- | --- |
+| `register.ts` | 线程 CRUD、聊天发送/中止、Agent 生命周期与快照、Plan 结构化存储 |
+| `handlers/appHandlers.ts` | `app:*`、`async-shell:ping` |
+| `handlers/browserHandlers.ts` | `browser:*`、`browserCapture:*`、`composer:appendDraft` |
+| `handlers/fsHandlers.ts` | `fs:*` |
+| `handlers/gitHandlers.ts` | `git:*` |
+| `handlers/lspHandlers.ts` | `lsp:ts:*` |
+| `handlers/mcpHandlers.ts` | `mcp:*` |
+| `handlers/pluginsHandlers.ts` | `plugins:*` |
+| `handlers/settingsHandlers.ts` | `settings:*`、`team:getBuiltinCatalog`、`feishu:*` |
+| `handlers/shellHandlers.ts` | `shell:*` |
+| `handlers/terminalExecHandlers.ts` | `terminal:execLine` |
+| `handlers/usageStatsHandlers.ts` | `usageStats:*` |
+| `handlers/workspaceHandlers.ts` | `workspace:*`、`workspaceAgent:*` |
+| `terminalSessionIpc.ts` | `term:*`、`terminalWindow:open` |
 
-这也是“行为事实的权威汇聚点”之一。
-
-按**通道名字**检索时，优先使用专题页 [IPC 通道地图](./ipc-channel-map.md)（按域分组，并标注终端子模块登记位置），不必从 `register.ts` 首行逐段扫完。终端会话池的 `term:*` 与 `terminalWindow:open` 在 `terminalSessionIpc.ts` 注册，模块说明见 [terminalSessionIpc.ts](../modules/terminal-session-ipc.md)。
+按**通道名字**检索时，优先使用专题页 [IPC 通道地图](./ipc-channel-map.md)（按域分组，并标注登记文件），不必从 `register.ts` 首行逐段扫完。终端会话池的 `term:*` 与 `terminalWindow:open` 在 `terminalSessionIpc.ts` 注册，模块说明见 [terminalSessionIpc.ts](../modules/terminal-session-ipc.md)。
 
 ## 工作区绑定模型
 

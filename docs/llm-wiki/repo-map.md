@@ -22,10 +22,10 @@
 | 路径 | 主要职责 |
 | --- | --- |
 | `main-src/index.ts` | 应用启动、窗口创建、store 初始化、IPC 注册 |
-| `main-src/ipc/register.ts` | 几乎所有 renderer -> main 的行为入口；通道索引见 [IPC 通道地图](./architecture/ipc-channel-map.md) |
+| `main-src/ipc/register.ts` | 核心流（线程、Agent、Plan）的 IPC 注册；大量业务 handle 已拆分到 `main-src/ipc/handlers/*` |
+| `main-src/ipc/handlers/` | 分域 IPC handler 文件（app、browser、fs、git、LSP、MCP、plugins、settings、shell、terminal、workspace 等） |
 | `main-src/terminalSessionService.ts` | 共享 PTY 会话池与环形输出缓冲 |
 | `main-src/terminalSessionIpc.ts` | `term:*` / `terminalWindow:*` 等终端相关 IPC；细节页见 [terminalSessionIpc.ts](./modules/terminal-session-ipc.md) |
-| `main-src/terminalPty.ts` | 按 sender 绑定的 `terminal:pty*` PTY IPC；细节页见 [terminalPty.ts](./modules/terminal-pty.md) |
 | `main-src/mcp/mcpManager.ts` | MCP 多连接与工具聚合 |
 | `main-src/agent/` | Agent 循环、工具池、工具执行、计划工具、Team 编排 |
 | `main-src/llm/` | 模型解析、Provider 适配、流式输出、超时与重试 |
@@ -103,21 +103,20 @@
 ### 想改 Git 状态、分支选择器或 diff 预览
 
 - 先看 `src/hooks/useGitIntegration.ts`
-- 再看 `main-src/ipc/register.ts` 中 `git:*` 通道
+- 再看 `main-src/ipc/handlers/gitHandlers.ts` 中 `git:*` 通道
 - 细节页见 [useGitIntegration.ts](./modules/use-git-integration.md)
 
 ### 想改全能终端、共享 PTY 会话或独立终端窗口
 
 - 先看 `main-src/terminalSessionService.ts`（会话池、缓冲、订阅与广播）。
 - 再看 `main-src/terminalSessionIpc.ts`（`term:*`、`terminalWindow:open` 等 handle 与 host 窗口映射）。
-- 旧按窗口绑定的 PTY 路径见 `main-src/terminalPty.ts`。
 - 细节页见 [terminalSessionService.ts](./modules/terminal-session-service.md)、[terminalSessionIpc.ts](./modules/terminal-session-ipc.md)。
 
 ### 想查或新增 IPC 通道
 
 - 先看 [IPC 通道地图](./architecture/ipc-channel-map.md) 按域定位 `handle` 名称。
 - 再对照 `electron/preload.cjs` 白名单，确认 renderer 是否可 `invoke`。
-- 终端类除 `register.ts` 外还有 `terminalSessionIpc.ts`、`terminalPty.ts`；会话池实现见 [terminalSessionService.ts](./modules/terminal-session-service.md)。
+- 终端类除 `register.ts` 外还有 `terminalSessionIpc.ts`；会话池实现见 [terminalSessionService.ts](./modules/terminal-session-service.md)。
 
 ### 想改 MCP 连接或 Agent 中的 MCP 工具
 

@@ -75,7 +75,7 @@
 
 ## 修改这个文件时要一起看
 
-- `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/workspaceHandlers.ts`
 - `main-src/workspaceFileIndex.ts`
 - `src/App.tsx`
 - `src/useComposerAtMention.ts`
@@ -86,7 +86,7 @@
 - `src/hooks/useWorkspaceManager.ts`
 - `src/App.tsx`
 - `src/app/appShellContexts.tsx`
-- `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/workspaceHandlers.ts`
 - `main-src/workspaceFileIndex.ts`
 
 ## 相关页面

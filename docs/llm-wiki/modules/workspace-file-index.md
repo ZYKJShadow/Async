@@ -18,7 +18,7 @@
 
 ### 直接调用方
 
-- `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/workspaceHandlers.ts`
   - `workspace:listFiles`
   - `workspace:searchFiles`
   - chat / plan / ask / team 预处理时获取 `workspaceFiles`
@@ -98,7 +98,7 @@
 
 ## 修改这个文件时要一起看
 
-- `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/workspaceHandlers.ts`
 - `src/hooks/useWorkspaceManager.ts`
 - `src/useComposerAtMention.ts`
 - `main-src/workspaceSymbolIndex.ts`

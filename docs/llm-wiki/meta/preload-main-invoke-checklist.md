@@ -19,11 +19,13 @@ INVOKE_CHANNELS.has(channel) ? ipcRenderer.invoke(...) : throw blocked
 
 | 文件 | 内容 |
 | --- | --- |
-| `main-src/ipc/register.ts` | 绝大部分业务通道 |
+| `main-src/ipc/register.ts` | 核心流：线程、Agent、Plan |
+| `main-src/ipc/handlers/*Handlers.ts` | 分域业务通道（app、browser、fs、git、LSP、MCP、plugins、settings、shell、terminal、workspace 等） |
 | `main-src/terminalSessionIpc.ts` | `term:*`、`terminalWindow:open` |
-| `main-src/terminalPty.ts` | `terminal:ptyCreate` 等 |
 
-`registerIpc()` 内会先 `registerTerminalPtyIpc()`、`registerTerminalSessionIpc()`，再注册 `register.ts` 本体中的 handle（见 [运行时架构](../architecture/runtime-architecture.md)）。
+> 历史备注：旧版 `main-src/terminalPty.ts`（`terminal:pty*` 按 sender 绑定路径）已移除，但 `electron/preload.cjs` 中仍残留 `terminal:pty*` 白名单与订阅 API，属于死代码。
+
+`registerIpc()` 内会先 `registerTerminalSessionIpc()`，再调用各 `handlers/*.ts` 中的注册函数，最后注册 `register.ts` 本体中的 handle（见 [运行时架构](../architecture/runtime-architecture.md)）。
 
 ## 推荐操作步骤（新增 renderer 可调通道时）
 
@@ -42,19 +44,21 @@ INVOKE_CHANNELS.has(channel) ? ipcRenderer.invoke(...) : throw blocked
 
 在仓库根执行（需本机有 Node；仅为维护者脚本思路，Wiki 不提交脚本）：
 
-1. 用 ripgrep从上述三个文件提取 `ipcMain.handle('…')` 中的通道字面量集合 `M`。
+1. 用 ripgrep 从 `main-src/**/*.ts` 提取 `ipcMain.handle('…')` 中的通道字面量集合 `M`。
 2. 从 `preload.cjs` 解析 `INVOKE_CHANNELS` 集合 `P`。
 3. 报告：
    - `P - M`：白名单有而主进程无（死通道或笔误）；
    - `M - P`：主进程有而白名单无（**renderer 无法 invoke**，可能是刻意仅给 bot 用）。
 
-运行前注意：`register.ts` 里部分 `handle` 跨行书写，简单正则可能漏项，应以人工或 AST 级提取为准。
+运行前注意：`register.ts` 与 `handlers/*.ts` 里部分 `handle` 跨行书写，简单正则可能漏项，应以人工或 AST 级提取为准。
 
 ## 已知基线差异（2026-04-18）
 
 | 通道 | 现象 |
 | --- | --- |
 | `team:userInputRespond` | 出现在 `INVOKE_CHANNELS` 中；`main-src` 内 **未** 发现对应 `ipcMain.handle`；`src/` 内亦无引用。疑似预留或遗漏，见 [矛盾与待确认项](./contradictions-and-open-questions.md)。 |
+| `terminal:ptyCreate` / `terminal:ptyWrite` / `terminal:ptyResize` / `terminal:ptyKill` | 出现在 `INVOKE_CHANNELS` 与 preload 订阅 API 中；`main-src` 与 `src/` 内均无对应 handler 或调用。旧版 PTY 路径已移除，preload 残留死代码。 |
+| `git:diffPreview` | `main-src/ipc/handlers/gitHandlers.ts` 注册了 `git:diffPreview`（单数）；`preload.cjs` 中 **仅有** `git:diffPreviews`（复数）。Renderer 无法调用该通道。 |
 
 ## 相关页面
 

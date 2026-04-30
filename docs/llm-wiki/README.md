@@ -76,13 +76,15 @@ Phase 8 已追加：
 2. 为共享 PTY 会话池补模块页：`terminalSessionService.ts`。
 3. 为 MCP 多连接管理补模块页：`mcpManager.ts`。
 
-Phase 9（进行中）已追加：
+Phase 9（已完成）已追加：
 
 1. 为终端 IPC 薄层补模块页：[terminalSessionIpc.ts](./modules/terminal-session-ipc.md)（与 Phase 8 的 `terminalSessionService` 页配对）。
 2. IPC 地图终端表与 `preload.cjs` 对齐，补全 `term:sessionRespondToPrompt` 等通道说明。
-3. 为旧版按 sender PTY 补模块页：[terminalPty.ts](./modules/terminal-pty.md)。
+3. ~~为旧版按 sender PTY 补模块页：[terminalPty.ts](./modules/terminal-pty.md)~~ → 后确认该文件已移除，页面改为历史残留记录。
 4. 为插件运行时与 MCP effective 合并补模块页：[pluginRuntimeService.ts](./modules/plugin-runtime-service.md)。
 5. 新增维护向专题：[Preload 与主进程 invoke 对齐检查清单](./meta/preload-main-invoke-checklist.md)。
+6. **纠偏 IPC 架构漂移**：确认大量 handle 已拆分到 `main-src/ipc/handlers/*Handlers.ts`；更新 [IPC 通道地图](./architecture/ipc-channel-map.md)、[运行时架构](./architecture/runtime-architecture.md)、[仓库地图](./repo-map.md) 与 [Preload 对齐检查清单](./meta/preload-main-invoke-checklist.md)。
+7. **清理死代码记录**：确认 `terminal:pty*` 为 preload 残留；发现 `git:diffPreview` 有 handler 但无 preload 白名单；`team:userInputRespond` 仍为白名单死项。
 
 ## 后续阶段建议
 

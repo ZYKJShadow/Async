@@ -15,7 +15,7 @@
 | 业务与 PTY | `terminalSessionService.ts` | 全局会话池、环形缓冲、`term:data` / `term:exit` / `term:authPrompt` 广播 |
 | IPC 适配 | `terminalSessionIpc.ts` | handle 注册、参数类型收窄、`cwd` / 对话框 / 窗口映射 |
 
-旧版「按 sender 绑定」的 PTY 仍在 `terminalPty.ts`（`terminal:pty*`），与会话池路径并存；模块说明见 [terminalPty.ts](./terminal-pty.md)。
+旧版「按 sender 绑定」的 PTY 路径（`terminal:pty*`）已移除，`main-src/terminalPty.ts` 不存在；`electron/preload.cjs` 中仍残留对应白名单与订阅 API（死代码）。历史记录见 [terminalPty.ts](./terminal-pty.md)。
 
 ## 独立终端窗口：host ↔ renderer 映射
 
@@ -50,7 +50,7 @@
 ## 修改这个文件时要一起看
 
 - `main-src/terminalSessionService.ts`
-- `main-src/terminalPty.ts`（旧 PTY IPC 对照）
+- [terminalPty.ts](./terminal-pty.md)（旧 PTY IPC 历史记录）
 - `electron/preload.cjs`（`INVOKE_CHANNELS` 与 `term:*` 订阅）
 - `src/TerminalWindowSurface.tsx`（若改独立窗口 URL 参数或终端 UI 契约）
 

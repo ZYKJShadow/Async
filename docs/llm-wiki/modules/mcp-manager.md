@@ -55,7 +55,7 @@
 
 - `main-src/mcp/mcpManager.ts`
 - `main-src/mcp/mcpClient.ts`
-- `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/mcpHandlers.ts`
 - `main-src/settingsStore.ts`
 
 ## 相关页面

@@ -3,7 +3,7 @@
 - 状态：Phase 2 起新增，Phase 3–9 持续扩展。
 - 目标：把高频核心文件从“专题概述”继续细化成“模块实体页”。
 
-跨文件的 **IPC 通道全表**（按业务域分组）见架构页 [IPC 通道地图](../architecture/ipc-channel-map.md)；`ipc/register.ts` 本体不再单独建模块页，以免与地图重复。
+跨文件的 **IPC 通道全表**（按业务域分组）见架构页 [IPC 通道地图](../architecture/ipc-channel-map.md)。大量业务 IPC 已拆分到 `main-src/ipc/handlers/*Handlers.ts`，`ipc/register.ts` 本体不再单独建模块页，以免与地图重复。
 
 ## 当前模块页
 
@@ -26,7 +26,7 @@
 - [botRuntime.ts](./bot-runtime.md)
 - [terminalSessionIpc.ts](./terminal-session-ipc.md)
 - [terminalSessionService.ts](./terminal-session-service.md)
-- [terminalPty.ts](./terminal-pty.md)
+- [terminalPty.ts](./terminal-pty.md)（旧版 PTY 路径，已移除）
 - [mcpManager.ts](./mcp-manager.md)
 - [pluginRuntimeService.ts](./plugin-runtime-service.md)
 

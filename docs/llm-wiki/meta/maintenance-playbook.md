@@ -63,7 +63,7 @@
 - 如果能承接，就直接改现有页面
 - 只有当主题明显独立时，才新建页面
 
-若在 `main-src/ipc/register.ts` 或 `terminalSessionIpc.ts` / `terminalPty.ts` 中**新增或重命名** `ipcMain.handle` 通道，应同步更新 [IPC 通道地图](../architecture/ipc-channel-map.md)；若 renderer 需要调用，还要核对 `electron/preload.cjs` 白名单，并视情况修订 [运行时架构](../architecture/runtime-architecture.md) 中 preload 边界说明。具体步骤见 [Preload 与主进程 invoke 对齐检查清单](./preload-main-invoke-checklist.md)。
+若在 `main-src/ipc/register.ts`、`main-src/ipc/handlers/*Handlers.ts` 或 `terminalSessionIpc.ts` 中**新增或重命名** `ipcMain.handle` 通道，应同步更新 [IPC 通道地图](../architecture/ipc-channel-map.md)；若 renderer 需要调用，还要核对 `electron/preload.cjs` 白名单，并视情况修订 [运行时架构](../architecture/runtime-architecture.md) 中 preload 边界说明。具体步骤见 [Preload 与主进程 invoke 对齐检查清单](./preload-main-invoke-checklist.md)。
 
 ## 页面结构约定
 

@@ -89,7 +89,7 @@
 - `main-src/llm/modelResolve.ts`
 - `src/hooks/useSettings.ts`
 - `main-src/workspaceAgentStore.ts`
-- `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/settingsHandlers.ts`
 
 ## Primary Sources
 

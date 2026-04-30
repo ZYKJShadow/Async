@@ -19,8 +19,15 @@
 | `npm run test:watch` | 运行 Vitest watch |
 | `npm run icons` | 从 SVG 导出应用图标 |
 | `npm run readme:screenshots` | 导出 README 截图 |
-| `npm run release:win` | 打包 Windows 安装包 |
+| `npm run release:win` | 打包 Windows 安装包（nsis + msi） |
 | `npm run release:win:dir` | 打包 Windows dir 产物 |
+| `npm run release:mac` | 打包 macOS 安装包（dmg + zip，x64 + arm64） |
+| `npm run release:mac:unsigned` | 同上，但不签名 |
+| `npm run release:mac:dir` | 打包 macOS dir 产物 |
+| `npm run release:mac:arm64` / `release:mac:x64` | 打包指定架构 macOS 产物 |
+| `npm run sync:builtin-team` | 同步内置 Team 仓库 |
+| `npm run preview` | 构建 renderer 后启动 Vite preview |
+| `npm run rebuild:native` | 重建原生依赖（electron-builder） |
 
 ## 构建链路
 

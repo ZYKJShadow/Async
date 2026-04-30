@@ -24,33 +24,30 @@
 
 ---
 
-## Why Async?
-
-Async IDE is built around a simple idea: **the agent should be the center of gravity**, not a chat panel bolted onto the side of an editor. Everything — workspace access, tool execution, diff review, terminal operations — revolves around a transparent **Think → Plan → Execute → Observe** loop that you can see, steer, and interrupt at any time.
-
-It is also **built from scratch** on Electron + React + Monaco — not a fork of VS Code. That means a smaller, fully hackable codebase, faster iteration, and no baggage from an editor you never asked for.
-
-The project is **Apache 2.0**, **BYOK** for model access, and **local-first** by default: your threads, settings, and plans live on your machine, not in someone else's cloud.
-
----
-
 ## What is Async IDE?
 
-Async IDE is an open-source AI-native desktop application designed as your command center for working with coding agents. It starts from the **Agent Loop** and brings multi-model conversations, autonomous tool execution, and review workflows into a single workspace.
+Async IDE is an **AI-native desktop shell** built from scratch on Electron + React + Monaco. It is not a VS Code fork — the entire codebase is intentionally lean, fully transparent, and hackable.
 
-### Why use Async?
+The central idea is simple: **the agent is the center of gravity**, not a chat panel bolted onto the side of an editor. Everything — workspace access, tool execution, diff review, terminal operations — revolves around a transparent **Think → Plan → Execute → Observe** loop that you can see, steer, and interrupt at any time.
 
-- **Agent-first** — The agent can directly access your workspace, tools, and terminal through a clear **Think → Plan → Execute → Observe** loop.
-- **Transparent process** — Streaming tool parameters (JSON rendered as it generates) + **tool trajectory** cards (`Read`, `Write`, `Edit`, `Glob`, `Grep`, Shell, etc.), so every step is visible.
-- **Full control** — Use your own API keys, keep conversation history and repo state entirely local, with no dependency on cloud services.
-- **Git-native** — Status, diffs, and agent-driven changes stay in sync with your actual repository.
-- **Four Composer modes** — **Agent** (autonomous execution), **Plan** (review first, then run), **Ask** (read-only Q&A), and **Debug** (systematic troubleshooting), covering various development scenarios.
-- **IM bot bridge** — Wire **Telegram**, **Slack**, **Discord**, and **Feishu (Lark)** into the same Agent / **Team** toolchain as the desktop app, with per-integration model, workspace roots, allowlists, optional HTTP proxy, and streaming replies where the platform supports it.
-- **Lean shell, built from scratch** — Electron + React + Monaco, **Agent / Editor** dual layout, embedded terminal. Not a VS Code fork — smaller surface area, fewer abstractions to fight, and every line is yours to change.
+- **Apache 2.0** • **BYOK** for models • **Local-first** by default
 
 ---
 
-## Screenshots (partial)
+## Highlights
+
+- **Agent-first loop** — Autonomous multi-round tool execution with streaming parameter cards (`Read`, `Write`, `Edit`, `Glob`, `Grep`, Shell, etc.) and approval gates for sensitive operations.
+- **Four Composer modes** — **Agent** (full auto), **Plan** (review first, then run), **Ask** (read-only Q&A), and **Debug** (systematic troubleshooting).
+- **Team mode** — Multi-agent collaboration with Lead planning, specialist execution, reviewer verification, and plan-approval workflows.
+- **Multi-model, multi-provider** — Anthropic, OpenAI, Gemini, plus any OpenAI-compatible endpoint (Ollama, vLLM, self-hosted). Auto model selection included.
+- **Git-native** — Status, diff, staging, commit, and push integrated into the UI; agent-driven changes stay in sync with your real repo.
+- **IM bot bridge** — Wire **Telegram**, **Slack**, **Discord**, and **Feishu (Lark)** into the same Agent / Team toolchain as the desktop app, with per-integration model, workspace, and allowlist config.
+- **Built-in tools** — Browser automation (with custom headers / fingerprint), LSP-powered editor intelligence, MCP server support, file index & symbol search, and an all-in-one terminal shared between user and agent.
+- **Local & private** — Threads, settings, and plans live on your machine. No cloud lock-in.
+
+---
+
+## Screenshots
 
 ### Agent Layout
 <p align="center">
@@ -58,53 +55,46 @@ Async IDE is an open-source AI-native desktop application designed as your comma
 </p>
 
 ### Model Settings
-
 <p align="center">
   <img src="docs/assets/setting_1.png" width="1824" alt="Async Model Settings" />
 </p>
 
 ### Appearance Color Palette
-
 <p align="center">
   <img src="docs/assets/setting_2.png" width="1829" alt="Async Appearance Color Palette" />
 </p>
 
 #### Mac Codex Theme
-
 <p align="center">
   <img src="docs/assets/setting_3.png" width="1829" alt="Async Mac Codex Theme" />
 </p>
 
-### Browser tool invocation (with customizable request headers)
-
+### Browser Tool Invocation (customizable request headers)
 <p align="center">
-  <img src="docs/assets/browser_1.png" width="2868" alt="Async 模型设置" />
+  <img src="docs/assets/browser_1.png" width="2868" alt="Async Browser Tool" />
 </p>
 
 ### Multi-Agent Collaborative Expert Group
-
 <p align="center">
-  <img src="docs/assets/multi_agent_1.png" width="2871" alt="Async 模型设置" />
+  <img src="docs/assets/multi_agent_1.png" width="2871" alt="Async Multi-Agent" />
 </p>
 
-### Control the entire application through external robots in a conversational manner.
-
+### Control the App via External Chat Bots
 <p align="center">
-  <img src="docs/assets/bot_1.png" width="2871" alt="Async 模型设置" />
+  <img src="docs/assets/bot_1.png" width="2871" alt="Async Bot Integration" />
 </p>
 
-### All-rounder Terminal (Internal commands can be directly invoked by Agents and robots)
-
+### All-in-One Terminal (commands invokable by Agents and bots)
 <p align="center">
-  <img src="docs/assets/terminal_1.png" width="2859" alt="Async 模型设置" />
+  <img src="docs/assets/terminal_1.png" width="2859" alt="Async Terminal" />
 </p>
 
 <p align="center">
-  <img src="docs/assets/terminal_2.png" width="2871" alt="Async 模型设置" />
+  <img src="docs/assets/terminal_2.png" width="2871" alt="Async Terminal 2" />
 </p>
 
 <p align="center">
-  <img src="docs/assets/terminal_3.png" width="2865" alt="Async 模型设置" />
+  <img src="docs/assets/terminal_3.png" width="2865" alt="Async Terminal 3" />
 </p>
 
 ---
@@ -112,39 +102,35 @@ Async IDE is an open-source AI-native desktop application designed as your comma
 ## Core Features
 
 ### Autonomous Agent Loop
-
 - Streaming tool parameters with trajectory cards for clear execution visibility.
-- **Plan** and **Agent** dual modes: review the plan first, or let the agent run directly.
+- Plan and Agent dual modes: review the plan first, or let the agent run directly.
 - Approval gates for shell commands and file writes.
 - Editor context sync so agent edits can focus on the relevant file and line range.
 - Support for nested sub-agents, background execution, and timeline-style activity rendering.
 
 ### Multi-Model Support
-
-- Built-in adapters for **Anthropic**, **OpenAI**, and **Gemini**.
+- Built-in adapters for Anthropic, OpenAI, and Gemini.
 - Support for OpenAI-compatible endpoints like Ollama, vLLM, aggregators, or self-hosted services.
 - Streaming thinking blocks on supported models.
-- **Auto** mode to automatically pick the best available model.
+- Auto mode to automatically pick the best available model.
 
 ### Developer Experience
-
-- **Monaco** editor with multi-tab support, syntax highlighting, and diff review flows.
-- **Git** integration: status, diff, staging, commit, and push all available from the UI.
-- **xterm.js** terminal: for both user commands and observing agent shell operations.
-- **Composer** with `@` file mentions, rich segments, and persistent threads.
-- **Quick Open** palette (`Ctrl/Cmd+P`) and keyboard-first navigation.
+- Monaco editor with multi-tab support, syntax highlighting, and diff review flows.
+- Git integration: status, diff, staging, commit, and push all available from the UI.
+- xterm.js terminal: for both user commands and observing agent shell operations.
+- Composer with `@` file mentions, rich segments, and persistent threads.
+- Quick Open palette (`Ctrl/Cmd+P`) and keyboard-first navigation.
 - Built-in i18n support for English and Simplified Chinese.
 - Support for local disk skills, workspace config merge, and tool approval controls.
 
-### IM / Bot integrations
-
+### IM / Bot Integrations
 Async can act as the **host** for coding agents on external chat surfaces, not only inside the Electron UI.
 
-- **Platforms** — **Telegram**, **Slack**, **Discord**, and **Feishu (Lark)** via dedicated adapters under `main-src/bots/platforms/`.
-- **Same runtime** — Inbound messages run through **`botRuntime`**: normal threads use **`agentLoop`**, while **Team** mode uses the same **`teamOrchestrator`** path as the desktop Composer, including worker streaming and tool status where applicable.
-- **Per integration** — Enable/disable, display name, **default model**, **default Composer mode** (`agent` / `ask` / `plan` / `team`), **workspace root(s)**, optional **allowlists** for chats and users, and an extra **system prompt** on top of project rules.
-- **Connectivity** — Optional **HTTP proxy URL** per platform (shared pattern for token calls and webhooks) when vendor APIs must go through a corporate proxy.
-- **Feishu** — App credentials, optional encryption, **streaming interactive cards** for long-running replies, and session hygiene when integration settings change.
+- **Platforms** — Telegram, Slack, Discord, and Feishu (Lark) via dedicated adapters under `main-src/bots/platforms/`.
+- **Same runtime** — Inbound messages run through `botRuntime`: normal threads use `agentLoop`, while Team mode uses the same `teamOrchestrator` path as the desktop Composer, including worker streaming and tool status where applicable.
+- **Per integration** — Enable/disable, display name, default model, default Composer mode (`agent` / `ask` / `plan` / `team`), workspace root(s), optional allowlists for chats and users, and an extra system prompt on top of project rules.
+- **Connectivity** — Optional HTTP proxy URL per platform when vendor APIs must go through a corporate proxy.
+- **Feishu** — App credentials, optional encryption, streaming interactive cards for long-running replies, and session hygiene when integration settings change.
 - **Configuration UI** — Managed from **Settings → Bots** (`SettingsBotsPanel.tsx`).
 
 For a deeper module-level walkthrough, see the maintainer-oriented notes under [`docs/llm-wiki/`](./docs/llm-wiki/).
@@ -185,11 +171,11 @@ For a deeper module-level walkthrough, see the maintainer-oriented notes under [
 | **node-pty** | ^1.1.0 | PTY terminal support |
 
 - **Built from scratch** on Electron + React + Monaco — not a VS Code fork. The architecture is intentionally lean: two processes (main + renderer), clear IPC boundaries, and no inherited extension ecosystem to maintain.
-- `**agentLoop.ts`** handles multi-round tool calls, partial JSON streaming, tool repair, and aborts.
-- **Structured assistant messages** are persisted locally and expanded to provider-native tool formats when needed.
-- **Local persistence** stores threads, settings, and plans as JSON / Markdown under user data.
-- `**gitService`** provides the Git layer used by the UI for status, diff, staging, commit, and push.
-- **LSP** integration uses TypeScript Language Server for in-editor intelligence.
+- `agentLoop.ts` handles multi-round tool calls, partial JSON streaming, tool repair, and aborts.
+- Structured assistant messages are persisted locally and expanded to provider-native tool formats when needed.
+- Local persistence stores threads, settings, and plans as JSON / Markdown under user data.
+- `gitService` provides the Git layer used by the UI for status, diff, staging, commit, and push.
+- LSP integration uses TypeScript Language Server for in-editor intelligence.
 
 ## Project Structure
 
@@ -203,14 +189,14 @@ Async/
 │   ├── mcp/                   # Model Context Protocol integration
 │   ├── memdir/                # Memory directory management
 │   ├── bots/                  # IM bot controller, runtime, connectivity, platform adapters
-│   ├── ipc/register.ts        # ipcMain handlers (chat, threads, git, fs, agent, ...)
+│   ├── ipc/register.ts        # Core IPC handlers (chat, threads, agent, plan)
+│   ├── ipc/handlers/          # Domain-specific IPC handlers (git, fs, mcp, settings, ...)
 │   ├── shell/                 # Shell command execution
 │   ├── threadStore.ts         # Persistent threads + messages (JSON)
 │   ├── settingsStore.ts       # settings.json
 │   ├── gitService.ts          # Porcelain status, diff previews, commit/push
 │   ├── workspace.ts           # Open-folder root & safe path resolution
 │   ├── workspaceFileIndex.ts  # File indexing for workspace
-│   ├── workspaceSemanticIndex.ts  # Semantic search indexing
 │   ├── workspaceSymbolIndex.ts    # Symbol indexing
 │   └── workspaceUsageStats.ts     # Workspace usage statistics
 ├── src/                       # Vite + React renderer
@@ -223,7 +209,7 @@ Async/
 │   ├── SettingsPage.tsx       # Settings UI
 │   ├── SettingsBotsPanel.tsx  # IM bot integrations (Telegram / Slack / Discord / Feishu)
 │   ├── WorkspaceExplorer.tsx  # File explorer
-│   ├── hooks/                 # Custom React hooks (19 files)
+│   ├── hooks/                 # Custom React hooks
 │   ├── i18n/                  # Locale messages (en / zh-CN)
 │   └── ...                    # Agent UI, Plan review, Monaco, terminal, ...
 ├── electron/
@@ -239,13 +225,13 @@ Async/
 
 ## Data Storage
 
-Default location under Electron's **`userData`** directory:
+Default location under Electron's `userData` directory:
 
-- **`async/threads.json`**: threads and chat messages.
-- **`async/settings.json`**: model configuration, API keys, layout, agent options, and **`bots.integrations`** (Telegram / Slack / Discord / Feishu tokens, proxy URLs, allowlists, defaults).
-- **`.async/plans/`**: Markdown plan documents generated in Plan mode.
+- `async/threads.json`: threads and chat messages.
+- `async/settings.json`: model configuration, API keys, layout, agent options, and bot integrations.
+- `.async/plans/`: Markdown plan documents generated in Plan mode.
 
-The renderer may use **localStorage** for lightweight UI state, but the authoritative data source for conversations is **`threads.json`**.
+The renderer may use `localStorage` for lightweight UI state, but the authoritative data source for conversations is `threads.json`.
 
 ---
 
@@ -259,53 +245,29 @@ The renderer may use **localStorage** for lightweight UI state, but the authorit
 
 ### Install and Run
 
-1. **Clone the repository**:
+```bash
+git clone https://github.com/ZYKJShadow/Async.git
+cd Async
+npm install
+npm run desktop
+```
 
-   ```bash
-   git clone https://github.com/ZYKJShadow/Async.git
-   cd Async
-   ```
+If you prefer Gitee:
 
-   If you prefer Gitee, you can also use:
-
-   ```bash
-   git clone https://gitee.com/shadowsocks_z/Async.git
-   cd Async
-   ```
-
-2. **Install dependencies**:
-
-   ```bash
-   npm install
-   ```
-
-3. **Build and launch the desktop app**:
-
-   ```bash
-   npm run desktop
-   ```
-
-   This will build both the main and renderer processes, then open the app with Electron.
+```bash
+git clone https://gitee.com/shadowsocks_z/Async.git
+cd Async
+npm install
+npm run desktop
+```
 
 ### Development
 
 ```bash
-npm run dev
+npm run dev          # Dev server with hot reload
+npm run dev:debug    # Same, with DevTools open
+npm run icons        # Generate app icons from SVG
 ```
-
-To open DevTools during development:
-
-```bash
-npm run dev:debug
-```
-
-### Generate App Icon
-
-```bash
-npm run icons
-```
-
-This will rasterize `docs/assets/async-logo.svg` into `resources/icons/icon.png` and `public/favicon.png`.
 
 ---
 

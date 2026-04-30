@@ -8,12 +8,12 @@
 
 `terminalSessionService.ts` 维护**全局** `Map<id, Session>`：每个会话包含一个 `pty.IPty`、环形 UTF-8 输出缓冲（默认上限约 256KB）、单调递增的 `seq`、以及任意多个 `WebContents` 订阅者；输出与退出事件通过 `term:data` / `term:exit` / `term:authPrompt` 等通道广播给订阅方。
 
-## 与 `terminalPty.ts` 的区别
+## 与旧版 `terminalPty.ts` 的区别
 
 文件头注释说明：
 
 - **本会话池**：不绑定创建者 sender；任意窗口或 Agent 工具可 `write` / `subscribe`。
-- **`terminalPty.ts`**：按 sender 绑定的较老 PTY IPC 路径（`terminal:ptyCreate` 等），与会话池并存；模块页见 [terminalPty.ts](./terminal-pty.md)。新全能终端与会话池 IPC 在 `terminalSessionIpc.ts` 注册。
+- **旧 `terminalPty.ts`**：按 sender 绑定的较早 PTY IPC 路径（`terminal:ptyCreate` 等），**当前工作树中已移除**，但 `electron/preload.cjs` 仍残留 `terminal:pty*` 白名单与订阅 API（死代码）。新全能终端与会话池 IPC 在 `terminalSessionIpc.ts` 注册。
 
 ## 对外 API 摘要
 

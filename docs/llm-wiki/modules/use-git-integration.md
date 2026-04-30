@@ -41,14 +41,14 @@
 
 ## 修改这个文件时要一起看
 
-- `main-src/ipc/register.ts` 中 `git:*` 实现
+- `main-src/ipc/handlers/gitHandlers.ts` 中 `git:*` 实现
 - `src/agentFileChangesFromGit.ts`（路径归一化）
 - `src/WorkspaceExplorer.tsx` 中 `GitPathStatusMap` 类型
 
 ## Primary Sources
 
 - `src/hooks/useGitIntegration.ts`
-- `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/gitHandlers.ts`
 
 ## 相关页面
 

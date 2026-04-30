@@ -69,6 +69,7 @@
 
 - `main-src/lsp/`
 - `main-src/lspSessionsByWebContents.ts`
+- `main-src/ipc/handlers/lspHandlers.ts`（`lsp:ts:*` IPC 注册）
 - `main-src/plugins/` 下的 LSP 配置装配
 - preload 中的 `lsp:*` IPC 通道
 
@@ -98,14 +99,14 @@
 
 当前仓库里：
 
-- README 仍提到 `workspaceSemanticIndex.ts`
-- `.async/index/semantic.json` 也残留了这个文件的索引内容
-- 但当前工作树中 `main-src/workspaceSemanticIndex.ts` 并不存在
+- ~~README 仍提到 `workspaceSemanticIndex.ts`~~ → **已修正**：README / README.zh-CN.md 已删除该条目
+- `.async/index/semantic.json` 仍残留了这个文件的索引内容（运行时历史残影）
+- 当前工作树中 `main-src/workspaceSemanticIndex.ts` 并不存在
 
 结论：
 
-- “语义索引”目前至少不是一个可直接依赖的源码事实
-- 相关说法应先视为历史信息，再做核实
+- “语义索引”目前不是一个可直接依赖的源码事实
+- 相关说法应视为历史信息
 
 ## Primary Sources
 

@@ -41,14 +41,16 @@
 
 - `main-src/settingsStore.ts`（`pluginMcpOverrides`、用户插件根路径）
 - [mcpManager.ts](./mcp-manager.md)（`loadConfigs(getEffectiveMcpServerConfigs(...))`）
-- `main-src/ipc/register.ts`（MCP IPC、`plugins:getRuntimeState`）
+- `main-src/ipc/handlers/mcpHandlers.ts`（MCP IPC）
+- `main-src/ipc/handlers/pluginsHandlers.ts`（`plugins:getRuntimeState`）
 - `main-src/plugins/pluginFs.ts`（manifest 路径解析）
 
 ## Primary Sources
 
 - `main-src/plugins/pluginRuntimeService.ts`
 - `main-src/settingsStore.ts`
-- `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/mcpHandlers.ts`
+- `main-src/ipc/handlers/pluginsHandlers.ts`
 
 ## 相关页面
 

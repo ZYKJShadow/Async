@@ -1,13 +1,13 @@
 # IPC 通道地图
 
-- 状态：已根据 `main-src/ipc/register.ts`、`main-src/terminalSessionIpc.ts`、`main-src/terminalPty.ts` 与 `electron/preload.cjs` 的登记方式校验。
+- 状态：已根据 `main-src/ipc/register.ts`、`main-src/ipc/handlers/*.ts`、`main-src/terminalSessionIpc.ts` 与 `electron/preload.cjs` 的登记方式校验。
 - 主题：主进程注册了哪些 `ipcMain.handle` 通道、按业务域归类、与「preload 白名单」的关系。
 
 ## 阅读方式
 
 - **实现权威**：通道处理函数在源码里；本页是**索引**，省略参数细节与返回值形状。
 - **Renderer 能否调用**：还须满足 `electron/preload.cjs` 中 `INVOKE_CHANNELS`（及同类列表）是否包含该字符串；main 有而 preload 无则 UI 调不到。
-- **注册入口**：`registerIpc()`（`main-src/ipc/register.ts`）开头会先调用 `registerTerminalPtyIpc()`、`registerTerminalSessionIpc()`，再注册本文件内的大量 `handle`。
+- **注册入口**：`registerIpc()`（`main-src/ipc/register.ts`）会先调用 `registerTerminalSessionIpc()`，再依次调用 `main-src/ipc/handlers/*Handlers.ts` 中的注册函数，最后注册 `register.ts` 本体中的 handle。旧版 `terminalPty.ts` 已移除。
 
 ## Shell / 应用
 
@@ -15,8 +15,12 @@
 | --- | --- |
 | `async-shell:ping` | 连通性探测 |
 | `app:getPaths` | 常用路径（userData 等） |
+| `app:getVersion` | 应用版本号 |
 | `app:newWindow` / `app:newEditorWindow` | 新开窗口 |
+| `app:openOrFocusWindowSurface` | 聚焦或打开指定 Surface 窗口 |
 | `app:windowGetState` / `app:windowMinimize` / `app:windowToggleMaximize` / `app:windowClose` | 窗口状态与 chrome 控制 |
+| `app:windowSurfaceStatus` | 窗口 Surface 状态上报 |
+| `app:setUnreadBadgeCount` | 设置未读角标 |
 | `app:quit` | 退出应用 |
 | `app:requestOpenSettings` | 请求打开设置页并可带导航 id |
 | `theme:applyChrome` | 按窗口应用原生标题栏主题色 |
@@ -33,22 +37,24 @@
 | `workspace:searchFiles` | 工作区内文件搜索 |
 | `workspace:searchSymbols` | 符号搜索 |
 | `workspace:saveComposerAttachment` | Composer 拖拽附件落盘到 `.async/composer-drops` |
+| `workspace:pickComposerImages` | 选择图片附件 |
+| `workspace:resolveDroppedFilePath` | 解析拖拽文件路径 |
 
 ## LSP（TypeScript 内嵌）
 
-| 通道 | 职责摘要 |
-| --- | --- |
-| `lsp:ts:start` / `lsp:ts:stop` | 启停 TS 语言服务 |
-| `lsp:ts:definition` / `lsp:ts:diagnostics` | 定义跳转与诊断 |
+| 通道 | 职责摘要 | 注册位置 |
+| --- | --- | --- |
+| `lsp:ts:start` / `lsp:ts:stop` | 启停 TS 语言服务 | `ipc/handlers/lspHandlers.ts` |
+| `lsp:ts:definition` / `lsp:ts:diagnostics` | 定义跳转与诊断 | `ipc/handlers/lspHandlers.ts` |
 
 ## 文件与 Shell
 
 | 通道 | 职责摘要 |
 | --- | --- |
 | `fs:pickOpenFile` / `fs:pickSaveFile` | 系统文件对话框 |
-| `fs:readFile` / `fs:writeFile` / `fs:listDir` | 工作区内读写与列目录 |
+| `fs:readFile` / `fs:readTextPreview` / `fs:writeFile` / `fs:listDir` | 工作区内读写与列目录 |
 | `fs:renameEntry` / `fs:removeEntry` | 重命名与删除 |
-| `shell:revealInFolder` / `shell:revealAbsolutePath` / `shell:openDefault` / `shell:openInBrowser` | 在资源管理器中展示或打开 |
+| `shell:revealInFolder` / `shell:revealAbsolutePath` / `shell:openDefault` / `shell:openInBrowser` / `shell:openExternalUrl` | 在资源管理器中展示或打开 / 打开外部 URL |
 | `clipboard:writeText` / `clipboard:readText` | 剪贴板 |
 
 ## 浏览器侧栏
@@ -59,6 +65,22 @@
 | `browser:syncState` / `browser:getState` | 与宿主同步浏览器状态 |
 | `browser:commandResult` / `browser:windowReady` | 命令结果与窗口就绪 |
 | `browser:openWindow` | 打开独立浏览器窗口 |
+| `browser:clearData` | 清除浏览器数据 |
+| `composer:appendDraft` | 向 Composer 追加草稿内容 |
+
+## 浏览器抓包与代理（Browser Capture）
+
+| 通道 | 职责摘要 |
+| --- | --- |
+| `browserCapture:start` / `browserCapture:stop` / `browserCapture:clear` | 启停抓包与清空 |
+| `browserCapture:listRequests` / `browserCapture:getRequest` / `browserCapture:exportRequests` | 请求列表、详情、导出 |
+| `browserCapture:hookList` / `browserCapture:hookIngest` | Hook 列表与注入 |
+| `browserCapture:storageList` / `browserCapture:storageIngest` | Storage 条目列表与注入 |
+| `browserCapture:sessionsList` / `browserCapture:sessionsSave` / `browserCapture:sessionsLoad` / `browserCapture:sessionsRename` / `browserCapture:sessionsDelete` | 会话快照管理 |
+| `browserCapture:analyze` / `browserCapture:analysisRecord` / `browserCapture:analysisList` / `browserCapture:analysisRemove` | 请求分析 |
+| `browserCapture:proxyStatus` / `browserCapture:proxyStart` / `browserCapture:proxyStop` / `browserCapture:proxySystemProxyToggle` | 代理启停与系统代理切换 |
+| `browserCapture:proxyCaInstall` / `browserCapture:proxyCaUninstall` / `browserCapture:proxyCaRefresh` / `browserCapture:proxyOpenCaPath` / `browserCapture:proxyCopySnippet` / `browserCapture:proxyExportCa` | CA 证书管理 |
+| `browserCapture:getState` | 获取抓包整体状态 |
 
 ## 设置、插件、工作区 Agent
 
@@ -66,8 +88,18 @@
 | --- | --- |
 | `settings:get` / `settings:set` | 全局设置读写 |
 | `settings:testBotConnection` | 校验 bot 集成连通性 |
-| `plugins:*` | 插件市场、安装目录、启用状态等 |
-| `workspaceAgent:get` / `workspaceAgent:set` | `.async/agent.json` 项目切片 |
+| `settings:discoverProviderModels` | 发现 provider 模型列表 |
+| `settings:runCodexLogin` / `settings:cancelCodexLogin` | Codex 登录流程 |
+| `settings:runProviderOAuthLogin` / `settings:cancelProviderOAuthLogin` | Provider OAuth 登录流程 |
+| `settings:importBotSkillFolder` | 导入 bot 技能文件夹 |
+| `team:getBuiltinCatalog` | 获取内置 Team 目录 |
+| `feishu:runOauth` / `feishu:cancelOauth` / `feishu:disconnect` / `feishu:getCallbackUrls` | 飞书 OAuth 与回调 |
+| `plugins:getState` / `plugins:getRuntimeState` | 插件状态与运行时状态 |
+| `plugins:pickUserDirectory` / `plugins:setUserDirectory` | 用户插件目录选择 |
+| `plugins:addMarketplace` / `plugins:refreshMarketplace` / `plugins:removeMarketplace` | 插件市场管理 |
+| `plugins:install` / `plugins:uninstall` | 插件安装与卸载 |
+| `plugins:setEnabled` | 插件启用状态 |
+| `workspaceAgent:get` / `workspaceAgent:set` / `workspaceAgent:resetAsyncDir` | `.async/agent.json` 项目切片与重置 |
 | `workspace:listDiskSkills` / `workspace:deleteSkillFromDisk` | 磁盘技能扫描与删除 |
 | `workspace:memory:stats` / `workspace:memory:rebuild` | 项目记忆索引维护 |
 
@@ -75,7 +107,7 @@
 
 | 通道 | 职责摘要 |
 | --- | --- |
-| `threads:list` / `threads:listAgentSidebar` | 线程列表与多工作区侧栏摘要 |
+| `threads:list` / `threads:listLight` / `threads:listDetails` / `threads:listAgentSidebar` | 线程列表与多工作区侧栏摘要 |
 | `threads:messages` / `threads:create` / `threads:select` / `threads:delete` / `threads:rename` | 消息与线程 CRUD |
 | `threads:fileStates` | 线程关联文件状态 |
 | `threads:getExecutedPlanKeys` / `threads:markPlanExecuted` | Plan 审阅执行记录 |
@@ -95,6 +127,7 @@
 | `agent:sendInput` / `agent:wait` / `agent:resume` / `agent:close` | 托管子 Agent 输入与生命周期 |
 | `agent:keepLastTurn` / `agent:revertLastTurn` | 整轮保留或回滚 |
 | `agent:keepFile` / `agent:getFileSnapshot` / `agent:revertFile` | 单文件快照与回滚 |
+| `agent:hasSnapshots` | 查询线程是否有快照 |
 | `agent:seedFileSnapshot` / `agent:acceptFileHunk` / `agent:revertFileHunk` | 分块审阅与快照推进 |
 | `agent:userInputRespond` | 通用用户输入请求 |
 | `agent:toolApprovalRespond` | 工具审批闸门 |
@@ -107,17 +140,23 @@
 | --- | --- |
 | `git:status` / `git:fullStatus` | 状态行与扩展信息 |
 | `git:diffPreviews` | 批量 diff 预览 |
+| `git:diffPreview` | 单文件 diff 预览（⚠️ 当前 preload 白名单中**无**此单数通道，renderer 无法调用） |
+| `git:hasStaged` | 查询是否有已暂存变更 |
+| `git:remoteInfo` | 远程仓库信息 |
 | `git:listBranches` / `git:checkoutBranch` / `git:createBranch` | 分支 |
-| `git:stageAll` / `git:commit` / `git:push` | 暂存、提交、推送 |
+| `git:stageAll` / `git:commit` / `git:push` / `git:pushSetUpstream` | 暂存、提交、推送、推送并设置上游 |
 
 ## 终端
 
 | 通道 | 职责摘要 | 注册位置 |
 | --- | --- | --- |
-| `terminal:ptyCreate` 等 | 旧版/按 sender 绑定的 PTY 会话 | `terminalPty.ts`（模块页见 [terminalPty.ts](../modules/terminal-pty.md)） |
 | `term:sessionCreate` / `term:sessionWrite` / `term:sessionRespondToPrompt` / `term:sessionClearPrompt` / `term:sessionResize` / `term:sessionKill` / `term:sessionRename` / `term:sessionList` / `term:sessionInfo` / `term:sessionBuffer` / `term:sessionSubscribe` / `term:sessionUnsubscribe` | 共享 PTY 会话池（全能终端 + Agent）；`sessionRespondToPrompt` 对应服务层 `respondToTerminalSessionAuthPrompt`（密码 / passphrase 提示） | `terminalSessionIpc.ts` |
-| `terminalWindow:open` / `term:listBuiltinProfiles` / `term:profilePassword*` / `term:pickPath` | 独立终端窗口与 profile 密码 | `terminalSessionIpc.ts` |
-| `terminal:execLine` | 在工作区内执行单行命令（非持久会话路径） | `register.ts` |
+| `terminalWindow:open` / `term:listBuiltinProfiles` / `term:profilePasswordState` / `term:profilePasswordSet` / `term:profilePasswordCacheSet` / `term:profilePasswordClear` / `term:pickPath` / `term:pickSavePath` | 独立终端窗口、profile 密码与路径选择 | `terminalSessionIpc.ts` |
+| `term:portCheck` | 端口转发检查 | `terminalSessionIpc.ts` |
+| `term:settingsSync` | 终端设置同步 | `terminalSessionIpc.ts` |
+| `term:sftpConnect` / `term:sftpDisconnect` / `term:sftpList` / `term:sftpStat` / `term:sftpRealPath` / `term:sftpMkdir` / `term:sftpDelete` / `term:sftpRename` / `term:sftpUploadFile` / `term:sftpUploadDirectory` / `term:sftpDownloadFile` / `term:sftpDownloadDirectory` / `term:sftpEditLocal` | SFTP 文件传输 | `terminalSessionIpc.ts` |
+| `terminal:execLine` | 在工作区内执行单行命令（非持久会话路径） | `ipc/handlers/terminalExecHandlers.ts` |
+| ~~`terminal:ptyCreate` 等~~ | ~~旧版/按 sender 绑定的 PTY 会话~~ | ~~已移除；preload 残留死代码~~ |
 
 会话池实现见 [terminalSessionService.ts](../modules/terminal-session-service.md)；IPC 注册与窗口映射见 [terminalSessionIpc.ts](../modules/terminal-session-ipc.md)。
 
@@ -139,7 +178,7 @@
 | 通道 | 职责摘要 |
 | --- | --- |
 | `usageStats:get` / `usageStats:pickDirectory` | 使用统计目录 |
-| `auto-update:check` / `auto-update:download` / `auto-update:install` / `auto-update:get-status` | 自动更新流程 |
+| `auto-update:check` / `auto-update:download` / `auto-update:install` / `auto-update:get-status` / `auto-update:open-folder` | 自动更新流程与打开更新目录 |
 
 ## 推送事件（非 `handle`，仅提醒）
 
@@ -148,8 +187,8 @@
 ## Primary Sources
 
 - `main-src/ipc/register.ts`
+- `main-src/ipc/handlers/*Handlers.ts`
 - `main-src/terminalSessionIpc.ts`
-- `main-src/terminalPty.ts`
 - `electron/preload.cjs`
 
 ## 相关页面
