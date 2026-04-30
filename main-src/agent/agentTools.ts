@@ -567,6 +567,166 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 		},
 	},
 	{
+		name: 'Playwright',
+		description:
+			'AI-driven browser automation against the app\'s built-in browser via Playwright over CDP. Use this for **frontend automation testing**: navigating, interacting with elements, asserting outcomes, and capturing evidence. Each interaction is animated with a humanized cursor overlay (eased motion, hover delays, click ripples) so the user can see what the AI is doing.\n\n**When to use:** the user explicitly asks to test/verify a frontend feature in the browser, validate a UI flow, or reproduce a bug visually. Do NOT use for plain code reading, refactoring, or unit-testing tasks.\n\n**Locating elements (preferred order):** `role`+`role_name` (most robust) → `test_id` → `label` → `placeholder` → `text` → `selector` (CSS, last resort). Pass exactly one. Use `nth` to pick among matches.\n\n**Typical test flow:** `navigate` → `wait_for` (page ready) → `snapshot` (read accessibility tree) → `click`/`fill`/`press_key` → `assert` (verify outcome) → `screenshot` (evidence).',
+		parameters: {
+			type: 'object',
+			properties: {
+				action: {
+					type: 'string',
+					enum: [
+						'status',
+						'navigate',
+						'click',
+						'hover',
+						'fill',
+						'press_key',
+						'scroll',
+						'wait_for',
+						'evaluate',
+						'snapshot',
+						'screenshot',
+						'assert',
+					],
+					description: 'Playwright action to perform.',
+				},
+				url: {
+					type: 'string',
+					description: 'For navigate: target URL (absolute, including protocol).',
+				},
+				wait_until: {
+					type: 'string',
+					enum: ['load', 'domcontentloaded', 'networkidle', 'commit'],
+					description: 'For navigate: when to consider navigation complete. Default load.',
+				},
+				role: {
+					type: 'string',
+					description:
+						'For element actions: ARIA role (button, link, textbox, checkbox, heading, etc). Most robust locator.',
+				},
+				role_name: {
+					type: 'string',
+					description: 'For element actions with role: accessible name to disambiguate. Often the visible label.',
+				},
+				role_exact: {
+					type: 'boolean',
+					description: 'For role+name: require exact name match instead of substring.',
+				},
+				text: {
+					type: 'string',
+					description: 'For element actions: locate by visible text content.',
+				},
+				text_exact: {
+					type: 'boolean',
+					description: 'For text locator: require exact match. Default false.',
+				},
+				label: {
+					type: 'string',
+					description: 'For element actions: locate form control by associated <label>.',
+				},
+				placeholder: {
+					type: 'string',
+					description: 'For element actions: locate input by placeholder text.',
+				},
+				test_id: {
+					type: 'string',
+					description: 'For element actions: locate by data-testid attribute.',
+				},
+				selector: {
+					type: 'string',
+					description: 'For element actions: CSS selector. Use only when accessible locators are insufficient.',
+				},
+				nth: {
+					type: 'number',
+					description: 'For element actions: 0-based index when the locator matches multiple elements.',
+				},
+				value: {
+					type: 'string',
+					description: 'For fill: text value to type into the located element.',
+				},
+				clear_first: {
+					type: 'boolean',
+					description: 'For fill: select-all + delete before typing. Default true.',
+				},
+				min_per_char_ms: {
+					type: 'number',
+					description: 'For fill: minimum delay between characters in ms. Default 60.',
+				},
+				max_per_char_ms: {
+					type: 'number',
+					description: 'For fill: maximum delay between characters in ms. Default 160.',
+				},
+				key: {
+					type: 'string',
+					description: 'For press_key: e.g. "Enter", "Escape", "Tab", "Control+A".',
+				},
+				delta_y: {
+					type: 'number',
+					description: 'For scroll: vertical pixels to scroll. Positive = down.',
+				},
+				step_px: {
+					type: 'number',
+					description: 'For scroll: pixels per wheel step. Default 120 (smoother = lower).',
+				},
+				step_delay_ms: {
+					type: 'number',
+					description: 'For scroll: delay between wheel steps. Default 30.',
+				},
+				state: {
+					type: 'string',
+					enum: ['attached', 'detached', 'visible', 'hidden'],
+					description: 'For wait_for: target visibility state. Default visible. Omit locator args to wait for page load instead.',
+				},
+				expression: {
+					type: 'string',
+					description:
+						'For evaluate: JavaScript body executed in the page (async). Return a JSON-serializable value. Wrapped in `(async () => { ... })()`.',
+				},
+				expect: {
+					type: 'string',
+					enum: ['visible', 'hidden', 'has_text', 'has_value', 'has_count', 'url_matches'],
+					description: 'For assert: which assertion to perform. Default visible.',
+				},
+				expected_text: {
+					type: 'string',
+					description: 'For assert with has_text/has_value/url_matches: expected substring or regex.',
+				},
+				expected_count: {
+					type: 'number',
+					description: 'For assert with has_count: required match count.',
+				},
+				full_page: {
+					type: 'boolean',
+					description: 'For screenshot: capture full scrollable page instead of viewport. Default false.',
+				},
+				file_path: {
+					type: 'string',
+					description:
+						'For screenshot: optional output path. If omitted, saves to `.async/pw-captures/` under the workspace.',
+				},
+				timeout_ms: {
+					type: 'number',
+					description: 'For wait_for/navigate/assert: per-operation timeout in ms.',
+				},
+				tab_id: {
+					type: 'string',
+					description: 'Optional: target a specific browser tab. Omit for the active tab.',
+				},
+				label_text: {
+					type: 'string',
+					description:
+						'Optional: short text shown next to the animated cursor while the action runs (e.g. "点击登录"). Helps the user follow what the AI is doing.',
+				},
+				max_chars: {
+					type: 'number',
+					description: 'For snapshot: maximum characters of accessibility tree to return. Default 8000.',
+				},
+			},
+			required: ['action'],
+		},
+	},
+	{
 		name: 'LSP',
 		description:
 			'Language-server intelligence for the workspace, routed by **file extension** to LSP servers declared in plugin dirs under `<asyncData>/plugins/<name>/` or `<workspace>/.async/plugins/<name>/` with **`.lsp.json`** or **`plugin.json` → `lspServers`** (each server: **command**, optional **args**, required **extensionToLanguage** map). Legacy **`lsp.servers`** in settings.json is still merged. TS/JS additionally works if **typescript-language-server** is discoverable under the app or workspace `node_modules` (optional).\n\nOperations: goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls, getDiagnostics. Use **filePath** plus 1-based **line**/**character** except **getDiagnostics**/**workspaceSymbol** (optional line/char).\n\nIf nothing matches the file extension, add a plugin or legacy server entry. If an LSP method fails, fall back to **Read** / **Grep** / **Bash**.',

@@ -52,6 +52,7 @@ import {
 } from '../../browser/browserMitmProxy.js';
 import { CaInstaller, type CaInstallScope } from '../../browser/browserCaInstaller.js';
 import { SystemProxy } from '../../browser/browserSystemProxy.js';
+import { getPlaywrightStatus } from '../../browser/playwrightBridge.js';
 
 function parseCaScope(options: unknown): CaInstallScope {
 	if (options && typeof options === 'object') {
@@ -199,6 +200,17 @@ export function registerBrowserHandlers(): void {
 	ipcMain.handle('browser:openWindow', async (event) => {
 		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
 		return { ok: await openBrowserWindowForHostId(hostId) };
+	});
+
+	ipcMain.handle('browser:pwStatus', async () => {
+		try {
+			return { ok: true as const, status: await getPlaywrightStatus() };
+		} catch (error) {
+			return {
+				ok: false as const,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
 	});
 
 	ipcMain.handle('browserCapture:getState', async (event) => {

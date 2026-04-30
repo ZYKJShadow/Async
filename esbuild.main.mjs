@@ -25,6 +25,9 @@ const ctx = await esbuild.context({
 		'chokidar',
 		'fsevents',
 		'better-sqlite3',
+		// Playwright 携带可选依赖（chromium-bidi 等）和动态 require，
+		// 不能 bundle，必须从 node_modules 在运行时加载。
+		'playwright-core',
 	],
 	sourcemap: true,
 	minify: !isWatch,

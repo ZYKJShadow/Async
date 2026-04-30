@@ -20,6 +20,8 @@ import { flushBotSessionStore, initBotSessionStore } from './bots/botSessionStor
 import { disposeAppTray, initAppTray } from './appTray.js';
 import { disposeBrowserCaptureProxy } from './browser/browserMitmProxy.js';
 import { SystemProxy as BrowserSystemProxy } from './browser/browserSystemProxy.js';
+import { applyAiBrowserStartupSwitches } from './browser/aiBrowserFlag.js';
+import { disposePlaywrightBridge } from './browser/playwrightBridge.js';
 
 function resolveAppIconPath(): string | undefined {
 	const iconSearchRoots =
@@ -48,6 +50,9 @@ function resolveAppIconPath(): string | undefined {
 }
 
 initWindowsConsoleUtf8();
+
+// 必须在 app.whenReady 之前调用 —— Chromium 命令行开关只在初始化前生效。
+applyAiBrowserStartupSwitches();
 
 // Intercept webview new-window requests and forward to host renderer
 // (Electron 12+ deprecated the new-window event; use setWindowOpenHandler instead)
@@ -85,6 +90,7 @@ app.on('before-quit', (e) => {
 		flushPendingSave(),
 		disposeBotController(),
 		disposeBrowserCaptureProxy(),
+		disposePlaywrightBridge(),
 		BrowserSystemProxy.hasSavedState() ? BrowserSystemProxy.disable() : Promise.resolve(),
 	]).finally(() => {
 		app.quit();

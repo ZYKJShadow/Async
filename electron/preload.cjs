@@ -23,6 +23,7 @@ const INVOKE_CHANNELS = new Set([
 	'browser:windowReady',
 	'browser:openWindow',
 	'browser:clearData',
+	'browser:pwStatus',
 	'browserCapture:getState',
 	'browserCapture:start',
 	'browserCapture:stop',
