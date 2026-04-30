@@ -3661,6 +3661,7 @@ function AppMainWorkspaceInner() {
 				currentId={currentId}
 				hasUnreadAgentReply={unreadAgentThreadIds.has(th.id)}
 				streamingThreadId={awaitingReply ? streamingThreadId : null}
+				awaitingReply={awaitingReply}
 				editingThreadId={editingThreadId}
 				editingThreadTitleDraft={editingThreadTitleDraft}
 				setEditingThreadTitleDraft={setEditingThreadTitleDraft}
