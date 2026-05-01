@@ -84,6 +84,18 @@ async function triggerCursorClick(page: Page, x: number, y: number): Promise<voi
 	}
 }
 
+async function pushKeyToHud(page: Page, label: string): Promise<void> {
+	try {
+		await page.evaluate((l) => {
+			const api = (window as unknown as { __asyncAiCursor?: { key: (l: string) => void } })
+				.__asyncAiCursor;
+			if (api && typeof api.key === 'function') api.key(l);
+		}, label);
+	} catch {
+		/* decorative */
+	}
+}
+
 async function locatorViewportCenter(locator: Locator): Promise<{ x: number; y: number }> {
 	// Playwright 的 boundingBox 已是视口坐标（CSS px）。
 	const box = await locator.boundingBox({ timeout: 10_000 });
@@ -149,18 +161,7 @@ export async function humanType(
 	for (let i = 0; i < text.length; i++) {
 		const ch = text[i];
 		await page.keyboard.type(ch, { delay: 0 });
-		// 每隔几个字符触发一次输入指示器
-		if (i % 3 === 0) {
-			try {
-				await page.evaluate(() => {
-					const api = (window as unknown as { __asyncAiCursor?: { typeIndicator: () => void } })
-						.__asyncAiCursor;
-					api?.typeIndicator();
-				});
-			} catch {
-				/* ignore */
-			}
-		}
+		await pushKeyToHud(page, ch);
 		await page.waitForTimeout(rand(minMs, maxMs));
 	}
 }
@@ -171,6 +172,7 @@ export async function humanPressKey(
 	options: { label?: string } = {}
 ): Promise<void> {
 	await safeShowLabel(page, options.label, 1200);
+	await pushKeyToHud(page, key);
 	await page.waitForTimeout(rand(60, 140));
 	await page.keyboard.press(key);
 }
