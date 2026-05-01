@@ -36,8 +36,6 @@ export type LiveToolBlock = {
 export type LiveAgentBlock =
 	| { id: string; type: 'text'; text: string }
 	| { id: string; type: 'thinking'; text: string; sealed?: boolean; startedAt: number; endedAt?: number }
-	| { id: string; type: 'sub_agent_delta'; parentToolCallId: string; depth: number; text: string }
-	| { id: string; type: 'sub_agent_thinking'; parentToolCallId: string; depth: number; text: string }
 	| LiveToolBlock
 	| { id: string; type: 'tool_progress'; toolName: string; phase: string; detail?: string };
 
@@ -165,38 +163,6 @@ function closeTrailingRootThinking(blocks: LiveAgentBlock[], endedAt = Date.now(
 		changed = true;
 	}
 	return changed ? copy : blocks;
-}
-
-function appendSubAgentDelta(
-	blocks: LiveAgentBlock[],
-	parent: string,
-	depth: number,
-	piece: string
-): LiveAgentBlock[] {
-	if (!piece) return blocks;
-	const last = blocks[blocks.length - 1];
-	if (last?.type === 'sub_agent_delta' && last.parentToolCallId === parent && last.depth === depth) {
-		const copy = blocks.slice(0, -1);
-		copy.push({ ...last, text: last.text + piece });
-		return copy;
-	}
-	return [...blocks, { id: nextId('sub'), type: 'sub_agent_delta', parentToolCallId: parent, depth, text: piece }];
-}
-
-function appendSubAgentThinking(
-	blocks: LiveAgentBlock[],
-	parent: string,
-	depth: number,
-	piece: string
-): LiveAgentBlock[] {
-	if (!piece) return blocks;
-	const last = blocks[blocks.length - 1];
-	if (last?.type === 'sub_agent_thinking' && last.parentToolCallId === parent && last.depth === depth) {
-		const copy = blocks.slice(0, -1);
-		copy.push({ ...last, text: last.text + piece });
-		return copy;
-	}
-	return [...blocks, { id: nextId('subt'), type: 'sub_agent_thinking', parentToolCallId: parent, depth, text: piece }];
 }
 
 function upsertToolStreaming(blocks: LiveAgentBlock[], index: number, name: string, partialJson: string): LiveAgentBlock[] {
@@ -349,7 +315,7 @@ export type LiveAgentChatPayload =
 	  }
 	| { type: 'tool_progress'; name: string; phase: string; detail?: string; parentToolCallId?: string };
 
-/** 将 IPC 流事件折叠进块列表（根线程；嵌套工具仅 sub_agent 文本进块） */
+/** 将 IPC 流事件折叠进块列表；子 Agent 流由 Agent session 侧栏承载，不写入主聊天块。 */
 export function applyLiveAgentChatPayload(
 	state: LiveAgentBlocksState,
 	payload: LiveAgentChatPayload
@@ -361,10 +327,9 @@ export function applyLiveAgentChatPayload(
 
 	if (payload.type === 'delta') {
 		if (payload.parentToolCallId) {
-			blocks = appendSubAgentDelta(blocks, payload.parentToolCallId, payload.nestingDepth ?? 1, payload.text);
-		} else {
-			blocks = appendRootText(blocks, payload.text);
+			return state;
 		}
+		blocks = appendRootText(blocks, payload.text);
 		return { blocks };
 	}
 
@@ -373,8 +338,7 @@ export function applyLiveAgentChatPayload(
 			blocks = appendRootThinking(blocks, payload.text);
 			return { blocks };
 		}
-		blocks = appendSubAgentThinking(blocks, payload.parentToolCallId, payload.nestingDepth ?? 1, payload.text);
-		return { blocks };
+		return state;
 	}
 
 	if (payload.type === 'tool_input_delta') {
@@ -473,22 +437,6 @@ export function liveBlocksToAssistantSegments(blocks: LiveAgentBlock[], t: TFunc
 				text: b.text,
 				startedAt: b.startedAt,
 				endedAt: b.endedAt,
-			});
-		} else if (b.type === 'sub_agent_delta') {
-			out.push({
-				type: 'sub_agent_markdown',
-				parentToolCallId: b.parentToolCallId,
-				depth: b.depth,
-				text: b.text,
-				variant: 'text',
-			});
-		} else if (b.type === 'sub_agent_thinking') {
-			out.push({
-				type: 'sub_agent_markdown',
-				parentToolCallId: b.parentToolCallId,
-				depth: b.depth,
-				text: b.text,
-				variant: 'thinking',
 			});
 		} else if (b.type === 'tool_progress') {
 			const text =

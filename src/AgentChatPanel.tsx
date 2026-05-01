@@ -71,8 +71,13 @@ import { IconArrowDown, IconChevron, IconDoc } from './icons';
 import { type ParsedPlan, type PlanQuestion } from './planParser';
 import { type ChatMessage } from './threadTypes';
 import type { TeamSessionState } from './hooks/useTeamSession';
-import type { AgentUserInputRequest } from './agentSessionTypes';
+import type { AgentLifecycleStatus, AgentUserInputRequest } from './agentSessionTypes';
+import type { AgentSessionState } from './hooks/useAgentSession';
 import { buildTeamConversationTimeline } from './teamChatTimeline';
+import {
+	filterDuplicateSubAgentReplies,
+	subAgentCardBodyLabel,
+} from './subAgentChatProjection';
 
 type SharedComposerProps = Omit<
 	ComponentProps<typeof ChatComposer>,
@@ -174,6 +179,8 @@ export type AgentChatPanelProps = {
 	agentPlanSummaryCard: ReactNode;
 	teamSession: TeamSessionState | null;
 	onSelectTeamExpert: (taskId: string) => void;
+	agentSession: AgentSessionState | null;
+	onSelectAgentSession: (agentId: string | null) => void;
 	onTeamPlanApprove: (proposalId: string, feedback?: string) => void;
 	onTeamPlanReject: (proposalId: string, feedback?: string) => void;
 	onChatPanelDropFiles: (files: File[]) => Promise<void>;
@@ -233,6 +240,23 @@ function sanitizeTeamCriteria(criteria?: readonly string[]): string[] {
 		return [];
 	}
 	return criteria.map((item) => String(item ?? '').trim()).filter(Boolean);
+}
+
+function agentStatusLabel(t: TFunction, status: AgentLifecycleStatus): string {
+	switch (status) {
+		case 'running':
+			return t('agent.session.status.running');
+		case 'waiting_input':
+			return t('agent.session.status.waiting');
+		case 'completed':
+			return t('agent.session.status.completed');
+		case 'failed':
+			return t('agent.session.status.failed');
+		case 'closed':
+			return t('agent.session.status.closed');
+		default:
+			return status;
+	}
 }
 
 type ChatRenderRow = TurnFocusRow & {
@@ -323,6 +347,8 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	agentPlanSummaryCard,
 	teamSession,
 	onSelectTeamExpert,
+	agentSession,
+	onSelectAgentSession,
 	onTeamPlanApprove,
 	onTeamPlanReject,
 	onChatPanelDropFiles,
@@ -333,16 +359,20 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const streamingThinking = useStreamingThinking();
 	// 订阅 thinkingTick：仅用于 thinking 阶段每秒刷新耗时显示（订阅成立即可，不需要读值）
 	useThinkingTick();
-	const persistedMessageCount = persistedMessages.length;
+	const chatVisiblePersistedMessages = useMemo(
+		() => filterDuplicateSubAgentReplies(persistedMessages, agentSession?.agentsById),
+		[persistedMessages, agentSession?.agentsById]
+	);
+	const persistedMessageCount = chatVisiblePersistedMessages.length;
 	const displayMessages = useMemo<ChatMessage[]>(() => {
 		if (composerMode === 'team' && awaitingReply && streaming === '') {
-			return persistedMessages;
+			return chatVisiblePersistedMessages;
 		}
 		if (!awaitingReply && streaming === '') {
-			return persistedMessages;
+			return chatVisiblePersistedMessages;
 		}
-		return [...persistedMessages, { role: 'assistant' as const, content: streaming }];
-	}, [persistedMessages, streaming, awaitingReply, composerMode]);
+		return [...chatVisiblePersistedMessages, { role: 'assistant' as const, content: streaming }];
+	}, [chatVisiblePersistedMessages, streaming, awaitingReply, composerMode]);
 	const lastAssistantMessageIndex = useMemo(() => {
 		let idx = -1;
 		for (let j = 0; j < displayMessages.length; j++) {
@@ -350,6 +380,22 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		}
 		return idx;
 	}, [displayMessages]);
+	const latestUserMessageIndex = useMemo(() => {
+		for (let i = displayMessages.length - 1; i >= 0; i--) {
+			if (displayMessages[i]?.role === 'user') {
+				return i;
+			}
+		}
+		return null;
+	}, [displayMessages]);
+	const lastAssistantInLatestTurnIndex = useMemo(() => {
+		let idx = -1;
+		const start = latestUserMessageIndex ?? -1;
+		for (let j = start + 1; j < displayMessages.length; j++) {
+			if (displayMessages[j]!.role === 'assistant') idx = j;
+		}
+		return idx;
+	}, [displayMessages, latestUserMessageIndex]);
 	const teamConversationTimeline = useMemo(
 		() =>
 			teamSession && composerMode === 'team' && hasConversation
@@ -418,6 +464,41 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 	const shouldUseStableTeamLiveLayout =
 		composerMode === 'team' &&
 		teamLiveReplyMeta.isLive;
+	const subAgentTaskCards = useMemo(() => {
+		if (resendFromUserIndex !== null) {
+			return null;
+		}
+		const agents = Object.values(agentSession?.agentsById ?? {})
+			.filter((agent) => agent.parentAgentId === null)
+			.sort((a, b) => a.startedAt - b.startedAt);
+		if (agents.length === 0) {
+			return null;
+		}
+		return (
+			<div className="ref-sub-agent-task-card-grid">
+				{agents.map((agent) => {
+					const summary = subAgentCardBodyLabel(t, agent.status);
+					const selected = agentSession?.selectedAgentId === agent.id;
+					return (
+						<button
+							key={agent.id}
+							type="button"
+							className={`ref-sub-agent-task-card ref-sub-agent-task-card--${agent.status}${selected ? ' is-selected' : ''}`}
+							aria-pressed={selected}
+							onClick={() => onSelectAgentSession(agent.id)}
+						>
+							<span className={`ref-agent-session-status ref-agent-session-status--${agent.status}`}>
+								{agentStatusLabel(t, agent.status)}
+							</span>
+							<span className="ref-sub-agent-task-card-title">{agent.title}</span>
+							<span className="ref-sub-agent-task-card-summary">{summary}</span>
+							<span className="ref-sub-agent-task-card-action">{t('agent.session.openDetails')}</span>
+						</button>
+					);
+				})}
+			</div>
+		);
+	}, [agentSession, onSelectAgentSession, resendFromUserIndex, t]);
 	if (import.meta.env.DEV) {
 		console.log(`[perf] AgentChatPanel render: thread=${messagesThreadId}, messages=${displayMessages.length}, hasConv=${hasConversation}`);
 	}
@@ -639,14 +720,6 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 
 	const len = displayMessages.length;
 	const allHistoryRendered = messageStartIndex <= 0;
-	const latestUserMessageIndex = useMemo(() => {
-		for (let i = displayMessages.length - 1; i >= 0; i--) {
-			if (displayMessages[i]?.role === 'user') {
-				return i;
-			}
-		}
-		return null;
-	}, [displayMessages]);
 	const latestTurnStartUserIndex = useMemo(
 		() => findLatestTurnStartUserIndex(displayMessages, composerMode, hasTeamSupplementalRows),
 		[displayMessages, composerMode, hasTeamSupplementalRows]
@@ -1471,6 +1544,21 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 		};
 	};
 
+	const buildSubAgentTaskCardsRow = (turnOwnerUserIndex: number | null): ChatRenderRow => ({
+		key: `row-${conversationRenderKey}-sub-agents`,
+		rowId: `row-${conversationRenderKey}-sub-agents`,
+		messageIndex: null,
+		turnOwnerUserIndex,
+		isTurnStart: false,
+		stickyUserIndex: null,
+		className: 'ref-msg-row-measure ref-msg-row-measure--assistant',
+		content: (
+			<div className="ref-msg-slot ref-msg-slot--assistant ref-msg-slot--sub-agents">
+				<div className="ref-msg-assistant-body">{subAgentTaskCards}</div>
+			</div>
+		),
+	});
+
 	const buildFlatMessageRows = (): ChatRenderRow[] => {
 		const t0 = import.meta.env.DEV ? performance.now() : 0;
 		const rows: ChatRenderRow[] = [];
@@ -1487,11 +1575,21 @@ export const AgentChatPanel = memo(function AgentChatPanel({
 			if (m.role === 'assistant') {
 				const preflightRow = buildPreflightRowForAssistant(i, turnOwnerUserIndex);
 				if (preflightRow) rows.push(preflightRow);
+				if (subAgentTaskCards && i === lastAssistantInLatestTurnIndex) {
+					rows.push(buildSubAgentTaskCardsRow(turnOwnerUserIndex));
+				}
 				rows.push(buildMessageRow(i, turnOwnerUserIndex));
 				continue;
 			}
 			turnOwnerUserIndex = i;
 			rows.push(buildMessageRow(i, turnOwnerUserIndex));
+			if (
+				subAgentTaskCards &&
+				lastAssistantInLatestTurnIndex === -1 &&
+				latestUserMessageIndex === i
+			) {
+				rows.push(buildSubAgentTaskCardsRow(turnOwnerUserIndex));
+			}
 		}
 		if (import.meta.env.DEV) {
 			const elapsed = performance.now() - t0;

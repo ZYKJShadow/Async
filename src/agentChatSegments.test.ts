@@ -101,6 +101,23 @@ describe('segmentAssistantContent', () => {
 		}
 	});
 
+	it('drops historical sub-agent stream markers from main chat rendering', () => {
+		const content = [
+			'Root before.',
+			'<sub_agent_thinking parent="task-1" depth="1">hidden thought</sub_agent_thinking>',
+			'<sub_agent_delta parent="task-1" depth="1">hidden output</sub_agent_delta>',
+			'Root after.',
+		].join('\n');
+		const segs = segmentAssistantContentUnified(content, { t: defaultT });
+		const serialized = JSON.stringify(segs);
+
+		expect(serialized).not.toContain('sub_agent_markdown');
+		expect(serialized).not.toContain('hidden thought');
+		expect(serialized).not.toContain('hidden output');
+		expect(serialized).toContain('Root before.');
+		expect(serialized).toContain('Root after.');
+	});
+
 	it('keeps the streamed edit file path when providers use camelCase args', () => {
 		const segs = buildStreamingToolSegments(
 			{

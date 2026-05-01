@@ -41,6 +41,7 @@ export type AgentSessionSnapshotAgent = {
 	lastOutputSummary: string;
 	lastInputSummary: string;
 	lastResultSummary: string;
+	lastAssistantFullContent?: string;
 	transcriptPath: string | null;
 	startedAt: number;
 	updatedAt: number;
@@ -50,6 +51,9 @@ export type AgentSessionSnapshotAgent = {
 	childAgentIds: string[];
 	lastError: string | null;
 	messages: AgentSessionMessage[];
+	liveThinking?: string;
+	liveOutput?: string;
+	liveAssistantContent?: string;
 };
 
 export type AgentSessionSnapshot = {

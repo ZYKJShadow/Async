@@ -520,7 +520,7 @@ export function registerBrowserHandlers(): void {
 				}
 			}
 			// Refresh CA installed flag in the background.
-			void CaInstaller.isInstalled().then((installed) => {
+			void CaInstaller.isInstalled(status.caCertPath).then((installed) => {
 				setBrowserCaptureProxyCaInstalled(installed);
 			});
 			const refreshed = getBrowserCaptureProxyStatusForHostId(hostId);
@@ -586,7 +586,7 @@ export function registerBrowserHandlers(): void {
 		if (!result.ok) {
 			return { ok: false as const, error: result.error };
 		}
-		const installed = await CaInstaller.isInstalled();
+		const installed = await CaInstaller.isInstalled(ca.path);
 		setBrowserCaptureProxyCaInstalled(installed);
 		return { ok: true as const, installed };
 	});
@@ -599,13 +599,15 @@ export function registerBrowserHandlers(): void {
 		if (!result.ok) {
 			return { ok: false as const, error: result.error };
 		}
-		const installed = await CaInstaller.isInstalled();
+		const installed = await CaInstaller.isInstalled(ca.path);
 		setBrowserCaptureProxyCaInstalled(installed);
 		return { ok: true as const, installed };
 	});
 
-	ipcMain.handle('browserCapture:proxyCaRefresh', async () => {
-		const installed = await CaInstaller.isInstalled();
+	ipcMain.handle('browserCapture:proxyCaRefresh', async (event) => {
+		const hostId = resolveBrowserHostIdForSenderId(event.sender.id);
+		const status = getBrowserCaptureProxyStatusForHostId(hostId);
+		const installed = await CaInstaller.isInstalled(status.caCertPath);
 		setBrowserCaptureProxyCaInstalled(installed);
 		const systemProxyEnabled = await SystemProxy.isEnabled('127.0.0.1', 8888);
 		setBrowserCaptureProxySystemProxyEnabled(systemProxyEnabled);

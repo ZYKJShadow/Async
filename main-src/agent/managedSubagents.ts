@@ -28,6 +28,11 @@ import { extractMemoriesToDir } from '../services/extractMemories/extractMemorie
 import type { ToolExecutionHooks } from './toolExecutor.js';
 import { createRequestUserInputToolHandler } from './requestUserInputTool.js';
 import { resolveProviderIdentityWithOverride } from '../../src/providerIdentitySettings.js';
+import {
+	parseAgentAssistantPayload,
+	toolCallMarkerLegacy,
+	toolResultMarkerLegacy,
+} from '../../src/agentStructuredMessage.js';
 
 export type ManagedAgentUiEvent =
 	| {
@@ -68,6 +73,10 @@ type ManagedAgentRuntime = {
 	baseMessages: ChatMessage[];
 	messages: ChatMessage[];
 	queuedInputs: ChatMessage[];
+	liveThinking: string;
+	liveOutput: string;
+	liveAssistantContent: string;
+	lastAssistantFullContent: string;
 	nestedEmit?: (evt: NestedAgentStreamEmit) => void;
 	emit?: ManagedAgentEmitter;
 	runAbortController: AbortController | null;
@@ -75,6 +84,7 @@ type ManagedAgentRuntime = {
 	pendingUserInput: AgentUserInputRequest | null;
 	lastUsage?: ThreadTokenUsage;
 	lastError: string | null;
+	suppressCompletionEmit: boolean;
 	closedAt: number | null;
 	startedAt: number;
 	updatedAt: number;
@@ -106,6 +116,7 @@ type ManagedAgentWaitStatus = {
 const runtimes = new Map<string, ManagedAgentRuntime>();
 const threadAgentIds = new Map<string, Set<string>>();
 const waitersByAgentId = new Map<string, Set<(status: ManagedAgentWaitStatus) => void>>();
+const MAX_LIVE_AGENT_SIDEBAR_CHARS = 20_000;
 
 function ensureThreadAgentIds(threadId: string): Set<string> {
 	const current = threadAgentIds.get(threadId);
@@ -130,6 +141,20 @@ function summaryText(raw: string): string {
 	return first.length > 160 ? `${first.slice(0, 160)}…` : first;
 }
 
+function tailText(raw: string): string {
+	const text = String(raw ?? '');
+	return text.length > MAX_LIVE_AGENT_SIDEBAR_CHARS ? text.slice(-MAX_LIVE_AGENT_SIDEBAR_CHARS) : text;
+}
+
+function hasAssistantFullContent(raw: string): boolean {
+	const trimmed = raw.trim();
+	if (!trimmed) {
+		return false;
+	}
+	const payload = parseAgentAssistantPayload(trimmed);
+	return payload ? payload.parts.length > 0 : true;
+}
+
 function agentTitleForTask(task: string, subagentType?: string): string {
 	const first = String(task ?? '').replace(/\r/g, '').split('\n')[0]?.trim() ?? '';
 	if (first) {
@@ -139,6 +164,17 @@ function agentTitleForTask(task: string, subagentType?: string): string {
 }
 
 function snapshotFromRuntime(runtime: ManagedAgentRuntime): AgentSessionSnapshotAgent {
+	const lastAssistantContent =
+		runtime.messages
+			.filter((message) => message.role === 'assistant')
+			.map((message) => message.content)
+			.slice(-1)[0] ?? '';
+	const exposeLiveTail = Boolean(runtime.runPromise);
+	const liveThinking = exposeLiveTail ? tailText(runtime.liveThinking) : '';
+	const liveOutput = exposeLiveTail ? tailText(runtime.liveOutput) : '';
+	const liveAssistantContent = exposeLiveTail ? tailText(runtime.liveAssistantContent) : '';
+	const fallbackResultSource = liveOutput || liveThinking || runtime.messages[runtime.messages.length - 1]?.content || '';
+	const lastResultSource = runtime.lastError ?? fallbackResultSource;
 	return {
 		id: runtime.agentId,
 		parentAgentId: runtime.parentAgentId,
@@ -154,19 +190,15 @@ function snapshotFromRuntime(runtime: ManagedAgentRuntime): AgentSessionSnapshot
 				: runtime.runPromise
 					? 'running'
 					: inferStoppedStatus(runtime),
-		lastOutputSummary: summaryText(
-			runtime.messages
-				.filter((message) => message.role === 'assistant')
-				.map((message) => message.content)
-				.slice(-1)[0] ?? ''
-		),
+		lastOutputSummary: summaryText(lastAssistantContent || liveOutput),
 		lastInputSummary: summaryText(
 			runtime.messages
 				.filter((message) => message.role === 'user')
 				.map((message) => message.content)
 				.slice(-1)[0] ?? ''
 		),
-		lastResultSummary: summaryText(runtime.lastError ?? runtime.messages[runtime.messages.length - 1]?.content ?? ''),
+		lastResultSummary: summaryText(lastResultSource),
+		lastAssistantFullContent: runtime.lastAssistantFullContent,
 		transcriptPath: getAgentTranscriptPath(runtime.threadId, runtime.agentId),
 		startedAt: runtime.startedAt,
 		updatedAt: runtime.updatedAt,
@@ -176,6 +208,9 @@ function snapshotFromRuntime(runtime: ManagedAgentRuntime): AgentSessionSnapshot
 		childAgentIds: collectChildAgentIds(runtime.threadId, runtime.agentId),
 		lastError: runtime.lastError,
 		messages: runtime.messages.map(toSessionMessage),
+		liveThinking,
+		liveOutput,
+		liveAssistantContent,
 	};
 }
 
@@ -220,11 +255,12 @@ function getPersistedSession(threadId: string): AgentSessionSnapshot {
 
 function collectChildAgentIds(threadId: string, parentAgentId: string): string[] {
 	const ids = ensureThreadAgentIds(threadId);
+	const persistedAgents = getPersistedSession(threadId).agents;
 	const out: string[] = [];
 	for (const agentId of ids) {
 		const runtime = runtimes.get(agentId);
-		const snapshot = runtime ? snapshotFromRuntime(runtime) : getPersistedSession(threadId).agents[agentId];
-		if (snapshot?.parentAgentId === parentAgentId) {
+		const childParentAgentId = runtime ? runtime.parentAgentId : persistedAgents[agentId]?.parentAgentId;
+		if (childParentAgentId === parentAgentId) {
 			out.push(agentId);
 		}
 	}
@@ -303,6 +339,10 @@ export function spawnManagedAgent(ctx: ManagedAgentSpawnContext): ManagedAgentRu
 		baseMessages: messages.map((message) => ({ ...message })),
 		messages: messages.map((message) => ({ ...message })),
 		queuedInputs: [],
+		liveThinking: '',
+		liveOutput: '',
+		liveAssistantContent: '',
+		lastAssistantFullContent: '',
 		nestedEmit: ctx.nestedEmit,
 		emit: ctx.emit,
 		runAbortController: null,
@@ -310,6 +350,7 @@ export function spawnManagedAgent(ctx: ManagedAgentSpawnContext): ManagedAgentRu
 		pendingUserInput: null,
 		lastUsage: undefined,
 		lastError: null,
+		suppressCompletionEmit: false,
 		closedAt: null,
 		startedAt: Date.now(),
 		updatedAt: Date.now(),
@@ -328,6 +369,10 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 	const abortController = new AbortController();
 	runtime.runAbortController = abortController;
 	runtime.lastError = null;
+	runtime.liveThinking = '';
+	runtime.liveOutput = '';
+	runtime.liveAssistantContent = '';
+	runtime.lastAssistantFullContent = '';
 	const wsRootForSubagent = runtime.options.workspaceRoot ?? null;
 	const matchedSubagent = findConfiguredSubagent(runtime.settings, runtime.subagentType, wsRootForSubagent);
 	const subAppend = buildSubagentSystemAppend(runtime.settings, runtime.subagentType, wsRootForSubagent);
@@ -341,6 +386,23 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 	const runPromise = (async () => {
 		let output = '';
 		let errorMsg = '';
+		let sessionSyncTimer: NodeJS.Timeout | null = null;
+		const flushSessionSync = () => {
+			if (sessionSyncTimer) {
+				clearTimeout(sessionSyncTimer);
+				sessionSyncTimer = null;
+			}
+			persistThreadSession(runtime.threadId, runtime.emit);
+		};
+		const scheduleSessionSync = () => {
+			if (sessionSyncTimer) {
+				return;
+			}
+			sessionSyncTimer = setTimeout(() => {
+				sessionSyncTimer = null;
+				persistThreadSession(runtime.threadId, runtime.emit);
+			}, 250);
+		};
 		let agentMemoryAppend = '';
 		let agentMemoryDir: string | null = null;
 		if (matchedSubagent?.memoryScope && runtime.subagentType) {
@@ -410,8 +472,11 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 		const handlers: AgentLoopHandlers = {
 			onTextDelta: (text) => {
 				output += text;
+				runtime.liveOutput += text;
+				runtime.liveAssistantContent += text;
 				runtime.updatedAt = Date.now();
 				appendAgentTranscript(runtime.threadId, runtime.agentId, text);
+				scheduleSessionSync();
 				runtime.nestedEmit?.({
 					type: 'delta',
 					text,
@@ -430,8 +495,10 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 				});
 			},
 			onThinkingDelta: (text) => {
+				runtime.liveThinking += text;
 				runtime.updatedAt = Date.now();
 				appendAgentTranscript(runtime.threadId, runtime.agentId, text);
+				scheduleSessionSync();
 				runtime.nestedEmit?.({
 					type: 'thinking_delta',
 					text,
@@ -441,7 +508,9 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 			},
 			onToolCall: (name, args, toolUseId) => {
 				runtime.updatedAt = Date.now();
+				runtime.liveAssistantContent += toolCallMarkerLegacy(name, args);
 				appendAgentTranscript(runtime.threadId, runtime.agentId, `\n[tool] ${name} ${JSON.stringify(args).slice(0, 200)}\n`);
+				scheduleSessionSync();
 				runtime.nestedEmit?.({
 					type: 'tool_call',
 					name,
@@ -453,7 +522,9 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 			},
 			onToolResult: (name, result, success, toolUseId) => {
 				runtime.updatedAt = Date.now();
+				runtime.liveAssistantContent += toolResultMarkerLegacy(name, result, success);
 				appendAgentTranscript(runtime.threadId, runtime.agentId, `\n[result] ${name} success=${success}\n`);
+				scheduleSessionSync();
 				runtime.nestedEmit?.({
 					type: 'tool_result',
 					name,
@@ -466,6 +537,7 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 			},
 			onToolProgress: (payload) => {
 				runtime.updatedAt = Date.now();
+				scheduleSessionSync();
 				runtime.nestedEmit?.({
 					type: 'tool_progress',
 					name: payload.name,
@@ -475,7 +547,8 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 					nestingDepth: 1,
 				});
 			},
-			onDone: (_fullContent, usage) => {
+			onDone: (fullContent, usage) => {
+				runtime.lastAssistantFullContent = hasAssistantFullContent(fullContent) ? fullContent : '';
 				runtime.lastUsage = usage
 					? {
 							totalInput: usage.inputTokens ?? 0,
@@ -537,6 +610,7 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 				errorMsg = error instanceof Error ? error.message : String(error);
 			}
 		} finally {
+			flushSessionSync();
 			runtime.runAbortController = null;
 			runtime.runPromise = null;
 			if (errorMsg) {
@@ -555,7 +629,7 @@ async function runManagedAgent(runtime: ManagedAgentRuntime): Promise<void> {
 				return;
 			}
 
-			if (runtime.background) {
+			if (runtime.background && !runtime.suppressCompletionEmit) {
 				runtime.emit?.({
 					threadId: runtime.threadId,
 					type: 'sub_agent_background_done',
@@ -611,6 +685,10 @@ function hydrateRuntimeFromSnapshot(
 		baseMessages: snapshot.messages.map((message) => ({ ...message })),
 		messages: snapshot.messages.map((message) => ({ ...message })),
 		queuedInputs: [],
+		liveThinking: snapshot.liveThinking ?? '',
+		liveOutput: snapshot.liveOutput ?? '',
+		liveAssistantContent: snapshot.liveAssistantContent ?? '',
+		lastAssistantFullContent: snapshot.lastAssistantFullContent ?? '',
 		nestedEmit: undefined,
 		emit,
 		runAbortController: null,
@@ -621,6 +699,7 @@ function hydrateRuntimeFromSnapshot(
 				? persistedSession.pendingUserInput
 				: null,
 		lastError: snapshot.lastError,
+		suppressCompletionEmit: false,
 		closedAt: snapshot.closedAt,
 		startedAt: snapshot.startedAt,
 		updatedAt: snapshot.updatedAt,
@@ -702,12 +781,16 @@ export function closeManagedAgent(params: {
 	threadId: string;
 	agentId: string;
 	emit?: ManagedAgentEmitter;
+	suppressCompletionEmit?: boolean;
 }): { ok: true } | { ok: false; error: string } {
 	const runtime = getRuntime(params.agentId);
 	if (!runtime) {
 		return { ok: false, error: 'Agent not found.' };
 	}
 	runtime.emit = params.emit ?? runtime.emit;
+	if (params.suppressCompletionEmit) {
+		runtime.suppressCompletionEmit = true;
+	}
 	runtime.closedAt = Date.now();
 	runtime.updatedAt = runtime.closedAt;
 	runtime.pendingUserInput = null;
@@ -716,9 +799,66 @@ export function closeManagedAgent(params: {
 	persistThreadSession(runtime.threadId, runtime.emit);
 	notifyWaiters(runtime.agentId);
 	for (const childId of collectChildAgentIds(params.threadId, params.agentId)) {
-		closeManagedAgent({ threadId: params.threadId, agentId: childId, emit: params.emit });
+		closeManagedAgent({
+			threadId: params.threadId,
+			agentId: childId,
+			emit: params.emit,
+			suppressCompletionEmit: params.suppressCompletionEmit,
+		});
 	}
 	return { ok: true };
+}
+
+export function closeManagedAgentsForThread(params: {
+	threadId: string;
+	emit?: ManagedAgentEmitter;
+	suppressCompletionEmit?: boolean;
+}): { ok: true; closed: number } {
+	let closed = 0;
+	for (const agentId of [...ensureThreadAgentIds(params.threadId)]) {
+		const runtime = getRuntime(agentId);
+		if (!runtime || runtime.closedAt) {
+			continue;
+		}
+		const result = closeManagedAgent({
+			threadId: params.threadId,
+			agentId,
+			emit: params.emit,
+			suppressCompletionEmit: params.suppressCompletionEmit,
+		});
+		if (result.ok) {
+			closed += 1;
+		}
+	}
+	return { ok: true, closed };
+}
+
+export function clearManagedAgentsForThread(params: {
+	threadId: string;
+	emit?: ManagedAgentEmitter;
+}): { ok: true; cleared: number } {
+	const ids = [...ensureThreadAgentIds(params.threadId)];
+	closeManagedAgentsForThread({
+		threadId: params.threadId,
+		emit: params.emit,
+		suppressCompletionEmit: true,
+	});
+	for (const agentId of ids) {
+		runtimes.delete(agentId);
+		waitersByAgentId.delete(agentId);
+	}
+	threadAgentIds.delete(params.threadId);
+	const session: AgentSessionSnapshot = {
+		agents: {},
+		pendingUserInput: null,
+	};
+	saveAgentSession(params.threadId, session);
+	params.emit?.({
+		threadId: params.threadId,
+		type: 'agent_session_sync',
+		session,
+	});
+	return { ok: true, cleared: ids.length };
 }
 
 export async function waitForManagedAgents(

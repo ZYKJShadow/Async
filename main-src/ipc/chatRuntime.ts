@@ -429,12 +429,12 @@ export function runChatStream(
 							}),
 						messages
 					);
+					setPlanQuestionRuntime({
+						threadId,
+						signal: ac.signal,
+						emit: (evt) => send({ threadId, ...evt }),
+					});
 					if (mode === 'plan') {
-						setPlanQuestionRuntime({
-							threadId,
-							signal: ac.signal,
-							emit: (evt) => send({ threadId, ...evt }),
-						});
 						setPlanDraftRuntime(threadId, {
 							onDraft: () => {
 								// Renderer persists the visible draft from tool arguments and keeps the review UI in sync.
@@ -544,8 +544,8 @@ export function runChatStream(
 					);
 				} finally {
 					clearDelegateContext();
+					setPlanQuestionRuntime(null);
 					if (mode === 'plan') {
-						setPlanQuestionRuntime(null);
 						setPlanDraftRuntime(threadId, null);
 					}
 				}

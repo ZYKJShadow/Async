@@ -205,6 +205,14 @@ vi.mock('../workspaceSymbolIndex.js', () => ({
 	searchWorkspaceSymbols: vi.fn(() => []),
 }));
 
+vi.mock('../browser/browserCaInstaller.js', () => ({
+	CaInstaller: {
+		isInstalled: vi.fn(async () => false),
+		install: vi.fn(async () => ({ ok: true })),
+		uninstall: vi.fn(async () => ({ ok: true })),
+	},
+}));
+
 beforeEach(() => {
 	capturedHandlers = [];
 });

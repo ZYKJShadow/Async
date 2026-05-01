@@ -144,14 +144,6 @@ type StreamingSubscriptionRuntime = {
 	markThreadUnread: (threadId: string) => void;
 };
 
-function escapeSubAgentXmlText(s: string): string {
-	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function escapeStreamAttr(s: string): string {
-	return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-}
-
 function humanizeBuiltinExpertId(expertId: string): string {
 	return String(expertId ?? '')
 		.replace(/^builtin-/, '')
@@ -548,14 +540,6 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 				return;
 			}
 			if (payload.type === 'sub_agent_background_done') {
-				const preview = payload.result.length > 240 ? `${payload.result.slice(0, 240)}…` : payload.result;
-				const text = payload.success
-					? rt.t('agent.subAgentBg.done', { preview })
-					: rt.t('agent.subAgentBg.fail', { preview });
-				rt.showTransientToast(payload.success, text, 6500, {
-					threadId: payload.threadId,
-					agentId: payload.agentId,
-				});
 				if (payload.threadId === rt.currentIdRef.current) {
 					void rt.refreshThreads();
 				}
@@ -650,23 +634,7 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 			if (payload.type === 'delta') {
 				const subParent = payload.parentToolCallId;
 				if (subParent) {
-					const deltaText = payload.text;
-					patchStream((s) => {
-						const inner = escapeSubAgentXmlText(deltaText);
-						const p = escapeStreamAttr(subParent);
-						const d = payload.nestingDepth ?? 1;
-						return `${s}<sub_agent_delta parent="${p}" depth="${d}">${inner}</sub_agent_delta>`;
-					});
-					if (trackLiveBlocks) {
-						rt.setLiveAssistantBlocks((st) =>
-							applyLiveAgentChatPayload(st, {
-								type: 'delta',
-								text: deltaText,
-								parentToolCallId: subParent,
-								nestingDepth: payload.nestingDepth,
-							})
-						);
-					}
+					return;
 				} else {
 					if (visible && payload.text.length > 0) {
 						rt.markFirstToken();
@@ -692,22 +660,7 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 			} else if (payload.type === 'thinking_delta') {
 				const parentToolCallId = payload.parentToolCallId;
 				if (parentToolCallId) {
-					patchStream((s) => {
-						const inner = escapeSubAgentXmlText(payload.text);
-						const p = escapeStreamAttr(parentToolCallId);
-						const d = payload.nestingDepth ?? 1;
-						return `${s}<sub_agent_thinking parent="${p}" depth="${d}">${inner}</sub_agent_thinking>`;
-					});
-					if (trackLiveBlocks) {
-						rt.setLiveAssistantBlocks((st) =>
-							applyLiveAgentChatPayload(st, {
-								type: 'thinking_delta',
-								text: payload.text,
-								parentToolCallId,
-								nestingDepth: payload.nestingDepth,
-							})
-						);
-					}
+					return;
 				} else {
 					patchThinking((s) => s + payload.text);
 					if (trackLiveBlocks) {
@@ -762,13 +715,12 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 					window.clearTimeout(rt.streamingToolPreviewClearTimerRef.current);
 					rt.streamingToolPreviewClearTimerRef.current = null;
 				}
-				const nest =
-					payload.parentToolCallId != null
-						? ` sub_parent="${escapeStreamAttr(payload.parentToolCallId)}" sub_depth="${payload.nestingDepth ?? 1}"`
-						: '';
-				const marker = `\n<tool_call tool="${payload.name}"${nest}>${payload.args}</tool_call>\n`;
+				if (payload.parentToolCallId) {
+					return;
+				}
+				const marker = `\n<tool_call tool="${payload.name}">${payload.args}</tool_call>\n`;
 				patchStream((s) => s + marker);
-				if (trackLiveBlocks && !payload.parentToolCallId) {
+				if (trackLiveBlocks) {
 					rt.setLiveAssistantBlocks((st) =>
 						applyLiveAgentChatPayload(st, {
 							type: 'tool_call',
@@ -782,12 +734,15 @@ export function useStreamingChatSubscription(runtime: StreamingSubscriptionRunti
 				if (!payload.parentToolCallId && visible) {
 					rt.setStreamingToolPreview(null);
 				}
+				if (payload.parentToolCallId) {
+					return;
+				}
 				const truncated =
 					payload.result.length > 3000 ? `${payload.result.slice(0, 3000)}\n... (truncated)` : payload.result;
 				const safe = truncated.split('</tool_result>').join('</tool\u200c_result>');
 				const marker = `<tool_result tool="${payload.name}" success="${payload.success}">${safe}</tool_result>\n`;
 				patchStream((s) => s + marker);
-				if (trackLiveBlocks && !payload.parentToolCallId) {
+				if (trackLiveBlocks) {
 					rt.setLiveAssistantBlocks((st) =>
 						applyLiveAgentChatPayload(st, {
 							type: 'tool_result',

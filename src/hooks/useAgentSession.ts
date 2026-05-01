@@ -71,7 +71,7 @@ export function useAgentSession() {
 				...prev,
 				[threadId]: {
 					...current,
-					selectedAgentId: agentId && current.agentsById[agentId] ? agentId : normalizeSelectedAgentId(agentId, current.agentsById),
+					selectedAgentId: agentId === null ? null : normalizeSelectedAgentId(agentId, current.agentsById),
 				},
 			};
 		});

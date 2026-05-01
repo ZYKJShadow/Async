@@ -3241,8 +3241,10 @@ function AppMainWorkspaceInner() {
 			return;
 		}
 		if (composerMode !== 'plan') {
-			setPlanQuestion(null);
-			setPlanQuestionRequestId(null);
+			if (resendFromUserIndex !== null || !planQuestionRequestId) {
+				setPlanQuestion(null);
+				setPlanQuestionRequestId(null);
+			}
 			return;
 		}
 		if (resendFromUserIndex !== null) {
@@ -3418,9 +3420,11 @@ function AppMainWorkspaceInner() {
 		shell,
 		currentId,
 		currentIdRef,
-		layoutMode,
 		t,
+		agentRightSidebarOpen,
+		agentRightSidebarView,
 		setSelectedAgent,
+		getAgentSession,
 		setAgentRightSidebarView,
 		setAgentRightSidebarOpen,
 		setCurrentId,
@@ -3582,6 +3586,12 @@ function AppMainWorkspaceInner() {
 		(userMessageIndex: number, content: string, parts?: UserMessagePart[]) => {
 			setPlanQuestion(null);
 			setPlanQuestionRequestId(null);
+			if (currentId) {
+				clearAgentSession(currentId);
+			}
+			if (agentRightSidebarView === 'agents') {
+				setAgentRightSidebarOpen(false);
+			}
 			setResendFromUserIndex(userMessageIndex);
 			if (parts && parts.length > 0) {
 				setInlineResendSegments(partsToSegments(parts));
@@ -3595,7 +3605,14 @@ function AppMainWorkspaceInner() {
 				)
 			);
 		},
-		[mergedAgentCustomization.commands, setPlanQuestion, setPlanQuestionRequestId]
+		[
+			agentRightSidebarView,
+			clearAgentSession,
+			currentId,
+			mergedAgentCustomization.commands,
+			setPlanQuestion,
+			setPlanQuestionRequestId,
+		]
 	);
 
 	const plusMenuAnchorRefForDropdown =
@@ -3867,6 +3884,8 @@ function AppMainWorkspaceInner() {
 		scheduleMessagesScrollToBottom,
 		agentPlanSummaryCard,
 		teamSession,
+		agentSession,
+		onSelectAgentSession,
 		onSelectTeamExpert: onSelectTeamTask,
 		onTeamPlanApprove,
 		onTeamPlanReject,

@@ -1658,14 +1658,6 @@ export type SegmentAssistantOptions = {
 	planUi?: boolean;
 };
 
-function unescapeSubAgentXmlEntities(s: string): string {
-	return s
-		.replace(/&quot;/g, '"')
-		.replace(/&gt;/g, '>')
-		.replace(/&lt;/g, '<')
-		.replace(/&amp;/g, '&');
-}
-
 function expandSubAgentsInSegments(segs: AssistantSegment[]): AssistantSegment[] {
 	const out: AssistantSegment[] = [];
 	const re =
@@ -1686,23 +1678,9 @@ function expandSubAgentsInSegments(segs: AssistantSegment[]): AssistantSegment[]
 				const chunk = text.slice(last, m.index).trim();
 				if (chunk) out.push(...segmentParagraphsForActivity(chunk));
 			}
-			if (m[1] !== undefined) {
-				out.push({
-					type: 'sub_agent_markdown',
-					parentToolCallId: m[1],
-					depth: parseInt(m[2]!, 10) || 1,
-					text: unescapeSubAgentXmlEntities(m[3]!),
-					variant: 'text',
-				});
-			} else {
-				out.push({
-					type: 'sub_agent_markdown',
-					parentToolCallId: m[4]!,
-					depth: parseInt(m[5]!, 10) || 1,
-					text: unescapeSubAgentXmlEntities(m[6]!),
-					variant: 'thinking',
-				});
-			}
+			// Historical streams may contain nested sub-agent XML markers in the main
+			// assistant text. Sub-agent details now live in the Agent session sidebar,
+			// so these markers are intentionally dropped from chat rendering.
 			last = m.index + m[0].length;
 		}
 		if (matched) {

@@ -1,16 +1,18 @@
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { ShellLayoutMode } from '../app/shellLayoutStorage';
 import type { TFunction } from '../i18n';
 import type { ChatMessage } from '../threadTypes';
 import type { AgentRightSidebarView } from './useTeamSessionActions';
+import type { AgentSessionState } from './useAgentSession';
 
 export type UseAgentSessionActionsParams = {
 	shell: NonNullable<Window['asyncShell']> | undefined;
 	currentId: string | null;
 	currentIdRef: MutableRefObject<string | null>;
-	layoutMode: ShellLayoutMode;
 	t: TFunction;
+	agentRightSidebarOpen: boolean;
+	agentRightSidebarView: AgentRightSidebarView;
 	setSelectedAgent: (threadId: string, agentId: string | null) => void;
+	getAgentSession: (threadId: string | null) => AgentSessionState | null;
 	setAgentRightSidebarView: Dispatch<SetStateAction<AgentRightSidebarView>>;
 	setAgentRightSidebarOpen: Dispatch<SetStateAction<boolean>>;
 	setCurrentId: Dispatch<SetStateAction<string | null>>;
@@ -59,9 +61,11 @@ export function useAgentSessionActions(
 		shell,
 		currentId,
 		currentIdRef,
-		layoutMode,
 		t,
+		agentRightSidebarOpen,
+		agentRightSidebarView,
 		setSelectedAgent,
+		getAgentSession,
 		setAgentRightSidebarView,
 		setAgentRightSidebarOpen,
 		setCurrentId,
@@ -75,16 +79,33 @@ export function useAgentSessionActions(
 			if (!currentId) {
 				return;
 			}
+			if (!agentId) {
+				setSelectedAgent(currentId, null);
+				if (agentRightSidebarView === 'agents') {
+					setAgentRightSidebarOpen(false);
+				}
+				return;
+			}
+			const selectedAgentId = getAgentSession(currentId)?.selectedAgentId ?? null;
+			if (
+				agentRightSidebarOpen &&
+				agentRightSidebarView === 'agents' &&
+				selectedAgentId === agentId
+			) {
+				setSelectedAgent(currentId, null);
+				setAgentRightSidebarOpen(false);
+				return;
+			}
 			setSelectedAgent(currentId, agentId);
 			setAgentRightSidebarView('agents');
-			if (layoutMode === 'agent') {
-				setAgentRightSidebarOpen(true);
-			}
+			setAgentRightSidebarOpen(true);
 		},
 		[
 			currentId,
+			agentRightSidebarOpen,
+			agentRightSidebarView,
+			getAgentSession,
 			setSelectedAgent,
-			layoutMode,
 			setAgentRightSidebarView,
 			setAgentRightSidebarOpen,
 		]

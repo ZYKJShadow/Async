@@ -1,6 +1,6 @@
 /**
- * Plan 模式「问用户选择题」工具在主进程阻塞等待渲染进程 IPC 时使用的运行时上下文。
- * 由 ipc/register 在每次 runAgentLoop 前后注入/清理。
+ * 「问用户选择题」工具在主进程阻塞等待渲染进程 IPC 时使用的运行时上下文。
+ * 由聊天运行时在可调用工具的会话前后注入/清理。
  */
 
 export type PlanQuestionRuntime = {

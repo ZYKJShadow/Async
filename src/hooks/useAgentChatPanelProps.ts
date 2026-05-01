@@ -53,6 +53,8 @@ export function useAgentChatPanelProps({
 		lastTurnUsage: rest.lastTurnUsage,
 		fileChangesDismissed: rest.fileChangesDismissed,
 		agentPlanSummaryCard: rest.agentPlanSummaryCard,
+		agentSession: rest.agentSession,
+		onSelectAgentSession: rest.onSelectAgentSession,
 		showScrollToBottomButton: rest.showScrollToBottomButton,
 		scrollMessagesToBottom: rest.scrollMessagesToBottom,
 		scheduleMessagesScrollToBottom: rest.scheduleMessagesScrollToBottom,
@@ -61,7 +63,8 @@ export function useAgentChatPanelProps({
 		rest.currentId,
 		rest.hasConversation, rest.awaitingReply,
 		rest.lastTurnUsage, rest.fileChangesDismissed,
-		rest.agentPlanSummaryCard, rest.showScrollToBottomButton,
+		rest.agentPlanSummaryCard, rest.agentSession, rest.onSelectAgentSession,
+		rest.showScrollToBottomButton,
 		rest.scrollMessagesToBottom, rest.scheduleMessagesScrollToBottom,
 	]);
 

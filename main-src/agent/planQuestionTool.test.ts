@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePlanQuestionArgs } from './planQuestionTool.js';
+import { executeAskPlanQuestionTool, normalizePlanQuestionArgs, resolvePlanQuestionTool } from './planQuestionTool.js';
+import { setPlanQuestionRuntime } from './planQuestionRuntime.js';
 
 describe('normalizePlanQuestionArgs', () => {
 	it('keeps only 3 concrete options and appends custom option last', () => {
@@ -51,5 +52,39 @@ describe('normalizePlanQuestionArgs', () => {
 		if (!out.ok) return;
 		expect(out.q.freeform).toBe(true);
 		expect(out.q.options).toEqual([{ id: 'custom', label: '请补充说明' }]);
+	});
+
+	it('executes as a generic clarification tool when a runtime is available', async () => {
+		const emitted: Record<string, unknown>[] = [];
+		const ac = new AbortController();
+		setPlanQuestionRuntime({
+			threadId: 'thread-any-mode',
+			signal: ac.signal,
+			emit: (evt) => emitted.push(evt),
+		});
+		try {
+			const resultPromise = executeAskPlanQuestionTool({
+				id: 'call-1',
+				name: 'ask_plan_question',
+				arguments: {
+					question: '需要先确认哪一点？',
+					options: ['范围', '风格', '优先级', '其他'],
+				},
+			});
+
+			expect(emitted[0]).toMatchObject({
+				type: 'plan_question_request',
+				requestId: 'pq:thread-any-mode:call-1',
+			});
+			expect(resolvePlanQuestionTool('pq:thread-any-mode:call-1', { answerText: '范围' })).toBe(true);
+			await expect(resultPromise).resolves.toMatchObject({
+				name: 'ask_plan_question',
+				content: '范围',
+				isError: false,
+			});
+		} finally {
+			ac.abort();
+			setPlanQuestionRuntime(null);
+		}
 	});
 });
