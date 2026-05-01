@@ -1,6 +1,7 @@
 import { buildBrowserFingerprintStealthScript } from './browserFingerprintStealth.js';
 import { getBrowserHookScript } from './browserHookScript.js';
 import { fingerprintSettingsToInjectPatch } from '../main-src/browser/browserFingerprintNormalize.js';
+import { humanCursorInitScript } from '../main-src/browser/humanCursor.js';
 import {
 	memo,
 	useCallback,
@@ -46,7 +47,7 @@ import {
 
 type AgentRightSidebarView = 'git' | 'plan' | 'file' | 'team' | 'browser' | 'agents';
 
-const BROWSER_HOME_URL = 'https://www.bing.com/';
+const BROWSER_HOME_URL = 'about:blank';
 const BROWSER_CAPTURE_DOCK_EXPANDED_KEY = 'async.browser.captureDock.expanded.v1';
 const BROWSER_CAPTURE_DOCK_HEIGHT_KEY = 'async.browser.captureDock.height.v1';
 const BROWSER_CAPTURE_DOCK_TAB_KEY = 'async.browser.captureDock.tab.v1';
@@ -929,6 +930,7 @@ const BrowserTabView = memo(
 	fingerprintScriptRef.current = fingerprintScript;
 	const hookScriptRef = useRef<string>(hookScript);
 	hookScriptRef.current = hookScript;
+	const cursorScriptRef = useRef<string>(humanCursorInitScript());
 	const hookEnabledRef = useRef<boolean>(hookEnabled);
 	hookEnabledRef.current = hookEnabled;
 	const onHookEventsRef = useRef<(tabId: string, events: unknown[]) => void>(onHookEvents);
@@ -998,6 +1000,9 @@ const BrowserTabView = memo(
 					/* webview might not have a render frame yet on cold start */
 				});
 			}
+			void node.executeJavaScript(cursorScriptRef.current, false).catch(() => {
+				/* cursor script is decorative, ignore failures */
+			});
 		};
 		const handleStopLoading = () => {
 			onLoading(tabIdRef.current, false, safeGetWebviewUrl(node));
@@ -1027,6 +1032,9 @@ const BrowserTabView = memo(
 					/* ignore */
 				});
 			}
+			void node.executeJavaScript(cursorScriptRef.current, false).catch(() => {
+				/* cursor script is decorative, ignore failures */
+			});
 			if (hookEnabledRef.current && hookScriptRef.current) {
 				void node.executeJavaScript(hookScriptRef.current, false).catch(() => {
 					/* ignore */
@@ -2069,25 +2077,56 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			node: AsyncShellWebviewElement,
 			options: { selector: string }
 		): Promise<Record<string, unknown>> => {
-			const script = `
+			// Phase 1（同步脚本）：定位元素、滚到视口、fire-and-forget 启动光标动画。
+			// 不在脚本里 await 异步动画，避免 executeJavaScript 持有的 Promise 跨过
+			// click 触发的页面导航后失效（GUEST_VIEW_MANAGER_CALL 错误根因）。
+			const setupScript = `
 				(() => {
 					const args = ${JSON.stringify({ selector: options.selector })};
 					const target = document.querySelector(args.selector);
 					if (!target) {
-						return {
-							ok: false,
-							error: 'Selector did not match any element.',
-						};
+						return { ok: false, error: 'Selector did not match any element.' };
 					}
 					if (!(target instanceof HTMLElement)) {
-						return {
-							ok: false,
-							error: 'Matched node is not an HTMLElement.',
-						};
+						return { ok: false, error: 'Matched node is not an HTMLElement.' };
 					}
 					target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+					const rect = target.getBoundingClientRect();
+					const cx = Math.round(rect.left + rect.width / 2);
+					const cy = Math.round(rect.top + rect.height / 2);
+					try {
+						const cursor = window.__asyncAiCursor;
+						if (cursor && typeof cursor.moveTo === 'function') {
+							const labelText = String(target.innerText || target.textContent || target.getAttribute('aria-label') || target.tagName.toLowerCase()).trim().slice(0, 40);
+							if (typeof cursor.label === 'function') cursor.label('点击 ' + (labelText || '元素'), 1800);
+							cursor.show();
+							// fire-and-forget; 渲染器侧 sleep 再发 click 脚本
+							Promise.resolve(cursor.moveTo(cx, cy)).then(() => cursor.click(cx, cy)).catch(() => {});
+						}
+					} catch { /* decorative */ }
+					return { ok: true, cx, cy };
+				})()
+			`;
+			const setup = await node.executeJavaScript<Record<string, unknown>>(setupScript, false);
+			if (setup?.ok === false) {
+				throw new Error(String(setup.error ?? 'Failed to locate element.'));
+			}
+			// 等光标动画走完（缓动 ~500ms + hover ~200ms + click 闪 ~150ms）。
+			await new Promise((r) => setTimeout(r, 850));
+
+			// Phase 2（同步脚本）：真实点击 + 读取结果。executeJavaScript 同步返回，
+			// 即便 click 触发了页面导航，这次 IPC 已经先完成了 send/return 周期。
+			const clickScript = `
+				(() => {
+					const args = ${JSON.stringify({ selector: options.selector })};
+					const target = document.querySelector(args.selector);
+					if (!target || !(target instanceof HTMLElement)) {
+						return { ok: false, error: 'Element no longer present.' };
+					}
 					target.focus?.();
 					const rect = target.getBoundingClientRect();
+					const cx = Math.round(rect.left + rect.width / 2);
+					const cy = Math.round(rect.top + rect.height / 2);
 					const beforeUrl = location.href;
 					const beforeTitle = document.title || '';
 					if (typeof target.click === 'function') {
@@ -2101,8 +2140,8 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 						tagName: target.tagName.toLowerCase(),
 						text: String(target.innerText || target.textContent || '').trim().slice(0, 500),
 						href: target instanceof HTMLAnchorElement ? target.href : '',
-						x: Math.round(rect.left + rect.width / 2),
-						y: Math.round(rect.top + rect.height / 2),
+						x: cx,
+						y: cy,
 						urlBefore: beforeUrl,
 						titleBefore: beforeTitle,
 						urlAfter: location.href,
@@ -2110,7 +2149,7 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 					};
 				})()
 			`;
-			const result = await node.executeJavaScript<Record<string, unknown>>(script, true);
+			const result = await node.executeJavaScript<Record<string, unknown>>(clickScript, true);
 			if (result?.ok === false) {
 				throw new Error(String(result.error ?? 'Failed to click element.'));
 			}
@@ -2137,6 +2176,36 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 			node: AsyncShellWebviewElement,
 			options: { selector: string; text: string; pressEnter?: boolean }
 		): Promise<Record<string, unknown>> => {
+			// Phase 1（同步）：定位、滚动、fire-and-forget 启动光标动画
+			const setupScript = `
+				(() => {
+					const args = ${JSON.stringify({ selector: options.selector })};
+					const target = document.querySelector(args.selector);
+					if (!target) return { ok: false, error: 'Selector did not match any element.' };
+					if (!(target instanceof HTMLElement)) return { ok: false, error: 'Matched node is not an HTMLElement.' };
+					target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+					const rect = target.getBoundingClientRect();
+					const cx = Math.round(rect.left + rect.width / 2);
+					const cy = Math.round(rect.top + rect.height / 2);
+					try {
+						const cursor = window.__asyncAiCursor;
+						if (cursor && typeof cursor.moveTo === 'function') {
+							const labelHint = target.getAttribute('placeholder') || target.getAttribute('aria-label') || target.getAttribute('name') || target.tagName.toLowerCase();
+							if (typeof cursor.label === 'function') cursor.label('填写 ' + String(labelHint).slice(0, 40), 2000);
+							cursor.show();
+							Promise.resolve(cursor.moveTo(cx, cy)).then(() => cursor.click(cx, cy)).catch(() => {});
+						}
+					} catch { /* decorative */ }
+					return { ok: true, cx, cy };
+				})()
+			`;
+			const setup = await node.executeJavaScript<Record<string, unknown>>(setupScript, false);
+			if (setup?.ok === false) {
+				throw new Error(String(setup.error ?? 'Failed to locate input.'));
+			}
+			await new Promise((r) => setTimeout(r, 850));
+
+			// Phase 2（同步）：填值 + 逐字向 KeyCastr HUD 推送 + 可选回车
 			const script = `
 				(() => {
 					const args = ${JSON.stringify({
@@ -2146,16 +2215,10 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 					})};
 					const target = document.querySelector(args.selector);
 					if (!target) {
-						return {
-							ok: false,
-							error: 'Selector did not match any element.',
-						};
+						return { ok: false, error: 'Selector did not match any element.' };
 					}
 					if (!(target instanceof HTMLElement)) {
-						return {
-							ok: false,
-							error: 'Matched node is not an HTMLElement.',
-						};
+						return { ok: false, error: 'Matched node is not an HTMLElement.' };
 					}
 					const dispatchInput = (el) => {
 						el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
@@ -2177,32 +2240,48 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 							el.value = value;
 						}
 					};
-					target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+					const cursor = window.__asyncAiCursor;
 					target.focus?.();
 					let mode = 'unknown';
-					if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+					const isFormControl =
+						target instanceof HTMLInputElement ||
+						target instanceof HTMLTextAreaElement ||
+						target instanceof HTMLSelectElement;
+					const useEditable = !isFormControl && target.isContentEditable;
+					mode = isFormControl
+						? target instanceof HTMLTextAreaElement
+							? 'textarea'
+							: target instanceof HTMLSelectElement
+								? 'select'
+								: 'input'
+						: useEditable
+							? 'contenteditable'
+							: 'value' in target
+								? 'value-property'
+								: 'textContent';
+					if (isFormControl) {
 						setNativeValue(target, args.text);
 						dispatchInput(target);
-						mode = target instanceof HTMLTextAreaElement ? 'textarea' : target instanceof HTMLSelectElement ? 'select' : 'input';
-					} else if (target.isContentEditable) {
+					} else if (useEditable) {
 						target.textContent = args.text;
 						dispatchInput(target);
-						mode = 'contenteditable';
 					} else if ('value' in target) {
-						try {
-							target.value = args.text;
-							dispatchInput(target);
-							mode = 'value-property';
-						} catch {
-							target.textContent = args.text;
-							dispatchInput(target);
-							mode = 'textContent';
-						}
+						try { target.value = args.text; dispatchInput(target); }
+						catch { target.textContent = args.text; dispatchInput(target); }
 					} else {
 						target.textContent = args.text;
 						dispatchInput(target);
-						mode = 'textContent';
 					}
+					// HUD 逐字滚出来（fire-and-forget；脚本同步返回，不阻塞 IPC）
+					try {
+						if (cursor && typeof cursor.key === 'function' && args.text.length > 0) {
+							const stagger = args.text.length > 60 ? 35 : 70;
+							for (let i = 0; i < args.text.length; i++) {
+								const ch = args.text.charAt(i);
+								setTimeout(() => { try { cursor.key(ch); } catch { /* */ } }, i * stagger);
+							}
+						}
+					} catch { /* decorative */ }
 					if (args.pressEnter) {
 						const keyboardInit = {
 							key: 'Enter',
@@ -2212,6 +2291,12 @@ const AgentRightSidebarBrowserPanel = memo(function AgentRightSidebarBrowserPane
 							bubbles: true,
 							cancelable: true,
 						};
+						try {
+							if (cursor && typeof cursor.key === 'function') {
+								const enterDelay = args.text.length * (args.text.length > 60 ? 35 : 70);
+								setTimeout(() => { try { cursor.key('Enter'); } catch { /* */ } }, enterDelay);
+							}
+						} catch { /* decorative */ }
 						target.dispatchEvent(new KeyboardEvent('keydown', keyboardInit));
 						target.dispatchEvent(new KeyboardEvent('keypress', keyboardInit));
 						target.dispatchEvent(new KeyboardEvent('keyup', keyboardInit));

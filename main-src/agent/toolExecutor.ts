@@ -62,6 +62,7 @@ import {
 	startBrowserCaptureForHostId,
 	stopBrowserCaptureForHostId,
 } from '../browser/browserCapture.js';
+import { executePlaywrightTool } from '../browser/playwrightTool.js';
 import {
 	closeManagedAgent,
 	getManagedAgentSession,
@@ -1552,6 +1553,21 @@ export async function executeTool(
 			return await executeBrowserTool(call, execCtx);
 		case 'BrowserCapture':
 			return await executeBrowserCaptureTool(call, execCtx);
+		case 'Playwright': {
+			const hostId = execCtx.hostWebContentsId ?? null;
+			if (!hostId) {
+				return {
+					toolCallId: call.id,
+					name: call.name,
+					content: 'Playwright tool is unavailable because this run is not attached to an app window.',
+					isError: true,
+				};
+			}
+			return await executePlaywrightTool(call, {
+				hostId,
+				workspaceRoot: execCtx.workspaceRoot ?? null,
+			});
+		}
 		case 'WebSearch':
 			return await executeWebSearchTool(call, execCtx);
 		case 'Fetch':
