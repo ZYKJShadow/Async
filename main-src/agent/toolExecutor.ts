@@ -138,7 +138,7 @@ function coerceAgentDelegateArgs(call: ToolCall): {
 }
 
 const BACKGROUND_AGENT_TOOL_RESULT =
-	'[Background] Sub-agent started. Nested activity streams above; you will get a UI notice when it finishes. / 后台子 Agent 已启动，过程见上方嵌套区域，结束后会弹出提示。';
+	'[Background] Sub-agent started. Its task card opens the right sidebar; do not paste the sub-agent reply into the main chat unless the user asks. / 后台子 Agent 已启动，可从任务卡片打开右侧栏查看；除非用户要求，不要把子 Agent 回复原样贴回主聊天。';
 
 /** Single Read call: max lines returned. */
 const MAX_READ_LINES_PER_CALL = 2000;

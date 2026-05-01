@@ -133,7 +133,7 @@ export function normalizePlanQuestionArgs(
 }
 
 /**
- * 规划澄清专用：阻塞直到用户在 UI 中选择或跳过；结果作为 tool_result 回到模型。
+ * 通用澄清：阻塞直到用户在 UI 中选择或跳过；结果作为 tool_result 回到模型。
  */
 export async function executeAskPlanQuestionTool(
 	call: ToolCall,
@@ -144,7 +144,7 @@ export async function executeAskPlanQuestionTool(
 		return {
 			toolCallId: call.id,
 			name: call.name,
-			content: 'ask_plan_question is only available in planning-style sessions.',
+			content: 'ask_plan_question is not available in this execution context.',
 			isError: true,
 		};
 	}

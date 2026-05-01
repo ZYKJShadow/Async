@@ -1,5 +1,6 @@
 import { exec } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { platform } from 'node:os';
 
 export type CaInstallResult = { ok: true } | { ok: false; error: string };
@@ -35,6 +36,32 @@ function execCapture(cmd: string, timeoutMs = 30_000): Promise<ExecResult> {
 	});
 }
 
+function quoteCmdArg(value: string): string {
+	return `"${value.replace(/"/g, '""')}"`;
+}
+
+function normalizeSha1(raw: string): string {
+	return raw.replace(/[^0-9a-f]/gi, '').toUpperCase();
+}
+
+function readPemSha1(certPath: string | undefined): string | null {
+	if (!certPath) {
+		return null;
+	}
+	try {
+		const raw = readFileSync(certPath);
+		const text = raw.toString('utf8');
+		const match = /-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/.exec(text);
+		const body = (match?.[1] ?? text).replace(/[^A-Za-z0-9+/=]/g, '');
+		if (!body) {
+			return null;
+		}
+		return createHash('sha1').update(Buffer.from(body, 'base64')).digest('hex').toUpperCase();
+	} catch {
+		return null;
+	}
+}
+
 async function sudoExec(cmd: string): Promise<void> {
 	const sudo = (await import('@vscode/sudo-prompt')) as typeof import('@vscode/sudo-prompt');
 	await new Promise<void>((resolve, reject) => {
@@ -49,42 +76,65 @@ async function sudoExec(cmd: string): Promise<void> {
 	});
 }
 
-async function isInWindowsStore(scope: CaInstallScope): Promise<boolean> {
-	const flag = scope === 'user' ? '-user' : '';
-	const result = await execCapture(`certutil -store ${flag} Root "${ASYNC_CA_FRIENDLY_NAME}"`.replace(/\s+/g, ' '));
+async function isWindowsCertIdInStore(scope: CaInstallScope, certId: string): Promise<boolean> {
+	const flag = scope === 'user' ? '-user ' : '';
+	const result = await execCapture(`certutil ${flag}-store Root ${certId}`.replace(/\s+/g, ' '));
+	return result.code === 0;
+}
+
+async function isWindowsThumbprintInStore(scope: CaInstallScope, thumbprint: string): Promise<boolean> {
+	const result = await execCapture(`certutil ${scope === 'user' ? '-user ' : ''}-store Root ${thumbprint}`.replace(/\s+/g, ' '));
+	return result.code === 0 && normalizeSha1(result.stdout).includes(thumbprint);
+}
+
+async function isNamedWindowsCertInStore(scope: CaInstallScope): Promise<boolean> {
+	const result = await execCapture(
+		`certutil ${scope === 'user' ? '-user ' : ''}-store Root ${quoteCmdArg(ASYNC_CA_FRIENDLY_NAME)}`.replace(/\s+/g, ' ')
+	);
 	return result.stdout.includes(ASYNC_CA_FRIENDLY_NAME);
 }
 
-async function isInstalledWindows(): Promise<boolean> {
-	if (await isInWindowsStore('user')) {
+async function isInstalledWindows(certPath?: string): Promise<boolean> {
+	const thumbprint = readPemSha1(certPath);
+	if (thumbprint) {
+		if (await isWindowsThumbprintInStore('user', thumbprint)) {
+			return true;
+		}
+		return await isWindowsThumbprintInStore('machine', thumbprint);
+	}
+	if (await isNamedWindowsCertInStore('user')) {
 		return true;
 	}
-	return await isInWindowsStore('machine');
+	return await isNamedWindowsCertInStore('machine');
 }
 
 async function installWindows(certPath: string, scope: CaInstallScope): Promise<void> {
+	if (await isInstalledWindows(certPath)) {
+		return;
+	}
 	if (scope === 'user') {
 		// User-store install. Windows will show the standard "do you want to trust this CA?" dialog.
 		// If the user declines or the command otherwise fails, surface the error — do NOT silently
 		// escalate to a UAC machine-store install (that produces the surprise double-prompt).
-		await execPromise(`certutil -user -addstore Root "${certPath}"`);
+		await execPromise(`certutil -user -addstore Root ${quoteCmdArg(certPath)}`);
 		return;
 	}
-	await sudoExec(`certutil -addstore Root "${certPath}"`);
+	await sudoExec(`certutil -addstore Root ${quoteCmdArg(certPath)}`);
 }
 
-async function uninstallWindows(scope: CaInstallScope): Promise<void> {
+async function uninstallWindows(certPath: string | undefined, scope: CaInstallScope): Promise<void> {
+	const certId = readPemSha1(certPath) ?? quoteCmdArg(ASYNC_CA_FRIENDLY_NAME);
 	if (scope === 'user') {
-		if (!(await isInWindowsStore('user'))) {
+		if (!(await isWindowsCertIdInStore('user', certId))) {
 			return;
 		}
-		await execPromise(`certutil -user -delstore Root "${ASYNC_CA_FRIENDLY_NAME}"`);
+		await execPromise(`certutil -user -delstore Root ${certId}`);
 		return;
 	}
-	if (!(await isInWindowsStore('machine'))) {
+	if (!(await isWindowsCertIdInStore('machine', certId))) {
 		return;
 	}
-	await sudoExec(`certutil -delstore Root "${ASYNC_CA_FRIENDLY_NAME}"`);
+	await sudoExec(`certutil -delstore Root ${certId}`);
 }
 
 async function isInstalledMacOS(): Promise<boolean> {
@@ -145,10 +195,10 @@ async function uninstallLinux(_scope: CaInstallScope): Promise<void> {
 }
 
 export const CaInstaller = {
-	async isInstalled(): Promise<boolean> {
+	async isInstalled(certPath?: string): Promise<boolean> {
 		const os = platform();
 		if (os === 'win32') {
-			return await isInstalledWindows();
+			return await isInstalledWindows(certPath);
 		}
 		if (os === 'darwin') {
 			return await isInstalledMacOS();
@@ -176,7 +226,7 @@ export const CaInstaller = {
 		try {
 			const os = platform();
 			if (os === 'win32') {
-				await uninstallWindows(scope);
+				await uninstallWindows(certPath, scope);
 			} else if (os === 'darwin') {
 				await uninstallMacOS(certPath, scope);
 			} else {

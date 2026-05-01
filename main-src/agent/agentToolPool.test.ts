@@ -60,6 +60,7 @@ describe('assembleAgentToolPool', () => {
 	it('agent mode appends sorted mcp tools after builtins', () => {
 		mockGetAgentTools.mockReturnValue([tool('mcp__z__t'), tool('mcp__a__t')]);
 		const pool = assembleAgentToolPool('agent');
+		expect(pool.some((t) => t.name === 'ask_plan_question')).toBe(true);
 		const mcpNames = pool.filter((t) => t.name.startsWith('mcp__')).map((t) => t.name);
 		expect(mcpNames).toEqual(['mcp__a__t', 'mcp__z__t']);
 		const readIdx = pool.findIndex((t) => t.name === 'Read');

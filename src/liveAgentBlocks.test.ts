@@ -204,6 +204,29 @@ describe('liveAgentBlocks', () => {
 		expect(segs[2]?.type).toBe('markdown');
 	});
 
+	it('keeps nested sub-agent thinking and output out of the main live chat blocks', () => {
+		let st = createEmptyLiveAgentBlocks();
+		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'Root start. ' });
+		st = applyLiveAgentChatPayload(st, {
+			type: 'thinking_delta',
+			text: 'Nested thoughts',
+			parentToolCallId: 'task-create-1',
+			nestingDepth: 1,
+		});
+		st = applyLiveAgentChatPayload(st, {
+			type: 'delta',
+			text: 'Nested output',
+			parentToolCallId: 'task-create-1',
+			nestingDepth: 1,
+		});
+		st = applyLiveAgentChatPayload(st, { type: 'delta', text: 'Root done.' });
+
+		const segs = liveBlocksToAssistantSegments(st.blocks, defaultT);
+
+		expect(segs).toHaveLength(1);
+		expect(segs[0]).toMatchObject({ type: 'markdown', text: 'Root start. Root done.' });
+	});
+
 	it('splits long root thinking into stable chunks', () => {
 		let st = createEmptyLiveAgentBlocks();
 		st = applyLiveAgentChatPayload(st, {

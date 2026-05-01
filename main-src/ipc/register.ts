@@ -162,7 +162,9 @@ import {
 import { flushThreadSnapshots, removeThreadSnapshots } from '../agent/agentSnapshotStore.js';
 import {
 	attachManagedAgentEmitter,
+	clearManagedAgentsForThread,
 	closeManagedAgent,
+	closeManagedAgentsForThread,
 	getManagedAgentSession,
 	resumeManagedAgent,
 	sendInputToManagedAgent,
@@ -1560,6 +1562,10 @@ export function registerIpc(): void {
 
 				const editParts = sanitizeUserMessagePartsPayload(payload.parts);
 				const t = replaceFromUserVisibleIndex(threadId, visibleIndex, userText, editParts);
+				clearManagedAgentsForThread({
+					threadId,
+					emit: (evt) => event.sender.send('async-shell:chat', evt),
+				});
 				if (visibleIndex === 0 && t.titleSource !== 'manual') {
 					queueThreadTitleGeneration({
 						sender: event.sender,
@@ -1593,6 +1599,7 @@ export function registerIpc(): void {
 		preflightAbortByThread.delete(threadId);
 		abortByThread.get(threadId)?.abort();
 		abortByThread.delete(threadId);
+		closeManagedAgentsForThread({ threadId, suppressCompletionEmit: true });
 		const prefix = `ta-${threadId}-`;
 		for (const [id, fn] of [...toolApprovalWaiters.entries()]) {
 			if (id.startsWith(prefix)) {

@@ -1254,13 +1254,6 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 	revertedChangeKeys,
 	agentSession,
 	currentThreadId,
-	onSelectAgentSession,
-	onSendAgentInput,
-	onSubmitAgentUserInput,
-	onWaitAgent,
-	onResumeAgent,
-	onCloseAgent,
-	onOpenAgentTranscript,
 }: AgentRightSidebarProps) {
 	const { t } = useAppShellChromeCore();
 
@@ -1325,13 +1318,10 @@ export const AgentRightSidebar = memo(function AgentRightSidebar({
 				session={agentSession}
 				threadId={currentThreadId}
 				onClose={closeSidebar}
-				onSelectAgent={onSelectAgentSession}
-				onSendInput={onSendAgentInput}
-				onSubmitUserInput={onSubmitAgentUserInput}
-				onWaitAgent={onWaitAgent}
-				onResumeAgent={onResumeAgent}
-				onCloseAgent={onCloseAgent}
-				onOpenTranscript={onOpenAgentTranscript}
+				workspaceRoot={workspaceRoot}
+				onOpenAgentFile={onOpenTeamAgentFile}
+				revertedPaths={revertedPaths}
+				revertedChangeKeys={revertedChangeKeys}
 			/>
 		);
 	} else if (view === 'team') {

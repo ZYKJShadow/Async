@@ -1,28 +1,27 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import type { AgentLifecycleStatus, AgentSessionSnapshotAgent } from './agentSessionTypes';
 import type { TFunction } from './i18n';
 import { ChatMarkdown } from './ChatMarkdown';
-import { IconCloseSmall, IconRefresh, IconArrowUpRight } from './icons';
+import { IconCloseSmall } from './icons';
 import type { AgentSessionState } from './hooks/useAgentSession';
-import { UserInputRequestInlineCard } from './UserInputRequestDialog';
+import type { TurnTokenUsage } from './ipcTypes';
+import { assistantMessageUsesAgentToolProtocol } from './agentChatSegments';
+import { parseAgentAssistantPayload } from './agentStructuredMessage';
 
 type Props = {
 	t: TFunction;
 	session: AgentSessionState | null;
 	threadId: string | null;
 	onClose: () => void;
-	onSelectAgent: (agentId: string | null) => void;
-	onSendInput: (agentId: string, message: string, interrupt: boolean) => Promise<void>;
-	onWaitAgent: (agentId: string) => Promise<void>;
-	onResumeAgent: (agentId: string) => Promise<void>;
-	onCloseAgent: (agentId: string) => Promise<void>;
-	onOpenTranscript: (absPath: string) => void;
-	onSubmitUserInput: (requestId: string, answers: Record<string, string>) => Promise<void>;
-};
-
-type AgentTreeRow = {
-	agent: AgentSessionSnapshotAgent;
-	depth: number;
+	workspaceRoot?: string | null;
+	onOpenAgentFile?: (
+		relPath: string,
+		revealLine?: number,
+		revealEndLine?: number,
+		options?: { diff?: string | null; allowReviewActions?: boolean }
+	) => void;
+	revertedPaths?: ReadonlySet<string>;
+	revertedChangeKeys?: ReadonlySet<string>;
 };
 
 function statusLabel(t: TFunction, status: AgentLifecycleStatus): string {
@@ -42,19 +41,85 @@ function statusLabel(t: TFunction, status: AgentLifecycleStatus): string {
 	}
 }
 
-function collectTreeRows(
-	agentsById: Record<string, AgentSessionSnapshotAgent>,
-	parentAgentId: string | null,
-	depth: number,
-	out: AgentTreeRow[]
-): void {
-	const rows = Object.values(agentsById)
-		.filter((agent) => agent.parentAgentId === parentAgentId)
-		.sort((a, b) => b.updatedAt - a.updatedAt);
-	for (const row of rows) {
-		out.push({ agent: row, depth });
-		collectTreeRows(agentsById, row.id, depth + 1, out);
+function latestAgent(session: AgentSessionState | null): AgentSessionSnapshotAgent | null {
+	const selected = session?.selectedAgentId ? session.agentsById[session.selectedAgentId] : null;
+	if (selected) {
+		return selected;
 	}
+	return Object.values(session?.agentsById ?? {}).sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
+}
+
+function hasHistoricalPreflightContent(content: string): boolean {
+	const trimmed = content.trim();
+	if (!trimmed) {
+		return false;
+	}
+	const payload = parseAgentAssistantPayload(trimmed);
+	if (payload) {
+		return payload.parts.some((part) => part.type === 'tool');
+	}
+	return (
+		trimmed.includes('<tool_call tool="') ||
+		trimmed.includes('<tool_result tool="') ||
+		trimmed.includes('<plan>') ||
+		trimmed.includes('<todo>')
+	);
+}
+
+function renderModeForAssistantContent(content: string): 'all' | 'outcome' {
+	return assistantMessageUsesAgentToolProtocol(content) ? 'outcome' : 'all';
+}
+
+function renderAgentReply(
+	key: string,
+	content: string,
+	options: {
+		workspaceRoot?: string | null;
+		onOpenAgentFile?: Props['onOpenAgentFile'];
+		revertedPaths?: ReadonlySet<string>;
+		revertedChangeKeys?: ReadonlySet<string>;
+		isWorking?: boolean;
+		liveThinking?: string;
+		lastUsage?: TurnTokenUsage | null;
+		typewriter?: boolean;
+		renderMode?: 'all' | 'preflight' | 'outcome';
+		preserveLivePreflight?: boolean;
+	}
+) {
+	const liveThoughtMeta =
+		options.isWorking || options.liveThinking
+			? {
+					phase: (content.trim() ? 'streaming' : 'thinking') as 'thinking' | 'streaming' | 'done',
+					elapsedSeconds: 0,
+					streamingThinking: options.liveThinking ?? '',
+					tokenUsage: options.lastUsage ?? null,
+				}
+			: null;
+	return (
+		<div
+			key={key}
+			className={`ref-msg-slot ref-msg-slot--assistant ref-agent-session-reply-msg${
+				options.renderMode === 'preflight' ? ' ref-agent-session-preflight-msg' : ''
+			}`}
+		>
+			<div className="ref-msg-assistant-body">
+				<ChatMarkdown
+					content={content}
+					agentUi
+					workspaceRoot={options.workspaceRoot ?? null}
+					onOpenAgentFile={options.onOpenAgentFile}
+					showAgentWorking={options.isWorking ?? false}
+					liveThoughtMeta={liveThoughtMeta}
+					revertedPaths={options.revertedPaths}
+					revertedChangeKeys={options.revertedChangeKeys}
+					allowAgentFileActions
+					typewriter={options.typewriter ?? false}
+					renderMode={options.renderMode ?? 'all'}
+					preserveLivePreflight={options.preserveLivePreflight ?? false}
+				/>
+			</div>
+		</div>
+	);
 }
 
 export const AgentSessionPanel = memo(function AgentSessionPanel({
@@ -62,58 +127,105 @@ export const AgentSessionPanel = memo(function AgentSessionPanel({
 	session,
 	threadId,
 	onClose,
-	onSelectAgent,
-	onSendInput,
-	onWaitAgent,
-	onResumeAgent,
-	onCloseAgent,
-	onOpenTranscript,
-	onSubmitUserInput,
+	workspaceRoot = null,
+	onOpenAgentFile,
+	revertedPaths,
+	revertedChangeKeys,
 }: Props) {
-	const [draft, setDraft] = useState('');
-	const [interrupt, setInterrupt] = useState(false);
-	const [busyAction, setBusyAction] = useState<string | null>(null);
-	const rows = useMemo(() => {
-		const next: AgentTreeRow[] = [];
-		if (session) {
-			collectTreeRows(session.agentsById, null, 0, next);
+	const selectedAgent = latestAgent(session);
+	const assistantMessages = useMemo(() => {
+		if (!selectedAgent) {
+			return [];
 		}
-		return next;
-	}, [session]);
-	const selectedAgent =
-		(session?.selectedAgentId ? session.agentsById[session.selectedAgentId] : null) ?? rows[0]?.agent ?? null;
-	const pendingInputRequest =
-		selectedAgent && session?.pendingUserInput?.agentId === selectedAgent.id ? session.pendingUserInput : null;
+		let lastUserIndex = -1;
+		for (let i = selectedAgent.messages.length - 1; i >= 0; i--) {
+			if (selectedAgent.messages[i]?.role === 'user') {
+				lastUserIndex = i;
+				break;
+			}
+		}
+		return selectedAgent.messages
+			.slice(Math.max(0, lastUserIndex + 1))
+			.filter((message) => message.role === 'assistant');
+	}, [selectedAgent]);
+	const liveThinking = selectedAgent?.liveThinking?.trim() ?? '';
+	const liveOutput = selectedAgent?.liveOutput?.trim() ?? '';
+	const liveAssistantContent = selectedAgent?.liveAssistantContent?.trim() ?? '';
+	const lastAssistantFullContent = selectedAgent?.lastAssistantFullContent?.trim() ?? '';
+	const isWorking = selectedAgent?.status === 'running' || selectedAgent?.status === 'waiting_input';
+	const latestAssistantProtocolContent = useMemo(() => {
+		for (let i = assistantMessages.length - 1; i >= 0; i--) {
+			const content = assistantMessages[i]?.content ?? '';
+			if (hasHistoricalPreflightContent(content)) {
+				return content.trim();
+			}
+		}
+		return '';
+	}, [assistantMessages]);
+	const historicalPreflightContent = hasHistoricalPreflightContent(lastAssistantFullContent)
+		? lastAssistantFullContent
+		: latestAssistantProtocolContent;
+	const livePreflightContent = liveAssistantContent || liveOutput;
+	const preflightContent = isWorking ? livePreflightContent : historicalPreflightContent;
+	const shouldRenderPreflight =
+		Boolean(liveThinking) ||
+		(isWorking && Boolean(preflightContent)) ||
+		hasHistoricalPreflightContent(preflightContent);
+	const fallbackOutcomeContent =
+		!isWorking && assistantMessages.length === 0 && lastAssistantFullContent
+			? lastAssistantFullContent
+			: '';
+	const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+	const shouldStickToBottomRef = useRef(true);
+	const lastAgentIdRef = useRef<string | null>(null);
+	const autoScrollFrameRef = useRef<number | null>(null);
 
-	const runAction = async (key: string, action: () => Promise<void>) => {
-		setBusyAction(key);
-		try {
-			await action();
-		} finally {
-			setBusyAction(null);
+	useEffect(() => {
+		const viewport = scrollViewportRef.current;
+		if (!viewport || !selectedAgent) {
+			return;
 		}
+		const changedAgent = lastAgentIdRef.current !== selectedAgent.id;
+		if (changedAgent || shouldStickToBottomRef.current) {
+			shouldStickToBottomRef.current = true;
+			if (autoScrollFrameRef.current !== null) {
+				cancelAnimationFrame(autoScrollFrameRef.current);
+			}
+			autoScrollFrameRef.current = requestAnimationFrame(() => {
+				viewport.scrollTop = viewport.scrollHeight;
+				autoScrollFrameRef.current = null;
+			});
+		}
+		lastAgentIdRef.current = selectedAgent.id;
+		return () => {
+			if (autoScrollFrameRef.current !== null) {
+				cancelAnimationFrame(autoScrollFrameRef.current);
+				autoScrollFrameRef.current = null;
+			}
+		};
+	}, [assistantMessages.length, isWorking, liveAssistantContent, liveOutput, liveThinking, selectedAgent]);
+
+	const onTranscriptScroll = () => {
+		const viewport = scrollViewportRef.current;
+		if (!viewport) {
+			return;
+		}
+		const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+		shouldStickToBottomRef.current = distanceFromBottom <= 24;
 	};
 
-	const canSubmit = !!selectedAgent && draft.trim().length > 0 && !busyAction;
-
 	return (
-		<div className="ref-agent-session-shell">
-			<div className="ref-agent-session-head">
-				<div className="ref-agent-session-title-stack">
-					<span className="ref-agent-session-kicker">{t('agent.session.kicker')}</span>
-					<span className="ref-agent-session-title">{t('agent.session.title')}</span>
-				</div>
-				<button
-					type="button"
-					className="ref-team-sidebar-close"
-					onClick={onClose}
-					aria-label={t('common.close')}
-					title={t('common.close')}
-				>
-					<IconCloseSmall />
-				</button>
-			</div>
-			{!threadId || !session || rows.length === 0 ? (
+		<div className="ref-agent-session-shell ref-agent-session-shell--single">
+			<button
+				type="button"
+				className="ref-team-sidebar-close"
+				onClick={onClose}
+				aria-label={t('common.close')}
+				title={t('common.close')}
+			>
+				<IconCloseSmall />
+			</button>
+			{!threadId || !session || !selectedAgent ? (
 				<div className="ref-team-sidebar-empty">
 					<div className="ref-agent-plan-status-main">
 						<div className="ref-agent-plan-status-title">{t('agent.session.emptyTitle')}</div>
@@ -121,138 +233,65 @@ export const AgentSessionPanel = memo(function AgentSessionPanel({
 					</div>
 				</div>
 			) : (
-				<div className="ref-agent-session-layout">
-					<div className="ref-agent-session-list">
-						{rows.map(({ agent, depth }) => {
-							const active = selectedAgent?.id === agent.id;
-							const waitingForInput = session?.pendingUserInput?.agentId === agent.id;
-							const rowSummary = waitingForInput
-								? session.pendingUserInput?.questions.map((question) => question.header).join(' · ') ||
-									session.pendingUserInput?.agentTitle
-								: agent.lastResultSummary || agent.lastInputSummary;
-							return (
-								<button
-									key={agent.id}
-									type="button"
-									className={`ref-agent-session-row ${active ? 'is-active' : ''}`}
-									onClick={() => onSelectAgent(agent.id)}
-									style={{ marginLeft: `${depth * 14}px` }}
-								>
-									<span className={`ref-agent-session-status ref-agent-session-status--${agent.status}`}>
-										{statusLabel(t, agent.status)}
-									</span>
-									<span className="ref-agent-session-row-title">{agent.title}</span>
-									<span className="ref-agent-session-row-summary">{rowSummary}</span>
-									{agent.background ? <span className="ref-agent-session-row-chip">{t('agent.session.background')}</span> : null}
-								</button>
-							);
-						})}
+				<section className="ref-agent-session-single-detail">
+					<header className="ref-agent-session-single-head">
+						<div className="ref-agent-session-single-title-stack">
+							<span className="ref-agent-session-kicker">{t('agent.session.kicker')}</span>
+							<strong className="ref-agent-session-single-title">{selectedAgent.title}</strong>
+							<span className={`ref-agent-session-status ref-agent-session-status--${selectedAgent.status}`}>
+								{statusLabel(t, selectedAgent.status)}
+							</span>
+						</div>
+					</header>
+					<div
+						className="ref-agent-session-single-body"
+						ref={scrollViewportRef}
+						onScroll={onTranscriptScroll}
+					>
+						<div className="ref-agent-session-reply-stream">
+							{shouldRenderPreflight
+								? renderAgentReply(`agent-preflight-${selectedAgent.id}`, preflightContent, {
+										workspaceRoot,
+										onOpenAgentFile,
+										revertedPaths,
+										revertedChangeKeys,
+										isWorking,
+										liveThinking,
+										lastUsage: null,
+										typewriter: isWorking,
+										renderMode: 'preflight',
+										preserveLivePreflight: isWorking,
+									})
+								: null}
+							{assistantMessages.map((message, index) =>
+								renderAgentReply(`agent-reply-${selectedAgent.id}-${index}`, message.content, {
+									workspaceRoot,
+									onOpenAgentFile,
+									revertedPaths,
+									revertedChangeKeys,
+									renderMode: renderModeForAssistantContent(message.content),
+								})
+							)}
+							{fallbackOutcomeContent
+								? renderAgentReply(`agent-outcome-${selectedAgent.id}`, fallbackOutcomeContent, {
+										workspaceRoot,
+										onOpenAgentFile,
+										revertedPaths,
+										revertedChangeKeys,
+										renderMode: renderModeForAssistantContent(fallbackOutcomeContent),
+									})
+								: null}
+							{assistantMessages.length === 0 &&
+							!fallbackOutcomeContent &&
+							!shouldRenderPreflight &&
+							!isWorking &&
+							!liveThinking &&
+							!liveOutput ? (
+								<div className="ref-team-role-empty-state">{t('agent.session.emptyReply')}</div>
+							) : null}
+						</div>
 					</div>
-					<div className="ref-agent-session-detail">
-						{selectedAgent ? (
-							<>
-								<div className="ref-agent-session-detail-head">
-									<div className="ref-agent-session-detail-meta">
-										<strong>{selectedAgent.title}</strong>
-										<span className={`ref-agent-session-status ref-agent-session-status--${selectedAgent.status}`}>
-											{statusLabel(t, selectedAgent.status)}
-										</span>
-									</div>
-									<div className="ref-agent-session-detail-tags">
-										<span className="ref-agent-session-tag">{selectedAgent.contextMode === 'full' ? t('agent.session.contextFull') : t('agent.session.contextNone')}</span>
-										<span className="ref-agent-session-tag">{selectedAgent.runProfile === 'explore' ? t('agent.session.profileExplore') : t('agent.session.profileFull')}</span>
-									</div>
-								</div>
-								<div className="ref-agent-session-actions">
-									<button
-										type="button"
-										className="ref-browser-error-btn"
-										disabled={busyAction !== null}
-										onClick={() => void runAction(`wait:${selectedAgent.id}`, () => onWaitAgent(selectedAgent.id))}
-									>
-										<IconRefresh />
-										<span>{t('agent.session.wait')}</span>
-									</button>
-									<button
-										type="button"
-										className="ref-browser-error-btn"
-										disabled={busyAction !== null || !selectedAgent.transcriptPath}
-										onClick={() => selectedAgent.transcriptPath && onOpenTranscript(selectedAgent.transcriptPath)}
-									>
-										<IconArrowUpRight />
-										<span>{t('agent.session.openTranscript')}</span>
-									</button>
-									{selectedAgent.status !== 'running' && selectedAgent.status !== 'waiting_input' ? (
-										<button
-											type="button"
-											className="ref-browser-error-btn"
-											disabled={busyAction !== null}
-											onClick={() => void runAction(`resume:${selectedAgent.id}`, () => onResumeAgent(selectedAgent.id))}
-										>
-											{t('agent.session.resume')}
-										</button>
-									) : null}
-									<button
-										type="button"
-										className="ref-browser-error-btn"
-										disabled={busyAction !== null || selectedAgent.status === 'closed'}
-										onClick={() => void runAction(`close:${selectedAgent.id}`, () => onCloseAgent(selectedAgent.id))}
-									>
-										{t('agent.session.close')}
-									</button>
-								</div>
-								{pendingInputRequest ? (
-									<UserInputRequestInlineCard
-										request={pendingInputRequest}
-										onSubmit={(answers) =>
-											runAction(`reply:${pendingInputRequest.requestId}`, () =>
-												onSubmitUserInput(pendingInputRequest.requestId, answers)
-											)
-										}
-									/>
-								) : null}
-								<div className="ref-agent-session-transcript">
-									{selectedAgent.messages.map((message, index) => (
-										<div key={`${selectedAgent.id}-msg-${index}`} className={`ref-agent-session-msg ref-agent-session-msg--${message.role}`}>
-											<div className="ref-agent-session-msg-role">{message.role}</div>
-											<ChatMarkdown content={message.content} />
-										</div>
-									))}
-								</div>
-								<div className="ref-agent-session-input">
-									<textarea
-										className="ref-browser-settings-textarea"
-										value={draft}
-										placeholder={t('agent.session.messagePlaceholder')}
-										onChange={(event) => setDraft(event.target.value)}
-									/>
-									<label className="ref-settings-team-inline-check">
-										<input
-											type="checkbox"
-											checked={interrupt}
-											onChange={(event) => setInterrupt(event.target.checked)}
-										/>
-										<span>{t('agent.session.interrupt')}</span>
-									</label>
-									<button
-										type="button"
-										className="ref-browser-error-btn"
-										disabled={!canSubmit}
-										onClick={() =>
-											void runAction(`send:${selectedAgent.id}`, async () => {
-												await onSendInput(selectedAgent.id, draft.trim(), interrupt);
-												setDraft('');
-												setInterrupt(false);
-											})
-										}
-									>
-										{t('agent.session.send')}
-									</button>
-								</div>
-							</>
-						) : null}
-					</div>
-				</div>
+				</section>
 			)}
 		</div>
 	);

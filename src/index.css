@@ -4907,6 +4907,86 @@ html[data-theme-switching='true'] .ref-editor-welcome-panel {
 	font-size: 0.95em;
 }
 
+.ref-msg-slot--sub-agents {
+	width: min(100%, 720px);
+}
+
+.ref-sub-agent-task-card-grid {
+	display: grid;
+	gap: 8px;
+	width: 100%;
+}
+
+.ref-sub-agent-task-card {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 6px 10px;
+	width: 100%;
+	padding: 12px;
+	border: 1px solid color-mix(in srgb, var(--void-border) 82%, transparent);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--void-bg-2) 92%, transparent);
+	color: inherit;
+	text-align: left;
+	cursor: pointer;
+	transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.ref-sub-agent-task-card:hover {
+	border-color: color-mix(in srgb, var(--void-accent) 48%, var(--void-border));
+	background: color-mix(in srgb, var(--void-accent) 8%, var(--void-bg-2));
+	transform: translateY(-1px);
+}
+
+.ref-sub-agent-task-card.is-selected {
+	border-color: color-mix(in srgb, var(--void-accent) 62%, var(--void-border));
+	background: color-mix(in srgb, var(--void-accent) 10%, var(--void-bg-2));
+}
+
+.ref-sub-agent-task-card-title,
+.ref-sub-agent-task-card-summary {
+	min-width: 0;
+	overflow: hidden;
+}
+
+.ref-sub-agent-task-card-title {
+	grid-column: 1 / -1;
+	font-weight: 700;
+	line-height: 1.35;
+	color: var(--void-fg-0);
+}
+
+.ref-sub-agent-task-card-summary {
+	grid-column: 1 / -1;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	color: var(--void-fg-2);
+	font-size: 12px;
+	line-height: 1.45;
+}
+
+.ref-sub-agent-task-card-action {
+	align-self: center;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--void-accent);
+	white-space: nowrap;
+}
+
+.ref-sub-agent-task-card--running {
+	border-color: color-mix(in srgb, #7dd3fc 30%, var(--void-border));
+}
+
+.ref-sub-agent-task-card--waiting_input {
+	border-color: color-mix(in srgb, #facc15 34%, var(--void-border));
+}
+
+.ref-sub-agent-task-card--failed,
+.ref-sub-agent-task-card--closed {
+	border-color: color-mix(in srgb, #fca5a5 34%, var(--void-border));
+}
+
 /* ??? AgentActivityGroup?Cursor ?? "Explored N files" ???? ??? */
 
 .ref-activity-group {
@@ -25590,6 +25670,57 @@ select.ref-settings-native-select:focus {
 	background: linear-gradient(180deg, color-mix(in srgb, var(--void-bg-2) 94%, var(--void-accent) 6%), var(--void-bg-1));
 }
 
+.ref-agent-session-shell--single {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr);
+	height: 100%;
+}
+
+.ref-agent-session-single-detail {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	min-height: 0;
+}
+
+.ref-agent-session-single-head {
+	position: relative;
+	z-index: 1;
+	padding: 18px 48px 14px 18px;
+	border-bottom: 1px solid color-mix(in srgb, var(--void-border) 82%, transparent);
+	background: color-mix(in srgb, var(--void-bg-2) 88%, transparent);
+}
+
+.ref-agent-session-single-title-stack {
+	display: grid;
+	gap: 7px;
+	min-width: 0;
+}
+
+.ref-agent-session-single-title {
+	color: var(--void-fg-0);
+	font-size: 14px;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+
+.ref-agent-session-single-body {
+	min-height: 0;
+	min-width: 0;
+	overflow: auto;
+	overflow-x: hidden;
+}
+
+.ref-agent-session-reply-stream {
+	display: grid;
+	gap: 14px;
+	min-height: 0;
+	padding: 16px;
+}
+
+.ref-agent-session-reply-msg {
+	width: 100%;
+}
+
 .ref-agent-session-head {
 	display: flex;
 	align-items: center;
@@ -25746,6 +25877,11 @@ select.ref-settings-native-select:focus {
 
 .ref-agent-session-msg--user {
 	background: color-mix(in srgb, var(--void-accent) 10%, var(--void-bg-2));
+}
+
+.ref-agent-session-msg--thinking {
+	background: color-mix(in srgb, #7dd3fc 8%, var(--void-bg-2));
+	border-color: color-mix(in srgb, #7dd3fc 24%, var(--void-border));
 }
 
 .ref-agent-session-msg-role {

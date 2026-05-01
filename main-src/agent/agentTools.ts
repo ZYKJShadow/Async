@@ -69,9 +69,9 @@ export function agentToolsForComposerMode(
 				d.name === 'ask_plan_question' ||
 				d.name === 'request_user_input' ||
 				d.name === 'plan_submit_draft'
-		);
+			);
 	}
-	return all.filter((d) => d.name !== 'ask_plan_question');
+	return all;
 }
 
 export const AGENT_TOOLS: AgentToolDef[] = [
@@ -769,7 +769,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Agent',
 		description:
-			'Spawn a focused sub-agent. Use for scoped, autonomous work: deep codebase exploration, refactors isolated to a module, or keeping your main context clean. The sub-agent runs a full tool loop and returns its final text. With background fork enabled, omitting subagent_type (or setting run_in_background) lets work continue asynchronously while the tool returns immediately. Set subagent_type to "explore" for read-only exploration; use a custom name from user subagent settings for tailored instructions. Set fork_context to true to copy the current visible thread history into the child agent. Nested Agent calls are blocked. Maximum nesting depth is 1.',
+			'Spawn a focused sub-agent. Use for scoped, autonomous work: deep codebase exploration, refactors isolated to a module, or keeping your main context clean. The sub-agent runs a full tool loop and returns its final text. With background fork enabled, omitting subagent_type (or setting run_in_background) lets work continue asynchronously while the tool returns immediately and progress is reflected in the sub-agent card/sidebar. Set subagent_type to "explore" for read-only exploration; use a custom name from user subagent settings for tailored instructions. Set fork_context to true to copy the current visible thread history into the child agent. Nested Agent calls are blocked. Maximum nesting depth is 1.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -1087,7 +1087,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'ask_plan_question',
 		description:
-			'Planning clarification tool: ask the user ONE multiple-choice clarification. Keep the old Plan UX shape: provide exactly 4 options total, where the first 3 are concrete recommendations and the 4th is an Other/custom option for free text. The app shows a picker and custom input; your next turn receives the user answer as this tool\'s result text. Call at most one per assistant turn; wait for the result before asking another question or drafting the final plan / task routing. Do not duplicate the same question in markdown.',
+			'Clarification tool: ask the user ONE multiple-choice clarification whenever you need missing information before proceeding. Provide exactly 4 options total, where the first 3 are concrete recommendations and the 4th is an Other/custom option for free text. The app shows a picker and custom input; your next turn receives the user answer as this tool\'s result text. Call at most one per assistant turn; wait for the result before asking another question or continuing. Do not duplicate the same question in markdown.',
 		parameters: {
 			type: 'object',
 			properties: {
