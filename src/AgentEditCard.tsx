@@ -3,6 +3,7 @@ import { FileTypeIcon } from './fileTypeIcons';
 import { buildFileEditPreviewDiff, type FileEditSegment } from './agentChatSegments';
 import { useI18n } from './i18n';
 import { sliceAgentEditPreviewLines } from './pretextLayout';
+import { useTypewriter } from './useTypewriter';
 
 type Props = {
 	edit: FileEditSegment;
@@ -47,8 +48,23 @@ function buildPreviewLines(edit: FileEditSegment): PreviewLine[] {
 
 export const AgentEditCard = memo(function AgentEditCard({ edit, isReverted = false, allowReviewActions = false, onOpenFile }: Props) {
 	const { t } = useI18n();
-	const name = basename(edit.path) || t('agent.review.unknownPath');
-	const previewLines = useMemo(() => buildPreviewLines(edit), [edit]);
+	const displayPath = edit.path.trim();
+	const name = basename(displayPath) || t('agent.review.unknownPath');
+	const displayedOldStr = useTypewriter(edit.oldStr ?? '', Boolean(edit.isStreaming && edit.oldStr), {
+		initialDisplayedText: '',
+	});
+	const displayedNewStr = useTypewriter(edit.newStr ?? '', Boolean(edit.isStreaming && edit.newStr), {
+		initialDisplayedText: '',
+	});
+	const previewEdit = useMemo(
+		() =>
+			edit.isStreaming
+				? { ...edit, oldStr: displayedOldStr, newStr: displayedNewStr }
+				: edit,
+		[displayedNewStr, displayedOldStr, edit]
+	);
+	const rawPreviewLines = useMemo(() => buildPreviewLines(edit), [edit]);
+	const previewLines = useMemo(() => buildPreviewLines(previewEdit), [previewEdit]);
 	const [expanded, setExpanded] = useState(false);
 	const previewMeasureRef = useRef<HTMLDivElement>(null);
 	/** 流式时预览区内部滚动，避免整块高度顶动外层消息列表（对齐 Cursor 类产品的稳定布局） */
@@ -119,8 +135,8 @@ export const AgentEditCard = memo(function AgentEditCard({ edit, isReverted = fa
 			? previewLines
 			: collapsedHead;
 	/** JSON 尚未解析出 old/new 时预览区为空，仍要占位避免「整块空白像卡住」 */
-	const showStreamingEmptyHint = edit.isStreaming && visibleLines.length === 0;
-	const canOpenFile = edit.path.trim().length > 0 && !isReverted;
+	const showStreamingEmptyHint = edit.isStreaming && visibleLines.length === 0 && rawPreviewLines.length === 0;
+	const canOpenFile = displayPath.length > 0 && !isReverted;
 	const expandRemainingLines = Math.max(0, previewLines.length - collapsedHead.length);
 	const previewDiff = useMemo(() => buildFileEditPreviewDiff(edit), [edit]);
 
@@ -129,10 +145,10 @@ export const AgentEditCard = memo(function AgentEditCard({ edit, isReverted = fa
 			<button
 				type="button"
 				className="ref-edit-card-file"
-				title={isReverted ? t('agent.edit.reverted') : edit.path}
+				title={isReverted ? t('agent.edit.reverted') : displayPath || name}
 				onClick={() => {
 					if (canOpenFile) {
-						onOpenFile?.(edit.path, edit.startLine, undefined, {
+						onOpenFile?.(displayPath, edit.startLine, undefined, {
 							diff: previewDiff || null,
 							allowReviewActions,
 						});
@@ -167,7 +183,7 @@ export const AgentEditCard = memo(function AgentEditCard({ edit, isReverted = fa
 					</span>
 				)}
 			</button>
-			{previewLines.length > 0 || edit.isStreaming ? (
+			{previewLines.length > 0 || rawPreviewLines.length > 0 || edit.isStreaming ? (
 				<div
 					ref={previewScrollWrapRef}
 					className={`ref-edit-card-preview-wrap ${edit.isStreaming ? 'ref-edit-card-preview-wrap--streaming-scroll' : ''}`}

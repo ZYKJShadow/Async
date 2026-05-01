@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	buildStreamingToolSegments,
 	computeStableAgentToolProtocolPrefixLen,
 	segmentAssistantContent,
 	segmentAssistantContentUnified,
@@ -97,6 +98,49 @@ describe('segmentAssistantContent', () => {
 		if (md?.type === 'markdown') {
 			expect(md.text).not.toContain('_asyncAssistant');
 			expect(md.text.length).toBeGreaterThan(10);
+		}
+	});
+
+	it('keeps the streamed edit file path when providers use camelCase args', () => {
+		const segs = buildStreamingToolSegments(
+			{
+				name: 'Write',
+				partialJson: '{"content":"hello","filePath":"src/App.tsx"',
+				index: 0,
+			},
+			{ t: defaultT }
+		);
+		const edit = segs.find((s) => s.type === 'file_edit');
+		expect(edit?.type).toBe('file_edit');
+		if (edit?.type === 'file_edit') {
+			expect(edit.path).toBe('src/App.tsx');
+		}
+	});
+
+	it('waits for a file path before rendering the streamed edit card', () => {
+		const segs = buildStreamingToolSegments(
+			{
+				name: 'Write',
+				partialJson: '{"content":"hello"',
+				index: 0,
+			},
+			{ t: defaultT }
+		);
+		expect(segs.some((s) => s.type === 'file_edit')).toBe(false);
+	});
+
+	it('keeps completed edit paths from camelCase args', () => {
+		const content = [
+			'<tool_call tool="Edit">{"filePath":"src/App.tsx","oldString":"a","newString":"b"}</tool_call>',
+			'<tool_result tool="Edit" success="true">Updated src/App.tsx</tool_result>',
+		].join('\n');
+		const segs = segmentAssistantContent(content, { t: defaultT });
+		const edit = segs.find((s) => s.type === 'file_edit');
+		expect(edit?.type).toBe('file_edit');
+		if (edit?.type === 'file_edit') {
+			expect(edit.path).toBe('src/App.tsx');
+			expect(edit.oldStr).toBe('a');
+			expect(edit.newStr).toBe('b');
 		}
 	});
 });

@@ -14,6 +14,11 @@ type ScheduleHandle =
 	| { type: 'raf'; id: number }
 	| { type: 'timeout'; id: number };
 
+type TypewriterOptions = {
+	/** Initial visible prefix when the hook first mounts active. Defaults to the full text. */
+	initialDisplayedText?: string;
+};
+
 function solveRevealPosition(
 	fn: (value: number) => number,
 	lower: number,
@@ -47,11 +52,16 @@ function solveRevealPosition(
 	return low;
 }
 
-export function useTypewriter(fullText: string, active: boolean): string {
-	const [displayed, setDisplayed] = useState(fullText);
+export function useTypewriter(fullText: string, active: boolean, options?: TypewriterOptions): string {
+	const initialDisplayed =
+		active && options?.initialDisplayedText != null
+			? options.initialDisplayedText
+			: fullText;
+	const safeInitialDisplayed = fullText.startsWith(initialDisplayed) ? initialDisplayed : '';
+	const [displayed, setDisplayed] = useState(safeInitialDisplayed);
 	const fullRef = useRef(fullText);
-	const displayedRef = useRef(fullText);
-	const revealedRef = useRef(fullText.length);
+	const displayedRef = useRef(safeInitialDisplayed);
+	const revealedRef = useRef(safeInitialDisplayed.length);
 	const velocityRef = useRef(INITIAL_CHARS_PER_SECOND);
 	const lastTickSecondsRef = useRef(0);
 	const streamStartRef = useRef(0);

@@ -135,6 +135,7 @@ function modeBlock(mode: ComposerMode): string {
 				'- For **Edit**, **old_string** must match exactly (whitespace and line breaks). Use **replace_all** only when you intend to change every occurrence.',
 				'- If **Edit** fails (no match or multiple matches), Read a larger range, then retry with a more unique snippet — or use **Write** for a full-file replace when appropriate.',
 				'- Prefer **Edit** over **Write** for existing files when the change is local.',
+				'- When calling **Write** or **Edit**, put **file_path** first in the tool arguments before content / old_string / new_string. This lets the UI show the file card with the filename before code streams in.',
 				'- Prefer **Read**, **Glob**, and **Grep** over shell commands for inspecting the codebase. Do NOT use **Bash** for file reading or discovery unless strictly necessary.',
 				'- For MCP integrations, use **ToolSearch** first if the exact `mcp__server__tool` name is not already visible.',
 				'- Make changes incrementally. Do not rewrite entire files unless necessary.',

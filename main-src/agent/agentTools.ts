@@ -122,7 +122,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Write',
 		description:
-			'Create a new file or completely overwrite an existing file. This tool writes through Async\'s encoding-safe file path: existing text file encodings/BOMs are preserved when possible, and new files default to UTF-8. For small targeted edits on existing files, prefer **Edit**. When asked to persist Async/Cursor-style project rules as `.mdc` files, use `.async/rules/` under the workspace unless the user specifies another path.',
+			'Create a new file or completely overwrite an existing file. This tool writes through Async\'s encoding-safe file path: existing text file encodings/BOMs are preserved when possible, and new files default to UTF-8. For streaming UI, emit the **file_path** argument first, before **content**, so the editor can show the file card title before code starts arriving. For small targeted edits on existing files, prefer **Edit**. When asked to persist Async/Cursor-style project rules as `.mdc` files, use `.async/rules/` under the workspace unless the user specifies another path.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -138,7 +138,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
 	{
 		name: 'Edit',
 		description:
-			'Edit a file by replacing **old_string** with **new_string**. This tool preserves the existing text file encoding/BOM when possible. When **replace_all** is false (default), **old_string** must match exactly once. When **replace_all** is true, every occurrence is replaced. If the match is not unique, read more context with **Read** and retry with a longer snippet.',
+			'Edit a file by replacing **old_string** with **new_string**. This tool preserves the existing text file encoding/BOM when possible. For streaming UI, emit the **file_path** argument first, before **old_string** and **new_string**, so the editor can show the file card title before code starts arriving. When **replace_all** is false (default), **old_string** must match exactly once. When **replace_all** is true, every occurrence is replaced. If the match is not unique, read more context with **Read** and retry with a longer snippet.',
 		parameters: {
 			type: 'object',
 			properties: {

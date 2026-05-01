@@ -35,17 +35,15 @@ function cacheSet<T>(cache: Map<string, T>, key: string, value: T): T {
 function normalizeUnknown(value: unknown, parentKey = ''): unknown {
 	if (Array.isArray(value)) {
 		const items = value.map((item) => normalizeUnknown(item));
-		if (parentKey === 'required' && items.every((item) => typeof item === 'string')) {
-			return [...(items as string[])].sort((a, b) => a.localeCompare(b));
-		}
 		return items;
 	}
 	if (!value || typeof value !== 'object') {
 		return value;
 	}
-	const entries = Object.entries(value as Record<string, unknown>)
-		.filter(([, v]) => v !== undefined)
-		.sort(([a], [b]) => a.localeCompare(b));
+	const entries = Object.entries(value as Record<string, unknown>).filter(([, v]) => v !== undefined);
+	if (parentKey !== 'properties') {
+		entries.sort(([a], [b]) => a.localeCompare(b));
+	}
 	return Object.fromEntries(entries.map(([key, item]) => [key, normalizeUnknown(item, key)]));
 }
 

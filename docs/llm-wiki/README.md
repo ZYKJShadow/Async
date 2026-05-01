@@ -86,6 +86,12 @@ Phase 9（已完成）已追加：
 6. **纠偏 IPC 架构漂移**：确认大量 handle 已拆分到 `main-src/ipc/handlers/*Handlers.ts`；更新 [IPC 通道地图](./architecture/ipc-channel-map.md)、[运行时架构](./architecture/runtime-architecture.md)、[仓库地图](./repo-map.md) 与 [Preload 对齐检查清单](./meta/preload-main-invoke-checklist.md)。
 7. **清理死代码记录**：确认 `terminal:pty*` 为 preload 残留；发现 `git:diffPreview` 有 handler 但无 preload 白名单；`team:userInputRespond` 仍为白名单死项。
 
+## Phase 10（当前）已追加：
+
+1. 为原生窗口主题同步补模块页：[themeChrome.ts](./modules/theme-chrome.md)。
+2. 为工具审批门控与连续错误恢复补模块页：[toolApprovalGate.ts / mistakeLimitGate.ts](./modules/tool-approval-gate.md)。
+3. 为内置浏览器控制器补模块页：[browserController.ts](./modules/browser-controller.md)。
+
 ## 后续阶段建议
 
 - Phase 6：把每次大功能开发后的结论编译进专题页，而不是只落在聊天记录或 `.async/memory` 里。

@@ -316,6 +316,61 @@ function tailAfterKey(partialJson: string, key: string): string | null {
 	return unescapeJsonFragment(partialJson.slice(start));
 }
 
+const FILE_PATH_ARG_KEYS = [
+	'file_path',
+	'path',
+	'filePath',
+	'filepath',
+	'filename',
+	'target_file',
+	'targetFile',
+	'target_path',
+	'targetPath',
+] as const;
+
+const OLD_STRING_ARG_KEYS = ['old_string', 'old_str', 'oldString', 'oldStr'] as const;
+const NEW_STRING_ARG_KEYS = ['new_string', 'new_str', 'newString', 'newStr'] as const;
+
+function firstStringArg(args: Record<string, unknown>, keys: readonly string[]): string {
+	for (const key of keys) {
+		const value = args[key];
+		if (typeof value === 'string' && value.trim()) {
+			return value.trim();
+		}
+	}
+	return '';
+}
+
+function tailAfterAnyKey(partialJson: string | undefined, keys: readonly string[]): string | null {
+	if (!partialJson) {
+		return null;
+	}
+	let emptyValue: string | null = null;
+	for (const key of keys) {
+		const value = tailAfterKey(partialJson, key);
+		if (value == null) {
+			continue;
+		}
+		if (value.trim()) {
+			return value.trim();
+		}
+		emptyValue ??= value;
+	}
+	return emptyValue;
+}
+
+function stringArgOrStreamingTail(
+	args: Record<string, unknown>,
+	rawJson: string | undefined,
+	keys: readonly string[]
+): string {
+	return firstStringArg(args, keys) || tailAfterAnyKey(rawJson, keys) || '';
+}
+
+function filePathFromToolArgs(args: Record<string, unknown>, rawJson?: string): string {
+	return stringArgOrStreamingTail(args, rawJson, FILE_PATH_ARG_KEYS);
+}
+
 type ParsedMarker = {
 	start: number;
 	end: number;
@@ -871,16 +926,7 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 	};
 
 	const filePathFromArgs = () => {
-		if (mk.args.file_path) return String(mk.args.file_path);
-		if (mk.args.path) return String(mk.args.path);
-		if (mk.isStreaming && mk.rawJson) {
-			return (
-				tailAfterKey(mk.rawJson, 'file_path') ??
-				tailAfterKey(mk.rawJson, 'path') ??
-				''
-			);
-		}
-		return '';
+		return filePathFromToolArgs(mk.args, mk.isStreaming ? mk.rawJson : undefined);
 	};
 
 	switch (mk.name) {
@@ -1181,31 +1227,13 @@ function buildStreamingFileEditSegment(mk: ParsedMarker): FileEditSegment | null
 		return null;
 	}
 
-	const pathGuess =
-		tailAfterKey(mk.rawJson, 'file_path') ??
-		tailAfterKey(mk.rawJson, 'path') ??
-		String(mk.args.file_path ?? mk.args.path ?? '');
+	const pathGuess = filePathFromToolArgs(mk.args, mk.rawJson);
+	if (!pathGuess) {
+		return null;
+	}
 	if (mk.name === 'str_replace' || mk.name === 'Edit') {
-		const oldStr =
-			tailAfterKey(mk.rawJson, 'old_string') ??
-			tailAfterKey(mk.rawJson, 'old_str') ??
-			String(mk.args.old_string ?? mk.args.old_str ?? '');
-		const newStr =
-			tailAfterKey(mk.rawJson, 'new_string') ??
-			tailAfterKey(mk.rawJson, 'new_str') ??
-			String(mk.args.new_string ?? mk.args.new_str ?? '');
-		if (!pathGuess && !oldStr && !newStr) {
-			// 流式开头 JSON 尚未含可解析字段时仍占位，避免整段预览被跳过
-			return {
-				type: 'file_edit',
-				path: '',
-				additions: 0,
-				deletions: 0,
-				oldStr: '',
-				newStr: '',
-				isStreaming: true,
-			};
-		}
+		const oldStr = stringArgOrStreamingTail(mk.args, mk.rawJson, OLD_STRING_ARG_KEYS);
+		const newStr = stringArgOrStreamingTail(mk.args, mk.rawJson, NEW_STRING_ARG_KEYS);
 		return {
 			type: 'file_edit',
 			path: pathGuess,
@@ -1218,17 +1246,6 @@ function buildStreamingFileEditSegment(mk: ParsedMarker): FileEditSegment | null
 	}
 
 	const content = tailAfterKey(mk.rawJson, 'content') ?? String(mk.args.content ?? '');
-	if (!pathGuess && !content) {
-		return {
-			type: 'file_edit',
-			path: '',
-			additions: 0,
-			deletions: 0,
-			newStr: '',
-			isNew: true,
-			isStreaming: true,
-		};
-	}
 	return {
 		type: 'file_edit',
 		path: pathGuess,
@@ -1394,10 +1411,10 @@ function extractToolSegments(content: string, t: TFunction): { segments: Assista
 		if (WRITE_TOOLS.has(mk.name)) {
 			if (normalizedMk.success) {
 				segments.push(activity);
-				const filePath = String(mk.args.file_path ?? mk.args.path ?? '');
+				const filePath = filePathFromToolArgs(mk.args, mk.rawJson);
 				if (mk.name === 'str_replace' || mk.name === 'Edit') {
-					const oldStr = String(mk.args.old_string ?? mk.args.old_str ?? '');
-					const newStr = String(mk.args.new_string ?? mk.args.new_str ?? '');
+					const oldStr = firstStringArg(mk.args, OLD_STRING_ARG_KEYS);
+					const newStr = firstStringArg(mk.args, NEW_STRING_ARG_KEYS);
 					const lineMatch =
 						mk.result?.match(/at line (\d+)/) ?? mk.result?.match(/first at line (\d+)/);
 					segments.push({

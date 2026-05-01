@@ -28,6 +28,9 @@
 - [terminalSessionService.ts](./terminal-session-service.md)
 - [terminalPty.ts](./terminal-pty.md)（旧版 PTY 路径，已移除）
 - [mcpManager.ts](./mcp-manager.md)
+- [themeChrome.ts](./theme-chrome.md)
+- [toolApprovalGate.ts / mistakeLimitGate.ts](./tool-approval-gate.md)
+- [browserController.ts](./browser-controller.md)
 - [pluginRuntimeService.ts](./plugin-runtime-service.md)
 
 ## 适用场景
