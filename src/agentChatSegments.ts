@@ -66,6 +66,11 @@ export type ActivitySegment = {
 	type: 'activity';
 	text: string;
 	status: ActivityStatus;
+	/**
+	 * 需要用户在 UI 作答的澄清工具（如 ask_plan_question / request_user_input）。
+	 * 供 preflight/outcome 切分：这些内容必须出在 assistant 区，而不可留在可收起的壳内。
+	 */
+	purpose?: 'user_clarification';
 	/** 嵌套子 Agent 工具活动：归属父 tool_call id */
 	nestParent?: string;
 	nestDepth?: number;
@@ -1096,6 +1101,7 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 			return withNestActivity(
 				{
 					type: 'activity',
+					purpose: 'user_clarification',
 					text: inProgress
 						? t('plan.q.toolActivityPending')
 						: failed
@@ -1111,6 +1117,7 @@ function summarizeToolActivity(mk: ParsedMarker, t: TFunction): ActivitySegment 
 			return withNestActivity(
 				{
 					type: 'activity',
+					purpose: 'user_clarification',
 					text: inProgress
 						? t('agent.userInput.toolActivityPending')
 						: failed

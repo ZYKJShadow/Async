@@ -182,6 +182,45 @@ describe('splitPreflightAndOutcome', () => {
 		expect(done.outcome).toEqual([units[2]]);
 	});
 
+	const clarifyTool = (): RenderUnit => ({
+		type: 'activity',
+		text: 'plan q tool',
+		status: 'success',
+		purpose: 'user_clarification',
+	});
+
+	it('澄清工具 purpose + 尾部 markdown：收尾文与澄清均应出现在 outcome（避免壳收起盖住澄清工具行）', () => {
+		const t = think();
+		const cq = clarifyTool();
+		const tail = md('请从下方选一选项。');
+		const done = splitPreflightAndOutcome([t, cq, tail], { liveTurn: false });
+		expect(done.preflight).toEqual([t]);
+		expect(done.outcome).toEqual([cq, tail]);
+		const live = splitPreflightAndOutcome([t, cq, tail], { liveTurn: true });
+		expect(live.preflight).toEqual([t]);
+		expect(live.outcome).toEqual([cq, tail]);
+	});
+
+	it('澄清工具上方紧贴的 markdown 题面一并外置', () => {
+		const t = think();
+		const prompt = md('你更偏好哪种拆分方式？');
+		const cq = clarifyTool();
+		const r = splitPreflightAndOutcome([t, prompt, cq], { liveTurn: false });
+		expect(r.preflight).toEqual([t]);
+		expect(r.outcome).toEqual([prompt, cq]);
+	});
+
+	it('澄清前有探索 activity：不向 outcome 拉回更早的 markdown', () => {
+		const t = think();
+		const earlyMd = md('我先调研一下代码结构。');
+		const a = activity();
+		const prompt = md('请选择下一步。');
+		const cq = clarifyTool();
+		const r = splitPreflightAndOutcome([t, earlyMd, a, prompt, cq], { liveTurn: false });
+		expect(r.preflight).toEqual([t, earlyMd, a]);
+		expect(r.outcome).toEqual([prompt, cq]);
+	});
+
 	describe('outcome_marker (begin_outcome 工具显式切分)', () => {
 		it('marker 之前归 preflight，marker 自身及之后归 outcome', () => {
 			const t = think();
